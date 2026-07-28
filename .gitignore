@@ -26,3 +26,7 @@ assets/download_tmp/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 敏感信息
+config/env_test.yaml
+config/env_pre.yaml
