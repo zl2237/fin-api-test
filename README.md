@@ -1,93 +1,283 @@
-# Fin Api Test
+# Fin API Test
 
+> A powerful financial API automation testing framework built with Python and pytest.
 
+[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![pytest](https://img.shields.io/badge/pytest-9.0-green.svg)](https://pytest.org/)
+[![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-## Getting started
+A comprehensive API testing framework designed for financial systems, featuring multi-environment support, database verification, YAML-based test data management, and beautiful HTML reports.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+---
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Features
 
-## Add your files
+- **Multi-Environment Support** - Seamlessly switch between test/pre-production environments
+- **Auto Token Refresh** - Automatic re-authentication on 401 responses
+- **Database Verification** - Direct MySQL queries to validate API results
+- **YAML Test Data** - Environment-specific test data management
+- **Page Object Pattern** - Clean layered architecture (API → Step → Test)
+- **30+ Custom Assertions** - Flexible validation methods
+- **Beautiful Reports** - Self-contained pytest-html reports
+- **Enterprise Notifications** - WeChat Work webhook alerts
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+---
+
+## Quick Start
+
+### Requirements
+
+- Python 3.8+
+- MySQL 5.7+
+- pip
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd fin-api-test
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy and configure environment
+cp config/env_demo.yaml config/env_test.yaml
+# Edit config/env_test.yaml with your settings
+```
+
+### Run Tests
+
+```bash
+# Run all tests with HTML report
+python run.py
+
+# Or use pytest directly
+pytest --html=reports/report.html --self-contained-html
+
+# Run specific test markers
+pytest -m create
+pytest -m submit
+```
+
+---
+
+## Architecture
 
 ```
-cd existing_repo
-git remote add origin http://172.16.18.55:88/fin/fin-api-test.git
-git branch -M main
-git push -uf origin main
+┌─────────────────────────────────────────────────────────────┐
+│                        Test Cases                            │
+│                    (testcases/order/*.py)                    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Business Steps                           │
+│                     (steps/order/*.py)                       │
+│           create_order() → distribute() → stash()            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                        API Layer                              │
+│                     (api/order/*.py)                         │
+│              orderAdd_api.py, file_api.py                    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     HTTP Client                               │
+│                   (utils/http_client.py)                      │
+│            Auto token refresh · Retry logic                   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌─────────────────────────┐     ┌─────────────────────────────┐
+│       External API      │     │        MySQL Database       │
+│    (Financial System)   │     │     (Result Verification)   │
+└─────────────────────────┘     └─────────────────────────────┘
 ```
 
-## Integrate with your tools
+### Layer Responsibilities
 
-* [Set up project integrations](http://172.16.18.55:88/fin/fin-api-test/-/settings/integrations)
+| Layer | Path | Purpose |
+|-------|------|---------|
+| **Test** | `testcases/` | Test execution, assertions, pytest markers |
+| **Step** | `steps/` | Business workflow orchestration |
+| **API** | `api/` | HTTP request封装，接口调用 |
+| **DB** | `db/` | Database operations, data verification |
+| **Utils** | `utils/` | Shared utilities (logging, assertions, generators) |
 
-## Collaborate with your team
+---
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Project Structure
 
-## Test and Deploy
+```
+fin-api-test/
+├── api/                          # API layer
+│   ├── base_api.py              # Base class for all APIs
+│   ├── auth_api.py              # Authentication (login/logout)
+│   ├── file_api.py              # File upload/download
+│   └── order/
+│       └── orderAdd_api.py      # Order operations
+├── db/                           # Database layer
+│   ├── base_db.py               # Base class for DB operations
+│   ├── db_client.py             # MySQL client (connection pool)
+│   └── biz/
+│       └── order_db.py          # Order data queries
+├── utils/                        # Utilities
+│   ├── http_client.py           # HTTP client with retry
+│   ├── api_factory.py           # API lazy loading factory
+│   ├── db_factory.py            # DB lazy loading factory
+│   ├── yaml_util.py             # YAML read/write
+│   ├── log_util.py              # Logging (file + console)
+│   ├── assert_util.py           # 30+ assertion methods
+│   ├── generator_util.py        # Test data generators
+│   ├── common_util.py          # Path helpers
+│   └── wecom_util.py            # WeChat Work notifications
+├── steps/                        # Business workflows
+│   ├── file_step.py             # File upload workflow
+│   └── order/
+│       └── orderAdd_step.py     # Order workflow steps
+├── testcases/                   # Test cases
+│   └── order/
+│       └── test_orderAdd.py     # Order API tests
+├── data/                         # Test data (YAML)
+│   └── test/                    # Environment-specific
+│       ├── auth/auth_data.yaml  # Login credentials
+│       └── order/               # Order test data
+├── config/                       # Configuration
+│   └── env_*.yaml              # Environment configs
+├── conftest.py                  # Pytest fixtures
+├── run.py                        # Entry point
+└── pytest.ini                   # Pytest configuration
+```
 
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+---
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### 1. Environment Configuration
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Create `config/env_test.yaml`:
+
+```yaml
+env: test
+base_url: "https://api.test.example.com"
+mysql:
+  host: "localhost"
+  port: 3306
+  user: "test_user"
+  password: "your_password"
+  database: "fin_db"
+wecom:
+  webhook_url: "https://qyapi.weixin.qq.com/..."
+```
+
+### 2. Test Data (YAML)
+
+```yaml
+# data/test/order/create.yaml
+order_no: "AUTO_{timestamp}"
+amount: 10000
+currency: "CNY"
+products:
+  - name: "Product A"
+    quantity: 1
+    price: 5000
+```
+
+### 3. Write Test Cases
+
+```python
+import pytest
+from steps.order.orderAdd_step import OrderAddStep
+
+class TestOrderAdd:
+    """Order API Test Suite"""
+
+    @pytest.mark.create
+    def test_create_order(self, order_step):
+        """Create a new order"""
+        result = order_step.create_order(
+            amount=10000,
+            currency="CNY"
+        )
+        assert result.code == 200
+        assert result.data.order_no is not None
+
+    @pytest.mark.submit
+    def test_submit_order(self, order_step, order_data):
+        """Submit an existing order"""
+        order_step.create_order()
+        order_step.distribute()
+        order_step.stash()
+        result = order_step.submit()
+        assert result.code == 200
+```
+
+### 4. Run Specific Tests
+
+```bash
+# By marker
+pytest -m create          # Only create tests
+pytest -m "create and not submit"  # Create but not submit
+
+# By file
+pytest testcases/order/test_orderAdd.py
+
+# With report
+pytest --html=reports.html --self-contained-html -v
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TEST_ENV` | Environment name | `test` |
+| `RETRY_COUNT` | HTTP retry attempts | `3` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+
+### Pytest Markers
+
+| Marker | Description |
+|--------|-------------|
+| `@pytest.mark.create` | Order creation tests |
+| `@pytest.mark.distribute` | Order distribution tests |
+| `@pytest.mark.stash` | Order stash tests |
+| `@pytest.mark.submit` | Order submission tests |
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Test Framework | [pytest](https://pytest.org/) 9.0.3 |
+| HTTP Client | [requests](https://docs.python-requests.org/) 2.33.0 |
+| Database | [PyMySQL](https://pymysql.readthedocs.io/) 1.1.1 |
+| Data Format | [PyYAML](https://pyyaml.org/) 6.0.1 |
+| Reports | [pytest-html](https://pytest-html.readthedocs.io/) 4.0.2 |
+
+---
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing`)
+5. Open a Pull Request
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+---
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
