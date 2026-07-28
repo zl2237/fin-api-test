@@ -1,0 +1,28 @@
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.cache
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# 日志 & 报告
+logs/
+report/
+
+# 临时下载文件
+assets/download_tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db

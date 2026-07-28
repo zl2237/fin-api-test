@@ -1,0 +1,20 @@
+# 环境配置模板，复制为 env_test.yaml / env_pre.yaml 使用
+env_name: "test"
+
+# 接口基础地址
+base_url: "http://127.0.0.1:8080"
+
+# 请求公共头
+common_headers:
+  Content-Type: "application/json"
+
+# Mysql数据库配置
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "123456"
+  database: "test_db"
+
+# 企微机器人webhook
+wecom_webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"

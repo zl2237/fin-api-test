@@ -1,0 +1,188 @@
+client_expand_id: '40' # 直客拓展ID
+m_delivery_type: ''
+customer_id: '60934' # 客户ID
+receive_time_limit: '7' # 回款时效
+deposit_refund_day: '60' # 保证金退还周期
+deposit_settlement_date: '30' # 保证金结算日
+service_id: '40' # 客服ID
+sale_id: '41' # 销售运营ID
+operator_id: '293' # 结算操作ID
+customer_contact_id: '' # 客户联系人ID
+main_sort: 易航道,易汇联,青岛易汇航,上海一帜 # 主体顺序
+policy_id: '294732401957928960' # 服务策略ID
+policy_name: 陆旭阳多主体服务策略-手动选择
+policy_type: JSZX # 政策类型
+settle_type: '1' # 结算方式
+product_id: '2' # 产品名称，在客户管理维护
+deposit_type: '2' # 保证金类型
+period_delay_type: '1' # 客户账期类型
+service_items: # 服务项目
+- booking_space
+business_type: '1' # 业务类型
+trade_term: CIF # 成交方式
+carrier: ACL
+carrier_id: ''
+etd: 1777996800 # 预计开航日
+atd: 1777996800 # 实际开航日
+ship_name: 我是船名 # 船名
+voy: 我是航次
+pol: ANTING,CHINA
+pot: AOSHANWEI,CHINA
+pod: AOSHANWEI,CHINA
+del: AOSHANWEI,CHINA
+country_name: CHINA
+airline_type: 中国
+ocean_type: 近洋
+terms_payment: T/T
+terms_transport: CY/CY
+pay_type: FREIGHT PREPAID # 付款方式
+customer_order_sn: 测试客户单号
+terms_shipment: 测试装运条款
+shipper: 测试发货人
+consignee: 测试收货人
+notifier: 测试通知人
+ship_mark: 测试唛头
+commodity: 测试品名
+notes: 测试备注
+cargo_type: 普货
+packer: 测试包装锡纸
+num: '1' # 件数
+gross_weight: '1.000' # 毛重
+bulk: '999.000'
+sea_trans_cost: '1.00'
+teu: ''
+volume: 1*AIR
+volume_desc: 特种柜
+order_sn: ''
+status: 2
+sea_trans_currency: USD
+container:
+- order_container_id: '327749768073707520'
+  box_type: 20GP
+  box_num: '1'
+  box_no:
+  - '1'
+  seal_number:
+  - ''
+  sea_trans_unit_price: 1
+message_board: []
+customer_file_list: []
+supplier:
+- order_supplier_id: # 订单供应商关联ID，由数据库生成
+  order_id: # 无需配置，由新建后查询数据库覆盖
+  isset_supplier: '1'
+  is_primary: '1' # 是否为主供应商
+  supplier_id: '61224' # 供应商ID
+  settle_object_id: '92102' # 供应商的结算对象ID
+  user_id: '16'
+  user_name: 荣洋
+  service_item: booking_space
+  supplier_period: '30'
+  settlement_date: '20'
+  supplier_pay_date: '0'
+  is_manual: '0'
+  sys_upttime: '2026-07-28 10:52:46'
+  pay_time_limit: '6'
+  supplier_pay_date_desc: ''
+  settle_type: '1'
+  supplier_label: 芜湖长信科技股份有限公司-订舱
+  isset_fee: false
+remark: '' # 备注
+order_id:  # 无需配置，由新建后查询数据库覆盖
+order_no:  # 业务订单ID
+customer_category: ',1,'
+customer_contact_phone: ''
+customer_main_id: '1' # 对客主体ID
+business_main_id: '6' # 对商主体ID
+fund_code: ''
+fund_name: null
+finance_date: '0'
+pol_cn: ''
+pol_country_id: '0'
+pol_country: ''
+pol_country_cn: ''
+pod_cn: ''
+pot_cn: ''
+del_cn: ''
+country_id: '0'
+country_name_cn: ''
+customer_period: '60'
+customer_settlement_date: '10'
+period_rule: '0'
+term_rule_name: null
+customer_due_date: '0'
+customer_put_date: '0'
+customer_payment_collection_date: null
+customer_put_date_manual: '0'
+customer_put_writeoff_date: ''
+supplier_due_date: '0'
+discount_start: '0'
+discount_rule: ''
+discount_end: '0'
+discount_ratio: ''
+discount_status: '2'
+discount_currency: ''
+book_upload_date: '0'
+trans_cost_put_preserve_date: '0'
+bl_no_upload_date: '0'
+supplier_invoice_date: '0'
+supplier_invoice_taketime: ''
+real_cost_date: '0'
+customer_invoice_request_date: '0'
+first_financing_doc_ok_date: '0'
+second_financing_doc_ok_date: '0'
+insurance_doc_ok_date: '0'
+customer_confirm_date: '0'
+is_delayed_recovery: 否
+delayed_recovery_usd: ''
+delayed_recovery_cny: ''
+delayed_time: ''
+expect_fee_status: '0'
+real_fee_status: '0'
+fee_lock_status: '0'
+pay_account_status: '0'
+account_status: '0'
+is_loan_before_invoice: '0'
+delete_time: '0'
+business_time: '0' # 业务发生时间
+main_ids: 1,3,2,6 # 主体顺序ID
+reverse_status: '0'
+proprietary_business_status: '0'
+loan_status: null
+first_status: null
+second_status: null
+loan_pay_status: ''
+change_type: '0'
+copy_order_id: '0'
+real_fee_locked: false
+is_usd_project: '2'
+pay_status: '1'
+entrust_status: 2
+is_financing: '0'
+confirm_status: '0'
+is_traverse: '0'
+sys_upttime: '2026-07-28 10:52:46'
+payment_type: '2'
+order_finance_arr: []
+order_main_bank_arr: []
+order_sub: []
+order_sub_no: ''
+service_project:
+  booking_space: false
+  customs_clearance: false
+  manifest: false
+  insurance: false
+  trucking: false
+service_project_amount:
+  booking_space: false
+  customs_clearance: false
+  manifest: false
+  insurance: false
+  trucking: false
+finance_status: true
+audit: []
+enable: '1'
+policy_match: semi # 子策略匹配方式，semi = 手动选择， auto = 自动匹配
+action: submit # 请求类型，check = 校验，submit = 提交
+order_file: []
+#原则：name、数据、金额不要，供应商信息保留
