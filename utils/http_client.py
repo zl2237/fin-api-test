@@ -1,0 +1,123 @@
+import requests
+from requests.exceptions import Timeout
+from typing import Dict, Optional, Callable
+from utils.exceptions import HttpStatusError, JsonParseError, AuthError, HttpTimeoutError, BusinessError
+from utils.log_util import get_logger
+
+logger = get_logger()
+
+
+class HttpClient:
+    def __init__(self, base_url: str = ""):
+        """
+        HTTP请求客户端
+        :param base_url: 接口基础地址
+        """
+        self.base_url = base_url
+        self.session = requests.Session()
+        self.headers: Dict[str, str] = {}
+        self._token_refresh_callback: Optional[Callable[[], None]] = None
+
+    def set_header(self, key: str, value: str):
+        """设置单个请求头"""
+        self.headers[key] = value
+
+    def clear_headers(self):
+        """清空所有headers"""
+        self.headers.clear()
+
+    def set_token_refresh_callback(self, callback: Callable[[], None]):
+        """
+        注册Token刷新回调函数
+        回调内部完成登录并全局更新Authorization header
+        """
+        self._token_refresh_callback = callback
+
+    def get(self, url: str, params: Optional[Dict] = None, timeout=10) -> Dict:
+        return self._request("GET", url, params=params, timeout=timeout)
+
+    def post(self, url: str, json: Optional[Dict] = None, timeout=10) -> Dict:
+        return self._request("POST", url, json=json, timeout=timeout)
+
+    def _request(self, method: str, url: str, params=None, json=None, timeout=10, retry_401: bool = True) -> Dict:
+        full_url = self.base_url + url
+
+        # 日志脱敏
+        log_headers = self.headers.copy()
+        if "Authorization" in log_headers:
+            log_headers["Authorization"] = "******"
+
+        logger.info(f"【HTTP请求】{method} {full_url}")
+        logger.info(f"【请求头】{log_headers}")
+        logger.info(f"【请求体】{json} params={params}")
+
+        try:
+            resp = self.session.request(
+                method=method,
+                url=full_url,
+                headers=self.headers,
+                params=params,
+                json=json,
+                timeout=timeout
+            )
+        except Timeout:
+            raise HttpTimeoutError(full_url, timeout)
+
+        resp_text = resp.text[:2000] if len(resp.text) > 2000 else resp.text
+        logger.info(f"【HTTP响应】status={resp.status_code} body={resp_text}")
+
+        # 只解析一次json，复用结果
+        resp_json = None
+        try:
+            resp_json = resp.json()
+        except Exception:
+            pass
+
+        # ========== 鉴权失效判定 ==========
+        auth_expire = False
+        if resp.status_code == 401:
+            auth_expire = True
+        if resp_json and isinstance(resp_json, dict) and resp_json.get("code") == 405:
+            auth_expire = True
+
+        if auth_expire and retry_401:
+            if not self._token_refresh_callback:
+                logger.error("检测到鉴权失效，但未配置token刷新回调，无法自动重登！")
+                raise AuthError(full_url, resp_text)
+
+            logger.warning("检测到鉴权失效(账号异地登录/token过期)，执行自动重新登录...")
+            try:
+                self._token_refresh_callback()
+                logger.info("Token刷新完成，重试当前请求")
+            except Exception as e:
+                logger.error(f"自动刷新Token失败: {str(e)}")
+                raise AuthError(full_url, resp_text) from e
+
+            return self._request(
+                method=method,
+                url=url,
+                params=params,
+                json=json,
+                timeout=timeout,
+                retry_401=False
+            )
+        # =================================
+
+        # 非200状态码异常
+        if resp.status_code not in (200,):
+            raise HttpStatusError(resp.status_code, full_url, resp_text)
+
+        # JSON解析失败
+        if resp_json is None:
+            raise JsonParseError(full_url, resp_text)
+
+        # 业务码异常（启用，符合你的架构规划）
+        if resp_json.get("code") != 200:
+            raise BusinessError(
+                code=resp_json.get("code"),
+                msg=resp_json.get("msg", ""),
+                url=full_url,
+                resp_text=resp_text
+            )
+
+        return resp_json

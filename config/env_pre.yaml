@@ -1,0 +1,20 @@
+# 环境配置模板，复制为 env_test.yaml / env_pre.yaml 使用
+env_name: "test"
+
+# 接口基础地址
+base_url: "https://fin-pre.21eflag.com"
+
+# 请求公共头
+common_headers:
+  Content-Type: "application/json"
+
+# Mysql数据库配置
+mysql:
+  host: "180.184.28.45"
+  port: 20010
+  user: "fin_pre"
+  password: "Wmfnzx0532**!@;"
+  database: "fin_pre"
+
+# 可选：机器人webhook、环境标识等拓展配置
+ding_webhook: ""

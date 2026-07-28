@@ -1,0 +1,15 @@
+# 登录账号数据
+login_admin:
+  username: "18234337456"
+  password: "yhd123456!"
+  code: "6666"
+
+login_fin:
+  username: "18234337456"
+  password: "yhd123456!"
+  code: "6666"
+
+login_operate:
+  username: "18234337456"
+  password: "yhd123456!"
+  code: "6666"
