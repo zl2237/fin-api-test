@@ -39,7 +39,7 @@ class HttpClient:
     def post(self, url: str, json: Optional[Dict] = None, timeout=10) -> Dict:
         return self._request("POST", url, json=json, timeout=timeout)
 
-    def _request(self, method: str, url: str, params=None, json=None, timeout=10, retry_401: bool = True) -> Dict:
+    def _request(self, method: str, url: str, params=None, json=None, timeout=20, retry_401: bool = True) -> Dict:
         full_url = self.base_url + url
 
         # 日志脱敏
