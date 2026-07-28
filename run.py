@@ -28,7 +28,7 @@ def main():
     report_path = str(project_root / "report" / report_filename)
 
     pytest_args = [
-        "-m create",
+        "-m generate_sub_order",
         "-vs",
         "./testcases",
         f"--html={report_path}",

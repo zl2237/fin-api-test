@@ -33,3 +33,14 @@ class OrderApi(BaseApi):
         :return: 接口原始响应dict
         """
         return self.http.post("/api/order/order/orderAdd", json=req_body)
+
+    def cancel_order(self, req_body: dict) -> dict:
+        pass
+
+    def generate_sub_order(self, req_body: dict) -> dict:
+        """
+            生成子订单接口
+            :param req_body: 请求体字典
+            :return: 接口原始响应dict
+        """
+        return self.http.post("/api/order/order/generateOrderSub", json=req_body)

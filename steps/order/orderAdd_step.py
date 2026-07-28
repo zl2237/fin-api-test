@@ -50,3 +50,16 @@ class OrderStep:
         resp = self.order_api.submit_order(req_body)
         equal(resp["code"], 200, "提交订单：业务code不等于200")
         return resp
+
+    def cancel_order_step(self, req_body: dict) -> dict:
+        pass
+
+    def generate_sub_order_step(self, req_body: dict) -> dict:
+        """
+                原子步骤：提交订单
+                :param req_body: 提交订单请求体
+                :return: 原始响应dict
+        """
+        resp = self.order_api.generate_sub_order(req_body)
+        equal(resp["code"], 200, "生成子订单：业务code不等于200")
+        return resp
