@@ -1,6 +1,7 @@
 import time
 import random
 import string
+import uuid
 from utils.log_util import get_logger
 
 logger = get_logger()
@@ -44,3 +45,14 @@ def generate_invoice_number(prefix: str = "INV") -> str:
     invoice_no = f"{prefix}{time_str}{rand_str}"
     logger.info(f"生成InvoiceNumber：{invoice_no}")
     return invoice_no
+
+
+def generate_unique_id() -> str:
+    """
+    生成UUID格式唯一ID
+    示例：349142e7-5991-43d8-9ce7-3bf78fd908d4
+    :return: uuid字符串（小写，不带横杠大写可自行调整）
+    """
+    unique_id = str(uuid.uuid4())
+    logger.info(f"生成unique_id：{unique_id}")
+    return unique_id
