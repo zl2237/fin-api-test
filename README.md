@@ -192,7 +192,8 @@ products:
 
 ```python
 import pytest
-from steps.order.orderAdd_step import OrderAddStep
+from steps.order.order_step import OrderAddStep
+
 
 class TestOrderAdd:
     """Order API Test Suite"""
@@ -225,7 +226,7 @@ pytest -m create          # Only create tests
 pytest -m "create and not submit"  # Create but not submit
 
 # By file
-pytest testcases/order/test_orderAdd.py
+pytest testcases/order/test_order.py
 
 # With report
 pytest --html=reports.html --self-contained-html -v
