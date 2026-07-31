@@ -1,9 +1,9 @@
 action: submit
-order_id:
+order_id: # 无需配置，由新建后查询数据库覆盖
 discount_ratio: ''
 service_project: booking_space
 import_status: 0
-to_customer:
+to_customer: # 对客费用
   put_amount:
     standard_list:
     - order_fee_real_id: null
@@ -18,13 +18,13 @@ to_customer:
       unit: box
       specs: 20GP
       num: '1'
-      remark: null
+      remark: 我是应收备注
       discount_ratio: 100
       discount_amount: '10.00'
       discount_status: '0'
       policy_sub_status_name: 正常
       pay_sync_status: 1
-      unique_id:
+      unique_id: # 无需配置，由生成器生成
       init_main_name: 青岛易航道物流科技有限公司
       main_name: 青岛易航道物流科技有限公司
       rowIndex: 0
@@ -35,23 +35,23 @@ to_customer:
       cost_id: '18'
       settle_object_id: '62103'
       subsidy_category: '0'
-      currency: CNY
+      currency: USD
       unit_price: '10'
-      unit: vote
-      specs: ''
+      unit: box
+      specs: 20GP
       num: '1'
-      remark: null
+      remark: 我是应收备注
       discount_ratio: 100
-      discount_amount: '10.00'
+      discount_amount: '10'
       discount_status: '0'
       policy_sub_status_name: 正常
       pay_sync_status: 1
-      unique_id: 921b5218-a2c0-49d4-9107-acaf8a410953
+      unique_id: # 无需配置，由生成器生成
       init_main_name: 青岛易航道物流科技有限公司
       main_name: 青岛易航道物流科技有限公司
       rowIndex: 1
-      fee_status: 0
-to_supplier:
+
+to_supplier: # 对商费用
   pay_amount:
     standard_list:
     - order_fee_real_id: null
@@ -66,13 +66,13 @@ to_supplier:
       unit: box
       specs: 20GP
       num: '1'
-      remark: null
+      remark: 我是应付备注
       discount_ratio: 100
-      discount_amount: '10.00'
+      discount_amount: '10'
       discount_status: '0'
-      policy_sub_status_name: 异常
+      policy_sub_status_name: 正常
       pay_sync_status: 1
-      unique_id: 452e71c2-3f7b-47dc-8deb-be9fcb6689b1
+      unique_id: # 无需配置，由生成器生成
       init_main_name: 上海一帜物流科技有限公司
       main_name: 青岛易航道物流科技有限公司
       rowIndex: 0
@@ -83,19 +83,18 @@ to_supplier:
       cost_id: '18'
       settle_object_id: '92102'
       subsidy_category: '0'
-      currency: CNY
-      unit_price: '10'
-      unit: vote
-      specs: ''
+      currency: USD
+      unit_price: '10.00'
+      unit: box
+      specs: 20GP
       num: '1'
-      remark: null
+      remark: 我是应付备注
       discount_ratio: 100
-      discount_amount: '10.00'
+      discount_amount: '10'
       discount_status: '0'
       policy_sub_status_name: 正常
       pay_sync_status: 1
-      unique_id: 921b5218-a2c0-49d4-9107-acaf8a410953
+      unique_id: # 无需配置，由生成器生成
       init_main_name: 上海一帜物流科技有限公司
-      main_name: null
-      rowIndex: 1
-      fee_status: 0
+      main_name: 青岛易航道物流科技有限公司
+      rowIndex: 1 # 行号，递增
