@@ -1,0 +1,111 @@
+/* ===== 亮色主题（默认） ===== */
+:root {
+  --app-radius: 12px;
+  --app-radius-sm: 8px;
+  --app-bg: #f5f5f7;
+  --app-sidebar: rgba(255, 255, 255, 0.72);
+  --app-card: rgba(255, 255, 255, 0.72);
+  --app-card-solid: #ffffff;
+  --app-border: rgba(0, 0, 0, 0.08);
+  --app-text: #1d1d1f;
+  --app-text-muted: #6e6e73;
+  --app-hover: rgba(0, 0, 0, 0.04);
+  --app-active: rgba(0, 122, 255, 0.08);
+  --app-chip-bg: rgba(0, 113, 227, 0.08);
+  --app-tag-bg: #e8e8ed;
+  --app-input-bg: #f0f0f5;
+  --app-warn-bg: #fff7e6;
+  --app-warn-text: #d97706;
+  --app-success: #34c759;
+  --app-danger: #ff3b30;
+  --app-primary: #0071e3;
+  --el-color-primary: #0071e3;
+  --el-border-radius-base: var(--app-radius-sm);
+}
+
+/* ===== 暗色主题 ===== */
+html.dark {
+  --app-bg: #1c1c1e;
+  --app-sidebar: rgba(28, 28, 30, 0.72);
+  --app-card: rgba(44, 44, 46, 0.72);
+  --app-card-solid: #2c2c2e;
+  --app-border: rgba(255, 255, 255, 0.12);
+  --app-text: #f5f5f7;
+  --app-text-muted: #98989d;
+  --app-hover: rgba(255, 255, 255, 0.06);
+  --app-active: rgba(10, 132, 255, 0.18);
+  --app-chip-bg: rgba(10, 132, 255, 0.16);
+  --app-tag-bg: #3a3a3c;
+  --app-input-bg: #3a3a3c;
+  --app-warn-bg: rgba(255, 159, 10, 0.16);
+  --app-warn-text: #ffb340;
+  --app-success: #30d158;
+  --app-danger: #ff453a;
+  --app-primary: #0a84ff;
+  --el-color-primary: #0a84ff;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+    'Helvetica Neue', Helvetica, Arial, sans-serif;
+  background: var(--app-bg);
+  color: var(--app-text);
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* 统一圆角：所有卡片、面板、输入框遵循一致圆角 */
+.el-card,
+.el-dialog,
+.el-drawer,
+.el-message-box,
+.el-select__popper.el-popper,
+.el-table {
+  border-radius: var(--app-radius) !important;
+}
+
+.el-button {
+  border-radius: var(--app-radius-sm) !important;
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--app-radius-sm) !important;
+}
+
+/* Vue Flow 画布圆角 */
+.vue-flow {
+  border-radius: var(--app-radius);
+}
+
+/* 骨架屏统一内边距 */
+.skeleton-wrap {
+  padding: 16px 12px;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.4);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

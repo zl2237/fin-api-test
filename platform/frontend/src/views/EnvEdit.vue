@@ -1,0 +1,437 @@
+<template>
+  <div class="env-edit">
+    <!-- 顶部工具栏 -->
+    <div class="edit-header">
+      <el-button @click="onBack">
+        <el-icon><ArrowLeft /></el-icon>返回
+      </el-button>
+      <span class="edit-title">{{ isEdit ? '编辑环境' : '新建环境' }}</span>
+      <div class="header-right">
+        <span v-if="dirty" class="dirty-tip">有未保存改动</span>
+        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+      </div>
+    </div>
+
+    <!-- 主体：分区卡片 -->
+    <div class="edit-body">
+      <!-- 基础信息 -->
+      <div class="card-section">
+        <div class="section-title">基础信息</div>
+        <el-form label-width="100px" :model="formData">
+          <el-form-item label="环境名称">
+            <el-input v-model="formData.name" placeholder="test / pre / prod" style="width: 280px" />
+          </el-form-item>
+          <el-form-item label="Base URL">
+            <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" style="width: 380px" />
+          </el-form-item>
+          <el-form-item label="默认环境">
+            <el-switch v-model="formData.is_default" />
+            <span class="form-hint">设为默认后，执行用例时自动选中此环境</span>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 数据库配置 -->
+      <div class="card-section">
+        <div class="section-title">
+          数据库配置
+          <el-button v-if="isEdit" size="small" :loading="testingDb" @click="onTestDb">测试连接</el-button>
+        </div>
+        <el-form label-width="100px">
+          <div class="form-row">
+            <el-form-item label="Host">
+              <el-input v-model="formData.db_config.host" placeholder="127.0.0.1" />
+            </el-form-item>
+            <el-form-item label="Port">
+              <el-input-number v-model="formData.db_config.port" :min="1" :max="65535" controls-position="right" />
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="用户名">
+              <el-input v-model="formData.db_config.user" placeholder="root" />
+            </el-form-item>
+            <el-form-item label="密码">
+              <el-input v-model="formData.db_config.password" type="password" show-password placeholder="数据库密码" />
+            </el-form-item>
+          </div>
+          <el-form-item label="数据库名">
+            <el-input v-model="formData.db_config.database" placeholder="fin_order" style="width: 280px" />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 登录配置 -->
+      <div class="card-section">
+        <div class="section-title">
+          登录配置
+          <span class="section-hint">用于获取 token，自动注入到后续请求 header</span>
+          <el-button v-if="isEdit" size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
+        </div>
+        <el-form label-width="120px">
+          <el-form-item label="登录接口路径">
+            <el-input v-model="formData.login_config.login_path" placeholder="/api/home/login/userLogin" style="width: 380px" />
+          </el-form-item>
+          <el-form-item label="登录请求体">
+            <KeyValueTable
+              v-model="formData.login_config.login_body"
+              key-placeholder="字段名"
+              value-placeholder="字段值"
+              value-type="textarea"
+            />
+          </el-form-item>
+          <div class="form-row">
+            <el-form-item label="Token JSONPath">
+              <el-input v-model="formData.login_config.token_jsonpath" placeholder="$.data.token" />
+            </el-form-item>
+            <el-form-item label="Header 名称">
+              <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
+            </el-form-item>
+          </div>
+          <el-form-item label="鉴权头值模板">
+            <el-input
+              v-model="formData.login_config.auth_header_value_template"
+              placeholder="${token}"
+              style="width: 380px"
+            />
+            <div class="form-hint">
+              支持 <code>${token}</code> 和 <code>${timestamp}</code> 占位符。例：<code>Bearer ${token}</code>、<code>${token}_${timestamp}</code>；留空则等价于 <code>${token}</code>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 通知配置 -->
+      <div class="card-section">
+        <div class="section-title">
+          通知配置
+          <span class="section-hint">用于执行后给企业微信机器人推送结果</span>
+        </div>
+        <el-form label-width="140px">
+          <el-form-item label="企微机器人 Webhook">
+            <el-input
+              v-model="formData.notify_config.wecom_webhook"
+              placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
+              style="width: 480px"
+            />
+          </el-form-item>
+          <el-form-item label="失败时通知">
+            <el-switch v-model="formData.notify_config.enable_on_failure" />
+          </el-form-item>
+          <el-form-item label="成功时通知">
+            <el-switch v-model="formData.notify_config.enable_on_success" />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 公共请求头 -->
+      <div class="card-section">
+        <div class="section-title">
+          公共请求头
+          <span class="section-hint">所有接口请求都会带上这些 header</span>
+        </div>
+        <KeyValueTable
+          v-model="formData.common_headers"
+          key-placeholder="Content-Type"
+          value-placeholder="application/json"
+        />
+      </div>
+
+      <!-- 业务变量 -->
+      <div class="card-section">
+        <div class="section-title">
+          业务变量
+          <span class="section-hint">测试中可用 ${env.变量名} 引用</span>
+        </div>
+        <KeyValueTable
+          v-model="formData.variables"
+          key-placeholder="变量名"
+          value-placeholder="变量值"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
+import { envApi, type Environment } from '@/api'
+import { useAppStore } from '@/stores'
+import { storeToRefs } from 'pinia'
+import KeyValueTable from '@/components/KeyValueTable.vue'
+
+const route = useRoute()
+const router = useRouter()
+const store = useAppStore()
+const { currentProjectId } = storeToRefs(store)
+
+const isEdit = computed(() => !!route.params.id)
+const saving = ref(false)
+const dirty = ref(false)
+const testingDb = ref(false)
+const testingLogin = ref(false)
+
+interface EnvFormData {
+  id?: number
+  name: string
+  base_url: string
+  is_default: boolean
+  db_config: { host: string; port: number; user: string; password: string; database: string }
+  login_config: {
+    login_path: string
+    login_body: Record<string, any>
+    token_jsonpath: string
+    auth_header_name: string
+    auth_header_value_template: string
+  }
+  notify_config: {
+    wecom_webhook: string
+    enable_on_failure: boolean
+    enable_on_success: boolean
+  }
+  variables: Record<string, any>
+  common_headers: Record<string, any>
+}
+
+const formData = reactive<EnvFormData>({
+  name: '',
+  base_url: '',
+  is_default: false,
+  db_config: { host: '', port: 3306, user: '', password: '', database: '' },
+  login_config: {
+    login_path: '/api/home/login/userLogin',
+    login_body: {},
+    token_jsonpath: '$.data.token',
+    auth_header_name: 'Authorization',
+    auth_header_value_template: '${token}',
+  },
+  notify_config: {
+    wecom_webhook: '',
+    enable_on_failure: true,
+    enable_on_success: false,
+  },
+  variables: {},
+  common_headers: { 'Content-Type': 'application/json' },
+})
+
+watch(formData, () => { dirty.value = true }, { deep: true })
+
+async function loadEnv() {
+  if (!isEdit.value) return
+  const id = Number(route.params.id)
+  const env: Environment = await envApi.get(id)
+  formData.id = env.id
+  formData.name = env.name
+  formData.base_url = env.base_url
+  formData.is_default = env.is_default
+  // db_config
+  const db = env.db_config || {}
+  formData.db_config = {
+    host: db.host || '',
+    port: db.port || 3306,
+    user: db.user || '',
+    password: db.password || '',
+    database: db.database || '',
+  }
+  // login_config（兼容旧数据：若 login_config 为空但 variables 里有登录配置，则从 variables 迁移）
+  const lc = env.login_config || {}
+  const oldVars = env.variables || {}
+  formData.login_config = {
+    login_path: lc.login_path || oldVars.login_path || '/api/home/login/userLogin',
+    login_body: lc.login_body || oldVars.login_body || {},
+    token_jsonpath: lc.token_jsonpath || oldVars.token_jsonpath || '$.data.token',
+    auth_header_name: lc.auth_header_name || oldVars.auth_header_name || 'Authorization',
+    auth_header_value_template: lc.auth_header_value_template || '${token}',
+  }
+  // notify_config（兼容旧数据：wecom_webhook 从 variables 迁移）
+  const nc = env.notify_config || {}
+  formData.notify_config = {
+    wecom_webhook: nc.wecom_webhook || oldVars.wecom_webhook || '',
+    enable_on_failure: nc.enable_on_failure ?? true,
+    enable_on_success: nc.enable_on_success ?? false,
+  }
+  // variables（去掉旧的登录/通知字段，只保留业务变量）
+  const pureVars: Record<string, any> = {}
+  for (const [k, v] of Object.entries(oldVars)) {
+    if (!['login_path', 'login_body', 'token_jsonpath', 'auth_header_name', 'wecom_webhook'].includes(k)) {
+      pureVars[k] = v
+    }
+  }
+  formData.variables = pureVars
+  formData.common_headers = env.common_headers || { 'Content-Type': 'application/json' }
+  // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
+  // 这里用 nextTick 等待 watch 触发后再重置，避免误判"有未保存改动"
+  await nextTick()
+  dirty.value = false
+}
+
+function onBack() {
+  router.push('/envs')
+}
+
+async function onSave() {
+  if (!formData.name || !formData.base_url) {
+    ElMessage.warning('环境名称和 Base URL 不能为空')
+    return
+  }
+  saving.value = true
+  try {
+    const payload: Partial<Environment> = {
+      project_id: currentProjectId.value!,
+      name: formData.name,
+      base_url: formData.base_url,
+      is_default: formData.is_default,
+      db_config: formData.db_config,
+      login_config: formData.login_config,
+      notify_config: formData.notify_config,
+      variables: formData.variables,
+      common_headers: formData.common_headers,
+    }
+    if (isEdit.value) {
+      await envApi.update(formData.id!, payload)
+      ElMessage.success('已保存')
+    } else {
+      await envApi.create(payload)
+      ElMessage.success('已创建')
+      router.push('/envs')
+    }
+    dirty.value = false
+    // 重新加载环境列表（更新顶部下拉）
+    store.loadEnvironments()
+  } catch (e: any) {
+    ElMessage.error(e.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onTestDb() {
+  if (!formData.id) return
+  if (dirty.value) {
+    ElMessage.warning('有未保存改动，请先保存再测试')
+    return
+  }
+  testingDb.value = true
+  try {
+    const res = await envApi.testDb(formData.id)
+    if (res.ok) {
+      ElMessage.success(res.message)
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '测试失败')
+  } finally {
+    testingDb.value = false
+  }
+}
+
+async function onTestLogin() {
+  if (!formData.id) return
+  if (dirty.value) {
+    ElMessage.warning('有未保存改动，请先保存再测试')
+    return
+  }
+  testingLogin.value = true
+  try {
+    const res = await envApi.testLogin(formData.id)
+    if (res.ok) {
+      ElMessage.success(res.message)
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '测试失败')
+  } finally {
+    testingLogin.value = false
+  }
+}
+
+onMounted(() => {
+  loadEnv()
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    onSave()
+  }
+}
+</script>
+
+<style scoped>
+.env-edit {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--app-bg);
+}
+.edit-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--app-card);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--app-border);
+}
+.edit-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--app-text);
+  flex: 1;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dirty-tip {
+  color: #ff9500;
+  font-size: 13px;
+}
+.edit-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+}
+.card-section {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted);
+}
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+.form-row .el-form-item {
+  flex: 1;
+}
+.form-hint {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+</style>
