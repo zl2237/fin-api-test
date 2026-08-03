@@ -1,284 +1,126 @@
 # Fin API Test
 
-> A powerful financial API automation testing framework built with Python and pytest.
+> 面向金融业务系统的 API 自动化测试框架 · pytest 驱动 · 多环境 · 数据库校验 · 企微通知
 
-[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
-[![pytest](https://img.shields.io/badge/pytest-9.0-green.svg)](https://pytest.org/)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+[![pytest](https://img.shields.io/badge/pytest-9.0.3-green.svg)](https://pytest.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-A comprehensive API testing framework designed for financial systems, featuring multi-environment support, database verification, YAML-based test data management, and beautiful HTML reports.
+金融业务接口链路长、状态流转复杂、强依赖落库校验。本项目把"登录鉴权 → 接口调用 → 业务编排 → 数据校验 → 结果通知"串联成一套开箱即用的骨架，让用例代码只关心业务本身。
 
----
+> 可视化平台版本（DAG 拖拽编排 + 结构化报告）位于 [`platform/`](./platform/README.md)，与命令行版本共享底层能力。
 
-## Features
+## 特性
 
-- **Multi-Environment Support** - Seamlessly switch between test/pre-production environments
-- **Auto Token Refresh** - Automatic re-authentication on 401 responses
-- **Database Verification** - Direct MySQL queries to validate API results
-- **YAML Test Data** - Environment-specific test data management
-- **Page Object Pattern** - Clean layered architecture (API → Step → Test)
-- **30+ Custom Assertions** - Flexible validation methods
-- **Beautiful Reports** - Self-contained pytest-html reports
-- **Enterprise Notifications** - WeChat Work webhook alerts
+- **分层架构** — `Test → Step → API → HTTP/DB`，职责清晰
+- **多环境** — `config/env_*.yaml` 一键切换 test / pre / prod
+- **Token 自动刷新** — 401 自动重登并刷新全局 Authorization
+- **数据库校验** — 直接 MySQL 查询，校验落库状态
+- **YAML 数据驱动** — 请求模板与测试数据分离
+- **30+ 断言方法** — 自带期望值与实际值对比
+- **企微通知** — 执行结束自动推送结果
+- **HTML 报告** — 自包含单文件，可邮件直接发送
 
----
-
-## Quick Start
-
-### Requirements
-
-- Python 3.8+
-- MySQL 5.7+
-- pip
-
-### Installation
+## 快速开始
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd fin-api-test
+# 安装依赖（推荐清华镜像）
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy and configure environment
+# 配置环境
 cp config/env_demo.yaml config/env_test.yaml
-# Edit config/env_test.yaml with your settings
+# 编辑 env_test.yaml，填写 base_url / mysql / wecom_webhook
+
+# 运行
+python run.py              # 单轮
+python run.py 5            # 循环 5 轮（稳定性回归）
+pytest -m create           # 按 marker 过滤
 ```
 
-### Run Tests
+报告输出到 `report/report.html`。
 
-```bash
-# Run all tests with HTML report
-python run.py
-
-# Or use pytest directly
-pytest --html=reports/report.html --self-contained-html
-
-# Run specific test markers
-pytest -m create
-pytest -m submit
-```
-
----
-
-## Architecture
+## 分层架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Test Cases                            │
-│                    (testcases/order/*.py)                    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Business Steps                           │
-│                     (steps/order/*.py)                       │
-│           create_order() → distribute() → stash()            │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        API Layer                              │
-│                     (api/order/*.py)                         │
-│              orderAdd_api.py, file_api.py                    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     HTTP Client                               │
-│                   (utils/http_client.py)                      │
-│            Auto token refresh · Retry logic                   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-┌─────────────────────────┐     ┌─────────────────────────────┐
-│       External API      │     │        MySQL Database       │
-│    (Financial System)   │     │     (Result Verification)   │
-└─────────────────────────┘     └─────────────────────────────┘
+Test Cases (testcases/)      用例编排、断言、marker
+     ↓
+Business Steps (steps/)      业务流程编排
+     ↓
+API Layer (api/)             HTTP 请求封装
+     ↓
+HTTP Client | MySQL Client   401 自动重登 | 落库校验
 ```
 
-### Layer Responsibilities
+| 层级 | 路径 | 职责 |
+|------|------|------|
+| Test | `testcases/` | 用例编排、断言、pytest marker |
+| Step | `steps/` | 业务流程编排 |
+| API | `api/` | HTTP 请求封装 |
+| DB | `db/` | MySQL 查询、数据校验 |
+| Utils | `utils/` | HTTP 客户端、断言、日志、通知 |
 
-| Layer | Path | Purpose |
-|-------|------|---------|
-| **Test** | `testcases/` | Test execution, assertions, pytest markers |
-| **Step** | `steps/` | Business workflow orchestration |
-| **API** | `api/` | HTTP request封装，接口调用 |
-| **DB** | `db/` | Database operations, data verification |
-| **Utils** | `utils/` | Shared utilities (logging, assertions, generators) |
+## 使用示例
 
----
+```python
+# api/order/order_api.py
+from api.base_api import BaseApi
 
-## Project Structure
+class OrderApi(BaseApi):
+    def create_order(self, body: dict):
+        return self.http.post("/api/order/orderEntrust/orderAdd", json=body)
+```
+
+```python
+# testcases/order/test_order.py
+@pytest.mark.create
+def test_create(api_factory, db_factory):
+    order_api = api_factory.get_api(OrderApi)
+    order_db = db_factory.get_db(OrderDB)
+    step = OrderStep(order_api)
+
+    body = read_yaml("data/test/order/create.yaml")
+    resp = step.create_order(body)
+
+    record = order_db.query_by_bl_no(body["bl_no"])
+    is_not_empty(record, "订单未落库")
+    equal(record["entrust_status"], 1, "分发状态不一致")
+```
+
+## 目录结构
 
 ```
 fin-api-test/
-├── api/                          # API layer
-│   ├── base_api.py              # Base class for all APIs
-│   ├── auth_api.py              # Authentication (login/logout)
-│   ├── file_api.py              # File upload/download
-│   └── order/
-│       └── orderAdd_api.py      # Order operations
-├── db/                           # Database layer
-│   ├── base_db.py               # Base class for DB operations
-│   ├── db_client.py             # MySQL client (connection pool)
-│   └── biz/
-│       └── order_db.py          # Order data queries
-├── utils/                        # Utilities
-│   ├── http_client.py           # HTTP client with retry
-│   ├── api_factory.py           # API lazy loading factory
-│   ├── db_factory.py            # DB lazy loading factory
-│   ├── yaml_util.py             # YAML read/write
-│   ├── log_util.py              # Logging (file + console)
-│   ├── assert_util.py           # 30+ assertion methods
-│   ├── generator_util.py        # Test data generators
-│   ├── common_util.py          # Path helpers
-│   └── wecom_util.py            # WeChat Work notifications
-├── steps/                        # Business workflows
-│   ├── file_step.py             # File upload workflow
-│   └── order/
-│       └── orderAdd_step.py     # Order workflow steps
-├── testcases/                   # Test cases
-│   └── order/
-│       └── test_orderAdd.py     # Order API tests
-├── data/                         # Test data (YAML)
-│   └── test/                    # Environment-specific
-│       ├── auth/auth_data.yaml  # Login credentials
-│       └── order/               # Order test data
-├── config/                       # Configuration
-│   └── env_*.yaml              # Environment configs
-├── conftest.py                  # Pytest fixtures
-├── run.py                        # Entry point
-└── pytest.ini                   # Pytest configuration
+├── api/             # 接口层（base_api + 业务接口）
+├── steps/           # 业务流程层
+├── db/              # 数据库层（连接池 + 业务查询）
+├── testcases/       # 测试用例
+├── data/            # 测试数据（按环境分目录）
+├── utils/           # 工具层（http_client / assert / log / wecom）
+├── config/          # 环境配置
+├── platform/        # 可视化测试平台（前后端分离）
+├── conftest.py      # pytest 全局 fixture
+├── run.py           # 启动入口
+└── pytest.ini
 ```
 
----
+## 技术栈
 
-## Usage
+| 组件 | 技术 |
+|------|------|
+| 测试框架 | [pytest](https://pytest.org/) 9.0.3 |
+| HTTP | [requests](https://docs.python-requests.org/) 2.33.0 |
+| 数据库 | [PyMySQL](https://pymysql.readthedocs.io/) 1.1.1 |
+| 数据格式 | [PyYAML](https://pyyaml.org/) 6.0.1 |
+| 报告 | [pytest-html](https://pytest-html.readthedocs.io/) 4.0.2 |
 
-### 1. Environment Configuration
+## 可视化平台
 
-Create `config/env_test.yaml`:
+本项目同时提供一套 Web 测试平台，位于 [`platform/`](./platform/README.md)：
 
-```yaml
-env: test
-base_url: "https://api.test.example.com"
-mysql:
-  host: "localhost"
-  port: 3306
-  user: "test_user"
-  password: "your_password"
-  database: "fin_db"
-wecom:
-  webhook_url: "https://qyapi.weixin.qq.com/..."
-```
-
-### 2. Test Data (YAML)
-
-```yaml
-# data/test/order/create.yaml
-order_no: "AUTO_{timestamp}"
-amount: 10000
-currency: "CNY"
-products:
-  - name: "Product A"
-    quantity: 1
-    price: 5000
-```
-
-### 3. Write Test Cases
-
-```python
-import pytest
-from steps.order.order_step import OrderAddStep
-
-
-class TestOrderAdd:
-    """Order API Test Suite"""
-
-    @pytest.mark.create
-    def test_create_order(self, order_step):
-        """Create a new order"""
-        result = order_step.create_order(
-            amount=10000,
-            currency="CNY"
-        )
-        assert result.code == 200
-        assert result.data.order_no is not None
-
-    @pytest.mark.submit
-    def test_submit_order(self, order_step, order_data):
-        """Submit an existing order"""
-        order_step.create_order()
-        order_step.distribute()
-        order_step.stash()
-        result = order_step.submit()
-        assert result.code == 200
-```
-
-### 4. Run Specific Tests
-
-```bash
-# By marker
-pytest -m create          # Only create tests
-pytest -m "create and not submit"  # Create but not submit
-
-# By file
-pytest testcases/order/test_order.py
-
-# With report
-pytest --html=reports.html --self-contained-html -v
-```
-
----
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TEST_ENV` | Environment name | `test` |
-| `RETRY_COUNT` | HTTP retry attempts | `3` |
-| `LOG_LEVEL` | Logging level | `INFO` |
-
-### Pytest Markers
-
-| Marker | Description |
-|--------|-------------|
-| `@pytest.mark.create` | Order creation tests |
-| `@pytest.mark.distribute` | Order distribution tests |
-| `@pytest.mark.stash` | Order stash tests |
-| `@pytest.mark.submit` | Order submission tests |
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Test Framework | [pytest](https://pytest.org/) 9.0.3 |
-| HTTP Client | [requests](https://docs.python-requests.org/) 2.33.0 |
-| Database | [PyMySQL](https://pymysql.readthedocs.io/) 1.1.1 |
-| Data Format | [PyYAML](https://pyyaml.org/) 6.0.1 |
-| Reports | [pytest-html](https://pytest-html.readthedocs.io/) 4.0.2 |
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing`)
-5. Open a Pull Request
-
----
+- **后端**：FastAPI + SQLAlchemy + MySQL/SQLite
+- **前端**：Vue3 + Element Plus + Vue Flow
+- **核心**：DAG 拖拽编排、字段级接口配置、结构化报告、用户权限、并发执行
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+[MIT](LICENSE)
