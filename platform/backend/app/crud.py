@@ -1,4 +1,5 @@
 """数据库 CRUD 操作"""
+from datetime import datetime
 from typing import List, Optional, Type, TypeVar
 from sqlalchemy.orm import Session
 
@@ -340,6 +341,17 @@ def update_api(db: Session, api: models.ApiDefinition, data: schemas.ApiUpdate, 
 
 
 def delete_api(db: Session, api: models.ApiDefinition):
+    # 阻止删除被用例引用的接口：CaseNodeConfig.api_id 指向该接口时拒绝
+    ref_count = db.query(models.CaseNodeConfig).filter(models.CaseNodeConfig.api_id == api.id).count()
+    if ref_count > 0:
+        # 查出引用该接口的用例名称，便于定位
+        case_ids = db.query(models.CaseNodeConfig.case_id).filter(
+            models.CaseNodeConfig.api_id == api.id
+        ).distinct().all()
+        case_id_list = [c[0] for c in case_ids]
+        cases = db.query(models.TestCase).filter(models.TestCase.id.in_(case_id_list)).all() if case_id_list else []
+        case_names = "、".join(c.name for c in cases) if cases else f"用例ID: {case_id_list}"
+        raise ValueError(f"接口「{api.name}」被 {len(case_id_list)} 个用例引用（{case_names}），请先移除用例中的该节点后再删除")
     db.delete(api)
     db.commit()
 
@@ -451,6 +463,9 @@ def update_testcase(db: Session, case: models.TestCase, data: schemas.TestCaseUp
         setattr(case, k, v)
     if user_id is not None:
         case.updated_by = user_id
+    # 显式刷新更新时间：MySQL 建表语句未必生成 ON UPDATE CURRENT_TIMESTAMP，
+    # ORM 的 onupdate 也可能因字段未变而不触发，这里强制覆盖确保列表更新时间变化
+    case.updated_at = datetime.now()
     db.commit()
     if node_configs is not None:
         _sync_node_configs(db, case.id, node_configs)

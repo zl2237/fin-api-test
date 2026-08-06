@@ -23,11 +23,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db, engine, SessionLocal
 from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs
 from . import models, auth as auth_module
+from .json_safe import BigintSafeJSONResponse
 
 app = FastAPI(
     title="fin-api-test 平台",
     description="API 测试平台：DAG 编排 + 可视化断言/提取 + 结构化报告",
     version="0.1.0",
+    # 自定义响应类：把超出 JS 安全整数范围的大整数（如雪花 ID）序列化为字符串，
+    # 避免前端 JSON.parse 精度丢失（343557272766513152 → 343557272766513150）
+    default_response_class=BigintSafeJSONResponse,
 )
 
 # 允许前端开发联调

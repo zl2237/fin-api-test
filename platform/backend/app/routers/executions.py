@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import crud, schemas, models
 from ..auth import get_current_user
-from ..engine.runner import submit_execution
+from ..engine.runner import submit_execution, submit_batch_execution
 
 router = APIRouter(prefix="/api", tags=["执行"])
 
@@ -37,6 +37,36 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
     # 提交到后台线程池执行（非阻塞）
     submit_execution(case_id, data.env_id, record.id)
     return record
+
+
+@router.post("/testcases/batch-execute", response_model=list[schemas.ExecutionRecordOut])
+def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """批量执行多个用例（串行）：为每个用例创建 running 状态的执行记录并立即返回，
+    后台线程池串行执行，一个结束再执行下一个。前端可轮询各 record 状态。"""
+    if not data.case_ids:
+        raise HTTPException(400, "请至少选择一个用例")
+    env = crud.get_environment(db, data.env_id)
+    if not env:
+        raise HTTPException(404, f"环境不存在: {data.env_id}")
+
+    records = []
+    for case_id in data.case_ids:
+        case = crud.get_testcase(db, case_id)
+        if not case:
+            raise HTTPException(404, f"用例不存在: {case_id}")
+        record = models.ExecutionRecord(
+            case_id=case_id, env_id=data.env_id, status="running", created_by=user.id,
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        crud.fill_audit_names(db, record)
+        crud.fill_exec_names(db, record)
+        records.append(record)
+
+    # 提交批量串行执行（非阻塞）
+    submit_batch_execution([r.id for r in records], data.case_ids, data.env_id)
+    return records
 
 
 @router.get("/executions", response_model=list[schemas.ExecutionRecordOut])

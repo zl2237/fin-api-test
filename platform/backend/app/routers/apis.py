@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from copy import deepcopy
 from datetime import datetime
+from typing import Any
+import json
 import time
 from jsonpath_ng import parse as jsonpath_parse
 
@@ -102,7 +104,11 @@ def delete(api_id: int, db: Session = Depends(get_db), user: models.User = Depen
     obj = crud.get_api(db, api_id)
     if not obj:
         raise HTTPException(404, "接口不存在")
-    crud.delete_api(db, obj)
+    try:
+        crud.delete_api(db, obj)
+    except ValueError as e:
+        # 接口被用例引用时阻止删除，前端提示用户先移除用例中的该节点
+        raise HTTPException(400, str(e))
     crud.log_operation(db, user, "delete", "api", obj.id, obj.name)
     return {"message": "已删除"}
 
@@ -137,8 +143,6 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
     # 兼容 OpenAPI 3.0 和 Swagger 2.0
     is_v3 = "openapi" in spec
     paths = spec.get("paths", {})
-    # schema 定义位置：v3 在 components.schemas，v2 在 definitions
-    schemas_map = spec.get("components", {}).get("schemas", {}) if is_v3 else spec.get("definitions", {})
 
     imported = []
     skipped = []
@@ -157,8 +161,8 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
                 skipped.append(f"{method} {path}（编码 {code} 已存在）")
                 continue
 
-            # 解析请求体 schema -> 字段
-            fields = _extract_fields_from_spec(info, schemas_map, is_v3)
+            # 解析请求参数（query/path/header）+ 请求体 schema -> 字段
+            fields = _extract_fields_from_spec(info, spec, is_v3)
 
             api_data = schemas.ApiCreate(
                 project_id=data.project_id,
@@ -227,12 +231,14 @@ def debug_api(
 
         headers = deepcopy(client.headers or {})
 
+        # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
+        req_timeout = getattr(env, "timeout", None) or 15
         # 发送请求
         try:
             if method == "GET":
-                resp = client.get(api.path, params=body, timeout=15)
+                resp = client.get(api.path, params=body, timeout=req_timeout)
             else:
-                resp = client.post(api.path, json=body, timeout=15)
+                resp = client.post(api.path, json=body, timeout=req_timeout)
             status_code = 200
             response_data = resp if isinstance(resp, (dict, list)) else {"text": str(resp)}
             error_msg = None
@@ -302,19 +308,18 @@ def _path_to_code(path: str, method: str) -> str:
     return f"{code}_{method.lower()}"
 
 
-def _resolve_ref(ref: str, schemas_map: dict) -> dict:
-    """解析 $ref 引用，返回 schema dict"""
+def _resolve_ref(ref: str, spec: dict) -> dict:
+    """解析 $ref 引用，支持 #/components/schemas、#/components/parameters、#/definitions"""
     if not ref:
         return {}
-    # #/components/schemas/OrderCreate 或 #/definitions/OrderCreate
     parts = ref.lstrip("#/").split("/")
-    cur = {"components": {"schemas": schemas_map}, "definitions": schemas_map}
+    cur: Any = spec
     for p in parts:
-        if p in ("components", "schemas", "definitions"):
+        if p in ("components", "schemas", "parameters", "definitions"):
+            cur = cur.get(p, {}) if isinstance(cur, dict) else {}
             continue
         cur = cur.get(p, {}) if isinstance(cur, dict) else {}
     return cur if isinstance(cur, dict) else {}
-
 
 def _swagger_type_to_field_type(swagger_type: str) -> str:
     """Swagger type 映射到平台 field_type"""
@@ -328,60 +333,161 @@ def _swagger_type_to_field_type(swagger_type: str) -> str:
     }
     return mapping.get(swagger_type, "string")
 
+def _pick_default_value(node: dict) -> Any:
+    """从 OpenAPI schema/parameter 节点按优先级提取默认值：
+    default > example(单数) > examples(复数,取第一个value) > enum[0] > ""
+    覆盖 OpenAPI 3.0 的多种示例写法。
+    """
+    if not isinstance(node, dict):
+        return ""
+    val = node.get("default")
+    if val is not None:
+        return val
+    val = node.get("example")
+    if val is not None:
+        return val
+    # OpenAPI 3.0 examples（复数）：{"examples": {"foo": {"value": ...}}}
+    examples = node.get("examples")
+    if isinstance(examples, dict) and examples:
+        first = next(iter(examples.values()))
+        if isinstance(first, dict) and "value" in first:
+            return first["value"]
+        if first is not None:
+            return first
+    # 枚举类型取第一个值作为示例
+    enum_vals = node.get("enum")
+    if isinstance(enum_vals, list) and enum_vals:
+        return enum_vals[0]
+    return ""
 
-def _extract_fields_from_spec(info: dict, schemas_map: dict, is_v3: bool) -> list:
-    """从 OpenAPI/Swagger 的操作定义中提取请求体字段"""
-    fields = []
+def _coerce_default(default_value: Any, field_type: str) -> str:
+    """将默认值统一为字符串；array/object 用 JSON 序列化"""
+    if default_value == "" or default_value is None:
+        return ""
+    if field_type in ("array", "object") and not isinstance(default_value, str):
+        return json.dumps(default_value, ensure_ascii=False)
+    return str(default_value)
+
+def _extract_fields_from_spec(info: dict, spec: dict, is_v3: bool) -> list:
+    """从 OpenAPI/Swagger 操作定义中提取字段：
+    1. parameters（query/path/cookie/formData，跳过 header）→ 有默认值才导入
+    2. requestBody body schema 的 properties → 有默认值才导入
+    默认值来源优先级：
+      property 自身: default > example(单数) > examples(复数) > enum[0]
+      body 字段额外回退: schema 顶层 example（完整请求体示例对象）中对应 key 的值
+    无默认值（空字符串/None）的字段不导入。
+    """
+    fields: list = []
     sort_order = 0
+    seen_keys: set = set()
 
-    schema = None
-    if is_v3:
-        # OpenAPI 3.0: requestBody.content.application/json.schema
-        request_body = info.get("requestBody", {})
-        content = request_body.get("content", {})
-        json_content = content.get("application/json", {})
-        schema = json_content.get("schema", {})
-    else:
-        # Swagger 2.0: parameters 里 in=body 的 schema
-        for param in info.get("parameters", []):
-            if param.get("in") == "body":
-                schema = param.get("schema", {})
-                break
-
-    if not schema:
-        return fields
-
-    # 解析 $ref
-    if "$ref" in schema:
-        schema = _resolve_ref(schema["$ref"], schemas_map)
-
-    properties = schema.get("properties", {})
-    required_keys = set(schema.get("required", []))
-
-    for key, prop in properties.items():
-        if "$ref" in prop:
-            prop = _resolve_ref(prop["$ref"], schemas_map)
-        field_type = _swagger_type_to_field_type(prop.get("type", "string"))
-        # 默认值：优先 default，回退 example（多数 Swagger 文档用 example 提供示例值）
-        default_value = prop.get("default")
-        if default_value is None:
-            default_value = prop.get("example", "")
-        if default_value is None:
-            default_value = ""
-        # array/object 类型默认值用 JSON
-        if field_type in ("array", "object") and default_value and not isinstance(default_value, str):
-            import json
-            default_value = json.dumps(default_value, ensure_ascii=False)
-
+    # ---- 1. 提取 parameters（query/path/cookie/formData，跳过 header）----
+    for param in info.get("parameters", []) or []:
+        if not isinstance(param, dict):
+            continue
+        # v3: parameter 可能 $ref 引用 #/components/parameters/{name}
+        if "$ref" in param:
+            param = _resolve_ref(param["$ref"], spec)
+            if not param:
+                continue
+        loc = param.get("in", "query")
+        # 跳过 header 参数（由环境配置/headers_template 管理，不作为业务字段导入）
+        if loc == "header":
+            continue
+        name = param.get("name")
+        if not name or name in seen_keys:
+            continue
+        # schema 来源：v3 在 param.schema（可能 $ref），v2 直接平铺在 param 上
+        if is_v3:
+            pschema = param.get("schema", {}) or {}
+            if "$ref" in pschema:
+                pschema = _resolve_ref(pschema["$ref"], spec)
+            swagger_type = pschema.get("type", "string")
+            # 默认值：优先 parameter 顶层 example/examples，再回退 schema
+            default_value = _pick_default_value(param)
+            if default_value == "":
+                default_value = _pick_default_value(pschema)
+        else:
+            # Swagger 2.0: type/default/example 直接在 param 上
+            swagger_type = param.get("type", "string")
+            default_value = _pick_default_value(param)
+        field_type = _swagger_type_to_field_type(swagger_type)
+        coerced = _coerce_default(default_value, field_type)
+        # 只导入有默认值的参数
+        if not coerced:
+            continue
+        description = param.get("description", "") or ""
         fields.append(schemas.ApiFieldIn(
-            key=key,
-            label=prop.get("description", "") or prop.get("title", ""),
+            key=name,
+            label=description or param.get("title", ""),
             field_type=field_type,
-            required=key in required_keys,
-            default_value=str(default_value) if default_value != "" else "",
-            remark=prop.get("description", ""),
+            required=bool(param.get("required", False)),
+            default_value=coerced,
+            remark=f"{loc}参数" + (f"：{description}" if description else ""),
             sort_order=sort_order,
         ))
+        seen_keys.add(name)
         sort_order += 1
+
+    # ---- 2. 提取 requestBody body 字段 ----
+    schema = None
+    json_content = None
+    if is_v3:
+        request_body = info.get("requestBody", {}) or {}
+        content = request_body.get("content", {}) or {}
+        # 优先 application/json，回退第一个 media type
+        json_content = content.get("application/json")
+        if not json_content:
+            for _mc in content.values():
+                json_content = _mc
+                break
+        if json_content:
+            schema = json_content.get("schema", {}) or {}
+    else:
+        for param in info.get("parameters", []) or []:
+            if isinstance(param, dict) and param.get("in") == "body":
+                schema = param.get("schema", {}) or {}
+                break
+
+    if schema:
+        if "$ref" in schema:
+            schema = _resolve_ref(schema["$ref"], spec)
+        properties = schema.get("properties", {}) or {}
+        required_keys = set(schema.get("required", []) or [])
+        # schema 顶层 example（完整请求体示例对象）作为字段默认值回退源
+        schema_example = schema.get("example")
+        if not isinstance(schema_example, dict):
+            schema_example = {}
+        # v3 media type 级别的 example 也作为回退源
+        media_example = json_content.get("example") if json_content else None
+        if not isinstance(media_example, dict):
+            media_example = {}
+        for key, prop in properties.items():
+            if key in seen_keys:
+                continue
+            if "$ref" in prop:
+                prop = _resolve_ref(prop["$ref"], spec)
+            field_type = _swagger_type_to_field_type(prop.get("type", "string"))
+            # 默认值：property 自身 > schema 顶层 example[key] > media type example[key]
+            default_value = _pick_default_value(prop)
+            if default_value == "" and key in schema_example:
+                default_value = schema_example[key]
+            if default_value == "" and key in media_example:
+                default_value = media_example[key]
+            coerced = _coerce_default(default_value, field_type)
+            # body 字段是请求体核心结构，无论是否有默认值都导入（默认值可空）；
+            # query/path 等参数才适用"有默认值才导入"规则
+            description = prop.get("description", "") or prop.get("title", "") or ""
+            fields.append(schemas.ApiFieldIn(
+                key=key,
+                label=description,
+                field_type=field_type,
+                required=key in required_keys,
+                default_value=coerced,
+                remark=prop.get("description", ""),
+                sort_order=sort_order,
+            ))
+            seen_keys.add(key)
+            sort_order += 1
 
     return fields

@@ -81,3 +81,45 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int) -> No
 def submit_execution(case_id: int, env_id: int, execution_id: int) -> None:
     """提交用例执行到线程池（非阻塞）"""
     _get_executor().submit(run_execution_background, execution_id, case_id, env_id)
+
+
+def run_batch_execution_background(execution_ids: list, case_ids: list, env_id: int) -> None:
+    """批量执行：串行执行多个用例，一个结束再执行下一个。
+    execution_ids[i] 对应 case_ids[i]，均已由调用方创建为 running 状态的 record。
+    使用独立数据库会话，每个用例执行完立即提交其 record 状态。"""
+    from datetime import datetime
+    db = SessionLocal()
+    try:
+        for exec_id, case_id in zip(execution_ids, case_ids):
+            try:
+                case = crud.get_testcase(db, case_id)
+                env = crud.get_environment(db, env_id)
+                rec = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).first()
+                if not case or not env or not rec:
+                    if rec:
+                        rec.status = "failed"
+                        rec.ended_at = datetime.now()
+                        rec.summary = {"total": 0, "passed": 0, "failed": 1, "error": "用例或环境不存在"}
+                        db.commit()
+                    continue
+                # 复用已创建的 record，串行执行
+                DagExecutor(db, case, env, execution_record=rec).execute()
+                db.commit()
+            except Exception as e:
+                # 单个用例异常不影响后续用例执行
+                try:
+                    rec = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).first()
+                    if rec and rec.status == "running":
+                        rec.status = "failed"
+                        rec.ended_at = datetime.now()
+                        rec.summary = {"total": 0, "passed": 0, "failed": 1, "error": str(e)}
+                        db.commit()
+                except Exception:
+                    pass
+    finally:
+        db.close()
+
+
+def submit_batch_execution(execution_ids: list, case_ids: list, env_id: int) -> None:
+    """提交批量串行执行到线程池（非阻塞）"""
+    _get_executor().submit(run_batch_execution_background, execution_ids, case_ids, env_id)

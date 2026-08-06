@@ -23,10 +23,10 @@
             style="width: 100%"
           >
             <el-option
-              v-for="f in fields"
-              :key="f.key"
-              :label="f.label ? `${f.key}（${f.label}）` : f.key"
-              :value="f.key"
+              v-for="opt in fieldOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
             />
           </el-select>
         </template>
@@ -39,7 +39,7 @@
       </el-table-column>
       <el-table-column label="值（支持 ${}）" min-width="200">
         <template #default="{ row }">
-          <el-input v-if="row.type !== 'delete_field'" v-model="row.value" size="small" placeholder="${context.order_id}" />
+          <el-input v-if="row.type !== 'delete_field'" v-model="row.value" size="small" placeholder="${order_id}" />
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -62,9 +62,70 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
 
 const fields = computed(() => props.fields || [])
 
+interface FieldOption {
+  value: string
+  label: string
+}
+
+function tryParseJson(s: any): any {
+  if (s == null || s === '') return null
+  if (typeof s !== 'string') return s
+  try {
+    return JSON.parse(s)
+  } catch {
+    return null
+  }
+}
+
+function pickArrayItemLabel(item: any): string {
+  if (!item || typeof item !== 'object') return ''
+  const keys = ['supplier_name', 'name', 'label', 'service_item_name', 'order_sub_no', 'title']
+  for (const k of keys) {
+    if (item[k] && typeof item[k] === 'string') return item[k]
+  }
+  return ''
+}
+
+function collectKeys(obj: any, base: string, out: { value: string; label: string }[], depth = 0): void {
+  if (depth > 2) return
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return
+    obj.forEach((item, idx) => {
+      if (item && typeof item === 'object') {
+        const itemLabel = pickArrayItemLabel(item)
+        for (const [k, v] of Object.entries(item)) {
+          const childPath = `${base}.${idx}.${k}`
+          const lbl = itemLabel ? `${base}.${idx}.${k}（${itemLabel}）` : `${base}.${idx}.${k}`
+          out.push({ value: childPath, label: lbl })
+          if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+        }
+      }
+    })
+  } else if (obj && typeof obj === 'object') {
+    for (const [k, v] of Object.entries(obj)) {
+      const childPath = `${base}.${k}`
+      out.push({ value: childPath, label: `${base}.${k}` })
+      if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+    }
+  }
+}
+
+const fieldOptions = computed<FieldOption[]>(() => {
+  const opts: FieldOption[] = []
+  for (const f of fields.value) {
+    const label = f.label ? `${f.key}（${f.label}）` : f.key
+    opts.push({ value: f.key, label })
+    if (f.field_type === 'array' || f.field_type === 'object') {
+      const parsed = tryParseJson(f.default_value)
+      if (parsed) collectKeys(parsed, f.key, opts)
+    }
+  }
+  return opts
+})
+
 const hasIterate = computed(() => props.modelValue.some((r) => r?.type === 'iterate_set'))
 const pathLabel = computed(() => (hasIterate.value ? '路径 / 列表路径' : '字段路径'))
-const pathPlaceholder = computed(() => (hasIterate.value ? '如 to_customer.put_amount.standard_list' : '如 order_id'))
+const pathPlaceholder = computed(() => (hasIterate.value ? '如 supplier 或 to_customer.put_amount.standard_list' : '如 order_id 或 supplier.0.order_id'))
 
 function add() {
   const next = [...props.modelValue, { type: 'set_field', path: '', value: '' }]

@@ -1,0 +1,268 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "fin-tidb.21eflag.com",
+    "description": "",
+    "version": "1.0.0"
+  },
+  "tags": [],
+  "paths": {
+    "/api/home/audit/auditExecute": {
+      "post": {
+        "summary": "/api/home/audit/auditExecute",
+        "deprecated": false,
+        "description": "",
+        "tags": [],
+        "parameters": [
+          {
+            "name": "Accept",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "application/json, text/plain, */*",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Encoding",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "gzip, deflate, br, zstd",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "zh-CN,zh;q=0.9",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Connection",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "keep-alive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Content-Length",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "97",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "application/json;charset=UTF-8",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Host",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "fin-tidb.21eflag.com",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "https://fin-tidb.21eflag.com",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Referer",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "https://fin-tidb.21eflag.com/",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sec-Fetch-Dest",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "empty",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sec-Fetch-Mode",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "cors",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sec-Fetch-Site",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "same-origin",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "User-Agent",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sec-ch-ua",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sec-ch-ua-mobile",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "?0",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sec-ch-ua-platform",
+            "in": "header",
+            "description": "",
+            "required": false,
+            "example": "\"Windows\"",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "audit_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "audit_status": {
+                    "type": "integer"
+                  },
+                  "audit_remark": {
+                    "type": "null"
+                  },
+                  "transfer_user_id": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "audit_ids",
+                  "audit_status",
+                  "audit_remark",
+                  "transfer_user_id"
+                ]
+              },
+              "example": {
+                "audit_ids": [
+                  "343317004406489088"
+                ],
+                "audit_status": 2,
+                "audit_remark": null,
+                "transfer_user_id": null
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "msg",
+                    "data",
+                    "request_id"
+                  ]
+                },
+                "example": {
+                  "code": 200,
+                  "msg": "审批成功1条，审批失败0条",
+                  "data": [],
+                  "request_id": "c97f7ea82dd6db28e3b6e6c9031fbc5b"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "schemas": {},
+    "responses": {},
+    "securitySchemes": {}
+  },
+  "servers": [],
+  "security": []
+}

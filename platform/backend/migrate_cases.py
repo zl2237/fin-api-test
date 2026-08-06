@@ -4,7 +4,7 @@
 代码逻辑映射：
 - bl_no：set_field ${generate_bl_no(prefix='smoke')}，改引擎后同步到上下文
 - order_id：post_extract source=db，SQL 用 ${bl_no} 查询
-- 后续节点：set_field ${context.order_id} / ${context.bl_no}
+- 后续节点：set_field ${order_id} / ${bl_no}
 - 断言：db_query_equals / db_query_not_equals / db_query_count_equals
 
 6 个用例：
@@ -108,8 +108,8 @@ def make_followup_config(node_id: str, api_key: str, assertions: list = None) ->
         "node_id": node_id,
         "api_id": API[api_key],
         "pre_process": [
-            {"type": "set_field", "path": "order_id", "value": "${context.order_id}"},
-            {"type": "set_field", "path": "bl_no", "value": "${context.bl_no}"},
+            {"type": "set_field", "path": "order_id", "value": "${order_id}"},
+            {"type": "set_field", "path": "bl_no", "value": "${bl_no}"},
         ],
         "post_extract": [],
         "assertions": [

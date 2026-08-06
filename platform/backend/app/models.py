@@ -70,6 +70,7 @@ class Environment(Base):
     notify_config = Column(JSON, default=dict)         # 通知配置：{wecom_webhook, enable_on_failure, enable_on_success}
     variables = Column(JSON, default=dict)             # 业务变量（与登录/通知解耦）
     common_headers = Column(JSON, default=dict)        # 公共请求头
+    timeout = Column(Integer, default=15)              # 接口请求超时时间（秒）
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
     created_by = Column(Integer, nullable=True)

@@ -83,7 +83,7 @@ class PreProcessor:
         :param body: 请求体（会被 deepcopy，不修改原对象）
         :param actions: 动作列表
         :param extracted: 上下文已提取变量字典（引用），set_field 求值后的值会同步写入此字典，
-                          使后续 post_extract 的 SQL 和后续节点的 ${context.xxx} 能引用到。
+                          使后续 post_extract 的 SQL 和后续节点的 ${xxx} 能引用到。
                           未传入时不同步（兼容旧调用）。
         """
         body = deepcopy(body) if body else {}

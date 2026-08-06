@@ -311,7 +311,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 .basic-panel {
   width: 360px;
-  background: #fff;
+  background: var(--app-card-solid);
   border-radius: 16px;
   padding: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -319,7 +319,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 .fields-panel {
   flex: 1;
-  background: #fff;
+  background: var(--app-card-solid);
   border-radius: 16px;
   padding: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);

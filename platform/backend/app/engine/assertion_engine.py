@@ -92,7 +92,12 @@ class AssertionEngine:
 
         if rule_type == "response_status_equals":
             expected = rule.get("expected")
-            return self._pack(status_code == expected, rule_type, status_code, expected, message)
+            # HTTP 状态码为整数，expected 可能为字符串（前端表单输入），统一数值化比较
+            try:
+                passed = int(status_code) == int(expected)
+            except (TypeError, ValueError):
+                passed = str(status_code) == str(expected)
+            return self._pack(passed, rule_type, status_code, expected, message)
 
         if rule_type == "response_time_less_than":
             expected = rule.get("expected")
@@ -157,7 +162,7 @@ class AssertionEngine:
                 else:
                     actual = first
             expected = self.expr.evaluate(rule.get("expected"))
-            return self._pack(actual == expected, rule_type, actual, expected, message or f"DB字段 {field or ''} 期望 {expected}, 实际 {actual}")
+            return self._pack(self._loose_equals(actual, expected), rule_type, actual, expected, message or f"DB字段 {field or ''} 期望 {expected}, 实际 {actual}")
         if rule_type == "db_query_not_equals":
             # DB 字段不等于期望值（对应代码里的 not_equal）
             field = rule.get("field")
@@ -170,23 +175,56 @@ class AssertionEngine:
                 else:
                     actual = first
             expected = self.expr.evaluate(rule.get("expected"))
-            return self._pack(actual != expected, rule_type, actual, expected, message or f"DB字段 {field or ''} 不应等于 {expected}, 实际 {actual}")
+            return self._pack(not self._loose_equals(actual, expected), rule_type, actual, expected, message or f"DB字段 {field or ''} 不应等于 {expected}, 实际 {actual}")
         if rule_type == "db_query_not_empty":
             passed = bool(rows)
             return self._pack(passed, rule_type, rows, "not_empty", message)
         if rule_type == "db_query_count_equals":
             actual = len(rows) if rows else 0
-            expected = rule.get("expected")
+            expected = self._to_count(rule.get("expected"))
             return self._pack(actual == expected, rule_type, actual, expected, message or f"查询行数期望 {expected}, 实际 {actual}")
         if rule_type == "db_query_count_greater_than":
             actual = len(rows) if rows else 0
-            expected = rule.get("expected")
+            expected = self._to_count(rule.get("expected"))
             return self._pack(actual > expected, rule_type, actual, expected, message or f"查询行数期望 > {expected}, 实际 {actual}")
         if rule_type == "db_query_count_less_than":
             actual = len(rows) if rows else 0
-            expected = rule.get("expected")
+            expected = self._to_count(rule.get("expected"))
             return self._pack(actual < expected, rule_type, actual, expected, message or f"查询行数期望 < {expected}, 实际 {actual}")
         return self._pack(False, rule_type, None, None, "未知DB断言")
+
+    @staticmethod
+    def _to_count(v: Any) -> int:
+        """把期望值转为整数用于行数比较。兼容前端传入字符串 '3' / 表达式求值结果。"""
+        if v is None:
+            return 0
+        if isinstance(v, bool):
+            return int(v)
+        if isinstance(v, (int, float)):
+            return int(v)
+        s = str(v).strip()
+        if s == "":
+            return 0
+        try:
+            return int(float(s))
+        except (ValueError, TypeError):
+            return 0
+
+    @staticmethod
+    def _loose_equals(actual: Any, expected: Any) -> bool:
+        """松散相等比较：DB 查出的 int/float 与前端传入的字符串 '3' 能判等。
+        两者都能转为数值时按数值比较，否则按原始值比较。"""
+        if actual == expected:
+            return True
+        # 尝试数值比较：解决 DB 返回 int 3、expected 为字符串 "3" 的类型不匹配
+        try:
+            if isinstance(actual, (int, float)) and not isinstance(actual, bool):
+                return float(actual) == float(expected)
+            if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+                return float(actual) == float(expected)
+        except (ValueError, TypeError):
+            pass
+        return False
 
     def _eval_db_vs_jsonpath(self, response_body: Any, rule: Dict, message: str) -> Dict:
         """DB查询值 vs 响应JSON Path取值 相等断言。
@@ -238,7 +276,7 @@ class AssertionEngine:
         )
 
     def _inject_extracted(self, sql: str) -> str:
-        """把 ${extracted.xxx} / ${context.xxx} / ${xxx} 替换为已提取变量值"""
+        """把 ${xxx} 替换为已提取变量值（${context.xxx} 兼容旧写法）"""
         extracted = self.context.get("extracted", {})
 
         def repl(m):

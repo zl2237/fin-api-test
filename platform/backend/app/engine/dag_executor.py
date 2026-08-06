@@ -173,6 +173,10 @@ class DagExecutor:
         """解析字段默认值"""
         if raw is None or raw == "":
             return "" if field_type == "string" else None
+        # 含 ${} 表达式的值：先保留原始字符串，待 expr.evaluate 求值后
+        # 再由 _coerce_json_strings 转回 array/object 原生类型
+        if "${" in raw:
+            return raw
         if field_type in ("array", "object"):
             try:
                 import json
@@ -189,6 +193,25 @@ class DagExecutor:
         return raw  # string 类型，保留表达式 ${...} 由后续 preprocessor 求值
 
     @staticmethod
+    def _coerce_json_strings(obj: Any) -> Any:
+        """递归把求值后形如 JSON 的字符串转回原生类型。
+        例如 array 字段 "[${id}]" 求值后为 "[123]" 字符串，转回 ["123"] 列表。
+        仅对形如 [...] / {...} 的字符串尝试，失败则原样返回。"""
+        import json
+        if isinstance(obj, dict):
+            return {k: DagExecutor._coerce_json_strings(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [DagExecutor._coerce_json_strings(v) for v in obj]
+        if isinstance(obj, str):
+            s = obj.strip()
+            if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
+                try:
+                    return json.loads(s)
+                except Exception:
+                    return obj
+        return obj
+
+    @staticmethod
     def _set_nested(target: Dict[str, Any], path: str, value: Any):
         """按点号路径设置嵌套 dict 值"""
         keys = path.split(".")
@@ -202,11 +225,13 @@ class DagExecutor:
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict) -> Tuple[int, Any, Optional[str]]:
         """返回 (status_code, response_body, error_msg)"""
+        # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
+        timeout = getattr(self.env, "timeout", None) or 15
         try:
             if api.method.upper() == "GET":
-                resp = self.http_client.get(api.path, params=body, timeout=15)
+                resp = self.http_client.get(api.path, params=body, timeout=timeout)
             else:
-                resp = self.http_client.post(api.path, json=body, timeout=15)
+                resp = self.http_client.post(api.path, json=body, timeout=timeout)
             # HttpClient 成功返回即 HTTP 200 且业务码 200
             return 200, resp, None
         except HttpStatusError as e:
@@ -352,12 +377,19 @@ class DagExecutor:
 
         # PreProcessor 持有 db_client，使 set_field 的值能通过 ${db.query_value(...)} 从 DB 取值
         preprocessor = PreProcessor(self.context.to_dict(), self.db_client)
-        # 对组装后的 body 递归求值 ${...}（覆盖 array/object 字段中嵌入的表达式）
+        # 对组装后的 body 递归求值 ${...}（覆盖 array/object 字段中嵌入的表达式）；
+        # 未定义变量保留占位符，不替换为空，留给后续前置处理或下游注入
         body = preprocessor.expr.evaluate(body)
         if config and config.pre_process:
             # 传入 self.context.extracted（引用），set_field 求值后的值同步到上下文，
-            # 使后续 post_extract 的 SQL 和后续节点的 ${context.xxx} 能引用到
+            # 使后续 post_extract 的 SQL 和后续节点的 ${xxx} 能引用到
             body = preprocessor.process(body, config.pre_process, self.context.extracted)
+            # 前置处理可能往上下文写入新变量，对 body 再求值一次，注入此时已具备的变量
+            # （保留仍未定义的占位符原样，便于排查未注入字段）
+            body = preprocessor.expr.evaluate(body)
+        # array/object 字段经表达式求值后仍是字符串（如 "[${id}]" → "[123]"），
+        # 转回原生 JSON 类型，使接口收到的是列表/对象而非字符串
+        body = self._coerce_json_strings(body)
         # headers 中支持表达式
         for k, v in list(headers.items()):
             if isinstance(v, str) and "${" in v:

@@ -118,7 +118,7 @@ function expectedPlaceholder(type: string) {
   if (type === 'json_path_match_regex') return '正则表达式 ^\\d+$'
   if (type === 'json_path_type_equals') return 'string / int / bool / array / object'
   if (type.startsWith('db_query_count')) return '数字'
-  return '200 / ${context.xxx}'
+  return '200 / ${xxx}'
 }
 
 function add() {

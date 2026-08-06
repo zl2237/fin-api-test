@@ -97,6 +97,7 @@ class EnvironmentCreate(BaseModel):
     notify_config: Dict[str, Any] = {}
     variables: Dict[str, Any] = {}
     common_headers: Dict[str, Any] = {}
+    timeout: int = 15
     is_default: bool = False
 
 
@@ -108,6 +109,7 @@ class EnvironmentUpdate(BaseModel):
     notify_config: Optional[Dict[str, Any]] = None
     variables: Optional[Dict[str, Any]] = None
     common_headers: Optional[Dict[str, Any]] = None
+    timeout: Optional[int] = None
     is_default: Optional[bool] = None
 
 
@@ -121,6 +123,7 @@ class EnvironmentOut(ORMBase):
     notify_config: Dict[str, Any] = {}
     variables: Dict[str, Any] = {}
     common_headers: Dict[str, Any] = {}
+    timeout: int = 15
     is_default: bool = False
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
@@ -321,6 +324,12 @@ class CaseBatchMove(BaseModel):
 # ============ Execution ============
 class ExecutionCreate(BaseModel):
     case_id: int
+    env_id: int
+
+
+class BatchExecutionCreate(BaseModel):
+    """批量执行：串行执行多个用例，一个结束执行下一个"""
+    case_ids: List[int]
     env_id: int
 
 
