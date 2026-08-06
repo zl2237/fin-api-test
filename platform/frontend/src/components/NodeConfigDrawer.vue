@@ -27,12 +27,12 @@
 
       <el-tab-pane label="前置处理" name="pre">
         <PreProcessTable v-model="config.pre_process" :fields="currentApiFields" />
-        <p class="tip">设置字段值支持表达式：<code>${context.order_id}</code>、<code>${generate_bl_no(prefix='smoke')}</code>。遍历赋值用于费用 unique_id 关联。</p>
+        <p class="tip">设置字段值支持表达式：<code>${order_id}</code>、<code>${generate_bl_no(prefix='smoke')}</code>。遍历赋值用于费用 unique_id 关联。</p>
       </el-tab-pane>
 
       <el-tab-pane label="后置提取" name="extract">
         <PostExtractTable v-model="config.post_extract" />
-        <p class="tip">提取的变量存入上下文，供后续节点以 <code>${context.变量名}</code> 引用。</p>
+        <p class="tip">提取的变量存入上下文，供后续节点以 <code>${变量名}</code> 引用。</p>
       </el-tab-pane>
 
       <el-tab-pane label="断言规则" name="assert">

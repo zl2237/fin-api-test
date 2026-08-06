@@ -51,7 +51,7 @@ const emit = defineEmits<{
   (e: 'link-mode-change', active: boolean): void
 }>()
 
-const { setNodes, setEdges, addEdges, removeEdges, getNodes, getEdges, fitView } = useVueFlow()
+const { setNodes, setEdges, addEdges, removeEdges, removeNodes, getNodes, getEdges, fitView } = useVueFlow()
 
 // 防止内部变化触发 emit 后又同步回内部造成循环
 const syncing = ref(false)
@@ -60,16 +60,39 @@ const syncing = ref(false)
 const linkMode = ref(false)
 const linkSourceId = ref<string | null>(null)
 
-// Esc 键撤销：linkMode 下重置已选 source 或退出模式
+// 键盘事件：
+// - Esc：linkMode 下重置已选 source 或退出模式
+// - Delete/Backspace：删除当前选中的节点（连线模式下不触发，避免误删）
 function onKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Escape' || !linkMode.value) return
-  if (linkSourceId.value) {
-    // 已选 source → 重置 source，保留 linkMode
-    linkSourceId.value = null
-  } else {
-    // 未选 source → 退出 linkMode，并通知父组件同步状态
-    linkMode.value = false
-    emit('link-mode-change', false)
+  // Esc 键撤销：linkMode 下重置已选 source 或退出模式
+  if (e.key === 'Escape' && linkMode.value) {
+    if (linkSourceId.value) {
+      // 已选 source → 重置 source，保留 linkMode
+      linkSourceId.value = null
+    } else {
+      // 未选 source → 退出 linkMode，并通知父组件同步状态
+      linkMode.value = false
+      emit('link-mode-change', false)
+    }
+    return
+  }
+  // Delete/Backspace 删除选中节点
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !linkMode.value) {
+    // 焦点在输入框/文本域中时不拦截，避免影响文本编辑
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return
+    }
+    const selected = getNodes.value.filter((n: any) => n.selected)
+    if (!selected.length) return
+    const ids = selected.map((n: any) => n.id)
+    // removeNodes 会自动清理与这些节点相连的边
+    removeNodes(ids)
+    // 同步变更给父组件
+    emit('update:nodes', serializeNodes())
+    emit('update:edges', serializeEdges())
+    ElMessage.success(`已删除 ${ids.length} 个节点`)
+    e.preventDefault()
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -285,7 +308,7 @@ watch(
   position: relative;
   padding: 10px 18px;
   border-radius: var(--app-radius-sm);
-  background: #fff;
+  background: var(--app-card-solid);
   border: 1px solid var(--app-border);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   min-width: 150px;

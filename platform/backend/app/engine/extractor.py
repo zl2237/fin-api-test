@@ -7,7 +7,7 @@
    {"name": "order_id", "source": "db", "sql": "SELECT order_id FROM sys_order WHERE bl_no='${bl_no}'", "field": "order_id"}
    - source=db 时执行 SQL，取第一行 field 字段的值存入上下文
    - field 可选，未指定时取第一行第一列
-   - SQL 中支持 ${context.xxx} / ${xxx} 变量引用
+   - SQL 中支持 ${xxx} 变量引用（${context.xxx} 兼容旧写法）
 """
 import re
 from typing import Any, Dict, List, Optional
@@ -58,7 +58,8 @@ class Extractor:
             return None
         if not rows:
             return None
-        field = rule.get("field")
+        # field 去除首尾空格，避免配置 "audit_id " 带空格导致 first.get 取不到值
+        field = (rule.get("field") or "").strip() or None
         first = rows[0]
         if isinstance(first, dict):
             if field:
@@ -68,7 +69,7 @@ class Extractor:
         return first
 
     def _inject_vars(self, sql: str) -> str:
-        """把 ${context.xxx} / ${xxx} 替换为已提取变量值，字符串做防注入转义。
+        """把 ${xxx} 替换为已提取变量值，字符串做防注入转义。
 
         注意：extractor 运行时，上下文变量由 dag_executor 维护（context.update_extracted），
         当前批次提取的变量还未写入 context，因此仅能引用此前步骤已提取的变量。

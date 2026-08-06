@@ -2,8 +2,8 @@
 表达式引擎。
 
 支持语法：
-    ${context.order_id}        引用上下文中已提取的变量
-    ${context.bl_no}
+    ${order_id}                引用上下文中已提取的变量
+    ${bl_no}
     ${env.base_url}            引用环境变量
     ${generate_bl_no()}        调用内置函数（无参）
     ${generate_bl_no(prefix='smoke')}   调用内置函数（带关键字参数）
@@ -162,23 +162,34 @@ class ExpressionEngine:
         return expr
 
     def _eval_str(self, expr: str) -> Any:
-        # 整串就是一个 ${...} 表达式 → 返回原生类型（int/dict/None 等）
+        # 整串就是一个 ${...} 表达式 → 求值后返回原生类型（int/dict 等）；
+        # 但未定义的变量（None）保留原占位符字符串，留给后续前置处理或下游节点注入
         if expr.startswith("${") and expr.endswith("}"):
-            return self._eval_inner(expr[2:-1].strip())
+            inner = expr[2:-1].strip()
+            val = self._eval_inner(inner)
+            if val is None:
+                return expr
+            return val
 
         # 字符串中内嵌多个 ${...} → 做字符串替换
         if "${" in expr:
             def repl(m):
                 val = self._eval_inner(m.group(1).strip())
-                return "" if val is None else str(val)
+                # 未定义变量（None）保留原占位符，留给后续前置处理或后续节点注入；
+                # 已求值的值替换为字符串（保持原行为）
+                if val is None:
+                    return m.group(0)
+                return str(val)
             return re.sub(r"\$\{([^}]+)\}", repl, expr)
         return expr
 
     def _eval_inner(self, inner: str) -> Any:
-        # context.xxx.yyy
+        # ${name} 无前缀：从统一变量池取值（推荐写法）
+        # 变量生命周期覆盖整个用例（环境全局定义 + 各节点后置提取），用例结束前不销毁
+        # ${context.name}：兼容旧写法，等价于 ${name}
         if inner.startswith("context."):
             return self._resolve_path(self.context.get("extracted", {}), inner[len("context."):])
-        # env.xxx
+        # env.xxx → 从环境变量取值（env_vars 的原始副本，不含后置提取）
         if inner.startswith("env."):
             return self._resolve_path(self.context.get("env", {}), inner[len("env."):])
         # global.xxx
@@ -197,6 +208,10 @@ class ExpressionEngine:
                     return self.functions[func_name](**kwargs)
                 except TypeError:
                     return self.functions[func_name]()
+        # 无前缀 ${name}：从统一变量池取值
+        extracted = self.context.get("extracted", {})
+        if inner in extracted:
+            return extracted[inner]
         return expr_inner_marker(inner)
 
     # ---------- DB 函数 ----------
@@ -228,7 +243,7 @@ class ExpressionEngine:
         if not sql:
             return None
 
-        # 注入上下文变量（${context.xxx} / ${xxx}）
+        # 注入上下文变量（${xxx}）
         sql = self._inject_vars(sql)
 
         try:
@@ -253,7 +268,7 @@ class ExpressionEngine:
         return None
 
     def _inject_vars(self, sql: str) -> str:
-        """把 ${context.xxx} / ${xxx} 替换为已提取变量值，字符串做防注入转义"""
+        """把 ${xxx} 替换为已提取变量值，字符串做防注入转义"""
         extracted = self.context.get("extracted", {})
 
         def repl(m):

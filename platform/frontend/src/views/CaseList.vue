@@ -8,6 +8,12 @@
           :disabled="selectedCaseIds.length === 0"
           @click="onBatchMove"
         >批量移动到{{ selectedCaseIds.length ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
+        <el-button
+          type="success"
+          :disabled="selectedCaseIds.length === 0 || batchRunning"
+          :loading="batchRunning"
+          @click="onBatchRun"
+        >批量执行{{ selectedCaseIds.length ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
       </div>
       <div class="head-right">
         <el-select
@@ -186,6 +192,7 @@ const newGroupName = ref('')
 const batchMoveVisible = ref(false)
 const batchMoveTarget = ref<number | null>(null)
 const batchMoveLoading = ref(false)
+const batchRunning = ref(false)
 const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
 
 // ===== 批量移动：不支持跨分组勾选 =====
@@ -367,6 +374,74 @@ async function runCase(row: TestCase) {
   } catch (e: any) {
     ElMessage.error(e.message)
   }
+}
+
+// 批量执行：串行一个结束执行下一个（后端串行，前端逐个轮询）
+async function onBatchRun() {
+  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
+  if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
+  if (batchRunning.value) return
+  batchRunning.value = true
+  const msg = ElMessage({
+    message: `批量执行中（共 ${selectedCaseIds.value.length} 个用例，串行执行）...`,
+    type: 'info',
+    duration: 0,
+  })
+  try {
+    const records = await caseApi.batchExecute(selectedCaseIds.value, store.currentEnvId)
+    // 逐个轮询：一个完成再查下一个（后端串行执行，record 会依次完成）
+    const results: { name: string; status: string; summary: any }[] = []
+    for (const rec of records) {
+      const caseRow = list.value.find((c) => c.id === rec.case_id)
+      const name = caseRow?.name || `用例#${rec.case_id}`
+      const status = await pollOne(rec.id)
+      results.push({ name, status: status.status, summary: status.summary })
+    }
+    msg.close()
+    const passed = results.filter((r) => r.status === 'success').length
+    const failed = results.length - passed
+    const detail = results.map((r) => {
+      if (r.status === 'success') return `✓ ${r.name}：通过（${r.summary?.passed}/${r.summary?.total}）`
+      if (r.status === 'failed') return `✗ ${r.name}：失败（${r.summary?.failed} 项未通过）`
+      return `! ${r.name}：${r.status}`
+    }).join('\n')
+    ElMessageBox.alert(detail, `批量执行完成：通过 ${passed}/${results.length}`, {
+      confirmButtonText: '查看报告',
+      cancelButtonText: '关闭',
+      showCancelButton: true,
+      type: passed === results.length ? 'success' : 'warning',
+    }).then(() => {
+      router.push('/executions')
+    }).catch(() => {})
+    await load()
+  } catch (e: any) {
+    msg.close()
+    ElMessage.error(e.message || '批量执行失败')
+  } finally {
+    batchRunning.value = false
+  }
+}
+
+// 轮询单个执行记录直到完成，返回最终状态和汇总
+function pollOne(execId: number): Promise<{ status: string; summary: any }> {
+  return new Promise((resolve, reject) => {
+    const maxPolls = 300
+    let pollCount = 0
+    const poll = async () => {
+      pollCount++
+      try {
+        const cur = await execApi.get(execId)
+        if (cur.status === 'running' && pollCount < maxPolls) {
+          setTimeout(poll, 2000)
+        } else {
+          resolve({ status: cur.status, summary: cur.summary })
+        }
+      } catch (e: any) {
+        reject(e)
+      }
+    }
+    setTimeout(poll, 2000)
+  })
 }
 
 function goReport(row: TestCase) {

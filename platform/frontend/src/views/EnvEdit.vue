@@ -24,6 +24,10 @@
           <el-form-item label="Base URL">
             <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" style="width: 380px" />
           </el-form-item>
+          <el-form-item label="超时时间">
+            <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" style="width: 140px" />
+            <span class="form-hint">秒，接口请求超时时间（1-120）</span>
+          </el-form-item>
           <el-form-item label="默认环境">
             <el-switch v-model="formData.is_default" />
             <span class="form-hint">设为默认后，执行用例时自动选中此环境</span>
@@ -177,6 +181,7 @@ interface EnvFormData {
   id?: number
   name: string
   base_url: string
+  timeout: number
   is_default: boolean
   db_config: { host: string; port: number; user: string; password: string; database: string }
   login_config: {
@@ -198,6 +203,7 @@ interface EnvFormData {
 const formData = reactive<EnvFormData>({
   name: '',
   base_url: '',
+  timeout: 15,
   is_default: false,
   db_config: { host: '', port: 3306, user: '', password: '', database: '' },
   login_config: {
@@ -225,6 +231,7 @@ async function loadEnv() {
   formData.id = env.id
   formData.name = env.name
   formData.base_url = env.base_url
+  formData.timeout = env.timeout ?? 15
   formData.is_default = env.is_default
   // db_config
   const db = env.db_config || {}
@@ -282,6 +289,7 @@ async function onSave() {
       project_id: currentProjectId.value!,
       name: formData.name,
       base_url: formData.base_url,
+      timeout: formData.timeout,
       is_default: formData.is_default,
       db_config: formData.db_config,
       login_config: formData.login_config,
@@ -402,7 +410,7 @@ function onKeydown(e: KeyboardEvent) {
   padding: 16px 20px;
 }
 .card-section {
-  background: #fff;
+  background: var(--app-card-solid);
   border-radius: 16px;
   padding: 20px 24px;
   margin-bottom: 16px;

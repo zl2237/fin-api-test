@@ -440,8 +440,8 @@ def build_order_full_flow(code_to_api: Dict[str, models.ApiDefinition]) -> Dict[
         "node_id": "n_distribute",
         "api_id": code_to_api["order_distribute"].id,
         "pre_process": [
-            {"type": "set_field", "path": "order_id", "value": "${context.order_id}"},
-            {"type": "set_field", "path": "bl_no", "value": "${context.bl_no}"},
+            {"type": "set_field", "path": "order_id", "value": "${order_id}"},
+            {"type": "set_field", "path": "bl_no", "value": "${bl_no}"},
         ],
         "post_extract": [],
         "assertions": [

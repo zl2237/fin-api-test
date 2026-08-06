@@ -64,7 +64,7 @@ export interface Environment {
   login_config: Record<string, any>
   notify_config: Record<string, any>
   variables: Record<string, any>
-  common_headers: Record<string, any>; is_default: boolean; created_at?: string
+  common_headers: Record<string, any>; timeout: number; is_default: boolean; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -234,6 +234,8 @@ export const caseApi = {
     http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
   execute: (caseId: number, envId: number) =>
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`, { case_id: caseId, env_id: envId }).then((r) => r.data),
+  batchExecute: (caseIds: number[], envId: number) =>
+    http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId }).then((r) => r.data),
 }
 
 // ============ Execution / Report ============
