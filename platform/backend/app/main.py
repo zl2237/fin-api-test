@@ -99,8 +99,8 @@ def _migrate_audit_columns():
     additions = {
         "projects": ["created_by", "updated_by"],
         "environments": ["created_by", "updated_by"],
-        "api_definitions": ["created_by", "updated_by"],
-        "test_cases": ["created_by", "updated_by"],
+        "api_definitions": ["created_by", "updated_by", "sort_order"],
+        "test_cases": ["created_by", "updated_by", "sort_order"],
         "execution_records": ["created_by"],
         "users": ["created_by", "updated_by", "failed_count", "locked_until"],
     }
@@ -115,6 +115,8 @@ def _migrate_audit_columns():
                         conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER DEFAULT 0"))
                     elif col == "locked_until":
                         conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} DATETIME NULL"))
+                    elif col == "sort_order":
+                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER DEFAULT 0"))
                     else:
                         conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER"))
 

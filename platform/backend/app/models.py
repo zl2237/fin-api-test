@@ -107,6 +107,7 @@ class ApiDefinition(Base):
     description = Column(Text)
     request_template = Column(JSON, default=dict)      # 请求体模板（兼容字段，新版本用 fields）
     headers_template = Column(JSON, default=dict)      # 请求头模板
+    sort_order = Column(Integer, default=0)            # 组内排序（拖拽排序）
     created_at = Column(DateTime, default=datetime.now)
     created_by = Column(Integer, nullable=True)
     updated_by = Column(Integer, nullable=True)
@@ -157,6 +158,7 @@ class TestCase(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text)
     dag_config = Column(JSON, nullable=False)          # {nodes: [...], edges: [...]}
+    sort_order = Column(Integer, default=0)            # 组内排序（拖拽排序）
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     created_by = Column(Integer, nullable=True)

@@ -260,6 +260,19 @@ def batch_move_apis(db: Session, api_ids: List[int], group_id: Optional[int]) ->
     return updated
 
 
+def reorder_apis(db: Session, items: List[dict]) -> int:
+    """批量更新接口的 sort_order（组内拖拽排序）"""
+    if not items:
+        return 0
+    updated = 0
+    for it in items:
+        updated += db.query(models.ApiDefinition).filter(
+            models.ApiDefinition.id == it["id"]
+        ).update({models.ApiDefinition.sort_order: it["sort_order"]}, synchronize_session=False)
+    db.commit()
+    return updated
+
+
 # ============ CaseGroup ============
 def create_case_group(db: Session, data: schemas.CaseGroupCreate) -> models.CaseGroup:
     obj = models.CaseGroup(**data.model_dump())
@@ -323,7 +336,8 @@ def list_apis(db: Session, project_id: Optional[int] = None, created_by: Optiona
         q = q.filter(models.ApiDefinition.created_by == created_by)
     if updated_by is not None:
         q = q.filter(models.ApiDefinition.updated_by == updated_by)
-    return q.order_by(models.ApiDefinition.id.desc()).all()
+    # 组内按 sort_order 排序，未设置的（0/同值）再按 id 倒序保持稳定
+    return q.order_by(models.ApiDefinition.sort_order, models.ApiDefinition.id.desc()).all()
 
 
 def update_api(db: Session, api: models.ApiDefinition, data: schemas.ApiUpdate, user_id: Optional[int] = None) -> models.ApiDefinition:
@@ -442,7 +456,8 @@ def list_testcases(db: Session, project_id: Optional[int] = None, created_by: Op
         q = q.filter(models.TestCase.created_by == created_by)
     if updated_by is not None:
         q = q.filter(models.TestCase.updated_by == updated_by)
-    return q.order_by(models.TestCase.id.desc()).all()
+    # 组内按 sort_order 排序，未设置的（0/同值）再按 id 倒序保持稳定
+    return q.order_by(models.TestCase.sort_order, models.TestCase.id.desc()).all()
 
 
 def batch_move_testcases(db: Session, case_ids: List[int], group_id: Optional[int]) -> int:
@@ -452,6 +467,19 @@ def batch_move_testcases(db: Session, case_ids: List[int], group_id: Optional[in
     updated = db.query(models.TestCase).filter(
         models.TestCase.id.in_(case_ids)
     ).update({models.TestCase.group_id: group_id}, synchronize_session=False)
+    db.commit()
+    return updated
+
+
+def reorder_testcases(db: Session, items: List[dict]) -> int:
+    """批量更新用例的 sort_order（组内拖拽排序）"""
+    if not items:
+        return 0
+    updated = 0
+    for it in items:
+        updated += db.query(models.TestCase).filter(
+            models.TestCase.id == it["id"]
+        ).update({models.TestCase.sort_order: it["sort_order"]}, synchronize_session=False)
     db.commit()
     return updated
 

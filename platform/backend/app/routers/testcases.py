@@ -113,3 +113,12 @@ def batch_move(data: schemas.CaseBatchMove, db: Session = Depends(get_db)):
     updated = crud.batch_move_testcases(db, data.case_ids, data.group_id)
     crud.log_operation(db, None, "update", "testcase", None, f"批量移动{updated}个用例")
     return {"message": f"已移动 {updated} 个用例", "updated": updated}
+
+
+@router.post("/reorder")
+def reorder(data: schemas.CaseReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """批量重排序用例（组内拖拽排序）"""
+    # 注意：此路由需在 /{case_id} 之前注册，否则会被 path 参数拦截
+    items = [{"id": it.id, "sort_order": it.sort_order} for it in data.items]
+    updated = crud.reorder_testcases(db, items)
+    return {"message": f"已更新 {updated} 个用例排序", "updated": updated}

@@ -57,13 +57,18 @@
           </template>
           <el-table
             :ref="(el: any) => setTableRef(g.group?.id ?? 'ungrouped', el)"
-            :data="sliceGroup(g.group?.id ?? 'ungrouped', g.apis)"
+            :data="g.apis"
             size="small"
             stripe
             row-key="id"
             @selection-change="(sel: any[]) => onSelectionChange(g.group?.id ?? 'ungrouped', sel)"
           >
             <el-table-column type="selection" width="42" />
+            <el-table-column width="36" align="center">
+              <template #default>
+                <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+              </template>
+            </el-table-column>
             <el-table-column label="名称" prop="name" min-width="140" />
             <el-table-column label="编码" prop="code" width="160" />
             <el-table-column label="方法" prop="method" width="80">
@@ -91,17 +96,6 @@
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="g.apis.length > groupPageSize" class="pagination-wrap">
-            <el-pagination
-              :current-page="getGroupPage(g.group?.id ?? 'ungrouped')"
-              :page-size="groupPageSize"
-              :total="g.apis.length"
-              layout="prev, pager, next"
-              background
-              small
-              @current-change="(p: number) => setGroupPage(g.group?.id ?? 'ungrouped', p)"
-            />
-          </div>
         </el-collapse-item>
       </el-collapse>
       <el-empty v-if="!loading && !apis.length" description="暂无接口">
@@ -120,20 +114,26 @@
           <el-input v-model="newGroupName" placeholder="新分组名称" style="flex: 1" @keyup.enter="onAddGroup" />
           <el-button type="primary" @click="onAddGroup">添加</el-button>
         </div>
-        <el-table :data="groups" size="small" border style="margin-top: 12px">
-          <el-table-column label="分组名称" prop="name" />
-          <el-table-column label="排序" width="100">
-            <template #default="{ row }">
-              <el-input-number v-model="row.sort_order" size="small" :min="0" controls-position="right" @change="onGroupSortChange(row)" />
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="120">
-            <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="onRenameGroup(row)">重命名</el-button>
-              <el-button link type="danger" size="small" @click="onDeleteGroup(row)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+        <div class="group-drag-tip">拖拽行可调整分组顺序，松开自动保存</div>
+        <draggable
+          v-model="groups"
+          item-key="id"
+          handle=".group-drag-handle"
+          animation="200"
+          class="group-drag-list"
+          @end="onGroupDragEnd"
+        >
+          <template #item="{ element }">
+            <div class="group-drag-row">
+              <el-icon class="group-drag-handle" title="拖拽排序"><Rank /></el-icon>
+              <span class="group-drag-name">{{ element.name }}</span>
+              <div class="group-drag-actions">
+                <el-button link type="primary" size="small" @click="onRenameGroup(element)">重命名</el-button>
+                <el-button link type="danger" size="small" @click="onDeleteGroup(element)">删除</el-button>
+              </div>
+            </div>
+          </template>
+        </draggable>
       </div>
     </el-dialog>
 
@@ -187,14 +187,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import draggable from 'vuedraggable'
+import Sortable from 'sortablejs'
 import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUser } from '@/api'
 
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
+import { Rank } from '@element-plus/icons-vue'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
 
@@ -252,24 +255,66 @@ let currentSelectGroupId: string | number | null = null
 let isClearing = false
 const selectedApiIds = ref<number[]>([])
 
-// ===== 分组内分页 =====
-const groupPages = ref<Record<string | number, number>>({})
-const groupPageSize = ref(10)
-function getGroupPage(id: string | number) {
-  return groupPages.value[id] ?? 1
-}
-function setGroupPage(id: string | number, p: number) {
-  groupPages.value[id] = p
-}
-function sliceGroup(id: string | number, arr: ApiDef[]) {
-  const p = getGroupPage(id)
-  const start = (p - 1) * groupPageSize.value
-  return arr.slice(start, start + groupPageSize.value)
-}
+// ===== 组内拖拽排序（SortableJS 绑定 el-table tbody）=====
+const sortableInstances = new Map<string | number, any>()
 
 function setTableRef(groupId: string | number, el: any) {
-  if (el) tableRefs.set(groupId, el)
-  else tableRefs.delete(groupId)
+  if (el) {
+    tableRefs.set(groupId, el)
+    // 初始化 SortableJS 行拖拽
+    nextTick(() => {
+      const tbody = el.$el?.querySelector?.('.el-table__body-wrapper tbody')
+      if (!tbody) return
+      // 已初始化则先销毁，避免重复
+      const old = sortableInstances.get(groupId)
+      if (old) old.destroy()
+      const inst = Sortable.create(tbody, {
+        handle: '.drag-handle',
+        animation: 200,
+        ghostClass: 'sortable-ghost',
+        onEnd: (evt: any) => onApiRowDragEnd(groupId, evt.oldIndex, evt.newIndex),
+      })
+      sortableInstances.set(groupId, inst)
+    })
+  } else {
+    tableRefs.delete(groupId)
+    const old = sortableInstances.get(groupId)
+    if (old) { old.destroy(); sortableInstances.delete(groupId) }
+  }
+}
+
+async function onApiRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
+  if (oldIndex === newIndex) return
+  // 找到该分组的接口列表
+  const groupItem = groupedApis.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
+  if (!groupItem) return
+  const list = groupItem.apis
+  // SortableJS 已移动 DOM，但 el-table 数据未变，手动调整数组顺序
+  const moved = list.splice(oldIndex, 1)[0]
+  list.splice(newIndex, 0, moved)
+  // 构造 reorder 请求：用新顺序的 index 作为 sort_order
+  const items = list.map((a, i) => ({ id: a.id, sort_order: i }))
+  try {
+    await apiApi.reorder(items)
+    ElMessage.success('排序已保存')
+    // 同步本地 apis 数组的 sort_order
+    list.forEach((a, i) => { a.sort_order = i })
+  } catch (e: any) {
+    ElMessage.error(e.message || '排序保存失败')
+    await loadApis()
+  }
+}
+
+async function onGroupDragEnd() {
+  // 分组拖拽后，groups 数组顺序已变，批量更新 sort_order
+  const items = groups.value.map((g, i) => ({ id: g.id, sort_order: i }))
+  try {
+    await Promise.all(items.map(it => apiGroupApi.update(it.id, { sort_order: it.sort_order })))
+    ElMessage.success('分组顺序已保存')
+  } catch (e: any) {
+    ElMessage.error(e.message || '分组排序保存失败')
+    await loadGroups()
+  }
 }
 
 function onSelectionChange(groupId: string | number, selection: ApiDef[]) {
@@ -349,7 +394,6 @@ async function loadApis() {
   loading.value = true
   try {
     apis.value = await apiApi.list(currentProjectId.value, filterCreator.value ?? undefined, filterUpdater.value ?? undefined)
-    groupPages.value = {}
   } finally {
     loading.value = false
   }
@@ -425,15 +469,6 @@ async function onRenameGroup(row: ApiGroup) {
     }
   } catch (e) {
     // cancel
-  }
-}
-
-async function onGroupSortChange(row: ApiGroup) {
-  try {
-    await apiGroupApi.update(row.id, { sort_order: row.sort_order })
-    await loadGroups()
-  } catch (e: any) {
-    ElMessage.error(e.message || '排序失败')
   }
 }
 
@@ -548,5 +583,52 @@ watch(currentProjectId, () => {
   flex-direction: column;
   gap: 10px;
   align-items: center;
+}
+.drag-handle {
+  cursor: grab;
+  color: var(--app-text-muted);
+  font-size: 16px;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.sortable-ghost {
+  opacity: 0.4;
+  background: var(--app-active) !important;
+}
+.group-drag-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 12px 0 8px;
+}
+.group-drag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.group-drag-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--app-card-solid);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+}
+.group-drag-handle {
+  cursor: grab;
+  color: var(--app-text-muted);
+}
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+.group-drag-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--app-text);
+}
+.group-drag-actions {
+  display: flex;
+  gap: 4px;
 }
 </style>

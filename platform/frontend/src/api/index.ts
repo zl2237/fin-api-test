@@ -80,7 +80,7 @@ export interface ApiDef {
   id: number; project_id: number; group_id?: number | null; name: string; code: string; category?: string
   method: string; path: string; description?: string
   request_template: Record<string, any>; headers_template: Record<string, any>
-  fields: ApiField[]; created_at?: string
+  fields: ApiField[]; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -94,7 +94,7 @@ export interface NodeConfig {
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
   dag_config: { nodes: any[]; edges: any[] }
-  node_configs: NodeConfig[]; created_at?: string; updated_at?: string
+  node_configs: NodeConfig[]; sort_order?: number; created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -203,8 +203,15 @@ export const apiApi = {
   copy: (id: number) => http.post<ApiDef>(`/apis/${id}/copy`).then((r) => r.data),
   batchMove: (apiIds: number[], groupId: number | null) =>
     http.post<{ message: string; updated: number }>('/apis/batch-move', { api_ids: apiIds, group_id: groupId }).then((r) => r.data),
+  reorder: (items: { id: number; sort_order: number }[]) =>
+    http.post<{ message: string; updated: number }>('/apis/reorder', { items }).then((r) => r.data),
   importSpec: (projectId: number, spec: Record<string, any>, groupId?: number | null) =>
     http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import', { project_id: projectId, group_id: groupId ?? null, spec }).then((r) => r.data),
+  importFields: (apiId: number, method: string, path: string, spec: Record<string, any>) =>
+    http.post<{
+      matched: boolean; method: string; path: string; operation_summary: string | null
+      fields: ApiField[]
+    }>(`/apis/${apiId}/import-fields`, { method, path, spec }).then((r) => r.data),
   debug: (apiId: number, envId: number, bodyOverride?: Record<string, any>) =>
     http.post<{
       api_id: number; api_name: string; method: string; path: string
@@ -232,6 +239,8 @@ export const caseApi = {
   copy: (id: number) => http.post<TestCase>(`/testcases/${id}/copy`).then((r) => r.data),
   batchMove: (caseIds: number[], groupId: number | null) =>
     http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
+  reorder: (items: { id: number; sort_order: number }[]) =>
+    http.post<{ message: string; updated: number }>('/testcases/reorder', { items }).then((r) => r.data),
   execute: (caseId: number, envId: number) =>
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`, { case_id: caseId, env_id: envId }).then((r) => r.data),
   batchExecute: (caseIds: number[], envId: number) =>

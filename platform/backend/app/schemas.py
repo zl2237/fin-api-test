@@ -209,11 +209,49 @@ class ApiBatchMove(BaseModel):
     group_id: Optional[int] = None
 
 
+class ApiReorderItem(BaseModel):
+    """重排序单项：接口ID + 新的 sort_order"""
+    id: int
+    sort_order: int
+
+
+class ApiReorderRequest(BaseModel):
+    """批量重排序接口（组内拖拽排序）"""
+    items: List[ApiReorderItem]
+
+
+class CaseReorderItem(BaseModel):
+    id: int
+    sort_order: int
+
+
+class CaseReorderRequest(BaseModel):
+    """批量重排序用例（组内拖拽排序）"""
+    items: List[CaseReorderItem]
+
+
 class ApiImportRequest(BaseModel):
     """Swagger/OpenAPI 接口导入请求"""
     project_id: int
     group_id: Optional[int] = None
     spec: Dict[str, Any]  # 完整的 Swagger/OpenAPI JSON
+
+
+class ApiImportFieldsRequest(BaseModel):
+    """用 Swagger 覆盖指定接口的字段：只解析返回字段列表，不落库。
+    前端拿到字段后展示新旧对比，用户确认后再调 PUT /apis/{id} 覆盖。"""
+    method: str  # 目标接口方法（GET/POST/...），用于定位 spec 中对应 operation
+    path: str  # 目标接口路径，用于定位 spec 中对应 operation
+    spec: Dict[str, Any]  # 完整的 Swagger/OpenAPI JSON
+
+
+class ApiImportFieldsResponse(BaseModel):
+    """Swagger 解析后的字段列表 + 操作定位信息"""
+    matched: bool  # spec 中是否找到 method+path 对应的 operation
+    method: str
+    path: str
+    operation_summary: Optional[str] = None  # operation 的 summary/operationId，便于确认匹配
+    fields: List[ApiFieldIn] = []
 
 
 class ApiDebugRequest(BaseModel):
