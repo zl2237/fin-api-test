@@ -136,6 +136,15 @@ def batch_move(data: schemas.ApiBatchMove, db: Session = Depends(get_db)):
     return {"message": f"已移动 {updated} 个接口", "updated": updated}
 
 
+@router.post("/reorder")
+def reorder(data: schemas.ApiReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """批量重排序接口（组内拖拽排序）"""
+    # 注意：此路由需在 /{api_id} 之前注册，否则会被 path 参数拦截
+    items = [{"id": it.id, "sort_order": it.sort_order} for it in data.items]
+    updated = crud.reorder_apis(db, items)
+    return {"message": f"已更新 {updated} 个接口排序", "updated": updated}
+
+
 @router.post("/import")
 def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """从 Swagger/OpenAPI JSON 导入接口定义，自动生成字段"""
@@ -185,6 +194,64 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
         "imported": imported,
         "skipped": skipped,
     }
+
+
+@router.post("/{api_id}/import-fields", response_model=schemas.ApiImportFieldsResponse)
+def import_fields_from_swagger(
+    api_id: int,
+    data: schemas.ApiImportFieldsRequest,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """用 Swagger 覆盖指定接口的字段：只解析返回字段列表，不落库。
+    前端拿到字段后展示新旧对比，用户确认后再调 PUT /apis/{id} 覆盖。"""
+    api = crud.get_api(db, api_id)
+    if not api:
+        raise HTTPException(404, "接口不存在")
+
+    spec = data.spec or {}
+    is_v3 = "openapi" in spec
+    paths = spec.get("paths", {}) or {}
+
+    # 用 method + path 定位 spec 中的 operation（支持大小写、前导斜杠差异）
+    target_method = (data.method or api.method).upper()
+    target_path = (data.path or api.path).lstrip("/")
+    matched_path = None
+    matched_method = None
+    matched_info = None
+    for p, methods in paths.items():
+        if not isinstance(methods, dict):
+            continue
+        p_norm = p.lstrip("/")
+        if p_norm != target_path:
+            continue
+        for m, info in methods.items():
+            if m.upper() == target_method:
+                matched_path = p
+                matched_method = m.upper()
+                matched_info = info
+                break
+        if matched_info:
+            break
+
+    if not matched_info or not isinstance(matched_info, dict):
+        return schemas.ApiImportFieldsResponse(
+            matched=False,
+            method=target_method,
+            path=data.path or api.path,
+            operation_summary=None,
+            fields=[],
+        )
+
+    fields = _extract_fields_from_spec(matched_info, spec, is_v3)
+    summary = matched_info.get("summary") or matched_info.get("operationId") or matched_path
+    return schemas.ApiImportFieldsResponse(
+        matched=True,
+        method=matched_method,
+        path=matched_path,
+        operation_summary=summary,
+        fields=fields,
+    )
 
 
 @router.post("/{api_id}/debug")

@@ -24,7 +24,7 @@ from jsonpath_ng import parse as jsonpath_parse
 from .. import path_setup  # noqa: F401
 from .. import models
 from .context import ExecutionContext
-from .preprocessor import PreProcessor
+from .preprocessor import PreProcessor, get_nested_value, set_nested_value
 from .extractor import Extractor
 from .assertion_engine import AssertionEngine
 
@@ -222,6 +222,97 @@ class DagExecutor:
             cur = cur[k]
         cur[keys[-1]] = value
 
+    def _apply_field_types(self, body: Dict[str, Any], api: models.ApiDefinition) -> Dict[str, Any]:
+        """按 ApiField.field_type 强转标量值。
+
+        解决表达式求值后类型丢失的问题：
+        - 标量字段：${order_id} 从响应提取为 int，但字段定义为 string 时应转字符串
+          （否则下游接口用字符串方式处理 order_id 时会出错，如 orderNotice 构造 IN() 集合失败）
+        - array 字段：${xxx} 经 _coerce_json_strings 后元素变 int，但字段定义是字符串数组时
+          应转回字符串数组（如 order_fee_real_ids 期望 ["123"] 而非 [123]）
+        object 字段不处理（结构复杂，保留求值后的原生类型）。
+        """
+        fields = getattr(api, "fields", None) or []
+        if not fields:
+            return body
+        for f in fields:
+            if not f.key:
+                continue
+            val = get_nested_value(body, f.key)
+            if val is None:
+                continue
+            if f.field_type == "array" and isinstance(val, list):
+                # 从 default_value 推断元素类型，强转每个元素
+                elem_type = self._infer_array_elem_type(f.default_value)
+                if elem_type:
+                    new_list = []
+                    for v in val:
+                        converted = self._coerce_scalar(v, elem_type)
+                        new_list.append(converted if converted is not None else v)
+                    set_nested_value(body, f.key, new_list)
+                continue
+            if f.field_type == "object":
+                continue
+            converted = self._coerce_scalar(val, f.field_type)
+            if converted is not None:
+                set_nested_value(body, f.key, converted)
+        return body
+
+    @staticmethod
+    def _infer_array_elem_type(default_value: Optional[str]) -> Optional[str]:
+        """从 array 字段的 default_value 推断元素标量类型。
+
+        default_value 形如 '["343928144446619648"]' → string；
+        '[1, 2, 3]' → int；'[true, false]' → bool。
+        空数组 / 嵌套结构（元素为 dict/list）返回 None，表示不处理。
+        """
+        if not default_value:
+            return None
+        try:
+            import json
+            arr = json.loads(default_value)
+        except Exception:
+            return None
+        if not isinstance(arr, list) or not arr:
+            return None
+        first = arr[0]
+        if isinstance(first, bool):
+            return "bool"
+        if isinstance(first, int):
+            return "int"
+        if isinstance(first, str):
+            return "string"
+        # 元素是 dict/list 等嵌套结构，不处理
+        return None
+
+    @staticmethod
+    def _coerce_scalar(val: Any, field_type: str) -> Any:
+        """按字段类型强转标量值，转换失败返回 None 表示不修改原值"""
+        if field_type == "string":
+            if isinstance(val, str):
+                return val
+            # 布尔值转小写字符串（与 _parse_field_value 的处理保持一致）
+            if isinstance(val, bool):
+                return "true" if val else "false"
+            return str(val)
+        if field_type == "int":
+            if isinstance(val, bool):
+                return 1 if val else 0
+            if isinstance(val, int):
+                return val
+            try:
+                # 兼容 "123" / "123.0" / 123.0
+                return int(float(val))
+            except (ValueError, TypeError):
+                return None
+        if field_type == "bool":
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.lower() in ("true", "1", "yes")
+            return bool(val)
+        return val
+
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict) -> Tuple[int, Any, Optional[str]]:
         """返回 (status_code, response_body, error_msg)"""
@@ -390,6 +481,9 @@ class DagExecutor:
         # array/object 字段经表达式求值后仍是字符串（如 "[${id}]" → "[123]"），
         # 转回原生 JSON 类型，使接口收到的是列表/对象而非字符串
         body = self._coerce_json_strings(body)
+        # 按接口字段定义强转标量类型，避免表达式求值后类型丢失
+        # （如 ${order_id} 提取为 int，但字段定义为 string 时应转字符串发送）
+        body = self._apply_field_types(body, api)
         # headers 中支持表达式
         for k, v in list(headers.items()):
             if isinstance(v, str) and "${" in v:

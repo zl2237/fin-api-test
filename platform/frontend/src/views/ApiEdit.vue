@@ -8,6 +8,7 @@
       <span class="edit-title">{{ isEdit ? '编辑接口' : '新建接口' }}</span>
       <div class="header-right">
         <span v-if="dirty" class="dirty-tip">有未保存改动</span>
+        <el-button v-if="isEdit" @click="showImportFieldsDialog = true">导入 Swagger 覆盖字段</el-button>
         <el-button v-if="isEdit" type="success" :loading="debugging" @click="openDebug">调试</el-button>
         <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
       </div>
@@ -60,6 +61,88 @@
         </el-tab-pane>
       </el-tabs>
       <el-empty v-else description="选择环境后点「发送请求」" :image-size="60" />
+    </el-dialog>
+
+    <!-- 导入 Swagger 覆盖字段弹窗 -->
+    <el-dialog v-model="showImportFieldsDialog" title="导入 Swagger 覆盖字段" width="900px" :close-on-click-modal="false">
+      <div class="import-fields-body">
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
+          粘贴最新 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位 operation，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
+        </el-alert>
+        <el-form label-width="90px">
+          <el-form-item label="定位依据">
+            <span class="locate-info">{{ formData.method }} {{ formData.path }}</span>
+          </el-form-item>
+          <el-form-item label="Swagger JSON">
+            <el-input
+              v-model="importFieldsSpecText"
+              type="textarea"
+              :rows="10"
+              placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
+            />
+          </el-form-item>
+        </el-form>
+
+        <!-- 解析结果：新旧字段对比 -->
+        <div v-if="importFieldsResult" class="fields-compare">
+          <div v-if="!importFieldsResult.matched" class="compare-empty">
+            <el-alert type="warning" :closable="false" show-icon>
+              未在 Swagger 中找到 {{ formData.method }} {{ formData.path }} 对应的接口，请检查 path 是否一致。
+            </el-alert>
+          </div>
+          <template v-else>
+            <div class="compare-header">
+              <span class="compare-title">
+                匹配到：{{ importFieldsResult.method }} {{ importFieldsResult.path }}
+                <el-tag size="small" type="info" effect="plain" round style="margin-left: 8px">
+                  {{ importFieldsResult.operation_summary }}
+                </el-tag>
+              </span>
+              <span class="compare-stat">
+                新 {{ newFieldKeys.length }} 个，旧 {{ formData.fields.length }} 个，
+                新增 {{ addedFieldKeys.length }}，删除 {{ removedFieldKeys.length }}，更新 {{ updatedFieldKeys.length }}
+              </span>
+            </div>
+            <el-table :data="fieldCompareRows" size="small" border max-height="360">
+              <el-table-column label="字段路径" min-width="180">
+                <template #default="{ row }">
+                  <span :class="{ 'field-added': row.status === 'added', 'field-removed': row.status === 'removed' }">
+                    {{ row.key }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="compareTagType(row.status)" effect="plain" round>
+                    {{ compareStatusLabel(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="新类型" width="90">
+                <template #default="{ row }">{{ row.new_type || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="旧类型" width="90">
+                <template #default="{ row }">{{ row.old_type || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="新默认值" min-width="150">
+                <template #default="{ row }">{{ row.new_default || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="旧默认值" min-width="150">
+                <template #default="{ row }">{{ row.old_default || '—' }}</template>
+              </el-table-column>
+            </el-table>
+          </template>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showImportFieldsDialog = false">取消</el-button>
+        <el-button :loading="importFieldsLoading" type="primary" @click="onParseFields">解析</el-button>
+        <el-button
+          v-if="importFieldsResult?.matched"
+          type="success"
+          @click="onApplyFields"
+        >覆盖字段（{{ newFieldKeys.length }} 个）</el-button>
+      </template>
     </el-dialog>
 
     <!-- 主体：左右布局 -->
@@ -135,6 +218,126 @@ const debugging = ref(false)
 const debugEnvId = ref<number | null>(null)
 const debugResult = ref<any>(null)
 const debugTab = ref('request')
+
+// ===== 导入 Swagger 覆盖字段 =====
+const showImportFieldsDialog = ref(false)
+const importFieldsLoading = ref(false)
+const importFieldsSpecText = ref('')
+const importFieldsResult = ref<{
+  matched: boolean; method: string; path: string; operation_summary: string | null
+  fields: ApiField[]
+} | null>(null)
+
+// 新字段 key 集合
+const newFieldKeys = computed(() => (importFieldsResult.value?.fields || []).map((f) => f.key))
+// 旧字段 key → 字段对象 映射
+const oldFieldMap = computed(() => {
+  const m = new Map<string, ApiField>()
+  formData.fields.forEach((f) => { if (f.key) m.set(f.key, f) })
+  return m
+})
+// 新增：新字段中有、旧字段中没有的 key
+const addedFieldKeys = computed(() =>
+  newFieldKeys.value.filter((k) => !oldFieldMap.value.has(k))
+)
+// 删除：旧字段中有、新字段中没有的 key
+const removedFieldKeys = computed(() =>
+  formData.fields.filter((f) => f.key && !newFieldKeys.value.includes(f.key)).map((f) => f.key)
+)
+// 更新：新旧都有但类型或默认值变化的 key
+const updatedFieldKeys = computed(() => {
+  const result: string[] = []
+  for (const nf of importFieldsResult.value?.fields || []) {
+    const of = oldFieldMap.value.get(nf.key)
+    if (of && (of.field_type !== nf.field_type || (of.default_value || '') !== (nf.default_value || ''))) {
+      result.push(nf.key)
+    }
+  }
+  return result
+})
+// 对比表格行：新增 + 删除 + 更新/不变，按新字段顺序排，删除的追加到末尾
+const fieldCompareRows = computed(() => {
+  const rows: any[] = []
+  const newKeys = new Set<string>()
+  for (const nf of importFieldsResult.value?.fields || []) {
+    newKeys.add(nf.key)
+    const of = oldFieldMap.value.get(nf.key)
+    let status: 'added' | 'removed' | 'updated' | 'same' = 'same'
+    if (!of) status = 'added'
+    else if (of.field_type !== nf.field_type || (of.default_value || '') !== (nf.default_value || '')) status = 'updated'
+    rows.push({
+      key: nf.key, status,
+      new_type: nf.field_type, old_type: of?.field_type || '',
+      new_default: nf.default_value || '', old_default: of?.default_value || '',
+    })
+  }
+  // 旧字段中已删除的追加
+  for (const f of formData.fields) {
+    if (f.key && !newKeys.has(f.key)) {
+      rows.push({
+        key: f.key, status: 'removed',
+        new_type: '', old_type: f.field_type,
+        new_default: '', old_default: f.default_value || '',
+      })
+    }
+  }
+  return rows
+})
+
+function compareTagType(status: string): 'success' | 'danger' | 'warning' | 'info' {
+  if (status === 'added') return 'success'
+  if (status === 'removed') return 'danger'
+  if (status === 'updated') return 'warning'
+  return 'info'
+}
+function compareStatusLabel(status: string): string {
+  if (status === 'added') return '新增'
+  if (status === 'removed') return '删除'
+  if (status === 'updated') return '更新'
+  return '不变'
+}
+
+async function onParseFields() {
+  if (!importFieldsSpecText.value.trim()) {
+    ElMessage.warning('请粘贴 Swagger JSON')
+    return
+  }
+  let spec: Record<string, any>
+  try {
+    spec = JSON.parse(importFieldsSpecText.value)
+  } catch (e: any) {
+    ElMessage.error('Swagger JSON 解析失败：' + e.message)
+    return
+  }
+  if (!spec.paths) {
+    ElMessage.error('未找到 paths 字段，请粘贴完整的 Swagger/OpenAPI JSON')
+    return
+  }
+  importFieldsLoading.value = true
+  try {
+    const res = await apiApi.importFields(formData.id!, formData.method, formData.path, spec)
+    importFieldsResult.value = res
+    if (!res.matched) {
+      ElMessage.warning(`未匹配到 ${formData.method} ${formData.path}，请确认路径一致`)
+    } else {
+      ElMessage.success(`解析成功：${res.fields.length} 个字段（新增 ${addedFieldKeys.value.length}，删除 ${removedFieldKeys.value.length}，更新 ${updatedFieldKeys.value.length}）`)
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '解析失败')
+  } finally {
+    importFieldsLoading.value = false
+  }
+}
+
+function onApplyFields() {
+  if (!importFieldsResult.value?.matched) return
+  const newFields = importFieldsResult.value.fields.map((f, i) => ({ ...f, sort_order: i }))
+  formData.fields = newFields
+  ElMessage.success(`已覆盖为 ${newFields.length} 个字段，请点顶部「保存」生效`)
+  showImportFieldsDialog.value = false
+  importFieldsResult.value = null
+  importFieldsSpecText.value = ''
+}
 
 function formatJson(v: any): string {
   try {
@@ -374,5 +577,44 @@ function onKeydown(e: KeyboardEvent) {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
+}
+.import-fields-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.locate-info {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--app-primary);
+  font-weight: 600;
+}
+.fields-compare {
+  margin-top: 12px;
+}
+.compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.compare-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.compare-stat {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.field-added {
+  color: var(--app-success);
+  font-weight: 600;
+}
+.field-removed {
+  color: var(--app-danger);
+  text-decoration: line-through;
+  font-weight: 600;
 }
 </style>
