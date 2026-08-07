@@ -183,7 +183,8 @@ function toggleLinkMode() {
   return linkMode.value
 }
 
-// 自动布局：按 DAG 拓扑分层排列，避免节点重叠
+// 自动布局：按 DAG 拓扑顺序（BFS）将节点填入网格，
+// 根据节点总数计算目标行列数，使布局宽高比接近 4:3，避免扁平或瘦长。
 function autoLayout() {
   const allNodes = getNodes.value
   const allEdges = getEdges.value
@@ -202,50 +203,50 @@ function autoLayout() {
     indeg.set(e.target, (indeg.get(e.target) || 0) + 1)
   }
 
-  // BFS 分层：入度为 0 的节点为第 0 层
-  const level = new Map<string, number>()
-  let frontier = allNodes.filter(n => (indeg.get(n.id) || 0) === 0).map(n => n.id)
-  frontier.forEach(id => level.set(id, 0))
-  let cur = 0
+  // BFS 拓扑排序：同层节点相邻，保证依赖节点在下方
+  const order: string[] = []
+  const indegCopy = new Map(indeg)
+  let frontier = allNodes.filter(n => (indegCopy.get(n.id) || 0) === 0).map(n => n.id)
   while (frontier.length) {
-    cur++
+    order.push(...frontier)
     const next: string[] = []
     for (const id of frontier) {
       for (const s of succ.get(id) || []) {
-        if (!level.has(s)) {
-          level.set(s, cur)
-          next.push(s)
-        }
+        indegCopy.set(s, indegCopy.get(s)! - 1)
+        if (indegCopy.get(s) === 0) next.push(s)
       }
     }
     frontier = next
   }
-  // 未分配层级的节点（成环或孤立）放到最后一层
+  // 未处理的（成环）追加到末尾
   for (const n of allNodes) {
-    if (!level.has(n.id)) level.set(n.id, cur)
+    if (!order.includes(n.id)) order.push(n.id)
   }
 
-  // 按层分组
-  const layers = new Map<number, string[]>()
-  for (const n of allNodes) {
-    const l = level.get(n.id) || 0
-    if (!layers.has(l)) layers.set(l, [])
-    layers.get(l)!.push(n.id)
-  }
+  // 网格布局：根据节点数计算目标行列数，使宽高比接近 4:3
+  // 节点间距 X=260 > Y=120，所以需要更多行才能让宽高均衡
+  // 目标：cols × 260 / (rows × 120) ≈ 4/3 → cols/rows ≈ 0.62 → rows ≈ sqrt(N/0.62) ≈ sqrt(N) × 1.27
+  const N = order.length
+  const targetRows = Math.max(2, Math.min(10, Math.round(Math.sqrt(N) * 1.27)))
+  const cols = Math.max(1, Math.ceil(N / targetRows))
 
-  // 计算位置：同层水平居中排列，层间垂直间距
-  const LAYER_GAP_Y = 120
   const NODE_GAP_X = 260
+  const NODE_GAP_Y = 120
   const START_X = 80
   const START_Y = 60
+  const POS_MAP = new Map<string, { x: number; y: number }>()
+
+  order.forEach((id, idx) => {
+    const row = Math.floor(idx / cols)
+    const col = idx % cols
+    const x = START_X + col * NODE_GAP_X
+    const y = START_Y + row * NODE_GAP_Y
+    POS_MAP.set(id, { x, y })
+  })
+
   const newNodes = allNodes.map(n => {
-    const l = level.get(n.id) || 0
-    const layer = layers.get(l) || []
-    const idx = layer.indexOf(n.id)
-    const layerWidth = Math.max(0, (layer.length - 1) * NODE_GAP_X)
-    const x = START_X + idx * NODE_GAP_X - layerWidth / 2
-    const y = START_Y + l * LAYER_GAP_Y
-    return { ...n, position: { x, y } }
+    const pos = POS_MAP.get(n.id) || { x: START_X, y: START_Y }
+    return { ...n, position: { x: pos.x, y: pos.y } }
   })
 
   syncing.value = true
@@ -258,16 +259,18 @@ function autoLayout() {
 defineExpose({ addNode, emitChange, toggleLinkMode, autoLayout, linkMode })
 
 // props 变化（如加载用例）→ 同步到 VueFlow 内部状态
+// 仅在节点数量变化（加载用例、增删节点）时同步并 fitView，
+// 节点位置变化（拖拽、点击触发 update:nodes 回写）不重置画面比例。
 watch(
-  () => props.nodes,
-  (newNodes) => {
-    if (!newNodes) return
+  () => props.nodes?.length,
+  (newLen, oldLen) => {
+    if (!props.nodes || newLen === oldLen) return
     syncing.value = true
-    setNodes(newNodes.map((n: any) => ({ ...n })))
+    setNodes(props.nodes.map((n: any) => ({ ...n })))
     syncing.value = false
     setTimeout(() => fitView(), 50)
   },
-  { immediate: true, deep: true },
+  { immediate: true },
 )
 
 watch(
