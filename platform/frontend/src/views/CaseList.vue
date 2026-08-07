@@ -55,7 +55,7 @@
           </template>
           <el-table
             :ref="(el: any) => setTableRef(g.group?.id ?? 'ungrouped', el)"
-            :data="g.cases"
+            :data="pagedCases(g.group?.id ?? 'ungrouped')"
             size="small"
             stripe
             row-key="id"
@@ -91,6 +91,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div v-if="g.cases.length > pageSize" class="pagination-wrap">
+            <el-pagination
+              small
+              :current-page="pageMap[String(g.group?.id ?? 'ungrouped')] || 1"
+              :page-size="pageSize"
+              :total="g.cases.length"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next"
+              @current-change="(p: number) => onPageChange(g.group?.id ?? 'ungrouped', p)"
+              @size-change="onPageSizeChange"
+            />
+          </div>
         </el-collapse-item>
       </el-collapse>
       <el-empty v-if="!loading && !list.length" description="暂无用例">
@@ -170,7 +182,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
@@ -178,6 +190,7 @@ import Sortable from 'sortablejs'
 import { Rank } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import { useGroupMemory } from '@/composables/useGroupMemory'
 
 const store = useAppStore()
 const router = useRouter()
@@ -188,7 +201,16 @@ const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
 const loading = ref(false)
 const keyword = ref('')
-const activeGroups = ref<(number | string)[]>([])
+
+// 分组展开/折叠记忆（按项目持久化）
+const { activeNames: activeGroups, applyDefault: applyDefaultExpand } = useGroupMemory(
+  toRef(store, 'currentProjectId'),
+  'caseList',
+)
+
+// 分组内分页：每分组独立维护当前页码，全局共享每页条数
+const pageSize = ref(10)
+const pageMap = ref<Record<string, number>>({})
 const dialogVisible = ref(false)
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
@@ -234,14 +256,26 @@ async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newI
   if (oldIndex === newIndex) return
   const groupItem = groupedCases.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
   if (!groupItem) return
-  const arr = groupItem.cases
-  const moved = arr.splice(oldIndex, 1)[0]
-  arr.splice(newIndex, 0, moved)
-  const items = arr.map((c, i) => ({ id: c.id, sort_order: i }))
+  const fullList = groupItem.cases
+  const page = pageMap.value[String(groupId)] || 1
+  const start = (page - 1) * pageSize.value
+  // 当前页在全量列表中的切片（拷贝，避免直接修改全量数组）
+  const pageSlice = fullList.slice(start, start + pageSize.value)
+  // 取出当前页的 sort_order 值并排序，用于重新分配（不影响其他页的排序）
+  const sortOrders = pageSlice.map(c => c.sort_order ?? 0).sort((a, b) => a - b)
+  // 在当前页切片内移动
+  const moved = pageSlice.splice(oldIndex, 1)[0]
+  pageSlice.splice(newIndex, 0, moved)
+  // 用排序后的原 sort_order 值重新分配，保证当前页内顺序正确且不影响其他页
+  const items = pageSlice.map((c, i) => ({ id: c.id, sort_order: sortOrders[i] }))
   try {
     await caseApi.reorder(items)
     ElMessage.success('排序已保存')
-    arr.forEach((c, i) => { c.sort_order = i })
+    pageSlice.forEach((c, i) => { c.sort_order = sortOrders[i] })
+    // 同步全量列表：当前页前的 + 当前页（新顺序）+ 当前页后的
+    const before = fullList.slice(0, start)
+    const after = fullList.slice(start + pageSlice.length)
+    fullList.splice(0, fullList.length, ...before, ...pageSlice, ...after)
   } catch (e: any) {
     ElMessage.error(e.message || '排序保存失败')
     await load()
@@ -318,6 +352,25 @@ const groupedCases = computed(() => {
   return result
 })
 
+/** 返回某分组当前页的数据切片 */
+function pagedCases(groupId: string | number): TestCase[] {
+  const groupItem = groupedCases.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
+  if (!groupItem) return []
+  const page = pageMap.value[String(groupId)] || 1
+  const start = (page - 1) * pageSize.value
+  return groupItem.cases.slice(start, start + pageSize.value)
+}
+
+function onPageChange(groupId: string | number, page: number) {
+  pageMap.value[String(groupId)] = page
+}
+
+/** 切换每页条数时，重置所有分组页码到第 1 页（避免越界） */
+function onPageSizeChange(size: number) {
+  pageSize.value = size
+  pageMap.value = {}
+}
+
 async function load() {
   if (!store.currentProjectId) return
   loading.value = true
@@ -341,10 +394,14 @@ async function loadUsers() {
 async function loadGroups() {
   if (!store.currentProjectId) return
   groups.value = await caseGroupApi.list(store.currentProjectId)
-  activeGroups.value = groups.value.map(g => g.id)
+  // 无记忆时默认全部展开；有记忆则恢复上次展开的分组
+  const allIds: (number | string)[] = groups.value.map(g => g.id)
   if (list.value.some(c => !c.group_id)) {
-    activeGroups.value.push('ungrouped')
+    allIds.push('ungrouped')
   }
+  applyDefaultExpand(allIds)
+  // 重置分页
+  pageMap.value = {}
 }
 
 function openCreate() {

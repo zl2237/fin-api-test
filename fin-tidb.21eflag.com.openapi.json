@@ -7,9 +7,9 @@
   },
   "tags": [],
   "paths": {
-    "/api/finance/receiveAccount/orderReceiveAccountEdit": {
+    "/api/finance/receiveAccount/accountConfirm": {
       "post": {
-        "summary": "/api/finance/receiveAccount/orderReceiveAccountEdit",
+        "summary": "/api/finance/receiveAccount/accountConfirm",
         "deprecated": false,
         "description": "",
         "tags": [],
@@ -59,7 +59,7 @@
             "in": "header",
             "description": "",
             "required": false,
-            "example": "3298",
+            "example": "1361",
             "schema": {
               "type": "string"
             }
@@ -181,473 +181,158 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "account_simple_name": {
-                    "type": "null"
-                  },
-                  "account_type": {
-                    "type": "string"
-                  },
-                  "customer_id": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "put_settle_object_id": {
-                    "type": "string"
-                  },
-                  "main_id": {
-                    "type": "string"
-                  },
-                  "pay_settle_object_id": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "customer_name": {
-                    "type": "null"
-                  },
-                  "put_settle_object": {
-                    "type": "string"
-                  },
-                  "main_name_cn": {
-                    "type": "null"
-                  },
-                  "pay_settle_object": {
-                    "type": "string"
-                  },
-                  "selection_time": {
-                    "type": "integer"
-                  },
-                  "action": {
-                    "type": "string"
-                  },
-                  "operate_type": {
+                  "confirm_type": {
                     "type": "integer"
                   },
                   "receive_account_id": {
-                    "type": "null"
-                  },
-                  "main_name": {
                     "type": "string"
                   },
-                  "select_list": {
+                  "confirm_list": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "order_id": {
-                          "type": "string"
-                        },
-                        "order_no": {
-                          "type": "string"
-                        },
-                        "bl_no": {
-                          "type": "string"
-                        },
-                        "customer_id": {
-                          "type": "string"
-                        },
-                        "customer_name": {
-                          "type": "string"
-                        },
-                        "customer_main_id": {
-                          "type": "string"
-                        },
-                        "customer_main_name": {
-                          "type": "string"
-                        },
-                        "business_main_id": {
-                          "type": "string"
-                        },
-                        "business_main_name": {
-                          "type": "string"
-                        },
-                        "policy_type": {
-                          "type": "string"
-                        },
-                        "trade_term": {
-                          "type": "string"
-                        },
-                        "customer_period": {
-                          "type": "string"
-                        },
-                        "customer_put_date": {
-                          "type": "string"
-                        },
-                        "atd": {
-                          "type": "string"
-                        },
-                        "etd": {
-                          "type": "string"
-                        },
-                        "create_time": {
-                          "type": "string"
-                        },
-                        "finance_date": {
-                          "type": "string"
-                        },
-                        "fund_name": {
-                          "type": "string"
-                        },
-                        "ship_name": {
-                          "type": "string"
-                        },
-                        "voy": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "type": "string"
-                        },
-                        "is_special_pay": {
-                          "type": "string"
-                        },
-                        "pay_status": {
-                          "type": "string"
-                        },
-                        "is_loan_before_invoice": {
-                          "type": "string"
-                        },
-                        "customer_order_sn": {
-                          "type": "string"
-                        },
-                        "order_sub_id": {
-                          "type": "string"
-                        },
-                        "order_sub_no": {
-                          "type": "string"
-                        },
                         "main_id": {
                           "type": "string"
                         },
                         "main_name": {
                           "type": "string"
                         },
-                        "service_project": {
+                        "symbol": {
                           "type": "string"
                         },
-                        "currency": {
+                        "settle_object_id": {
                           "type": "string"
                         },
-                        "amount_total": {
+                        "order_ids": {
                           "type": "string"
                         },
-                        "pay_settle_object_type": {
+                        "order_sub_ids": {
                           "type": "string"
                         },
-                        "put_settle_object_id": {
+                        "order_sub_types": {
                           "type": "string"
                         },
-                        "put_settle_object": {
+                        "unique_ids": {
                           "type": "string"
                         },
-                        "pay_settle_object": {
+                        "receive_account_no": {
                           "type": "string"
                         },
-                        "book_supplier_period": {
+                        "account_simple_name": {
                           "type": "string"
                         },
-                        "book_supplier_pay_date": {
+                        "symbol_name": {
                           "type": "string"
                         },
-                        "book_supplier_name": {
+                        "settle_object": {
                           "type": "string"
                         },
-                        "operable_amount": {
+                        "account_batch_name": {
                           "type": "string"
                         },
-                        "un_operable_amount": {
-                          "type": "string"
+                        "order_sub_type": {
+                          "type": "integer"
                         },
-                        "operable_flag": {
-                          "type": "string"
+                        "only_adjust_status": {
+                          "type": "integer"
                         },
-                        "policy_type_name": {
-                          "type": "string"
-                        },
-                        "order_sub_currency": {
-                          "type": "string"
-                        },
-                        "order_main_finance": {
-                          "type": "string"
-                        },
-                        "order_error_messages": {
-                          "type": "array",
-                          "items": {}
-                        },
-                        "order_error_message": {
-                          "type": "string"
-                        },
-                        "order_error_flag": {
-                          "type": "boolean"
-                        },
-                        "amount_list": {
+                        "real_amount_ids": {
                           "type": "array",
                           "items": {
-                            "type": "object",
-                            "properties": {
-                              "order_id": {
-                                "type": "string"
-                              },
-                              "order_no": {
-                                "type": "string"
-                              },
-                              "customer_name": {
-                                "type": "string"
-                              },
-                              "bl_no": {
-                                "type": "string"
-                              },
-                              "main_name": {
-                                "type": "string"
-                              },
-                              "order_sub_no": {
-                                "type": "string"
-                              },
-                              "order_sub_id": {
-                                "type": "string"
-                              },
-                              "order_fee_real_id": {
-                                "type": "string"
-                              },
-                              "fee_real_no": {
-                                "type": "string"
-                              },
-                              "fee_type": {
-                                "type": "string"
-                              },
-                              "service_project": {
-                                "type": "string"
-                              },
-                              "fee_real_name": {
-                                "type": "string"
-                              },
-                              "currency": {
-                                "type": "string"
-                              },
-                              "symbol": {
-                                "type": "string"
-                              },
-                              "real_amount": {
-                                "type": "string"
-                              },
-                              "supplier_id": {
-                                "type": "null"
-                              },
-                              "cost_no": {
-                                "type": "string"
-                              },
-                              "fee_status": {
-                                "type": "string"
-                              },
-                              "account_no": {
-                                "type": "string"
-                              },
-                              "pay_account_no": {
-                                "type": "string"
-                              },
-                              "account_status": {
-                                "type": "string"
-                              },
-                              "pay_account_status": {
-                                "type": "string"
-                              },
-                              "invoice_status": {
-                                "type": "string"
-                              },
-                              "receive_invoice_batch_no": {
-                                "type": "null"
-                              },
-                              "pay_invoice_batch_no": {
-                                "type": "null"
-                              },
-                              "receive_invoice_apply_no": {
-                                "type": "null"
-                              },
-                              "pay_invoice_apply_no": {
-                                "type": "null"
-                              },
-                              "put_settle_object_id": {
-                                "type": "string"
-                              },
-                              "put_settle_object": {
-                                "type": "string"
-                              },
-                              "pay_settle_object_id": {
-                                "type": "string"
-                              },
-                              "pay_settle_object": {
-                                "type": "string"
-                              },
-                              "writeoff_status": {
-                                "type": "string"
-                              },
-                              "un_writeoff_amount": {
-                                "type": "string"
-                              },
-                              "use_writeoff_amount": {
-                                "type": "string"
-                              },
-                              "writeoff_nos": {
-                                "type": "string"
-                              },
-                              "pay_form_no": {
-                                "type": "string"
-                              },
-                              "pay_demand_no": {
-                                "type": "string"
-                              },
-                              "amount_error_messages": {
-                                "type": "array",
-                                "items": {}
-                              },
-                              "amount_error_message": {
-                                "type": "string"
-                              },
-                              "amount_error_flag": {
-                                "type": "boolean"
-                              }
-                            }
+                            "type": "string"
                           }
+                        },
+                        "currency_list": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "_XID": {
+                          "type": "string"
                         }
-                      }
+                      },
+                      "required": [
+                        "main_id",
+                        "main_name",
+                        "symbol",
+                        "settle_object_id",
+                        "order_ids",
+                        "order_sub_ids",
+                        "order_sub_types",
+                        "unique_ids",
+                        "receive_account_no",
+                        "account_simple_name",
+                        "symbol_name",
+                        "settle_object",
+                        "account_batch_name",
+                        "order_sub_type",
+                        "only_adjust_status",
+                        "real_amount_ids",
+                        "currency_list",
+                        "_XID"
+                      ]
                     }
                   }
                 },
                 "required": [
-                  "account_simple_name",
-                  "account_type",
-                  "customer_id",
-                  "put_settle_object_id",
-                  "main_id",
-                  "pay_settle_object_id",
-                  "customer_name",
-                  "put_settle_object",
-                  "main_name_cn",
-                  "pay_settle_object",
-                  "selection_time",
-                  "action",
-                  "operate_type",
+                  "confirm_type",
                   "receive_account_id",
-                  "main_name",
-                  "select_list"
+                  "confirm_list"
                 ]
               },
               "example": {
-                "account_simple_name": null,
-                "account_type": "2",
-                "customer_id": [
-                  "343612351695552512"
-                ],
-                "put_settle_object_id": "343612355344596992",
-                "main_id": "3",
-                "pay_settle_object_id": [
-                  "1"
-                ],
-                "customer_name": null,
-                "put_settle_object": "青岛统济机电制造有限公司",
-                "main_name_cn": null,
-                "pay_settle_object": "青岛易航道物流科技有限公司",
-                "selection_time": 1786071558,
-                "action": "submit",
-                "operate_type": 1,
-                "receive_account_id": null,
-                "main_name": "青岛易汇联供应链管理有限公司",
-                "select_list": [
+                "confirm_type": 0,
+                "receive_account_id": "343992139136368640",
+                "confirm_list": [
                   {
-                    "order_id": "343949799311015936",
-                    "order_no": "YWDD20260807109963",
-                    "bl_no": "smoke20260807105341CZIM",
-                    "customer_id": "343612351695552512",
-                    "customer_name": "青岛统济机电制造有限公司",
-                    "customer_main_id": "1",
-                    "customer_main_name": "青岛易汇联供应链管理有限公司",
-                    "business_main_id": "1",
-                    "business_main_name": "青岛易航道物流科技有限公司",
-                    "policy_type": "JSZX",
-                    "trade_term": "CIF",
-                    "customer_period": "60",
-                    "customer_put_date": "1788969600",
-                    "atd": "1777996800",
-                    "etd": "1777996800",
-                    "create_time": "1786071222",
-                    "finance_date": "1782835200",
-                    "fund_name": "天津天食商业保理有限公司",
-                    "ship_name": "我是船名",
-                    "voy": "我是航次",
-                    "status": "2",
-                    "is_special_pay": "0",
-                    "pay_status": "0",
-                    "is_loan_before_invoice": "0",
-                    "customer_order_sn": "测试客户单号",
-                    "order_sub_id": "343949829212209152",
-                    "order_sub_no": "ZDD20260807021295",
+                    "main_id": "1",
+                    "main_name": "青岛易航道物流科技有限公司",
+                    "symbol": "1",
+                    "settle_object_id": "2",
+                    "order_ids": "343991988216922112",
+                    "order_sub_ids": "343992098623586304",
+                    "order_sub_types": "2",
+                    "unique_ids": "93923633-210c-4c65-a4ba-0f74d1a73529",
+                    "receive_account_no": "",
+                    "account_simple_name": "穿透道收联",
+                    "symbol_name": "应收",
+                    "settle_object": "青岛易汇联供应链管理有限公司",
+                    "account_batch_name": "青岛易航道物流科技有限公司+青岛易汇联供应链管理有限公司+26.05+USD270",
+                    "order_sub_type": 1,
+                    "only_adjust_status": 0,
+                    "real_amount_ids": [
+                      "343992114587109376"
+                    ],
+                    "currency_list": [
+                      "USD"
+                    ],
+                    "_XID": "row_2021"
+                  },
+                  {
                     "main_id": "3",
                     "main_name": "青岛易汇联供应链管理有限公司",
-                    "service_project": "booking_space",
-                    "currency": "USD",
-                    "amount_total": "300.00",
-                    "pay_settle_object_type": "0",
-                    "put_settle_object_id": "343612355344596992",
-                    "put_settle_object": "青岛统济机电制造有限公司",
-                    "pay_settle_object": "青岛易航道物流科技有限公司",
-                    "book_supplier_period": "30",
-                    "book_supplier_pay_date": "1787155200",
-                    "book_supplier_name": "芜湖长信科技股份有限公司",
-                    "operable_amount": "300.00",
-                    "un_operable_amount": "0.00",
-                    "operable_flag": "all",
-                    "policy_type_name": "结算业务",
-                    "order_sub_currency": "USD343949829212209152",
-                    "order_main_finance": "中国银行青岛宣化路支行+USD+216952145030",
-                    "order_error_messages": [],
-                    "order_error_message": "",
-                    "order_error_flag": false,
-                    "amount_list": [
-                      {
-                        "order_id": "343949799311015936",
-                        "order_no": "YWDD20260807109963",
-                        "customer_name": "青岛统济机电制造有限公司",
-                        "bl_no": "smoke20260807105341CZIM",
-                        "main_name": "青岛易汇联供应链管理有限公司",
-                        "order_sub_no": "ZDD20260807021295",
-                        "order_sub_id": "343949829212209152",
-                        "order_fee_real_id": "343949921855995904",
-                        "fee_real_no": "FY202608071320302",
-                        "fee_type": "0",
-                        "service_project": "booking_space",
-                        "fee_real_name": "海运费",
-                        "currency": "USD",
-                        "symbol": "1",
-                        "real_amount": "300.00",
-                        "supplier_id": null,
-                        "cost_no": "0001",
-                        "fee_status": "1",
-                        "account_no": "",
-                        "pay_account_no": "",
-                        "account_status": "0",
-                        "pay_account_status": "0",
-                        "invoice_status": "0",
-                        "receive_invoice_batch_no": null,
-                        "pay_invoice_batch_no": null,
-                        "receive_invoice_apply_no": null,
-                        "pay_invoice_apply_no": null,
-                        "put_settle_object_id": "343612355344596992",
-                        "put_settle_object": "青岛统济机电制造有限公司",
-                        "pay_settle_object_id": "1",
-                        "pay_settle_object": "青岛易航道物流科技有限公司",
-                        "writeoff_status": "1",
-                        "un_writeoff_amount": "300.00",
-                        "use_writeoff_amount": "0.00",
-                        "writeoff_nos": "",
-                        "pay_form_no": "",
-                        "pay_demand_no": "",
-                        "amount_error_messages": [],
-                        "amount_error_message": "",
-                        "amount_error_flag": false
-                      }
-                    ]
+                    "symbol": "0",
+                    "settle_object_id": "1",
+                    "order_ids": "343991988216922112",
+                    "order_sub_ids": "343992019510624256",
+                    "order_sub_types": "0",
+                    "unique_ids": "93923633-210c-4c65-a4ba-0f74d1a73529",
+                    "receive_account_no": "",
+                    "account_simple_name": "穿透联付道",
+                    "symbol_name": "应付",
+                    "settle_object": "青岛易航道物流科技有限公司",
+                    "account_batch_name": "青岛易汇联供应链管理有限公司+青岛易航道物流科技有限公司+26.05+USD270",
+                    "order_sub_type": 1,
+                    "only_adjust_status": 0,
+                    "real_amount_ids": [
+                      "343992114587108352"
+                    ],
+                    "currency_list": [
+                      "USD"
+                    ],
+                    "_XID": "row_2022"
                   }
                 ]
               }
@@ -669,19 +354,8 @@
                       "type": "string"
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {
-                        "receive_account_id": {
-                          "type": "string"
-                        },
-                        "receive_account_no": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "receive_account_id",
-                        "receive_account_no"
-                      ]
+                      "type": "array",
+                      "items": {}
                     },
                     "request_id": {
                       "type": "string"
@@ -697,11 +371,8 @@
                 "example": {
                   "code": 200,
                   "msg": "成功",
-                  "data": {
-                    "receive_account_id": "343952102873104384",
-                    "receive_account_no": "YSDZPC20260807004456"
-                  },
-                  "request_id": "0e9c14517cf259e66639b2e4c59081b7"
+                  "data": [],
+                  "request_id": "adb8d9b4be6ece114a2542f36a679c00"
                 }
               }
             }

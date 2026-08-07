@@ -57,7 +57,7 @@
           </template>
           <el-table
             :ref="(el: any) => setTableRef(g.group?.id ?? 'ungrouped', el)"
-            :data="g.apis"
+            :data="pagedApis(g.group?.id ?? 'ungrouped')"
             size="small"
             stripe
             row-key="id"
@@ -96,6 +96,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div v-if="g.apis.length > pageSize" class="pagination-wrap">
+            <el-pagination
+              small
+              :current-page="pageMap[String(g.group?.id ?? 'ungrouped')] || 1"
+              :page-size="pageSize"
+              :total="g.apis.length"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next"
+              @current-change="(p: number) => onPageChange(g.group?.id ?? 'ungrouped', p)"
+              @size-change="onPageSizeChange"
+            />
+          </div>
         </el-collapse-item>
       </el-collapse>
       <el-empty v-if="!loading && !apis.length" description="暂无接口">
@@ -198,6 +210,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { Rank } from '@element-plus/icons-vue'
+import { useGroupMemory } from '@/composables/useGroupMemory'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
 
@@ -209,7 +222,16 @@ const loading = ref(false)
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
 const keyword = ref('')
-const activeGroups = ref<(number | string)[]>([])
+
+// 分组展开/折叠记忆（按项目持久化）
+const { activeNames: activeGroups, applyDefault: applyDefaultExpand } = useGroupMemory(
+  currentProjectId,
+  'apiManage',
+)
+
+// 分组内分页：每分组独立维护当前页码，全局共享每页条数
+const pageSize = ref(10)
+const pageMap = ref<Record<string, number>>({})
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
 const batchMoveVisible = ref(false)
@@ -288,17 +310,26 @@ async function onApiRowDragEnd(groupId: string | number, oldIndex: number, newIn
   // 找到该分组的接口列表
   const groupItem = groupedApis.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
   if (!groupItem) return
-  const list = groupItem.apis
-  // SortableJS 已移动 DOM，但 el-table 数据未变，手动调整数组顺序
-  const moved = list.splice(oldIndex, 1)[0]
-  list.splice(newIndex, 0, moved)
-  // 构造 reorder 请求：用新顺序的 index 作为 sort_order
-  const items = list.map((a, i) => ({ id: a.id, sort_order: i }))
+  const fullList = groupItem.apis
+  const page = pageMap.value[String(groupId)] || 1
+  const start = (page - 1) * pageSize.value
+  // 当前页在全量列表中的切片
+  const pageSlice = fullList.slice(start, start + pageSize.value)
+  // 取出当前页的 sort_order 值并排序，用于重新分配（不影响其他页的排序）
+  const sortOrders = pageSlice.map(a => a.sort_order ?? 0).sort((a, b) => a - b)
+  // 在当前页切片内移动
+  const moved = pageSlice.splice(oldIndex, 1)[0]
+  pageSlice.splice(newIndex, 0, moved)
+  // 用排序后的原 sort_order 值重新分配
+  const items = pageSlice.map((a, i) => ({ id: a.id, sort_order: sortOrders[i] }))
   try {
     await apiApi.reorder(items)
     ElMessage.success('排序已保存')
-    // 同步本地 apis 数组的 sort_order
-    list.forEach((a, i) => { a.sort_order = i })
+    pageSlice.forEach((a, i) => { a.sort_order = sortOrders[i] })
+    // 同步全量列表：当前页前的 + 当前页（新顺序）+ 当前页后的
+    const before = fullList.slice(0, start)
+    const after = fullList.slice(start + pageSlice.length)
+    fullList.splice(0, fullList.length, ...before, ...pageSlice, ...after)
   } catch (e: any) {
     ElMessage.error(e.message || '排序保存失败')
     await loadApis()
@@ -384,6 +415,25 @@ const groupedApis = computed(() => {
   return result
 })
 
+/** 返回某分组当前页的数据切片 */
+function pagedApis(groupId: string | number): ApiDef[] {
+  const groupItem = groupedApis.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
+  if (!groupItem) return []
+  const page = pageMap.value[String(groupId)] || 1
+  const start = (page - 1) * pageSize.value
+  return groupItem.apis.slice(start, start + pageSize.value)
+}
+
+function onPageChange(groupId: string | number, page: number) {
+  pageMap.value[String(groupId)] = page
+}
+
+/** 切换每页条数时，重置所有分组页码到第 1 页（避免越界） */
+function onPageSizeChange(size: number) {
+  pageSize.value = size
+  pageMap.value = {}
+}
+
 function methodTag(method: string) {
   const map: Record<string, any> = { GET: 'success', POST: 'primary', PUT: 'warning', DELETE: 'danger' }
   return map[method] || 'info'
@@ -410,12 +460,14 @@ async function loadUsers() {
 async function loadGroups() {
   if (!currentProjectId.value) return
   groups.value = await apiGroupApi.list(currentProjectId.value)
-  // 默认展开所有分组
-  activeGroups.value = groups.value.map(g => g.id)
-  // 也展开未分组
+  // 无记忆时默认全部展开；有记忆则恢复上次展开的分组
+  const allIds: (number | string)[] = groups.value.map(g => g.id)
   if (apis.value.some(a => !a.group_id)) {
-    activeGroups.value.push('ungrouped')
+    allIds.push('ungrouped')
   }
+  applyDefaultExpand(allIds)
+  // 重置分页
+  pageMap.value = {}
 }
 
 function onCreate() {

@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, toRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Connection } from '@element-plus/icons-vue'
@@ -107,6 +107,7 @@ import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
 import { useAppStore } from '@/stores'
+import { useGroupMemory } from '@/composables/useGroupMemory'
 
 const route = useRoute()
 const router = useRouter()
@@ -114,7 +115,11 @@ const store = useAppStore()
 
 const apiList = ref<ApiDef[]>([])
 const apiGroups = ref<ApiGroup[]>([])
-const activeApiGroups = ref<(number | string)[]>([])
+// 左侧接口分组展开/折叠记忆（按项目持久化）
+const { activeNames: activeApiGroups, applyDefault: applyDefaultApiExpand } = useGroupMemory(
+  toRef(store, 'currentProjectId'),
+  'caseDesigner',
+)
 const caseData = ref<TestCase>(emptyCase())
 const nodes = ref<any[]>([])
 const edges = ref<any[]>([])
@@ -182,16 +187,29 @@ async function loadApis() {
 async function loadApiGroups() {
   if (!store.currentProjectId) return
   apiGroups.value = await apiGroupApi.list(store.currentProjectId)
-  activeApiGroups.value = apiGroups.value.map(g => g.id)
+  // 无记忆时默认全部展开；有记忆则恢复上次展开的分组
+  const allIds: (number | string)[] = apiGroups.value.map(g => g.id)
   if (apiList.value.some(a => !a.group_id)) {
-    activeApiGroups.value.push('ungrouped')
+    allIds.push('ungrouped')
   }
+  applyDefaultApiExpand(allIds)
 }
 
 async function loadCase(id: number) {
   const c = await caseApi.get(id)
   caseData.value = c
-  nodes.value = (c.dag_config?.nodes || []).map((n: any) => ({ ...n }))
+  // 加载节点时，用最新接口信息同步节点的 label/method/path
+  // 避免接口名称修改后，用例内节点的旧名称仍残留
+  nodes.value = (c.dag_config?.nodes || []).map((n: any) => {
+    const apiId = n.data?.api_id
+    const api = apiId ? apiList.value.find(a => a.id === apiId) : null
+    if (!api) return { ...n }
+    return {
+      ...n,
+      data: { ...n.data, label: api.name, api_method: api.method, api_path: api.path },
+      label: api.name,
+    }
+  })
   edges.value = (c.dag_config?.edges || []).map((e: any) => ({ ...e }))
   configs.value = (c.node_configs || []).map((nc: NodeConfig) => ({ ...nc }))
   dirty.value = false

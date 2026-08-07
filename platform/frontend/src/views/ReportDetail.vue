@@ -537,18 +537,20 @@ onMounted(load)
   min-height: 0;
 }
 
-/* 顶部摘要 + 趋势图 横向并排 */
+/* 顶部摘要 + 趋势图 横向并排，高度固定不随内容变化 */
 .top-row {
   display: grid;
   grid-template-columns: minmax(420px, 1.4fr) minmax(360px, 1fr);
   gap: 12px;
   flex-shrink: 0;
+  height: 180px;
 }
 
 .summary-card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
   border-radius: 16px;
+  overflow: hidden;
 }
 
 .trend-card {
@@ -557,6 +559,7 @@ onMounted(load)
   border-radius: 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .trend-head {
@@ -612,12 +615,16 @@ onMounted(load)
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
+  flex: 1;
+  min-height: 0;
+  align-content: start;
 }
 
 .metric {
   background: var(--app-hover);
   border-radius: 12px;
   padding: 12px 14px;
+  min-width: 0;
 }
 
 .metric-label {
@@ -630,6 +637,9 @@ onMounted(load)
   font-weight: 600;
   color: var(--app-text);
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric-value.small {
@@ -733,16 +743,23 @@ onMounted(load)
 
 .detail-head {
   margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .detail-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .detail-sub {
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .detail-tabs {
