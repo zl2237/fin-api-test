@@ -313,23 +313,15 @@ async function onApiRowDragEnd(groupId: string | number, oldIndex: number, newIn
   const fullList = groupItem.apis
   const page = pageMap.value[String(groupId)] || 1
   const start = (page - 1) * pageSize.value
-  // 当前页在全量列表中的切片
-  const pageSlice = fullList.slice(start, start + pageSize.value)
-  // 取出当前页的 sort_order 值并排序，用于重新分配（不影响其他页的排序）
-  const sortOrders = pageSlice.map(a => a.sort_order ?? 0).sort((a, b) => a - b)
-  // 在当前页切片内移动
-  const moved = pageSlice.splice(oldIndex, 1)[0]
-  pageSlice.splice(newIndex, 0, moved)
-  // 用排序后的原 sort_order 值重新分配
-  const items = pageSlice.map((a, i) => ({ id: a.id, sort_order: sortOrders[i] }))
+  // 在全量列表中移动（当前页内的拖拽映射到全量列表的全局位置）
+  const moved = fullList.splice(start + oldIndex, 1)[0]
+  fullList.splice(start + newIndex, 0, moved)
+  // 对全量列表分配 sort_order（用索引作为唯一值，确保顺序持久化）
+  const items = fullList.map((a, i) => ({ id: a.id, sort_order: i }))
   try {
     await apiApi.reorder(items)
     ElMessage.success('排序已保存')
-    pageSlice.forEach((a, i) => { a.sort_order = sortOrders[i] })
-    // 同步全量列表：当前页前的 + 当前页（新顺序）+ 当前页后的
-    const before = fullList.slice(0, start)
-    const after = fullList.slice(start + pageSlice.length)
-    fullList.splice(0, fullList.length, ...before, ...pageSlice, ...after)
+    fullList.forEach((a, i) => { a.sort_order = i })
   } catch (e: any) {
     ElMessage.error(e.message || '排序保存失败')
     await loadApis()

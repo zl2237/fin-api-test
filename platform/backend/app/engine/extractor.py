@@ -21,6 +21,9 @@ class Extractor:
 
     def extract(self, response: Any, rules: List[Dict]) -> Dict[str, Any]:
         extracted: Dict[str, Any] = {}
+        # 初始化 _vars（若未通过 set_extracted_vars 设置）
+        if not hasattr(self, "_vars"):
+            self._vars = {}
         for rule in rules or []:
             name = rule.get("name")
             if not name:
@@ -30,6 +33,8 @@ class Extractor:
                 extracted[name] = self._extract_from_db(rule)
             else:
                 extracted[name] = self._extract_from_response(response, rule)
+            # 实时更新 _vars，使同一节点后续 post_extract 规则能引用刚提取的变量
+            self._vars[name] = extracted[name]
         return extracted
 
     def _extract_from_response(self, response: Any, rule: Dict) -> Any:
