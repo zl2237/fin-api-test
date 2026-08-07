@@ -7,9 +7,9 @@
   },
   "tags": [],
   "paths": {
-    "/api/finance/receiveAccount/accountConfirm": {
+    "/api/Finance/ReceiveInvoiceBatch/batchOrderEdit": {
       "post": {
-        "summary": "/api/finance/receiveAccount/accountConfirm",
+        "summary": "/api/Finance/ReceiveInvoiceBatch/batchOrderEdit",
         "deprecated": false,
         "description": "",
         "tags": [],
@@ -59,7 +59,7 @@
             "in": "header",
             "description": "",
             "required": false,
-            "example": "1361",
+            "example": "4316",
             "schema": {
               "type": "string"
             }
@@ -181,160 +181,740 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "confirm_type": {
-                    "type": "integer"
+                  "cny_file": {
+                    "type": "array",
+                    "items": {}
                   },
-                  "receive_account_id": {
+                  "usd_file": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "debitno_file": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "style": {
                     "type": "string"
                   },
-                  "confirm_list": {
+                  "apply_type": {
+                    "type": "string"
+                  },
+                  "customer_id": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "customer_name": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "put_settle_object_id": {
+                    "type": "string"
+                  },
+                  "main_id": {
+                    "type": "string"
+                  },
+                  "pay_settle_object_id": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "turn_rate": {
+                    "type": "string"
+                  },
+                  "merge_with_cny": {
+                    "type": "string"
+                  },
+                  "selectRadio": {
+                    "type": "string"
+                  },
+                  "receive_invoice_batch_id": {
+                    "type": "string"
+                  },
+                  "batch_apply_name": {
+                    "type": "string"
+                  },
+                  "invoice_form": {
+                    "type": "string"
+                  },
+                  "invoice_type": {
+                    "type": "string"
+                  },
+                  "invoice_items": {
+                    "type": "string"
+                  },
+                  "invoice_rate_type": {
+                    "type": "string"
+                  },
+                  "rate_type": {
+                    "type": "string"
+                  },
+                  "usd_is_turn": {
+                    "type": "string"
+                  },
+                  "order_fee_real_id": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "usd_requireinvoice_form": {
+                    "type": "string"
+                  },
+                  "usd_requireinvoice_type": {
+                    "type": "string"
+                  },
+                  "usd_requiretruck_remark": {
+                    "type": "string"
+                  },
+                  "usd_requireinvoice_items_count": {
+                    "type": "string"
+                  },
+                  "usd_requireinvoice_items": {
+                    "type": "string"
+                  },
+                  "usd_requireinvoice_rate": {
+                    "type": "string"
+                  },
+                  "usd_requireinvoice_rate_type": {
+                    "type": "string"
+                  },
+                  "usd_requireseller_name": {
+                    "type": "string"
+                  },
+                  "cny_requireinvoice_form": {
+                    "type": "string"
+                  },
+                  "cny_requireinvoice_type": {
+                    "type": "string"
+                  },
+                  "cny_requiretruck_remark": {
+                    "type": "string"
+                  },
+                  "cny_requireinvoice_items_count": {
+                    "type": "string"
+                  },
+                  "cny_requireinvoice_items": {
+                    "type": "string"
+                  },
+                  "cny_requireinvoice_rate": {
+                    "type": "string"
+                  },
+                  "cny_requireinvoice_rate_type": {
+                    "type": "string"
+                  },
+                  "cny_requireseller_name": {
+                    "type": "string"
+                  },
+                  "usd_requiredn_invoice_title_type": {
+                    "type": "string"
+                  },
+                  "usd_require": {
+                    "type": "object",
+                    "properties": {
+                      "fast_remark": {
+                        "type": "string"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "amount_total_usd": {
+                        "type": "integer"
+                      },
+                      "amount_total_cny": {
+                        "type": "string"
+                      },
+                      "rate": {
+                        "type": "integer"
+                      },
+                      "turn_amount_total_cny": {
+                        "type": "string"
+                      },
+                      "turn_amount_total_usd": {
+                        "type": "string"
+                      },
+                      "turn_amount_total": {
+                        "type": "integer"
+                      },
+                      "invoice_apply_name": {
+                        "type": "string"
+                      },
+                      "invoice_apply_simple": {
+                        "type": "string"
+                      },
+                      "invoice_form": {
+                        "type": "string"
+                      },
+                      "invoice_type": {
+                        "type": "string"
+                      },
+                      "purchaser_id": {
+                        "type": "string"
+                      },
+                      "purchaser_head_cn": {
+                        "type": "string"
+                      },
+                      "purchaser_tax_number": {
+                        "type": "string"
+                      },
+                      "seller_id": {
+                        "type": "string"
+                      },
+                      "seller_name": {
+                        "type": "string"
+                      },
+                      "bank_account": {
+                        "type": "string"
+                      },
+                      "seller_info": {
+                        "type": "string"
+                      },
+                      "invoice_items": {
+                        "type": "string"
+                      },
+                      "invoice_rate_type": {
+                        "type": "string"
+                      },
+                      "invoice_rate": {
+                        "type": "string"
+                      },
+                      "require_other": {
+                        "type": "string"
+                      },
+                      "remark": {
+                        "type": "string"
+                      },
+                      "rate_list": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "cost_name": {
+                              "type": "string"
+                            },
+                            "fee_real_no": {
+                              "type": "string"
+                            },
+                            "cost_no": {
+                              "type": "string"
+                            },
+                            "invoice_rate": {
+                              "type": "string"
+                            },
+                            "real_amount": {
+                              "type": "string"
+                            },
+                            "currency": {
+                              "type": "string"
+                            },
+                            "invoice_item": {
+                              "type": "string"
+                            },
+                            "amount_error_flag": {
+                              "type": "boolean"
+                            },
+                            "rowIndex": {
+                              "type": "integer"
+                            },
+                            "invoice_item_name": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "dn_invoice_title_type": {
+                        "type": "string"
+                      },
+                      "purchaser_name": {
+                        "type": "string"
+                      },
+                      "fund_name": {
+                        "type": "string"
+                      },
+                      "truck_remark": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fast_remark",
+                      "currency",
+                      "amount_total_usd",
+                      "amount_total_cny",
+                      "rate",
+                      "turn_amount_total_cny",
+                      "turn_amount_total_usd",
+                      "turn_amount_total",
+                      "invoice_apply_name",
+                      "invoice_apply_simple",
+                      "invoice_form",
+                      "invoice_type",
+                      "purchaser_id",
+                      "purchaser_head_cn",
+                      "purchaser_tax_number",
+                      "seller_id",
+                      "seller_name",
+                      "bank_account",
+                      "seller_info",
+                      "invoice_items",
+                      "invoice_rate_type",
+                      "invoice_rate",
+                      "require_other",
+                      "remark",
+                      "rate_list",
+                      "dn_invoice_title_type",
+                      "purchaser_name",
+                      "fund_name",
+                      "truck_remark"
+                    ]
+                  },
+                  "cny_require": {
+                    "type": "object",
+                    "properties": {
+                      "fast_remark": {
+                        "type": "string"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "amount_total_usd": {
+                        "type": "string"
+                      },
+                      "amount_total_cny": {
+                        "type": "string"
+                      },
+                      "rate": {
+                        "type": "string"
+                      },
+                      "turn_amount_total_cny": {
+                        "type": "string"
+                      },
+                      "turn_amount_total_usd": {
+                        "type": "string"
+                      },
+                      "turn_amount_total": {
+                        "type": "string"
+                      },
+                      "invoice_apply_name": {
+                        "type": "string"
+                      },
+                      "invoice_apply_simple": {
+                        "type": "string"
+                      },
+                      "invoice_form": {
+                        "type": "string"
+                      },
+                      "invoice_type": {
+                        "type": "string"
+                      },
+                      "purchaser_id": {
+                        "type": "string"
+                      },
+                      "purchaser_head_cn": {
+                        "type": "string"
+                      },
+                      "purchaser_tax_number": {
+                        "type": "string"
+                      },
+                      "seller_id": {
+                        "type": "string"
+                      },
+                      "seller_name": {
+                        "type": "string"
+                      },
+                      "bank_account": {
+                        "type": "string"
+                      },
+                      "seller_info": {
+                        "type": "string"
+                      },
+                      "invoice_items": {
+                        "type": "string"
+                      },
+                      "invoice_rate_type": {
+                        "type": "string"
+                      },
+                      "invoice_rate": {
+                        "type": "string"
+                      },
+                      "require_other": {
+                        "type": "string"
+                      },
+                      "remark": {
+                        "type": "string"
+                      },
+                      "rate_list": {
+                        "type": "array",
+                        "items": {}
+                      }
+                    },
+                    "required": [
+                      "fast_remark",
+                      "currency",
+                      "amount_total_usd",
+                      "amount_total_cny",
+                      "rate",
+                      "turn_amount_total_cny",
+                      "turn_amount_total_usd",
+                      "turn_amount_total",
+                      "invoice_apply_name",
+                      "invoice_apply_simple",
+                      "invoice_form",
+                      "invoice_type",
+                      "purchaser_id",
+                      "purchaser_head_cn",
+                      "purchaser_tax_number",
+                      "seller_id",
+                      "seller_name",
+                      "bank_account",
+                      "seller_info",
+                      "invoice_items",
+                      "invoice_rate_type",
+                      "invoice_rate",
+                      "require_other",
+                      "remark",
+                      "rate_list"
+                    ]
+                  },
+                  "usd_file_id": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "cny_file_id": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "debitno_file_id": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "batch_order_remark": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "main_id": {
+                        "order_sub_id": {
                           "type": "string"
                         },
-                        "main_name": {
+                        "remark": {
                           "type": "string"
                         },
-                        "symbol": {
-                          "type": "string"
-                        },
-                        "settle_object_id": {
-                          "type": "string"
-                        },
-                        "order_ids": {
-                          "type": "string"
-                        },
-                        "order_sub_ids": {
-                          "type": "string"
-                        },
-                        "order_sub_types": {
-                          "type": "string"
-                        },
-                        "unique_ids": {
-                          "type": "string"
-                        },
-                        "receive_account_no": {
-                          "type": "string"
-                        },
-                        "account_simple_name": {
-                          "type": "string"
-                        },
-                        "symbol_name": {
-                          "type": "string"
-                        },
-                        "settle_object": {
-                          "type": "string"
-                        },
-                        "account_batch_name": {
-                          "type": "string"
-                        },
-                        "order_sub_type": {
-                          "type": "integer"
-                        },
-                        "only_adjust_status": {
-                          "type": "integer"
-                        },
-                        "real_amount_ids": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "currency_list": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "_XID": {
+                        "currency": {
                           "type": "string"
                         }
-                      },
-                      "required": [
-                        "main_id",
-                        "main_name",
-                        "symbol",
-                        "settle_object_id",
-                        "order_ids",
-                        "order_sub_ids",
-                        "order_sub_types",
-                        "unique_ids",
-                        "receive_account_no",
-                        "account_simple_name",
-                        "symbol_name",
-                        "settle_object",
-                        "account_batch_name",
-                        "order_sub_type",
-                        "only_adjust_status",
-                        "real_amount_ids",
-                        "currency_list",
-                        "_XID"
-                      ]
+                      }
                     }
+                  },
+                  "batch_type": {
+                    "type": "string"
+                  },
+                  "cost_usd": {
+                    "type": "string"
+                  },
+                  "cost_cny": {
+                    "type": "string"
+                  },
+                  "put_settle_object": {
+                    "type": "string"
+                  },
+                  "main_name_cn": {
+                    "type": "string"
+                  },
+                  "pay_settle_object": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "sub_pay_settle_object": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "sub_pay_settle_object_id": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "order_sub_id": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cost_ids": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "service_project": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "fee_type": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "sys_rate": {
+                    "type": "string"
+                  },
+                  "appoint_rate": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string"
+                  },
+                  "fee_currency": {
+                    "type": "string"
+                  },
+                  "order_sub_customer_id": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "audit_msg": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "null"
+                      },
+                      "msgs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "code",
+                      "msgs"
+                    ]
+                  },
+                  "select_node_user": {
+                    "type": "array",
+                    "items": {}
                   }
                 },
                 "required": [
-                  "confirm_type",
-                  "receive_account_id",
-                  "confirm_list"
+                  "cny_file",
+                  "usd_file",
+                  "debitno_file",
+                  "style",
+                  "apply_type",
+                  "customer_id",
+                  "customer_name",
+                  "put_settle_object_id",
+                  "main_id",
+                  "pay_settle_object_id",
+                  "turn_rate",
+                  "merge_with_cny",
+                  "selectRadio",
+                  "receive_invoice_batch_id",
+                  "batch_apply_name",
+                  "invoice_form",
+                  "invoice_type",
+                  "invoice_items",
+                  "invoice_rate_type",
+                  "rate_type",
+                  "usd_is_turn",
+                  "order_fee_real_id",
+                  "usd_requireinvoice_form",
+                  "usd_requireinvoice_type",
+                  "usd_requiretruck_remark",
+                  "usd_requireinvoice_items_count",
+                  "usd_requireinvoice_items",
+                  "usd_requireinvoice_rate",
+                  "usd_requireinvoice_rate_type",
+                  "usd_requireseller_name",
+                  "cny_requireinvoice_form",
+                  "cny_requireinvoice_type",
+                  "cny_requiretruck_remark",
+                  "cny_requireinvoice_items_count",
+                  "cny_requireinvoice_items",
+                  "cny_requireinvoice_rate",
+                  "cny_requireinvoice_rate_type",
+                  "cny_requireseller_name",
+                  "usd_requiredn_invoice_title_type",
+                  "usd_require",
+                  "cny_require",
+                  "usd_file_id",
+                  "cny_file_id",
+                  "debitno_file_id",
+                  "batch_order_remark",
+                  "batch_type",
+                  "cost_usd",
+                  "cost_cny",
+                  "put_settle_object",
+                  "main_name_cn",
+                  "pay_settle_object",
+                  "sub_pay_settle_object",
+                  "sub_pay_settle_object_id",
+                  "order_sub_id",
+                  "cost_ids",
+                  "service_project",
+                  "fee_type",
+                  "sys_rate",
+                  "appoint_rate",
+                  "action",
+                  "fee_currency",
+                  "order_sub_customer_id",
+                  "audit_msg",
+                  "select_node_user"
                 ]
               },
               "example": {
-                "confirm_type": 0,
-                "receive_account_id": "343992139136368640",
-                "confirm_list": [
+                "cny_file": [],
+                "usd_file": [],
+                "debitno_file": [],
+                "style": "1",
+                "apply_type": "2",
+                "customer_id": [],
+                "customer_name": [],
+                "put_settle_object_id": "343612355344596992",
+                "main_id": "3",
+                "pay_settle_object_id": [],
+                "turn_rate": "",
+                "merge_with_cny": "2",
+                "selectRadio": "",
+                "receive_invoice_batch_id": "",
+                "batch_apply_name": "",
+                "invoice_form": "",
+                "invoice_type": "",
+                "invoice_items": "",
+                "invoice_rate_type": "",
+                "rate_type": "3",
+                "usd_is_turn": "2",
+                "order_fee_real_id": [
+                  "344001743845064704"
+                ],
+                "usd_requireinvoice_form": "",
+                "usd_requireinvoice_type": "",
+                "usd_requiretruck_remark": "",
+                "usd_requireinvoice_items_count": "",
+                "usd_requireinvoice_items": "",
+                "usd_requireinvoice_rate": "",
+                "usd_requireinvoice_rate_type": "",
+                "usd_requireseller_name": "",
+                "cny_requireinvoice_form": "",
+                "cny_requireinvoice_type": "",
+                "cny_requiretruck_remark": "",
+                "cny_requireinvoice_items_count": "",
+                "cny_requireinvoice_items": "",
+                "cny_requireinvoice_rate": "",
+                "cny_requireinvoice_rate_type": "",
+                "cny_requireseller_name": "",
+                "usd_requiredn_invoice_title_type": "",
+                "usd_require": {
+                  "fast_remark": "[3,4,5,2,1]",
+                  "currency": "USD",
+                  "amount_total_usd": 300,
+                  "amount_total_cny": "",
+                  "rate": 7,
+                  "turn_amount_total_cny": "2100.00",
+                  "turn_amount_total_usd": "",
+                  "turn_amount_total": 300,
+                  "invoice_apply_name": "青岛易汇联供应链管理有限公司 + 青岛统济机电制造有限公司 + 2026-05 + USD 300.00",
+                  "invoice_apply_simple": "API联收机电开票申请",
+                  "invoice_form": "1",
+                  "invoice_type": "1",
+                  "purchaser_id": "343612355344596992",
+                  "purchaser_head_cn": "青岛统济机电制造有限公司",
+                  "purchaser_tax_number": "91370282750402981Q",
+                  "seller_id": "19",
+                  "seller_name": "216952145030",
+                  "bank_account": "",
+                  "seller_info": "{\"main_bank_id\":\"19\",\"main_id\":\"3\",\"chinese_header\":\"青岛易汇联供应链管理有限公司\",\"english_header\":\"\",\"identifier_no\":\"91370281MADP6F4B2B\",\"currency\":\"USD\",\"is_public\":\"1\",\"fund_code\":\"F0031\",\"bank_account\":\"216952145030\",\"swift_code\":\"BKCHCNBJ50A\",\"register_address_cn\":\"山东省青岛市市南区香港西路48号海天中心2号楼甲21层2102\",\"register_address_en\":\"\",\"open_bank_no\":\"\",\"open_bank_cn\":\"中国银行青岛宣化路支行\",\"open_bank_en\":\"\",\"bank_address_en\":\"\",\"remark\":\"\",\"create_id\":\"807\",\"create_by\":\"陆履约\",\"create_time\":\"1774505975\",\"pay_default\":\"1\",\"put_default\":\"1\",\"sys_upttime\":\"2026-05-15 10:48:52\",\"fund_name\":\"天津天食商业保理有限公司\",\"is_public_name\":\"是\",\"value\":\"19\"}",
+                  "invoice_items": "",
+                  "invoice_rate_type": "",
+                  "invoice_rate": "",
+                  "require_other": "测试其他开票要求",
+                  "remark": "天津天食商业保理有限公司",
+                  "rate_list": [
+                    {
+                      "cost_name": "海运费",
+                      "fee_real_no": "FY202608071320820",
+                      "cost_no": "0001",
+                      "invoice_rate": "6",
+                      "real_amount": "300.00",
+                      "currency": "USD",
+                      "invoice_item": "2",
+                      "amount_error_flag": false,
+                      "rowIndex": 0,
+                      "invoice_item_name": "国际货物运输代理海运费"
+                    }
+                  ],
+                  "dn_invoice_title_type": "0",
+                  "purchaser_name": "青岛统济机电制造有限公司",
+                  "fund_name": "天津天食商业保理有限公司",
+                  "truck_remark": "测试其他备注内容"
+                },
+                "cny_require": {
+                  "fast_remark": "[]",
+                  "currency": "",
+                  "amount_total_usd": "",
+                  "amount_total_cny": "",
+                  "rate": "",
+                  "turn_amount_total_cny": "",
+                  "turn_amount_total_usd": "",
+                  "turn_amount_total": "",
+                  "invoice_apply_name": "",
+                  "invoice_apply_simple": "",
+                  "invoice_form": "",
+                  "invoice_type": "",
+                  "purchaser_id": "",
+                  "purchaser_head_cn": "",
+                  "purchaser_tax_number": "",
+                  "seller_id": "",
+                  "seller_name": "",
+                  "bank_account": "",
+                  "seller_info": "",
+                  "invoice_items": "",
+                  "invoice_rate_type": "",
+                  "invoice_rate": "",
+                  "require_other": "",
+                  "remark": "—",
+                  "rate_list": []
+                },
+                "usd_file_id": [],
+                "cny_file_id": [],
+                "debitno_file_id": [],
+                "batch_order_remark": [
                   {
-                    "main_id": "1",
-                    "main_name": "青岛易航道物流科技有限公司",
-                    "symbol": "1",
-                    "settle_object_id": "2",
-                    "order_ids": "343991988216922112",
-                    "order_sub_ids": "343992098623586304",
-                    "order_sub_types": "2",
-                    "unique_ids": "93923633-210c-4c65-a4ba-0f74d1a73529",
-                    "receive_account_no": "",
-                    "account_simple_name": "穿透道收联",
-                    "symbol_name": "应收",
-                    "settle_object": "青岛易汇联供应链管理有限公司",
-                    "account_batch_name": "青岛易航道物流科技有限公司+青岛易汇联供应链管理有限公司+26.05+USD270",
-                    "order_sub_type": 1,
-                    "only_adjust_status": 0,
-                    "real_amount_ids": [
-                      "343992114587109376"
-                    ],
-                    "currency_list": [
-                      "USD"
-                    ],
-                    "_XID": "row_2021"
-                  },
-                  {
-                    "main_id": "3",
-                    "main_name": "青岛易汇联供应链管理有限公司",
-                    "symbol": "0",
-                    "settle_object_id": "1",
-                    "order_ids": "343991988216922112",
-                    "order_sub_ids": "343992019510624256",
-                    "order_sub_types": "0",
-                    "unique_ids": "93923633-210c-4c65-a4ba-0f74d1a73529",
-                    "receive_account_no": "",
-                    "account_simple_name": "穿透联付道",
-                    "symbol_name": "应付",
-                    "settle_object": "青岛易航道物流科技有限公司",
-                    "account_batch_name": "青岛易汇联供应链管理有限公司+青岛易航道物流科技有限公司+26.05+USD270",
-                    "order_sub_type": 1,
-                    "only_adjust_status": 0,
-                    "real_amount_ids": [
-                      "343992114587108352"
-                    ],
-                    "currency_list": [
-                      "USD"
-                    ],
-                    "_XID": "row_2022"
+                    "order_sub_id": "344001653029994496",
+                    "remark": "测试关联提单备注",
+                    "currency": "USD"
                   }
-                ]
+                ],
+                "batch_type": "1",
+                "cost_usd": "300.00",
+                "cost_cny": "0.00",
+                "put_settle_object": "青岛统济机电制造有限公司",
+                "main_name_cn": "青岛易汇联供应链管理有限公司",
+                "pay_settle_object": [],
+                "sub_pay_settle_object": [],
+                "sub_pay_settle_object_id": [],
+                "order_sub_id": [
+                  "344001653029994496"
+                ],
+                "cost_ids": [],
+                "service_project": [
+                  "booking_space"
+                ],
+                "fee_type": [],
+                "sys_rate": "",
+                "appoint_rate": "7",
+                "action": "submit",
+                "fee_currency": "USD",
+                "order_sub_customer_id": [
+                  "343612351695552512"
+                ],
+                "audit_msg": {
+                  "title": "开票批次ID",
+                  "code": null,
+                  "msgs": [
+                    "应收开票批次申请"
+                  ]
+                },
+                "select_node_user": []
               }
             }
           }
@@ -372,7 +952,7 @@
                   "code": 200,
                   "msg": "成功",
                   "data": [],
-                  "request_id": "adb8d9b4be6ece114a2542f36a679c00"
+                  "request_id": "21ecdbc6dd1574ae277fc5c4ed32c55c"
                 }
               }
             }
