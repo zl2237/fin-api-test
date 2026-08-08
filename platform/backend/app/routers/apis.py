@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from copy import deepcopy
 from datetime import datetime
@@ -10,6 +10,7 @@ from jsonpath_ng import parse as jsonpath_parse
 from ..database import get_db
 from .. import crud, schemas, models, path_setup  # noqa: F401
 from ..auth import get_current_user
+from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
 from utils.http_client import HttpClient
 from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
 
@@ -195,6 +196,84 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
         "imported": imported,
         "skipped": skipped,
     }
+
+
+@router.post("/import-har/preview")
+async def preview_har(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """上传 HAR 文件并返回接口预览列表，不落库。
+    前端展示预览列表供用户勾选，勾选后调 /import-har 导入。"""
+    if not file.filename or not file.filename.lower().endswith(".har"):
+        raise HTTPException(400, "请上传 .har 文件")
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:  # 50MB 上限
+        raise HTTPException(400, "HAR 文件过大（超过 50MB）")
+
+    try:
+        har_data = json.loads(content.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise HTTPException(400, f"HAR 文件解析失败：{e}")
+
+    previews = parse_har_to_previews(har_data)
+    return {"total": len(previews), "previews": previews}
+
+
+@router.post("/import-har")
+def import_har(
+    data: schemas.HarImportRequest,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """导入用户勾选的 HAR 接口预览项，落库。"""
+    if not data.previews:
+        raise HTTPException(400, "请至少勾选一个接口")
+
+    # 收集已存在的 code，避免重复导入
+    existing_codes: set = set()
+    for preview in data.previews:
+        method = preview.get("method", "GET").upper()
+        path = preview.get("path", "")
+        code = _har_path_to_code(path, method)
+        if crud.get_api_by_code(db, code):
+            existing_codes.add(code)
+
+    to_create, skipped = previews_to_api_create(
+        data.previews, data.project_id, data.group_id, existing_codes
+    )
+
+    imported = []
+    for api_data, preview in to_create:
+        obj = crud.create_api(db, api_data, user.id)
+        imported.append({
+            "id": obj.id,
+            "name": obj.name,
+            "method": obj.method,
+            "path": obj.path,
+            "fields": len(api_data.fields),
+        })
+
+    crud.log_operation(db, user, "create", "api", None, f"HAR 导入{len(imported)}个接口")
+    return {
+        "message": f"已导入 {len(imported)} 个接口" + (f"，跳过 {len(skipped)} 个" if skipped else ""),
+        "imported": imported,
+        "skipped": skipped,
+    }
+
+
+def _har_path_to_code(path: str, method: str) -> str:
+    """HAR 导入专用 code 生成（与 har_parser 内部逻辑保持一致）"""
+    parts = [p for p in path.strip("/").split("/") if p and not p.startswith("{")]
+    if len(parts) >= 2:
+        code = "_".join(parts[-2:])
+    elif parts:
+        code = parts[-1]
+    else:
+        code = "api"
+    return f"{code}_{method.lower()}"
 
 
 @router.post("/{api_id}/import-fields", response_model=schemas.ApiImportFieldsResponse)
