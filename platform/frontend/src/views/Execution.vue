@@ -117,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
@@ -186,6 +186,37 @@ function statusText(s: string) {
   return s === 'success' ? '通过' : s === 'running' ? '执行中' : '失败'
 }
 
+// 自动刷新：列表存在 running 记录时轮询，全部结束后停止
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+const REFRESH_INTERVAL = 3000
+
+function startAutoRefresh() {
+  if (refreshTimer) return
+  refreshTimer = setInterval(async () => {
+    try {
+      const caseId = route.query.case_id ? Number(route.query.case_id) : (filterCaseId.value.trim() ? Number(filterCaseId.value) : undefined)
+      const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200 }
+      if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
+      if (filterProjectId.value) params.project_id = filterProjectId.value
+      if (filterExecutor.value) params.created_by = filterExecutor.value
+      list.value = await execApi.list(params)
+      // 没有 running 记录了，停止轮询
+      if (!list.value.some(e => e.status === 'running')) {
+        stopAutoRefresh()
+      }
+    } catch {
+      stopAutoRefresh()
+    }
+  }, REFRESH_INTERVAL)
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -196,6 +227,12 @@ async function load() {
     if (filterProjectId.value) params.project_id = filterProjectId.value
     if (filterExecutor.value) params.created_by = filterExecutor.value
     list.value = await execApi.list(params)
+    // 存在执行中的记录则启动轮询，否则确保停止
+    if (list.value.some(e => e.status === 'running')) {
+      startAutoRefresh()
+    } else {
+      stopAutoRefresh()
+    }
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
@@ -242,6 +279,10 @@ async function onCleanup() {
 onMounted(() => {
   load()
   loadUsers()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 </script>
 

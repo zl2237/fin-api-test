@@ -13,6 +13,7 @@ DAG 拓扑执行引擎。
    前置处理 → 发请求 → 后置提取 → 断言 → 落库 StepRecord/AssertionRecord
 4. 默认失败即停止（断言失败或请求异常）
 """
+import json
 import time
 from copy import deepcopy
 from datetime import datetime
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 from jsonpath_ng import parse as jsonpath_parse
+from jsonpath_ng.exceptions import JsonPathParserError
 
 from .. import path_setup  # noqa: F401
 from .. import models
@@ -37,7 +39,11 @@ def _extract_by_jsonpath(data: Any, path: str) -> Any:
     try:
         matches = jsonpath_parse(path).find(data)
         return matches[0].value if matches else None
-    except Exception:
+    except JsonPathParserError:
+        # jsonpath 语法错误（如路径写错）
+        return None
+    except (IndexError, KeyError, TypeError, AttributeError):
+        # 数据结构不匹配：取值越界 / 字段缺失 / 类型不支持
         return None
 
 
@@ -93,12 +99,16 @@ class DagExecutor:
         try:
             _do_login()
         except Exception as e:
+            # 包装所有登录异常为 RuntimeError，给上层统一捕获并记为执行失败
             raise RuntimeError(f"登录失败：{e}") from e
 
         def refresh():
+            # 401 自动重登回调：失败时返回 None 触发原请求按未鉴权处理，
+            # 不抛出以免污染调用方控制流；记录日志便于排查
             try:
                 return _do_login()
-            except Exception:
+            except Exception as e:
+                print(f"[token刷新] 重新登录失败（忽略）: {e}")
                 return None
 
         client.set_token_refresh_callback(refresh)
@@ -117,7 +127,17 @@ class DagExecutor:
                 password=cfg.get("password", ""),
                 database=cfg.get("database", ""),
             )
-        except Exception:
+        except ImportError as e:
+            # db_client 模块缺失（精简部署），降级为无 DB 模式
+            print(f"[DBClient] 导入失败，跳过 DB 能力: {e}")
+            return None
+        except (KeyError, ValueError, TypeError) as e:
+            # 配置项缺失或类型错误
+            print(f"[DBClient] 配置异常，跳过 DB 能力: {e}")
+            return None
+        except Exception as e:
+            # 连接失败等运行时异常
+            print(f"[DBClient] 初始化失败，跳过 DB 能力: {e}")
             return None
 
     # ---------- 拓扑排序 ----------
@@ -183,14 +203,15 @@ class DagExecutor:
             return raw
         if field_type in ("array", "object"):
             try:
-                import json
                 return json.loads(raw)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
+                # 非合法 JSON 字符串，保留原值
                 return raw
         if field_type == "int":
             try:
                 return int(raw)
-            except Exception:
+            except (ValueError, TypeError):
+                # 无法转为整数，保留原值
                 return raw
         if field_type == "bool":
             return raw.lower() in ("true", "1", "yes")
@@ -201,7 +222,6 @@ class DagExecutor:
         """递归把求值后形如 JSON 的字符串转回原生类型。
         例如 array 字段 "[${id}]" 求值后为 "[123]" 字符串，转回 ["123"] 列表。
         仅对形如 [...] / {...} 的字符串尝试，失败则原样返回。"""
-        import json
         if isinstance(obj, dict):
             return {k: DagExecutor._coerce_json_strings(v) for k, v in obj.items()}
         if isinstance(obj, list):
@@ -211,7 +231,8 @@ class DagExecutor:
             if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
                 try:
                     return json.loads(s)
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
+                    # 形似 JSON 但解析失败（如 "[abc]"），保留原字符串
                     return obj
         return obj
 
@@ -280,9 +301,9 @@ class DagExecutor:
         if not default_value:
             return None
         try:
-            import json
             arr = json.loads(default_value)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
+            # 非合法 JSON 数组字符串，无法推断元素类型
             return None
         if not isinstance(arr, list) or not arr:
             return None
@@ -343,6 +364,8 @@ class DagExecutor:
         except (AuthError, HttpTimeoutError, JsonParseError) as e:
             return 0, {"error": str(e)}, str(e)
         except Exception as e:
+            # 未预期的请求异常（如连接错误、SSL 错误等），记录日志便于排查
+            print(f"[请求异常] {api.method} {api.path} 未预期异常: {e}")
             return 0, {"error": str(e)}, str(e)
 
     # ---------- 执行入口 ----------
@@ -403,14 +426,14 @@ class DagExecutor:
             if self.db_client:
                 try:
                     self.db_client.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[资源清理] DBClient 关闭失败（忽略）: {e}")
             # 关闭 HTTP session，避免连续执行多个用例时连接池累积导致后续请求超时
             if self.http_client and self.http_client.session:
                 try:
                     self.http_client.session.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[资源清理] HTTP session 关闭失败（忽略）: {e}")
             # 发送企微通知（notify_config 配置了 webhook 时）
             self._send_notify(record)
         return record
