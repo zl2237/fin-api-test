@@ -9,7 +9,7 @@ SQLAlchemy 引擎与会话工厂（仅支持 MySQL）。
     DB_NAME（默认 fin_api_test）
 """
 import os
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -57,25 +57,7 @@ def get_db():
 
 
 def init_db():
-    """建表：导入所有模型后调用 Base.metadata.create_all，并自动补齐新增列"""
+    """建表：导入所有模型后调用 Base.metadata.create_all。
+    表结构变更由 Alembic 管理（alembic upgrade head），不再用硬编码 ALTER。"""
     from . import models  # noqa: F401  触发模型注册
     Base.metadata.create_all(engine)
-    _auto_migrate()
-
-
-def _auto_migrate():
-    """轻量自动迁移：为已有表补齐模型中新增的列（幂等，启动时执行一次）。
-    create_all 只建新表不改已有表，新增列需手动 ALTER，这里自动补齐。
-    """
-    # 迁移清单：(表名, 列名, 列定义 SQL)
-    migrations = [
-        ("environments", "timeout", "INTEGER DEFAULT 15"),
-    ]
-    insp = inspect(engine)
-    for table, column, coldef in migrations:
-        if not insp.has_table(table):
-            continue
-        existing_cols = {c["name"] for c in insp.get_columns(table)}
-        if column not in existing_cols:
-            with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coldef}"))

@@ -63,7 +63,6 @@ def _check_secret_key():
 def on_startup():
     _check_secret_key()
     init_db()
-    _migrate_audit_columns()
     _ensure_default_admin()
     _cleanup_old_executions()
 
@@ -88,37 +87,6 @@ def _cleanup_old_executions(days: int = 30):
         db.rollback()
     finally:
         db.close()
-
-
-def _migrate_audit_columns():
-    """为已有业务表补充 created_by / updated_by 列，以及 users 表的登录安全字段。
-    使用 ALTER TABLE，存量数据 NULL，兼容老数据。"""
-    from sqlalchemy import text, inspect
-    insp = inspect(engine)
-    table_cols = {t: {c["name"] for c in insp.get_columns(t)} for t in insp.get_table_names()}
-    additions = {
-        "projects": ["created_by", "updated_by"],
-        "environments": ["created_by", "updated_by"],
-        "api_definitions": ["created_by", "updated_by", "sort_order"],
-        "test_cases": ["created_by", "updated_by", "sort_order"],
-        "execution_records": ["created_by"],
-        "users": ["created_by", "updated_by", "failed_count", "locked_until"],
-    }
-    with engine.begin() as conn:
-        for tbl, cols in additions.items():
-            if tbl not in table_cols:
-                continue
-            existing = table_cols[tbl]
-            for col in cols:
-                if col not in existing:
-                    if col == "failed_count":
-                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER DEFAULT 0"))
-                    elif col == "locked_until":
-                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} DATETIME NULL"))
-                    elif col == "sort_order":
-                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER DEFAULT 0"))
-                    else:
-                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER"))
 
 
 def _ensure_default_admin():

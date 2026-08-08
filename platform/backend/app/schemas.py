@@ -1,7 +1,7 @@
 """Pydantic V2 schemas：请求/响应数据模型"""
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ============ 通用 ============
@@ -254,6 +254,41 @@ class ApiImportFieldsResponse(BaseModel):
     fields: List[ApiFieldIn] = []
 
 
+class HarPreviewField(BaseModel):
+    """HAR 预览中的单个字段"""
+    key: str
+    field_type: str = "string"
+    default_value: str = ""
+    in_: str = Field("body", alias="in")  # query/body
+    required: bool = False
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class HarPreviewItem(BaseModel):
+    """HAR 解析后的单个接口预览"""
+    method: str
+    path: str
+    url: str
+    name: str
+    field_count: int
+    fields: List[Dict[str, Any]] = []  # 原始字段 dict（前端展示用）
+    is_array_body: bool = False
+    content_type: str = ""
+
+
+class HarPreviewResponse(BaseModel):
+    """HAR 文件解析预览响应"""
+    total: int  # 解析出的接口总数
+    previews: List[HarPreviewItem] = []
+
+
+class HarImportRequest(BaseModel):
+    """HAR 导入请求：用户勾选的接口列表"""
+    project_id: int
+    group_id: Optional[int] = None
+    previews: List[Dict[str, Any]]  # 用户勾选的预览项（含 method/path/name/fields/is_array_body）
+
+
 class ApiDebugRequest(BaseModel):
     """单接口调试请求：指定环境执行一次接口，返回请求/响应详情"""
     env_id: int
@@ -390,7 +425,7 @@ class StepRecordOut(ORMBase):
     api_path: Optional[str] = None
     api_method: Optional[str] = None
     request_headers: Optional[Dict[str, Any]] = None
-    request_body: Optional[Dict[str, Any]] = None
+    request_body: Optional[Any] = None  # 兼容数组请求体 [{...}]
     response_status: Optional[int] = None
     response_body: Optional[Any] = None
     response_time_ms: Optional[int] = None

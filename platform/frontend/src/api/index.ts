@@ -84,6 +84,14 @@ export interface ApiDef {
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
+export interface HarPreviewField {
+  key: string; field_type: string; default_value: string; in: string; required: boolean
+}
+export interface HarPreviewItem {
+  method: string; path: string; url: string; name: string; field_count: number
+  fields: HarPreviewField[]; is_array_body: boolean; content_type: string
+  _selected?: boolean  // 前端勾选状态
+}
 export interface CaseGroup {
   id: number; project_id: number; name: string; sort_order: number; created_at?: string
 }
@@ -207,6 +215,15 @@ export const apiApi = {
     http.post<{ message: string; updated: number }>('/apis/reorder', { items }).then((r) => r.data),
   importSpec: (projectId: number, spec: Record<string, any>, groupId?: number | null) =>
     http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import', { project_id: projectId, group_id: groupId ?? null, spec }).then((r) => r.data),
+  previewHar: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return http.post<{ total: number; previews: HarPreviewItem[] }>('/apis/import-har/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+  importHar: (projectId: number, previews: HarPreviewItem[], groupId?: number | null) =>
+    http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import-har', { project_id: projectId, group_id: groupId ?? null, previews }).then((r) => r.data),
   importFields: (apiId: number, method: string, path: string, spec: Record<string, any>) =>
     http.post<{
       matched: boolean; method: string; path: string; operation_summary: string | null

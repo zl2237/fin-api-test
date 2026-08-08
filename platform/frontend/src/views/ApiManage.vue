@@ -149,35 +149,104 @@
       </div>
     </el-dialog>
 
-    <!-- 导入 Swagger 弹窗 -->
-    <el-dialog v-model="showImportDialog" title="导入 Swagger/OpenAPI 接口" width="640px">
-      <div class="import-body">
-        <el-form label-width="80px">
-          <el-form-item label="目标分组">
-            <el-select v-model="importGroupId" placeholder="选择分组（可选）" clearable style="width: 100%">
-              <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="Swagger JSON">
-            <el-input
-              v-model="importSpecText"
-              type="textarea"
-              :rows="14"
-              placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
-            />
-          </el-form-item>
-        </el-form>
-        <div v-if="importResult" class="import-result">
-          <el-alert :title="importResult.message" :type="importResult.skipped.length ? 'warning' : 'success'" :closable="false" />
-          <div v-if="importResult.skipped.length" class="import-skipped">
-            <div class="skipped-title">跳过的接口：</div>
-            <div v-for="(s, i) in importResult.skipped" :key="i" class="skipped-item">- {{ s }}</div>
+    <!-- 导入接口弹窗（OpenAPI 粘贴 / HAR 上传） -->
+    <el-dialog v-model="showImportDialog" title="导入接口" width="780px" @close="onImportDialogClose">
+      <el-tabs v-model="importTab" class="import-tabs">
+        <!-- Tab 1: OpenAPI 粘贴 -->
+        <el-tab-pane label="OpenAPI / Swagger" name="openapi">
+          <div class="import-body">
+            <el-form label-width="80px">
+              <el-form-item label="目标分组">
+                <el-select v-model="importGroupId" placeholder="选择分组（可选）" clearable style="width: 100%">
+                  <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="Swagger JSON">
+                <el-input
+                  v-model="importSpecText"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
+                />
+              </el-form-item>
+            </el-form>
           </div>
+        </el-tab-pane>
+
+        <!-- Tab 2: HAR 文件上传 -->
+        <el-tab-pane label="HAR 文件上传" name="har">
+          <div class="import-body">
+            <el-form label-width="80px">
+              <el-form-item label="目标分组">
+                <el-select v-model="importGroupId" placeholder="选择分组（可选）" clearable style="width: 100%">
+                  <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="HAR 文件">
+                <el-upload
+                  :auto-upload="true"
+                  :show-file-list="false"
+                  :before-upload="onHarBeforeUpload"
+                  :http-request="onHarUpload"
+                  accept=".har"
+                >
+                  <el-button type="primary" :loading="harParsing">
+                    <el-icon style="margin-right: 4px;"><Upload /></el-icon>
+                    选择 HAR 文件
+                  </el-button>
+                  <template #tip>
+                    <div class="el-upload__tip">浏览器开发者工具 → Network → 右键 → Save all as HAR，直接上传</div>
+                  </template>
+                </el-upload>
+              </el-form-item>
+            </el-form>
+
+            <!-- HAR 解析预览：接口列表 + 勾选 -->
+            <div v-if="harPreviews.length" class="har-preview">
+              <div class="har-preview-header">
+                <el-checkbox v-model="harSelectAll" @change="onHarSelectAll">全选</el-checkbox>
+                <span class="har-preview-count">
+                  共 {{ harPreviews.length }} 个接口，已选 {{ harSelectedCount }} 个
+                </span>
+              </div>
+              <el-table ref="harTableRef" :data="harPreviews" max-height="360" border size="small" @selection-change="onHarSelectionChange">
+                <el-table-column type="selection" width="42" />
+                <el-table-column label="方法" width="72">
+                  <template #default="{ row }">
+                    <el-tag :type="methodTagType(row.method)" size="small" effect="plain">{{ row.method }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="路径" prop="path" min-width="200" show-overflow-tooltip />
+                <el-table-column label="字段数" width="70" align="center">
+                  <template #default="{ row }">{{ row.field_count }}</template>
+                </el-table-column>
+                <el-table-column label="数组体" width="60" align="center">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.is_array_body" type="warning" size="small">[]</el-tag>
+                    <span v-else style="color: var(--app-text-muted);">{{ '{}' }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+
+      <!-- 导入结果（两种模式共用） -->
+      <div v-if="importResult" class="import-result">
+        <el-alert :title="importResult.message" :type="importResult.skipped.length ? 'warning' : 'success'" :closable="false" />
+        <div v-if="importResult.skipped.length" class="import-skipped">
+          <div class="skipped-title">跳过的接口：</div>
+          <div v-for="(s, i) in importResult.skipped" :key="i" class="skipped-item">- {{ s }}</div>
         </div>
       </div>
+
       <template #footer>
         <el-button @click="showImportDialog = false">关闭</el-button>
-        <el-button type="primary" :loading="importLoading" @click="onImport">导入</el-button>
+        <!-- OpenAPI 模式：导入按钮 -->
+        <el-button v-if="importTab === 'openapi'" type="primary" :loading="importLoading" @click="onImport">导入</el-button>
+        <!-- HAR 模式：导入按钮 -->
+        <el-button v-if="importTab === 'har'" type="primary" :loading="importLoading" :disabled="harSelectedCount === 0" @click="onHarImport">导入勾选接口</el-button>
       </template>
     </el-dialog>
 
@@ -204,12 +273,12 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
-import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUser } from '@/api'
+import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUser, type HarPreviewItem } from '@/api'
 
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { Rank } from '@element-plus/icons-vue'
+import { Rank, Upload } from '@element-plus/icons-vue'
 import { useGroupMemory } from '@/composables/useGroupMemory'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
@@ -238,12 +307,32 @@ const batchMoveVisible = ref(false)
 const batchMoveTarget = ref<number | null>(null)
 const batchMoveLoading = ref(false)
 
-// ===== 导入 Swagger =====
+// ===== 导入接口（OpenAPI 粘贴 / HAR 上传）=====
 const showImportDialog = ref(false)
+const importTab = ref<'openapi' | 'har'>('openapi')
 const importSpecText = ref('')
 const importGroupId = ref<number | null>(null)
 const importLoading = ref(false)
 const importResult = ref<{ message: string; imported: any[]; skipped: string[] } | null>(null)
+
+// HAR 导入相关
+const harParsing = ref(false)
+const harPreviews = ref<HarPreviewItem[]>([])
+const harSelectedPreviews = ref<HarPreviewItem[]>([])
+const harSelectAll = ref(false)
+const harTableRef = ref<any>(null)
+
+const harSelectedCount = computed(() => harSelectedPreviews.value.length)
+
+// 方法标签颜色
+function methodTagType(method: string): 'primary' | 'success' | 'warning' | 'danger' | 'info' {
+  const m = method.toUpperCase()
+  if (m === 'GET') return 'success'
+  if (m === 'POST') return 'primary'
+  if (m === 'PUT') return 'warning'
+  if (m === 'DELETE') return 'danger'
+  return 'info'
+}
 
 async function onImport() {
   if (!currentProjectId.value) return ElMessage.warning('请先选择项目')
@@ -266,6 +355,85 @@ async function onImport() {
   } finally {
     importLoading.value = false
   }
+}
+
+// HAR 文件上传前校验
+function onHarBeforeUpload(file: File): boolean {
+  if (!file.name.toLowerCase().endsWith('.har')) {
+    ElMessage.error('请上传 .har 文件')
+    return false
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    ElMessage.error('文件超过 50MB 限制')
+    return false
+  }
+  return true
+}
+
+// HAR 文件上传 + 解析预览
+async function onHarUpload(options: any) {
+  if (!currentProjectId.value) return ElMessage.warning('请先选择项目')
+  const file = options.file as File
+  harParsing.value = true
+  harPreviews.value = []
+  harSelectedPreviews.value = []
+  harSelectAll.value = false
+  importResult.value = null
+  try {
+    const res = await apiApi.previewHar(file)
+    harPreviews.value = res.previews
+    if (res.total === 0) {
+      ElMessage.warning('HAR 文件中未解析出有效接口')
+    } else {
+      ElMessage.success(`解析出 ${res.total} 个接口，请勾选要导入的接口`)
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || 'HAR 解析失败')
+  } finally {
+    harParsing.value = false
+  }
+}
+
+// HAR 勾选变化
+function onHarSelectionChange(selection: HarPreviewItem[]) {
+  harSelectedPreviews.value = selection
+  harSelectAll.value = selection.length === harPreviews.value.length && selection.length > 0
+}
+
+// HAR 全选/取消全选
+function onHarSelectAll(val: any) {
+  const checked = !!val
+  if (!harTableRef.value) return
+  harPreviews.value.forEach((_, index) => {
+    harTableRef.value.toggleRowSelection(harPreviews.value[index], checked)
+  })
+}
+
+// HAR 导入
+async function onHarImport() {
+  if (!currentProjectId.value) return ElMessage.warning('请先选择项目')
+  if (harSelectedPreviews.value.length === 0) return ElMessage.warning('请勾选要导入的接口')
+  importLoading.value = true
+  importResult.value = null
+  try {
+    const res = await apiApi.importHar(currentProjectId.value, harSelectedPreviews.value, importGroupId.value)
+    importResult.value = res
+    ElMessage.success(res.message)
+    await loadApis()
+  } catch (e: any) {
+    ElMessage.error(e.message || '导入失败')
+  } finally {
+    importLoading.value = false
+  }
+}
+
+// 关闭导入弹窗时重置 HAR 状态
+function onImportDialogClose() {
+  harPreviews.value = []
+  harSelectedPreviews.value = []
+  harSelectAll.value = false
+  importResult.value = null
+  importSpecText.value = ''
 }
 
 // ===== 批量移动：不支持跨分组勾选 =====
@@ -600,6 +768,23 @@ watch(currentProjectId, () => {
 }
 .import-body {
   padding: 8px 4px;
+}
+.import-tabs {
+  min-height: 320px;
+}
+.har-preview {
+  margin-top: 12px;
+}
+.har-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+  padding: 8px 0;
+}
+.har-preview-count {
+  font-size: 13px;
+  color: var(--app-text-muted);
 }
 .import-result {
   margin-top: 12px;
