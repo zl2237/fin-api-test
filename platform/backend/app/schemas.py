@@ -185,7 +185,7 @@ class ApiCreate(BaseModel):
     method: str = "POST"
     path: str
     description: Optional[str] = None
-    request_template: Dict[str, Any] = {}
+    request_template: Any = {}
     headers_template: Dict[str, Any] = {}
     fields: List[ApiFieldIn] = []
 
@@ -198,7 +198,7 @@ class ApiUpdate(BaseModel):
     method: Optional[str] = None
     path: Optional[str] = None
     description: Optional[str] = None
-    request_template: Optional[Dict[str, Any]] = None
+    request_template: Optional[Any] = None
     headers_template: Optional[Dict[str, Any]] = None
     fields: Optional[List[ApiFieldIn]] = None
 
@@ -270,7 +270,7 @@ class ApiOut(ORMBase):
     method: str
     path: str
     description: Optional[str] = None
-    request_template: Dict[str, Any] = {}
+    request_template: Any = {}
     headers_template: Dict[str, Any] = {}
     fields: List[ApiFieldOut] = []
     created_at: Optional[datetime] = None

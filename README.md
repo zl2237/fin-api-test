@@ -117,7 +117,7 @@ fin-api-test/
 
 本项目同时提供一套 Web 测试平台，位于 [`platform/`](./platform/README.md)：
 
-- **后端**：FastAPI + SQLAlchemy + MySQL/SQLite
+- **后端**：FastAPI + SQLAlchemy + MySQL
 - **前端**：Vue3 + Element Plus + Vue Flow
 - **核心**：DAG 拖拽编排、字段级接口配置、结构化报告、用户权限、并发执行
 
