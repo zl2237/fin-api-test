@@ -19,7 +19,7 @@
 - **异步并发执行** — 线程池（max_workers=4）后台执行，前端轮询状态，不阻塞 UI
 - **用户权限** — JWT 鉴权 + admin/member 双角色 + 操作审计日志
 - **密码安全** — 强度校验（≥8 位 + 字母数字）+ 连续失败 5 次锁定 15 分钟
-- **多数据库** — SQLite（默认零配置）或 MySQL（生产推荐），支持数据迁移
+- **MySQL 持久化** — 连接池 + utf8mb4 全 Unicode 支持，自动建表与轻量迁移
 - **结构化报告** — 每步请求/响应/断言全量落库，支持导出 PDF + 性能趋势图
 - **执行记录清理** — 启动自动清理 30 天前记录，管理员可手动清理
 
@@ -30,13 +30,12 @@
 ```bash
 cd platform/backend
 cp .env.example .env
-# 编辑 .env，填写 JWT_SECRET_KEY 和 MySQL 配置（或使用默认 SQLite）
+# 编辑 .env，填写 JWT_SECRET_KEY 和 MySQL 连接信息
 ```
 
 ```ini
 # .env 示例
 JWT_SECRET_KEY=your-random-secret-key    # 必填，python -c "import secrets; print(secrets.token_hex(32))"
-DB_TYPE=mysql                            # sqlite 或 mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
@@ -66,17 +65,13 @@ npm run dev
 
 访问 http://localhost:5173 （已配置代理转发 `/api/` → 8000）。
 
-### 4. 从 SQLite 迁移到 MySQL（可选）
+### 4. 创建数据库（首次部署）
 
 ```bash
-# 先创建 MySQL 数据库
 mysql -u root -p -e "CREATE DATABASE fin_api_test DEFAULT CHARSET utf8mb4"
-
-# 修改 .env 中 DB_TYPE=mysql，启动后端自动建表
-
-# 迁移存量数据
-python platform/migrate_sqlite_to_mysql.py
 ```
+
+配置好 `.env` 中的 `DB_PASSWORD` 后启动后端，表结构会自动创建。
 
 ## 架构
 
@@ -127,7 +122,7 @@ platform/
 │   │   ├── auth.py          # 密码哈希 + JWT + 鉴权 + 密码强度校验
 │   │   ├── models.py        # ORM 模型（User / Project / Environment / Api / TestCase ...）
 │   │   ├── schemas.py       # Pydantic 模型
-│   │   ├── database.py      # SQLAlchemy 初始化（SQLite/MySQL 双模式）
+│   │   ├── database.py      # SQLAlchemy 初始化（MySQL 连接池 + 自动迁移）
 │   │   └── main.py          # FastAPI 入口（.env 加载 + 自动迁移 + 启动清理）
 │   ├── .env.example         # 环境变量模板
 │   └── requirements.txt
@@ -139,7 +134,6 @@ platform/
 │   │   ├── router/          # 路由 + 守卫
 │   │   └── stores/          # Pinia 状态管理
 │   └── package.json
-├── migrate_sqlite_to_mysql.py
 └── README.md
 ```
 
@@ -250,7 +244,7 @@ platform/
 
 ## 技术栈
 
-**后端**：FastAPI 0.115.6 · SQLAlchemy 2.0.36 · Pydantic 2.11 · jsonpath-ng 1.6.1 · PyMySQL · python-dotenv
+**后端**：FastAPI 0.115.6 · SQLAlchemy 2.0.36 · Pydantic 2.11 · jsonpath-ng 1.6.1 · PyMySQL · python-dotenv · cryptography
 
 **前端**：Vue 3.5 · Element Plus 2.9 · Vue Flow 1.42 · Vue Router 4.5 · Pinia 2.3 · axios 1.7 · Vite 6.0
 

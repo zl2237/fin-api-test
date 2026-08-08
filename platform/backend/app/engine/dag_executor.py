@@ -149,14 +149,18 @@ class DagExecutor:
         return order, leftover
 
     # ---------- 请求体构建 ----------
-    def _build_request_body(self, api: models.ApiDefinition) -> Dict[str, Any]:
+    def _build_request_body(self, api: models.ApiDefinition) -> Any:
         """
         优先用 ApiField 组装请求体（支持点号嵌套路径）；
         无 fields 时回退到 request_template（兼容旧数据）。
+        request_template 为 list 时标记数组请求体，组装结果包裹为 [{...}]。
         """
         fields = getattr(api, "fields", None) or []
         if not fields:
             return deepcopy(api.request_template or {})
+
+        # request_template 为 list 表示数组请求体（body 本身是 [{...}]）
+        is_array_body = isinstance(api.request_template, list)
 
         body: Dict[str, Any] = {}
         for f in fields:
@@ -166,7 +170,7 @@ class DagExecutor:
             val = self._parse_field_value(f.default_value, f.field_type)
             # 按点号路径设置到嵌套 dict
             self._set_nested(body, f.key, val)
-        return body
+        return [body] if is_array_body else body
 
     @staticmethod
     def _parse_field_value(raw: Optional[str], field_type: str) -> Any:
@@ -222,7 +226,7 @@ class DagExecutor:
             cur = cur[k]
         cur[keys[-1]] = value
 
-    def _apply_field_types(self, body: Dict[str, Any], api: models.ApiDefinition) -> Dict[str, Any]:
+    def _apply_field_types(self, body: Any, api: models.ApiDefinition) -> Any:
         """按 ApiField.field_type 强转标量值。
 
         解决表达式求值后类型丢失的问题：
@@ -231,7 +235,14 @@ class DagExecutor:
         - array 字段：${xxx} 经 _coerce_json_strings 后元素变 int，但字段定义是字符串数组时
           应转回字符串数组（如 order_fee_real_ids 期望 ["123"] 而非 [123]）
         object 字段不处理（结构复杂，保留求值后的原生类型）。
+        数组请求体（body 为 list）时对首元素应用字段类型。
         """
+        # 数组请求体：对第一个 dict 元素应用字段类型转换
+        if isinstance(body, list):
+            if body and isinstance(body[0], dict):
+                body[0] = self._apply_field_types(body[0], api)
+            return body
+
         fields = getattr(api, "fields", None) or []
         if not fields:
             return body

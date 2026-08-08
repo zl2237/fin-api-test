@@ -171,7 +171,7 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
                 continue
 
             # 解析请求参数（query/path/header）+ 请求体 schema -> 字段
-            fields = _extract_fields_from_spec(info, spec, is_v3)
+            fields, is_array_body = _extract_fields_from_spec(info, spec, is_v3)
 
             api_data = schemas.ApiCreate(
                 project_id=data.project_id,
@@ -181,7 +181,8 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
                 method=method,
                 path=path,
                 description=info.get("description", ""),
-                request_template={},
+                # 数组请求体用 [] 标记，_build_request_body 据此组装为 [{...}]
+                request_template=[] if is_array_body else {},
                 headers_template={},
                 fields=fields,
             )
@@ -243,7 +244,7 @@ def import_fields_from_swagger(
             fields=[],
         )
 
-    fields = _extract_fields_from_spec(matched_info, spec, is_v3)
+    fields, _is_array_body = _extract_fields_from_spec(matched_info, spec, is_v3)
     summary = matched_info.get("summary") or matched_info.get("operationId") or matched_path
     return schemas.ApiImportFieldsResponse(
         matched=True,
@@ -435,7 +436,7 @@ def _coerce_default(default_value: Any, field_type: str) -> str:
         return json.dumps(default_value, ensure_ascii=False)
     return str(default_value)
 
-def _extract_fields_from_spec(info: dict, spec: dict, is_v3: bool) -> list:
+def _extract_fields_from_spec(info: dict, spec: dict, is_v3: bool) -> tuple:
     """从 OpenAPI/Swagger 操作定义中提取字段：
     1. parameters（query/path/cookie/formData，跳过 header）→ 有默认值才导入
     2. requestBody body schema 的 properties → 有默认值才导入
@@ -443,10 +444,12 @@ def _extract_fields_from_spec(info: dict, spec: dict, is_v3: bool) -> list:
       property 自身: default > example(单数) > examples(复数) > enum[0]
       body 字段额外回退: schema 顶层 example（完整请求体示例对象）中对应 key 的值
     无默认值（空字符串/None）的字段不导入。
+    返回 (fields, is_array_body)：is_array_body 标记请求体本身是否为数组类型。
     """
     fields: list = []
     sort_order = 0
     seen_keys: set = set()
+    is_array_body = False
 
     # ---- 1. 提取 parameters（query/path/cookie/formData，跳过 header）----
     for param in info.get("parameters", []) or []:
@@ -519,15 +522,26 @@ def _extract_fields_from_spec(info: dict, spec: dict, is_v3: bool) -> list:
     if schema:
         if "$ref" in schema:
             schema = _resolve_ref(schema["$ref"], spec)
+        # body 本身是数组时（type=array），字段定义在 items.properties 中
+        # 例如：POST /api/finance/receiveInvoice/invoiceAdd 的 body 是 [{...}]
+        if schema.get("type") == "array" and "items" in schema:
+            is_array_body = True
+            items = schema["items"]
+            if "$ref" in items:
+                items = _resolve_ref(items["$ref"], spec)
+            schema = items
         properties = schema.get("properties", {}) or {}
         required_keys = set(schema.get("required", []) or [])
         # schema 顶层 example（完整请求体示例对象）作为字段默认值回退源
+        # body 是数组时，example 也可能是数组，取第一个元素作为回退源
         schema_example = schema.get("example")
         if not isinstance(schema_example, dict):
             schema_example = {}
-        # v3 media type 级别的 example 也作为回退源
+        # v3 media type 级别的 example 也作为回退源，同样处理数组情况
         media_example = json_content.get("example") if json_content else None
-        if not isinstance(media_example, dict):
+        if isinstance(media_example, list) and media_example:
+            media_example = media_example[0] if isinstance(media_example[0], dict) else {}
+        elif not isinstance(media_example, dict):
             media_example = {}
         for key, prop in properties.items():
             if key in seen_keys:
@@ -557,4 +571,4 @@ def _extract_fields_from_spec(info: dict, spec: dict, is_v3: bool) -> list:
             seen_keys.add(key)
             sort_order += 1
 
-    return fields
+    return fields, is_array_body

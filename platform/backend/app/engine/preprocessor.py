@@ -62,6 +62,15 @@ def set_nested_value(data: Any, path: str, value: Any):
 def delete_nested_value(data: Any, path: str):
     """按点号路径删除字段"""
     keys = path.split(".")
+    # 顶层字段直接在 data 上删除（避免 get_nested_value(data, "") 返回 None）
+    if len(keys) == 1:
+        if isinstance(data, dict):
+            data.pop(keys[0], None)
+        elif isinstance(data, list) and keys[0].isdigit():
+            idx = int(keys[0])
+            if idx < len(data):
+                data.pop(idx)
+        return
     parent = get_nested_value(data, ".".join(keys[:-1]))
     last = keys[-1]
     if isinstance(parent, dict):
@@ -76,17 +85,32 @@ class PreProcessor:
     def __init__(self, context: Dict[str, Any], db_client=None):
         self.expr = ExpressionEngine(context, db_client=db_client)
 
-    def process(self, body: Dict, actions: List[Dict], extracted: Dict[str, Any] = None) -> Dict:
+    def process(self, body: Any, actions: List[Dict], extracted: Dict[str, Any] = None) -> Any:
         """
         执行前置处理动作。
 
-        :param body: 请求体（会被 deepcopy，不修改原对象）
+        :param body: 请求体（会被 deepcopy，不修改原对象）。支持 dict 和 list（数组请求体）。
+                     数组请求体 [{...}] 时，set_field/delete_field/iterate_set 作用于 body[0]。
         :param actions: 动作列表
         :param extracted: 上下文已提取变量字典（引用），set_field 求值后的值会同步写入此字典，
                           使后续 post_extract 的 SQL 和后续节点的 ${xxx} 能引用到。
                           未传入时不同步（兼容旧调用）。
         """
         body = deepcopy(body) if body else {}
+
+        # 数组请求体：body 为 [{...}]，前置处理作用于第一个元素
+        if isinstance(body, list):
+            if not body:
+                return body
+            if isinstance(body[0], dict):
+                body[0] = self._process_dict(body[0], actions, extracted)
+            return body
+
+        # 普通 dict 请求体
+        return self._process_dict(body, actions, extracted)
+
+    def _process_dict(self, body: Dict, actions: List[Dict], extracted: Dict[str, Any] = None) -> Dict:
+        """对 dict 请求体执行前置处理动作"""
         for action in actions or []:
             action_type = action.get("type")
 

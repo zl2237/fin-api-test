@@ -30,3 +30,8 @@ Thumbs.db
 # 敏感信息
 config/env_test.yaml
 config/env_pre.yaml
+platform/backend/.env
+
+# 本地导入接口所需文件
+*.har
+*.openapi.json
