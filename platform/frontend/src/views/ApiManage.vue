@@ -56,6 +56,7 @@
             </div>
           </template>
           <el-table
+            v-loading="loading"
             :ref="(el: any) => setTableRef(g.group?.id ?? 'ungrouped', el)"
             :data="pagedApis(g.group?.id ?? 'ungrouped')"
             size="small"
