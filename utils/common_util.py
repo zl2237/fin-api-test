@@ -7,11 +7,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 # 全局目录常量
 LOG_DIR = PROJECT_ROOT / "logs"
 REPORT_DIR = PROJECT_ROOT / "report"
-ASSETS_UPLOAD_DIR = PROJECT_ROOT / "assets" / "upload"
-DOWNLOAD_TMP_DIR = PROJECT_ROOT / "assets" / "download_tmp"
 
 # 需要自动创建的目录列表
-DIR_LIST = [LOG_DIR, REPORT_DIR, ASSETS_UPLOAD_DIR, DOWNLOAD_TMP_DIR]
+DIR_LIST = [LOG_DIR, REPORT_DIR]
 
 
 def get_project_root() -> Path:

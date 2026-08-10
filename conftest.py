@@ -88,16 +88,11 @@ def db_factory(env_config):
 
 
 def pytest_sessionstart(session):
-    """会话启动：清理临时文件、创建报告目录"""
+    """会话启动：创建报告目录"""
     env = os.getenv("TEST_ENV", "test")
-    download_tmp = get_project_root() / "assets" / "download_tmp"
-    if download_tmp.exists():
-        for f in download_tmp.iterdir():
-            if f.is_file():
-                f.unlink()
     report_dir = get_project_root() / "report"
     report_dir.mkdir(exist_ok=True)
-    logger.info(f"测试会话启动，环境：{env}，已清空下载临时目录")
+    logger.info(f"测试会话启动，环境：{env}")
 
 
 def pytest_sessionfinish(session):

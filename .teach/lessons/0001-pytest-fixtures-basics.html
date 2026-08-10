@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第一课：Pytest Fixtures 基础</title>
+    <style>
+        :root {
+            --bg: #fafafa;
+            --text: #333;
+            --accent: #0066cc;
+            --accent-light: #e6f0ff;
+            --code-bg: #f4f4f4;
+            --border: #ddd;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.7;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: var(--bg);
+            color: var(--text);
+        }
+        h1 {
+            font-size: 2em;
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: var(--accent);
+            margin-top: 40px;
+        }
+        h3 {
+            color: #555;
+            margin-top: 25px;
+        }
+        code {
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: "SF Mono", Consolas, monospace;
+        }
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        .keyword { color: #569cd6; }
+        .string { color: #ce9178; }
+        .function { color: #dcdcaa; }
+        .comment { color: #6a9955; }
+        .number { color: #b5cea8; }
+        .concept {
+            background: var(--accent-light);
+            border-left: 4px solid var(--accent);
+            padding: 15px 20px;
+            margin: 20px 0;
+        }
+        .tip {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 15px 20px;
+            margin: 20px 0;
+        }
+        ul { padding-left: 25px; }
+        li { margin: 10px 0; }
+        .nav {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
+        .quiz {
+            background: #f0f0f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+        }
+        .quiz h3 { margin-top: 0; }
+        .quiz input {
+            margin: 10px 5px 10px 0;
+            vertical-align: middle;
+        }
+        .hidden { display: none; }
+        .revealed {
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <h1>第一课：Pytest Fixtures 基础</h1>
+
+    <div class="concept">
+        <strong>核心概念：</strong> Fixture 是 pytest 提供的一种机制，用于为测试提供<strong>固定的数据、功能或环境</strong>。它是测试的"准备工作"。
+    </div>
+
+    <h2>为什么需要 Fixtures？</h2>
+    <p>想象你要测试一个订单创建功能：</p>
+    <ul>
+        <li>需要先登录获取 Token</li>
+        <li>需要数据库连接</li>
+        <li>需要加载测试数据</li>
+    </ul>
+    <p>如果没有 Fixtures，你需要在每个测试里重复这些代码。有了 Fixtures，只需定义一次，pytest 自动为你管理生命周期。</p>
+
+    <h2>基础语法</h2>
+
+    <h3>1. 定义 Fixture</h3>
+    <pre><code><span class="keyword">import</span> pytest
+
+<span class="comment"># conftest.py 或测试文件中</span>
+<span class="keyword">@pytest.fixture</span>
+<span class="keyword">def</span> <span class="function">login_token</span>():
+    <span class="comment">"""模拟登录，返回 Token"""</span>
+    token = <span class="string">"mock_token_12345"</span>
+    <span class="keyword">return</span> token</code></pre>
+
+    <h3>2. 在测试中使用</h3>
+    <pre><code><span class="keyword">def</span> <span class="function">test_create_order</span>(login_token):
+    <span class="comment"># 直接使用 fixture 提供的 token</span>
+    assert login_token == <span class="string">"mock_token_12345"</span></code></pre>
+
+    <h2>Fixture 的作用域</h2>
+
+    <table style="width:100%; border-collapse: collapse; margin: 20px 0;">
+        <tr style="background: var(--accent); color: white;">
+            <th style="padding: 12px; text-align: left;">作用域</th>
+            <th style="padding: 12px; text-align: left;">说明</th>
+            <th style="padding: 12px; text-align: left;">使用场景</th>
+        </tr>
+        <tr style="background: white;">
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;"><code>function</code></td>
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;">每个测试函数调用一次</td>
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;">默认值，大多数情况</td>
+        </tr>
+        <tr style="background: #f9f9f9;">
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;"><code>class</code></td>
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;">每个测试类调用一次</td>
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;">测试类内共享数据</td>
+        </tr>
+        <tr style="background: white;">
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;"><code>module</code></td>
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;">每个模块文件调用一次</td>
+            <td style="padding: 12px; border-bottom: 1px solid #ddd;">模块级别共享（如数据库连接）</td>
+        </tr>
+        <tr style="background: #f9f9f9;">
+            <td style="padding: 12px;"><code>session</code></td>
+            <td style="padding: 12px;">整个测试会话调用一次</td>
+            <td style="padding: 12px;">全局配置、日志初始化</td>
+        </tr>
+    </table>
+
+    <h3>示例：模块级别的数据库连接</h3>
+    <pre><code><span class="keyword">@pytest.fixture</span>(scope=<span class="string">"module"</span>)
+<span class="keyword">def</span> <span class="function">db_connection</span>():
+    <span class="comment">"""整个模块共享一个数据库连接"""</span>
+    conn = create_db_connection()
+    <span class="keyword">yield</span> conn  <span class="comment"># 返回连接给测试</span>
+    conn.close()  <span class="comment"># 测试结束后清理</span></code></pre>
+
+    <div class="tip">
+        <strong>yield vs return：</strong> 使用 <code>yield</code> 而不是 <code>return</code>，这样 pytest 会在测试完成后执行<strong>清理代码</strong>（teardown）。
+    </div>
+
+    <h2>Fixture 依赖</h2>
+    <p>Fixtures 可以互相依赖！</p>
+    <pre><code><span class="keyword">@pytest.fixture</span>
+<span class="keyword">def</span> <span class="function">db_connection</span>():
+    <span class="keyword">return</span> create_connection()</code></pre>
+
+    <pre><code><span class="keyword">@pytest.fixture</span>
+<span class="keyword">def</span> <span class="function">order_db</span>(db_connection):  <span class="comment"># 依赖 db_connection</span>
+    <span class="keyword">return</span> OrderDB(db_connection)</code></pre>
+
+    <h2>你的项目中的 Fixtures</h2>
+    <p>查看你的 <code>conftest.py</code>，应该已经有类似的结构：</p>
+    <pre><code><span class="comment"># conftest.py 示例结构</span>
+<span class="keyword">@pytest.fixture</span>(scope=<span class="string">"session"</span>)
+<span class="keyword">def</span> <span class="function">env_config</span>():
+    <span class="comment"># 加载环境配置</span>
+    <span class="keyword">pass</span>
+
+<span class="keyword">@pytest.fixture</span>(scope=<span class="string">"function"</span>)
+<span class="keyword">def</span> <span class="function">http_client</span>(env_config):
+    <span class="comment"># 每个测试新建一个 HTTP 客户端</span>
+    <span class="keyword">pass</span></code></pre>
+
+    <h2>快速练习</h2>
+    <div class="quiz">
+        <h3>小测验</h3>
+        <p>如果需要为每个测试函数提供独立的订单数据，应该使用哪个作用域？</p>
+        <button onclick="reveal('a1')">显示答案</button>
+        <div id="a1" class="hidden">
+            <div class="revealed">
+                <strong>答案：</strong><code>function</code>（默认值）<br>
+                每个测试函数调用一次 fixture，确保测试间数据隔离。
+            </div>
+        </div>
+    </div>
+
+    <div class="nav">
+        <span>← 上一课</span>
+        <span><a href="./0002-parametrize.html">下一课：参数化测试 →</a></span>
+    </div>
+
+    <div class="tip">
+        <strong>有问题？</strong> 随时问我，我会帮助你理解任何不清楚的概念。
+    </div>
+
+    <script>
+        function reveal(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
