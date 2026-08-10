@@ -57,7 +57,26 @@ def get_db():
 
 
 def init_db():
-    """建表：导入所有模型后调用 Base.metadata.create_all。
-    表结构变更由 Alembic 管理（alembic upgrade head），不再用硬编码 ALTER。"""
+    """数据库初始化：智能 Alembic 迁移。
+
+    三种场景自动处理：
+    - 旧库（有表无 alembic_version 表）：自动 stamp head，标记当前 schema 到位，不执行 DDL
+    - 全新库（无表）：执行 alembic upgrade head，create_all 建表
+    - 已迁移库（有 alembic_version 表）：执行 alembic upgrade head，应用增量迁移
+    """
+    from pathlib import Path
+    from sqlalchemy import inspect
+    from alembic.config import Config
+    from alembic import command
+
     from . import models  # noqa: F401  触发模型注册
-    Base.metadata.create_all(engine)
+
+    alembic_cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
+    existing_tables = set(inspect(engine).get_table_names())
+
+    if existing_tables and "alembic_version" not in existing_tables:
+        # 旧库迁移：已有表但未纳入 Alembic 管理，标记当前为 head
+        command.stamp(alembic_cfg, "head")
+    else:
+        # 全新库或已迁移库：执行迁移
+        command.upgrade(alembic_cfg, "head")

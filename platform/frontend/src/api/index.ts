@@ -1,9 +1,17 @@
 import axios from 'axios'
+import { startProgress, doneProgress } from '@/utils/requestProgress'
 
 const http = axios.create({
   baseURL: '/api',
   timeout: 60000,
 })
+
+// 扩展 axios config：silent=true 时跳过顶部进度条（用于轮询请求避免频繁闪烁）
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    silent?: boolean
+  }
+}
 
 // ============ Token 管理 ============
 const TOKEN_KEY = 'fin_api_test_token'
@@ -20,20 +28,28 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
 }
 
-// 请求拦截器：自动注入 Authorization
+// 请求拦截器：自动注入 Authorization + 启动顶部进度条
 http.interceptors.request.use((config) => {
   const token = getToken()
   if (token) {
     config.headers = config.headers || {}
     config.headers.Authorization = `Bearer ${token}`
   }
+  // silent 请求（如轮询）跳过进度条，避免频繁闪烁
+  if (!config.silent) {
+    startProgress()
+  }
   return config
 })
 
-// 响应拦截器：401 清 token 跳登录；其他错误提取 detail
+// 响应拦截器：401 清 token 跳登录；其他错误提取 detail；结束进度条
 http.interceptors.response.use(
-  (resp) => resp,
+  (resp) => {
+    if (!resp.config.silent) doneProgress()
+    return resp
+  },
   (error) => {
+    if (!error?.config?.silent) doneProgress()
     const status = error?.response?.status
     if (status === 401) {
       clearToken()
@@ -49,9 +65,10 @@ http.interceptors.response.use(
 
 // ============ 类型 ============
 export interface User {
-  id: number; username: string; name?: string; role: string; created_at?: string
+  id: number; username: string; name?: string; role: string; must_change_password?: boolean; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
+  has_avatar?: boolean
 }
 export interface Project {
   id: number; name: string; description?: string; created_at?: string
@@ -128,6 +145,39 @@ export interface ExecutionRecord {
   created_by?: number | null; created_by_name?: string | null
 }
 
+export interface ProjectVersionListItem {
+  id: number; project_id: number; version_no: number
+  name: string; description?: string
+  created_by?: number | null; created_by_name?: string | null
+  created_at?: string
+}
+
+export interface ProjectVersion extends ProjectVersionListItem {
+  snapshot?: {
+    api_groups: any[]
+    case_groups: any[]
+    apis: any[]
+    cases: any[]
+  }
+}
+
+export interface ProjectVersionDiff {
+  base: ProjectVersion
+  target: ProjectVersion
+  diff: {
+    api_groups: CollectionDiff
+    case_groups: CollectionDiff
+    apis: CollectionDiff
+    cases: CollectionDiff
+  }
+}
+
+export interface CollectionDiff {
+  added: { key: string; target: any }[]
+  removed: { key: string; base: any }[]
+  modified: { key: string; base: any; target: any }[]
+}
+
 // ============ Auth ============
 export const authApi = {
   login: (username: string, password: string) =>
@@ -135,6 +185,16 @@ export const authApi = {
   register: (username: string, password: string, name?: string) =>
     http.post<{ token: string; user: User }>('/auth/register', { username, password, name }).then((r) => r.data),
   me: () => http.get<User>('/auth/me').then((r) => r.data),
+  changePassword: (newPassword: string) =>
+    http.post<{ message: string }>('/auth/change-password', { new_password: newPassword }).then((r) => r.data),
+  // 头像：上传（base64 data URL）/ 删除 / 按 id 查 / 按 username 查
+  updateAvatar: (avatar: string) =>
+    http.put<{ message: string }>('/auth/avatar', { avatar }).then((r) => r.data),
+  removeAvatar: () => http.delete('/auth/avatar'),
+  getAvatar: (userId: number) =>
+    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/${userId}`).then((r) => r.data),
+  getAvatarByUsername: (username: string) =>
+    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/by-username/${username}`).then((r) => r.data),
 }
 
 // ============ User 管理（仅管理员） ============
@@ -170,6 +230,7 @@ export interface OperationLog {
 export const logApi = {
   list: (params?: { action?: string; target_type?: string; user_id?: number; limit?: number }) =>
     http.get<OperationLog[]>('/operation-logs', { params }).then((r) => r.data),
+  cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/operation-logs/cleanup', { params: { days } }).then((r) => r.data),
 }
 
 // ============ Project ============
@@ -264,11 +325,48 @@ export const caseApi = {
     http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId }).then((r) => r.data),
 }
 
+// ============ ProjectVersion 项目版本 ============
+export const projectVersionApi = {
+  list: (projectId: number) =>
+    http.get<ProjectVersionListItem[]>(`/projects/${projectId}/versions`).then((r) => r.data),
+  create: (projectId: number, data: { name: string; description?: string }) =>
+    http.post<ProjectVersion>(`/projects/${projectId}/versions`, data).then((r) => r.data),
+  get: (versionId: number) =>
+    http.get<ProjectVersion>(`/project-versions/${versionId}`).then((r) => r.data),
+  diff: (baseId: number, targetId: number) =>
+    http.get<ProjectVersionDiff>(`/project-versions/${baseId}/diff`, { params: { target_id: targetId } }).then((r) => r.data),
+  rollback: (versionId: number) =>
+    http.post<{ message: string }>(`/project-versions/${versionId}/rollback`).then((r) => r.data),
+  remove: (versionId: number) => http.delete(`/project-versions/${versionId}`),
+}
+
 // ============ Execution / Report ============
 export const execApi = {
   list: (params?: { case_id?: number; project_id?: number; created_by?: number; limit?: number }) =>
     http.get<ExecutionRecord[]>('/executions', { params }).then((r) => r.data),
-  get: (id: number) => http.get<ExecutionRecord>(`/executions/${id}`).then((r) => r.data),
+  get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
   report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/executions/cleanup', { params: { days } }).then((r) => r.data),
+}
+
+// ============ FieldDictionary 字段字典 ============
+export interface FieldDictionary {
+  id: number; project_id: number; key: string; label: string
+  created_at?: string; updated_at?: string
+  created_by?: number | null; updated_by?: number | null
+  created_by_name?: string | null; updated_by_name?: string | null
+}
+
+export const dictApi = {
+  list: (projectId: number, keyword?: string) =>
+    http.get<FieldDictionary[]>('/field-dictionaries', { params: { project_id: projectId, keyword } }).then((r) => r.data),
+  getMap: (projectId: number) =>
+    http.get<Record<string, string>>('/field-dictionaries/map', { params: { project_id: projectId } }).then((r) => r.data),
+  create: (data: { project_id: number; key: string; label: string }) =>
+    http.post<FieldDictionary>('/field-dictionaries', data).then((r) => r.data),
+  update: (id: number, data: { key?: string; label?: string }) =>
+    http.put<FieldDictionary>(`/field-dictionaries/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/field-dictionaries/${id}`),
+  batch: (projectId: number, items: { key: string; label: string }[]) =>
+    http.post<{ message: string; count: number }>('/field-dictionaries/batch', { project_id: projectId, items }).then((r) => r.data),
 }

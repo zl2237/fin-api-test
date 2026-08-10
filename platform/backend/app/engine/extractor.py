@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from jsonpath_ng import parse
 
+from .expression import inject_sql_vars
+
 
 class Extractor:
     def __init__(self, db_client=None):
@@ -80,23 +82,8 @@ class Extractor:
         当前批次提取的变量还未写入 context，因此仅能引用此前步骤已提取的变量。
         dag_executor 会把已提取变量通过 context 传入。
         """
-        # 此处 self._vars 由 extract 调用前通过 set_context 注入
-        extracted = getattr(self, "_vars", {})
-
-        def repl(m):
-            key = m.group(1).strip()
-            if key.startswith("context."):
-                key = key[len("context."):]
-            elif key.startswith("extracted."):
-                key = key[len("extracted."):]
-            val = extracted.get(key, m.group(0))
-            if isinstance(val, str):
-                return "'" + val.replace("'", "''") + "'"
-            if val is None:
-                return "NULL"
-            return str(val)
-
-        return re.sub(r"\$\{([^}]+)\}", repl, sql)
+        # 委托公共函数，消除三处重复的转义逻辑
+        return inject_sql_vars(sql, getattr(self, "_vars", {}))
 
     def set_extracted_vars(self, vars: Dict[str, Any]):
         """供 dag_executor 在每步提取前注入当前已提取的变量，供 SQL 引用"""

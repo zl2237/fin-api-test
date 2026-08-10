@@ -269,22 +269,7 @@ class ExpressionEngine:
 
     def _inject_vars(self, sql: str) -> str:
         """把 ${xxx} 替换为已提取变量值，字符串做防注入转义"""
-        extracted = self.context.get("extracted", {})
-
-        def repl(m):
-            key = m.group(1).strip()
-            if key.startswith("context."):
-                key = key[len("context."):]
-            elif key.startswith("extracted."):
-                key = key[len("extracted."):]
-            val = extracted.get(key, m.group(0))
-            if isinstance(val, str):
-                return "'" + val.replace("'", "''") + "'"
-            if val is None:
-                return "NULL"
-            return str(val)
-
-        return re.sub(r"\$\{([^}]+)\}", repl, sql)
+        return inject_sql_vars(sql, self.context.get("extracted", {}))
 
     @staticmethod
     def _resolve_path(data: Any, path: str) -> Any:
@@ -301,3 +286,35 @@ class ExpressionEngine:
 def expr_inner_marker(inner: str) -> str:
     """未识别的表达式原样返回（保留 ${} 包裹，便于排查）"""
     return "${" + inner + "}"
+
+
+# ============ SQL 变量注入（公共函数，消除三处重复） ============
+_SQL_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+
+
+def inject_sql_vars(sql: str, extracted: Dict[str, Any]) -> str:
+    """把 ${xxx} 替换为已提取变量值，字符串做防注入转义。
+
+    支持 ${context.xxx} / ${extracted.xxx} 前缀，等价于 ${xxx}。
+    - 字符串值：用单引号包裹，内部单引号转义为两个单引号
+    - None：转 NULL
+    - 其他（int/float 等）：转 str
+    - 未定义变量：m.group(0) 作为字符串返回（会被引号包裹）
+
+    被 ExpressionEngine._inject_vars / Extractor._inject_vars /
+    AssertionEngine._inject_extracted 共用，消除三份重复的转义逻辑。
+    """
+    def repl(m):
+        key = m.group(1).strip()
+        if key.startswith("context."):
+            key = key[len("context."):]
+        elif key.startswith("extracted."):
+            key = key[len("extracted."):]
+        val = extracted.get(key, m.group(0))
+        if isinstance(val, str):
+            return "'" + val.replace("'", "''") + "'"
+        if val is None:
+            return "NULL"
+        return str(val)
+
+    return _SQL_VAR_RE.sub(repl, sql)

@@ -13,34 +13,34 @@ group_router = APIRouter(prefix="/api/case-groups", tags=["用例分组"])
 
 # ============ 用例分组 ============
 @group_router.post("", response_model=schemas.CaseGroupOut)
-def create_group(data: schemas.CaseGroupCreate, db: Session = Depends(get_db)):
+def create_group(data: schemas.CaseGroupCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.create_case_group(db, data)
-    crud.log_operation(db, None, "create", "case_group", obj.id, obj.name)
+    crud.log_operation(db, user, "create", "case_group", obj.id, obj.name)
     return obj
 
 
 @group_router.get("", response_model=list[schemas.CaseGroupOut])
-def list_groups(project_id: int, db: Session = Depends(get_db)):
+def list_groups(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     return crud.list_case_groups(db, project_id)
 
 
 @group_router.put("/{group_id}", response_model=schemas.CaseGroupOut)
-def update_group(group_id: int, data: schemas.CaseGroupUpdate, db: Session = Depends(get_db)):
+def update_group(group_id: int, data: schemas.CaseGroupUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_case_group(db, group_id)
     if not obj:
         raise HTTPException(404, "用例分组不存在")
     obj = crud.update_case_group(db, obj, data)
-    crud.log_operation(db, None, "update", "case_group", obj.id, obj.name)
+    crud.log_operation(db, user, "update", "case_group", obj.id, obj.name)
     return obj
 
 
 @group_router.delete("/{group_id}")
-def delete_group(group_id: int, db: Session = Depends(get_db)):
+def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_case_group(db, group_id)
     if not obj:
         raise HTTPException(404, "用例分组不存在")
     crud.delete_case_group(db, obj)
-    crud.log_operation(db, None, "delete", "case_group", obj.id, obj.name)
+    crud.log_operation(db, user, "delete", "case_group", obj.id, obj.name)
     return {"message": "已删除"}
 
 
@@ -107,11 +107,11 @@ def copy(case_id: int, db: Session = Depends(get_db), user: models.User = Depend
 
 
 @router.post("/batch-move")
-def batch_move(data: schemas.CaseBatchMove, db: Session = Depends(get_db)):
+def batch_move(data: schemas.CaseBatchMove, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """批量移动用例到指定分组"""
     # 注意：此路由需在 /{case_id} 之前注册，否则会被 path 参数拦截
     updated = crud.batch_move_testcases(db, data.case_ids, data.group_id)
-    crud.log_operation(db, None, "update", "testcase", None, f"批量移动{updated}个用例")
+    crud.log_operation(db, user, "update", "testcase", None, f"批量移动{updated}个用例")
     return {"message": f"已移动 {updated} 个用例", "updated": updated}
 
 

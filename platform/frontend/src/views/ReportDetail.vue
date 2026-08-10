@@ -21,18 +21,18 @@
               重新执行
             </el-button>
             <el-button size="small" @click="exportCsv" :disabled="!steps.length">导出 CSV</el-button>
-            <el-button size="small" @click="exportPdf" :disabled="!steps.length">导出 PDF</el-button>
+            <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
             <el-button text @click="router.back()">返回</el-button>
           </div>
         </div>
         <div class="summary-grid">
           <div class="metric">
             <div class="metric-label">用例</div>
-            <div class="metric-value">{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
+            <div class="metric-value" :title="record?.case_name || `#${record?.case_id}` || '-'">{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
           </div>
           <div class="metric">
             <div class="metric-label">环境</div>
-            <div class="metric-value">{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
+            <div class="metric-value" :title="record?.env_name || `#${record?.env_id}` || '-'">{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
           </div>
           <div class="metric">
             <div class="metric-label">步骤通过 / 总数</div>
@@ -52,7 +52,7 @@
           </div>
           <div class="metric">
             <div class="metric-label">开始时间</div>
-            <div class="metric-value small">{{ record?.started_at ?? '-' }}</div>
+            <div class="metric-value small" :title="record?.started_at ?? '-'">{{ record?.started_at ?? '-' }}</div>
           </div>
           <div class="metric">
             <div class="metric-label">耗时</div>
@@ -62,26 +62,46 @@
       </el-card>
 
       <!-- 各步骤响应耗时趋势图（纯 SVG，零依赖） -->
-      <el-card v-if="steps.length" shadow="never" class="trend-card">
+      <el-card v-if="steps.length" shadow="never" class="trend-card" @mouseleave="hideTrendTip">
         <div class="trend-head">
           <span class="trend-title">步骤响应耗时趋势</span>
-          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms</span>
+          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮节点查看详情</span>
         </div>
         <svg class="trend-svg" :viewBox="`0 0 ${trendWidth} ${trendHeight}`" preserveAspectRatio="none">
           <!-- 网格线 -->
-          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="#eee" stroke-width="1" />
+          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" />
           <!-- Y 轴刻度 -->
-          <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" fill="#999">{{ g.label }}</text>
+          <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
           <!-- 折线 -->
-          <polyline :points="trendPoints" fill="none" stroke="#007aff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+          <polyline :points="trendPoints" fill="none" class="trend-line" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
           <!-- 数据点 -->
           <g v-for="(p, i) in trendDots" :key="i">
-            <circle :cx="p.x" :cy="p.y" r="3.5" :fill="steps[i].status === 'success' ? '#34c759' : '#ff3b30'" />
-            <title>{{ steps[i].api_name || steps[i].node_id }}: {{ p.value }} ms</title>
+            <circle
+              :cx="p.x"
+              :cy="p.y"
+              :r="hoveredTrend === i ? 5.5 : 3.5"
+              :class="steps[i].status === 'success' ? 'dot-ok' : 'dot-err'"
+              class="trend-dot"
+              @mouseenter="showTrendTip($event, i)"
+              @mousemove="moveTrendTip($event)"
+              @mouseleave="hideTrendTip"
+            />
           </g>
           <!-- X 轴标签 -->
-          <text v-for="(p, i) in trendDots" :key="'x'+i" :x="p.x" :y="trendHeight - 4" font-size="10" fill="#999" text-anchor="middle">{{ i + 1 }}</text>
+          <text v-for="(p, i) in trendDots" :key="'x'+i" :x="p.x" :y="trendHeight - 4" font-size="10" class="axis-text" text-anchor="middle">{{ i + 1 }}</text>
         </svg>
+        <!-- 悬浮提示框 -->
+        <div v-show="hoveredTrend !== null" class="trend-tip" :style="{ left: tipPos.x + 'px', top: tipPos.y + 'px' }">
+          <div class="trend-tip-name">{{ tipContent.name }}</div>
+          <div class="trend-tip-row">
+            <span class="trend-tip-label">耗时</span>
+            <span class="trend-tip-value">{{ tipContent.value }} ms</span>
+          </div>
+          <div class="trend-tip-row">
+            <span class="trend-tip-label">状态</span>
+            <span :class="tipContent.status === 'success' ? 'trend-tip-ok' : 'trend-tip-err'">{{ tipContent.status === 'success' ? '通过' : '失败' }}</span>
+          </div>
+        </div>
       </el-card>
     </div>
 
@@ -124,7 +144,7 @@
                 </div>
               </div>
             </el-timeline-item>
-            <el-empty v-if="!steps.length" description="暂无步骤" :image-size="60" />
+            <EmptyState v-if="!steps.length" description="暂无步骤" :image-size="60" />
           </el-timeline>
         </el-scrollbar>
       </el-card>
@@ -145,12 +165,12 @@
               <div class="section">
                 <div class="section-title">请求头</div>
                 <VueJsonPretty v-if="currentStep.request_headers" :data="currentStep.request_headers" />
-                <el-empty v-else description="无请求头" :image-size="40" />
+                <EmptyState v-else description="无请求头" :image-size="40" />
               </div>
               <div class="section">
                 <div class="section-title">请求体</div>
                 <VueJsonPretty v-if="currentStep.request_body" :data="currentStep.request_body" />
-                <el-empty v-else description="无请求体" :image-size="40" />
+                <EmptyState v-else description="无请求体" :image-size="40" />
               </div>
             </el-tab-pane>
 
@@ -168,7 +188,7 @@
               <div class="section">
                 <div class="section-title">响应体</div>
                 <VueJsonPretty v-if="currentStep.response_body != null" :data="currentStep.response_body" />
-                <el-empty v-else description="无响应体" :image-size="40" />
+                <EmptyState v-else description="无响应体" :image-size="40" />
               </div>
             </el-tab-pane>
 
@@ -190,92 +210,28 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="实际值" min-width="140">
+                <el-table-column label="实际值" min-width="140" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span class="mono">{{ row.actual_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="期望值" min-width="140">
+                <el-table-column label="期望值" min-width="140" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span class="mono">{{ row.expected_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="消息" min-width="180">
+                <el-table-column label="消息" min-width="180" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span class="muted">{{ row.message ?? '—' }}</span>
                   </template>
                 </el-table-column>
               </el-table>
-              <el-empty v-if="!currentStep.assertions.length" description="该步骤无断言" :image-size="60" />
+              <EmptyState v-if="!currentStep.assertions.length" description="该步骤无断言" :image-size="60" />
             </el-tab-pane>
           </el-tabs>
         </template>
-        <el-empty v-else description="请选择左侧步骤查看详情" :image-size="80" />
+        <EmptyState v-else description="请选择左侧步骤查看详情" :image-size="80" />
       </el-card>
-    </div>
-
-    <!-- 打印专用视图：导出 PDF 时显示完整报告（含所有步骤），与屏幕交互式布局解耦 -->
-    <div class="print-view">
-      <h1 class="pv-title">执行报告 #{{ record?.id ?? '-' }}</h1>
-      <div class="pv-summary">
-        <div><span class="pv-label">用例</span>{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
-        <div><span class="pv-label">环境</span>{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
-        <div><span class="pv-label">状态</span>{{ statusText(record?.status) }}</div>
-        <div><span class="pv-label">步骤通过 / 总数</span>{{ passedCount }} / {{ totalCount }}</div>
-        <div><span class="pv-label">断言通过 / 总数</span>{{ assertionPassed }} / {{ assertionTotal }}</div>
-        <div><span class="pv-label">开始时间</span>{{ record?.started_at ?? '-' }}</div>
-        <div><span class="pv-label">结束时间</span>{{ record?.ended_at ?? '-' }}</div>
-        <div><span class="pv-label">耗时</span>{{ durationText }}</div>
-      </div>
-
-      <div class="pv-step" v-for="(s, idx) in steps" :key="s.id">
-        <h2 class="pv-step-title">
-          #{{ idx + 1 }} {{ s.api_name || s.node_id || '未命名步骤' }}
-          <span class="pv-step-status" :class="pvStatusClass(s.status)">{{ stepStatusText(s.status) }}</span>
-        </h2>
-        <div class="pv-step-meta">
-          <span>{{ s.api_method }} {{ s.api_path }}</span>
-          <span>HTTP {{ s.response_status ?? '-' }}</span>
-          <span>{{ s.response_time_ms ?? '-' }} ms</span>
-          <span>{{ s.started_at ?? '' }} ~ {{ s.ended_at ?? '' }}</span>
-        </div>
-
-        <div class="pv-section">
-          <h3>请求头</h3>
-          <pre class="pv-json">{{ formatJson(s.request_headers) }}</pre>
-        </div>
-        <div class="pv-section">
-          <h3>请求体</h3>
-          <pre class="pv-json">{{ formatJson(s.request_body) }}</pre>
-        </div>
-        <div class="pv-section">
-          <h3>响应体</h3>
-          <pre class="pv-json">{{ formatJson(s.response_body) }}</pre>
-        </div>
-        <div class="pv-section" v-if="s.assertions && s.assertions.length">
-          <h3>断言（{{ s.assertions.length }}）</h3>
-          <table class="pv-assert-table">
-            <thead>
-              <tr>
-                <th>结果</th>
-                <th>类型</th>
-                <th>实际值</th>
-                <th>期望值</th>
-                <th>消息</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="a in s.assertions" :key="a.id">
-                <td :class="a.result ? 'pv-pass' : 'pv-fail'">{{ a.result ? '通过' : '失败' }}</td>
-                <td>{{ a.rule_type }}</td>
-                <td>{{ a.actual_value ?? '—' }}</td>
-                <td>{{ a.expected_value ?? '—' }}</td>
-                <td>{{ a.message ?? '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -286,7 +242,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
+import EmptyState from '@/components/EmptyState.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
+import { generateReportFilename } from '@/utils/reportFilename'
 
 const route = useRoute()
 const router = useRouter()
@@ -389,6 +347,36 @@ const trendPoints = computed(() =>
   trendDots.value.map(p => `${p.x},${p.y}`).join(' ')
 )
 
+// ===== 趋势图悬浮提示 =====
+const hoveredTrend = ref<number | null>(null)
+const tipPos = ref({ x: 0, y: 0 })
+const tipContent = ref({ name: '', value: 0, status: '' })
+
+function showTrendTip(e: MouseEvent, i: number) {
+  hoveredTrend.value = i
+  const s = steps.value[i]
+  tipContent.value = {
+    name: s.api_name || s.node_id || '未命名步骤',
+    value: trendValues.value[i] ?? 0,
+    status: s.status || '',
+  }
+  moveTrendTip(e)
+}
+function moveTrendTip(e: MouseEvent) {
+  const card = (e.currentTarget as SVGElement).closest('.trend-card') as HTMLElement | null
+  if (!card) return
+  const rect = card.getBoundingClientRect()
+  let x = e.clientX - rect.left + 14
+  let y = e.clientY - rect.top + 14
+  // 防止提示框溢出容器右侧/底部
+  if (x + 180 > rect.width) x = e.clientX - rect.left - 190
+  if (y + 90 > rect.height) y = e.clientY - rect.top - 100
+  tipPos.value = { x, y }
+}
+function hideTrendTip() {
+  hoveredTrend.value = null
+}
+
 function statusType(s?: string) {
   if (s === 'success') return 'success'
   if (s === 'running') return 'warning'
@@ -442,13 +430,6 @@ function formatJson(val: any): string {
   }
 }
 
-// 打印视图专用：步骤状态样式类
-function pvStatusClass(s?: string): string {
-  if (s === 'success') return 'pv-ok'
-  if (s === 'failed') return 'pv-err'
-  return 'pv-warn'
-}
-
 function csvEscape(val: any): string {
   if (val == null) return ''
   const s = typeof val === 'object' ? JSON.stringify(val) : String(val)
@@ -486,23 +467,172 @@ function exportCsv() {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `execution_report_${record.value?.id ?? Date.now()}.csv`
+  link.download = generateReportFilename({
+    caseName: record.value?.case_name,
+    envName: record.value?.env_name,
+    status: record.value?.status,
+    ext: 'csv',
+  })
   link.click()
   URL.revokeObjectURL(url)
   ElMessage.success('已导出 CSV')
 }
 
-function exportPdf() {
-  // 零依赖方案：调用浏览器打印，用户可选"另存为 PDF"
-  // 打印前给 body 加 class 触发打印样式
-  document.body.classList.add('printing-report')
-  ElMessage.info('在弹出的打印窗口中选择"另存为 PDF"')
-  // 下一帧触发打印，确保 class 生效
-  requestAnimationFrame(() => {
-    window.print()
-    document.body.classList.remove('printing-report')
-  })
+// ===== 导出 HTML 报告（自包含，双击即可在浏览器打开） =====
+function esc(s: any): string {
+  if (s == null) return ''
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
+
+function exportHtml() {
+  const r = record.value
+  if (!r) return
+  const parts: string[] = []
+  parts.push('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">')
+  parts.push('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+  parts.push(`<title>执行报告 #${esc(r.id)}</title>`)
+  parts.push('<style>', REPORT_HTML_CSS, '</style>')
+  parts.push('</head><body>')
+  parts.push('<div class="report">')
+
+  // 报告头
+  parts.push('<header class="report-head">')
+  parts.push(`<div class="head-title">执行报告 <span class="head-id">#${esc(r.id)}</span></div>`)
+  parts.push(`<span class="status-badge status-${esc(r.status)}">${esc(statusText(r.status))}</span>`)
+  parts.push('</header>')
+
+  // 摘要
+  parts.push('<section class="summary-grid">')
+  parts.push(summaryItem('用例', r.case_name || `#${r.case_id}`))
+  parts.push(summaryItem('环境', r.env_name || `#${r.env_id}`))
+  parts.push(summaryItem('项目', r.project_name || '—'))
+  parts.push(summaryItem('执行人', r.created_by_name || '—'))
+  parts.push(summaryItem('步骤通过 / 总数', `${passedCount.value} / ${totalCount.value}`, true))
+  parts.push(summaryItem('断言通过 / 总数', `${assertionPassed.value} / ${assertionTotal.value}`, true))
+  parts.push(summaryItem('开始时间', r.started_at ?? '—'))
+  parts.push(summaryItem('结束时间', r.ended_at ?? '—'))
+  parts.push(summaryItem('耗时', durationText.value, true))
+  parts.push('</section>')
+
+  // 各步骤
+  steps.value.forEach((s, idx) => {
+    parts.push('<article class="step">')
+    parts.push('<header class="step-head">')
+    parts.push(`<div class="step-title"><span class="step-idx">#${idx + 1}</span> ${esc(s.api_name || s.node_id || '未命名步骤')}</div>`)
+    parts.push(`<span class="step-status status-${esc(s.status)}">${esc(stepStatusText(s.status))}</span>`)
+    parts.push('</header>')
+    parts.push('<div class="step-meta">')
+    parts.push(`<span><em>请求</em> ${esc(s.api_method || '')} ${esc(s.api_path || '')}</span>`)
+    parts.push(`<span><em>HTTP</em> ${esc(s.response_status ?? '-')}</span>`)
+    parts.push(`<span><em>耗时</em> ${esc(s.response_time_ms ?? '-')} ms</span>`)
+    parts.push(`<span><em>开始</em> ${esc(s.started_at ?? '')}</span>`)
+    parts.push(`<span><em>结束</em> ${esc(s.ended_at ?? '')}</span>`)
+    parts.push('</div>')
+
+    parts.push(jsonSection('请求头', s.request_headers))
+    parts.push(jsonSection('请求体', s.request_body))
+    parts.push(jsonSection('响应体', s.response_body))
+
+    if (s.assertions && s.assertions.length) {
+      parts.push('<section class="subsection">')
+      parts.push(`<h3>断言（${s.assertions.length}）</h3>`)
+      parts.push('<table class="assert-table"><thead><tr>')
+      parts.push('<th class="col-result">结果</th><th class="col-type">类型</th>')
+      parts.push('<th class="col-actual">实际值</th><th class="col-expected">期望值</th><th>消息</th>')
+      parts.push('</tr></thead><tbody>')
+      for (const a of s.assertions) {
+        const cls = a.result ? 'pass' : 'fail'
+        parts.push('<tr>')
+        parts.push(`<td class="${cls}">${a.result ? '✓ 通过' : '✗ 失败'}</td>`)
+        parts.push(`<td>${esc(a.rule_type)}</td>`)
+        parts.push(`<td class="mono">${esc(a.actual_value ?? '—')}</td>`)
+        parts.push(`<td class="mono">${esc(a.expected_value ?? '—')}</td>`)
+        parts.push(`<td class="muted">${esc(a.message ?? '—')}</td>`)
+        parts.push('</tr>')
+      }
+      parts.push('</tbody></table>')
+      parts.push('</section>')
+    }
+    parts.push('</article>')
+  })
+
+  parts.push('<footer class="report-foot">')
+  parts.push(`由 fin-api-test 平台生成 · ${new Date().toLocaleString('zh-CN')}`)
+  parts.push('</footer>')
+
+  parts.push('</div></body></html>')
+
+  const html = parts.join('')
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = generateReportFilename({
+    caseName: r.case_name,
+    envName: r.env_name,
+    status: r.status,
+    ext: 'html',
+  })
+  link.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已导出 HTML 报告')
+}
+
+function summaryItem(label: string, value: any, highlight = false): string {
+  const cls = highlight ? 'metric metric-hl' : 'metric'
+  return `<div class="${cls}"><div class="metric-label">${esc(label)}</div><div class="metric-value">${esc(value)}</div></div>`
+}
+
+function jsonSection(title: string, val: any): string {
+  const text = formatJson(val)
+  return `<section class="subsection"><h3>${esc(title)}</h3><pre class="json-block">${esc(text)}</pre></section>`
+}
+
+const REPORT_HTML_CSS = `
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f5f7fa; color: #1f2937; padding: 32px 16px; line-height: 1.6;
+}
+.report { max-width: 960px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.report-head { display: flex; align-items: center; justify-content: space-between; padding: 24px 32px; background: linear-gradient(135deg, #409eff 0%, #2b7fd6 100%); color: #fff; }
+.head-title { font-size: 22px; font-weight: 600; }
+.head-id { font-weight: 400; opacity: 0.9; margin-left: 4px; }
+.status-badge { padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.4); }
+.status-success { background: rgba(255,255,255,0.25); }
+.status-failed { background: rgba(255,80,80,0.45); }
+.status-running { background: rgba(255,200,80,0.45); }
+.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 20px 32px; background: #fafbfc; border-bottom: 1px solid #ebeef5; }
+.metric { padding: 8px 0; }
+.metric-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.metric-value { font-size: 14px; font-weight: 500; color: #303133; word-break: break-all; }
+.metric-hl .metric-value { color: #409eff; font-size: 16px; font-weight: 600; }
+.step { padding: 24px 32px; border-bottom: 1px solid #ebeef5; }
+.step:last-of-type { border-bottom: none; }
+.step-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.step-title { font-size: 16px; font-weight: 600; color: #303133; }
+.step-idx { display: inline-block; min-width: 28px; height: 24px; line-height: 24px; text-align: center; background: #ecf5ff; color: #409eff; border-radius: 6px; font-size: 13px; margin-right: 8px; }
+.step-status { padding: 2px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.step-status.status-success { background: #f0f9eb; color: #67c23a; }
+.step-status.status-failed { background: #fef0f0; color: #f56c6c; }
+.step-status.status-running { background: #fdf6ec; color: #e6a23c; }
+.step-status.status-skipped { background: #f4f4f5; color: #909399; }
+.step-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #606266; margin-bottom: 16px; padding: 10px 14px; background: #fafbfc; border-radius: 6px; }
+.step-meta em { font-style: normal; color: #909399; margin-right: 4px; }
+.subsection { margin-bottom: 14px; }
+.subsection h3 { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; padding-left: 8px; border-left: 3px solid #409eff; }
+.json-block { background: #1e2a3a; color: #c8d3e0; padding: 12px 14px; border-radius: 6px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; overflow-x: auto; }
+.assert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.assert-table th, .assert-table td { border: 1px solid #ebeef5; padding: 8px 10px; text-align: left; vertical-align: top; }
+.assert-table th { background: #fafbfc; font-weight: 600; color: #606266; }
+.assert-table .pass { color: #67c23a; font-weight: 600; }
+.assert-table .fail { color: #f56c6c; font-weight: 600; }
+.assert-table .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; }
+.assert-table .muted { color: #909399; }
+.col-result { width: 90px; } .col-type { width: 180px; } .col-actual, .col-expected { width: 22%; }
+.report-foot { padding: 16px 32px; text-align: center; font-size: 12px; color: #909399; background: #fafbfc; }
+@media print { body { padding: 0; background: #fff; } .report { box-shadow: none; border-radius: 0; max-width: none; } .step { break-inside: avoid; } }
+`
 
 async function load() {
   const id = Number(route.params.id)
@@ -549,17 +679,18 @@ onMounted(load)
 .summary-card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   overflow: hidden;
 }
 
 .trend-card {
+  position: relative;
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .trend-head {
@@ -584,6 +715,79 @@ onMounted(load)
   width: 100%;
   height: 130px;
   display: block;
+}
+
+/* SVG 趋势图主题色（覆盖 presentation attribute） */
+.trend-svg .grid-line {
+  stroke: var(--app-border);
+}
+.trend-svg .axis-text {
+  fill: var(--app-text-muted);
+}
+.trend-svg .trend-line {
+  stroke: var(--app-primary);
+}
+.trend-svg .dot-ok {
+  fill: var(--app-success);
+}
+.trend-svg .dot-err {
+  fill: var(--app-danger);
+}
+.trend-svg .trend-dot {
+  cursor: pointer;
+  transition: r 0.15s ease;
+  filter: drop-shadow(0 0 0 transparent);
+}
+.trend-svg .trend-dot:hover {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+/* 悬浮提示框 */
+.trend-tip {
+  position: absolute;
+  z-index: 20;
+  min-width: 160px;
+  max-width: 260px;
+  padding: 10px 12px;
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  animation: trend-tip-in 0.12s ease;
+}
+@keyframes trend-tip-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.trend-tip-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.trend-tip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.trend-tip-label {
+  color: var(--app-text-muted);
+}
+.trend-tip-value {
+  font-family: var(--app-font-mono);
+  color: var(--app-primary);
+  font-weight: 500;
+}
+.trend-tip-ok {
+  color: var(--app-success);
+}
+.trend-tip-err {
+  color: var(--app-danger);
 }
 
 .summary-head {
@@ -622,7 +826,7 @@ onMounted(load)
 
 .metric {
   background: var(--app-hover);
-  border-radius: 12px;
+  border-radius: var(--app-radius);
   padding: 12px 14px;
   min-width: 0;
 }
@@ -648,11 +852,11 @@ onMounted(load)
 }
 
 .metric-value .pass {
-  color: #34c759;
+  color: var(--app-success);
 }
 
 .metric-value .sep {
-  color: #aeaeb2;
+  color: var(--app-text-faint);
   margin: 0 4px;
 }
 
@@ -669,7 +873,7 @@ onMounted(load)
 .detail-card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -692,7 +896,7 @@ onMounted(load)
   gap: 8px;
   cursor: pointer;
   padding: 6px 8px;
-  border-radius: 10px;
+  border-radius: var(--app-radius-md);
   transition: background 0.15s;
 }
 
@@ -701,7 +905,7 @@ onMounted(load)
 }
 
 .step-item.active {
-  background: rgba(0, 122, 255, 0.08);
+  background: var(--app-active);
 }
 
 .step-idx {
@@ -789,14 +993,18 @@ onMounted(load)
 }
 
 .muted {
-  color: #8e8e93;
+  color: var(--app-text-muted);
   font-size: 12px;
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--app-font-mono);
   font-size: 12px;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .config-cell {
@@ -825,152 +1033,4 @@ onMounted(load)
 }
 </style>
 
-<!-- 打印样式：导出 PDF 时隐藏交互式布局，显示完整打印视图 -->
-<style>
-/* 屏幕上隐藏打印视图 */
-.print-view {
-  display: none;
-}
 
-@media print {
-  /* 隐藏应用主框架的侧边栏和顶栏 */
-  .printing-report .sidebar,
-  .printing-report .topbar,
-  .printing-report .summary-actions {
-    display: none !important;
-  }
-  /* 隐藏交互式布局（顶部摘要卡+趋势图、主体时间轴+详情卡） */
-  .printing-report .top-row,
-  .printing-report .body {
-    display: none !important;
-  }
-  /* 显示打印专用视图 */
-  .printing-report .print-view {
-    display: block !important;
-  }
-  /* 报告区域铺满 */
-  .printing-report .report {
-    height: auto !important;
-    overflow: visible !important;
-  }
-  body {
-    background: #fff !important;
-  }
-
-  /* ===== 打印视图样式 ===== */
-  .print-view {
-    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    color: var(--app-text);
-    padding: 0;
-  }
-  .pv-title {
-    font-size: 22px;
-    font-weight: 600;
-    margin: 0 0 12px;
-  }
-  .pv-summary {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-bottom: 20px;
-    padding: 12px 16px;
-    background: var(--app-bg);
-    border-radius: 8px;
-    font-size: 13px;
-  }
-  .pv-summary .pv-label {
-    display: inline-block;
-    min-width: 90px;
-    color: var(--app-text-muted);
-    margin-right: 6px;
-  }
-  .pv-step {
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--app-border);
-  }
-  /* 仅对小元素避免分页截断，长内容（如大JSON）允许跨页 */
-  .pv-step-title,
-  .pv-step-meta,
-  .pv-section h3 {
-    break-inside: avoid;
-  }
-  .pv-step-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0 0 6px;
-  }
-  .pv-step-status {
-    display: inline-block;
-    margin-left: 8px;
-    padding: 1px 8px;
-    border-radius: 10px;
-    font-size: 12px;
-    font-weight: 500;
-  }
-  .pv-step-status.pv-ok {
-    background: #e8f7ec;
-    color: #1a8a3f;
-  }
-  .pv-step-status.pv-err {
-    background: #fdeceb;
-    color: #d32f2f;
-  }
-  .pv-step-status.pv-warn {
-    background: #fff4e6;
-    color: #b8761a;
-  }
-  .pv-step-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    font-size: 12px;
-    color: var(--app-text-muted);
-    margin-bottom: 12px;
-  }
-  .pv-section {
-    margin-bottom: 12px;
-  }
-  .pv-section h3 {
-    font-size: 13px;
-    font-weight: 600;
-    margin: 0 0 4px;
-    color: var(--app-text);
-  }
-  .pv-json {
-    background: var(--app-bg);
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-all;
-    margin: 0;
-  }
-  .pv-assert-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-  .pv-assert-table th,
-  .pv-assert-table td {
-    border: 1px solid #e0e0e0;
-    padding: 5px 8px;
-    text-align: left;
-    vertical-align: top;
-  }
-  .pv-assert-table th {
-    background: var(--app-bg);
-    font-weight: 600;
-  }
-  .pv-assert-table .pv-pass {
-    color: #1a8a3f;
-    font-weight: 600;
-  }
-  .pv-assert-table .pv-fail {
-    color: #d32f2f;
-    font-weight: 600;
-  }
-}
-</style>

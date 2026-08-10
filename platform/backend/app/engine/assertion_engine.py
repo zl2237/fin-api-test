@@ -27,7 +27,7 @@ import time
 from typing import Any, Dict, List, Optional
 from jsonpath_ng import parse
 
-from .expression import ExpressionEngine
+from .expression import ExpressionEngine, inject_sql_vars
 
 
 class AssertionEngine:
@@ -277,23 +277,8 @@ class AssertionEngine:
 
     def _inject_extracted(self, sql: str) -> str:
         """把 ${xxx} 替换为已提取变量值（${context.xxx} 兼容旧写法）"""
-        extracted = self.context.get("extracted", {})
-
-        def repl(m):
-            key = m.group(1).strip()
-            if key.startswith("extracted."):
-                key = key[len("extracted."):]
-            elif key.startswith("context."):
-                key = key[len("context."):]
-            val = extracted.get(key, m.group(0))
-            if isinstance(val, str):
-                # 简单防注入：字符串用单引号包裹并转义单引号
-                return "'" + val.replace("'", "''") + "'"
-            if val is None:
-                return "NULL"
-            return str(val)
-
-        return re.sub(r"\$\{([^}]+)\}", repl, sql)
+        # 委托公共函数，消除三处重复的转义逻辑
+        return inject_sql_vars(sql, self.context.get("extracted", {}))
 
     @staticmethod
     def _jsonpath_get(data: Any, path: str) -> Any:

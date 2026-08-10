@@ -1,6 +1,6 @@
 <template>
   <div class="kv-table">
-    <el-table :data="rows" size="small" border>
+    <el-table :data="rows" size="small" border empty-text="暂无数据，点击「添加」开始配置">
       <el-table-column label="Key" min-width="160">
         <template #default="{ row }">
           <el-input v-model="row.key" size="small" :placeholder="keyPlaceholder" />

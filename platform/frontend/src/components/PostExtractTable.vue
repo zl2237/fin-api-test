@@ -1,6 +1,6 @@
 <template>
   <div class="cfg-table">
-    <el-table :data="modelValue" size="small" border>
+    <el-table :data="modelValue" size="small" border empty-text="暂无提取规则，点击「添加」提取变量到上下文">
       <el-table-column label="变量名" width="140">
         <template #default="{ row }">
           <el-input v-model="row.name" size="small" placeholder="order_id" />

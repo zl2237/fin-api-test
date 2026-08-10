@@ -91,6 +91,6 @@ function onSave() {
 .tip code {
   background: var(--app-hover);
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--app-radius-xs);
 }
 </style>

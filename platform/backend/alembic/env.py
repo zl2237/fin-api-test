@@ -9,8 +9,10 @@ from alembic import context
 config = context.config
 
 # Interpret the config file for Python logging.
+# disable_existing_loggers=False：避免 fileConfig 禁用 uvicorn 等已创建的 logger，
+# 否则 startup 调用 init_db() 后 uvicorn 的 access log 不再输出
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # 复用项目的 database.py 和 models，保证 Alembic 与应用使用同一份连接配置和 Base.metadata
 import os, sys

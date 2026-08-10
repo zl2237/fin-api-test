@@ -1,6 +1,6 @@
 <template>
   <div class="cfg-table">
-    <el-table :data="modelValue" size="small" border>
+    <el-table :data="modelValue" size="small" border empty-text="暂无预处理，点击「添加」开始配置">
       <el-table-column label="类型" width="140">
         <template #default="{ row }">
           <el-select v-model="row.type" size="small" style="width: 100%">
@@ -56,11 +56,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ApiField } from '@/api'
+import { useFieldDict } from '@/composables/useFieldDict'
 
 const props = defineProps<{ modelValue: any[]; fields?: ApiField[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
 
 const fields = computed(() => props.fields || [])
+const { resolveLabel, dictLabel } = useFieldDict()
 
 interface FieldOption {
   value: string
@@ -95,7 +97,9 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
         const itemLabel = pickArrayItemLabel(item)
         for (const [k, v] of Object.entries(item)) {
           const childPath = `${base}.${idx}.${k}`
-          const lbl = itemLabel ? `${base}.${idx}.${k}（${itemLabel}）` : `${base}.${idx}.${k}`
+          // 优先用数组项的业务标签，其次查项目字典
+          const cn = itemLabel || dictLabel(k)
+          const lbl = cn ? `${base}.${idx}.${k}（${cn}）` : `${base}.${idx}.${k}`
           out.push({ value: childPath, label: lbl })
           if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
         }
@@ -104,7 +108,9 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
   } else if (obj && typeof obj === 'object') {
     for (const [k, v] of Object.entries(obj)) {
       const childPath = `${base}.${k}`
-      out.push({ value: childPath, label: `${base}.${k}` })
+      const cn = dictLabel(k)
+      const lbl = cn ? `${base}.${k}（${cn}）` : `${base}.${k}`
+      out.push({ value: childPath, label: lbl })
       if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
     }
   }
@@ -113,7 +119,9 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
 const fieldOptions = computed<FieldOption[]>(() => {
   const opts: FieldOption[] = []
   for (const f of fields.value) {
-    const label = f.label ? `${f.key}（${f.label}）` : f.key
+    // 优先用接口配置的 label，其次查项目字典
+    const cn = resolveLabel(f.key, f.label)
+    const label = cn ? `${f.key}（${cn}）` : f.key
     opts.push({ value: f.key, label })
     if (f.field_type === 'array' || f.field_type === 'object') {
       const parsed = tryParseJson(f.default_value)

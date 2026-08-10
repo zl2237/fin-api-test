@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import { projectApi, envApi, authApi, getToken, setToken, clearToken, type Project, type Environment, type User } from '@/api'
+import { projectApi, envApi, authApi, dictApi, getToken, setToken, clearToken, type Project, type Environment, type User } from '@/api'
 
 export const useAppStore = defineStore('app', () => {
   const projects = ref<Project[]>([])
@@ -8,6 +8,8 @@ export const useAppStore = defineStore('app', () => {
   const environments = ref<Environment[]>([])
   const currentEnvId = ref<number | null>(null)
   const user = ref<User | null>(null)
+  // 字段字典：当前项目的 {英文字段名: 中文含义} 映射
+  const fieldDictMap = ref<Record<string, string>>({})
 
   // 主题：light / dark / auto，auto 跟随系统
   const THEME_KEY = 'fin_theme'
@@ -102,12 +104,33 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // 加载当前项目的字段字典映射（供配置界面自动展示中文标签）
+  async function loadFieldDict() {
+    // 立即清空旧数据，避免切换项目期间残留上一个项目的字典
+    if (!currentProjectId.value) {
+      fieldDictMap.value = {}
+      return
+    }
+    const targetId = currentProjectId.value
+    fieldDictMap.value = {}
+    try {
+      const map = await dictApi.getMap(targetId)
+      // 异步期间项目可能又切换了，仅当目标项目仍是当前项目时才写入
+      if (currentProjectId.value === targetId) {
+        fieldDictMap.value = map
+      }
+    } catch {
+      fieldDictMap.value = {}
+    }
+  }
+
   function setProject(id: number) {
     currentProjectId.value = id
     localStorage.setItem(PROJECT_KEY, String(id))
     currentEnvId.value = null
     localStorage.removeItem(ENV_KEY)
     loadEnvironments()
+    loadFieldDict()
   }
 
   // 环境切换时自动记忆（顶部选择器 v-model 改变 currentEnvId 即触发）
@@ -121,6 +144,7 @@ export const useAppStore = defineStore('app', () => {
     environments,
     currentEnvId,
     user,
+    fieldDictMap,
     theme,
     isLoggedIn,
     loadUser,
@@ -128,6 +152,7 @@ export const useAppStore = defineStore('app', () => {
     logout,
     loadProjects,
     loadEnvironments,
+    loadFieldDict,
     setProject,
     initTheme,
     applyTheme,

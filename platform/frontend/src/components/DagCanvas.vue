@@ -15,6 +15,7 @@
       <template #node-default="props">
         <div class="dag-node" :class="{
           selected: props.selected,
+          'is-new': newNodeIds.includes(props.id),
           'link-source': linkSourceId === props.id,
           'link-target': linkMode && linkSourceId && linkSourceId !== props.id
         }">
@@ -51,7 +52,7 @@ const emit = defineEmits<{
   (e: 'link-mode-change', active: boolean): void
 }>()
 
-const { setNodes, setEdges, addEdges, removeEdges, removeNodes, getNodes, getEdges, fitView } = useVueFlow()
+const { setNodes, setEdges, addEdges, removeEdges, removeNodes, getNodes, getEdges, fitView, viewport, vueFlowRef } = useVueFlow()
 
 // 防止内部变化触发 emit 后又同步回内部造成循环
 const syncing = ref(false)
@@ -59,6 +60,9 @@ const syncing = ref(false)
 // 连线模式：选中源节点后再点目标节点连线
 const linkMode = ref(false)
 const linkSourceId = ref<string | null>(null)
+
+// 新加入节点的 ID 集合（用于高亮区分，约 3.6s 后自动移除）
+const newNodeIds = ref<string[]>([])
 
 // 键盘事件：
 // - Esc：linkMode 下重置已选 source 或退出模式
@@ -174,6 +178,64 @@ function onEdgeClick({ edge }: any) {
 function addNode(node: any) {
   setNodes([...getNodes.value, node])
   emit('update:nodes', serializeNodes())
+  // 标记为新节点，3.6s 后自动清除高亮
+  newNodeIds.value = [...newNodeIds.value, node.id]
+  const nid = node.id
+  setTimeout(() => {
+    newNodeIds.value = newNodeIds.value.filter(id => id !== nid)
+  }, 3600)
+}
+
+// 计算一个空闲位置：优先当前视口中心，若被占用则螺旋搜索周围空闲点
+function findFreePosition(): { x: number; y: number } {
+  const vp = viewport.value
+  const canvasEl = vueFlowRef.value as HTMLElement | null
+  const allNodes = getNodes.value
+
+  // 默认起点（视口信息不可用时）
+  let cx = 80
+  let cy = 60
+
+  // 计算当前视口中心在画布坐标系中的位置
+  if (canvasEl && vp) {
+    const rect = canvasEl.getBoundingClientRect()
+    cx = (rect.width / 2 - vp.x) / vp.zoom
+    cy = (rect.height / 2 - vp.y) / vp.zoom
+  }
+
+  // 节点尺寸估计 + 间距（用于碰撞检测）
+  const NODE_W = 200
+  const NODE_H = 70
+  const GAP_X = 40
+  const GAP_Y = 40
+
+  const isOverlap = (x: number, y: number) =>
+    allNodes.some((n: any) =>
+      Math.abs(n.position.x - x) < NODE_W + GAP_X &&
+      Math.abs(n.position.y - y) < NODE_H + GAP_Y,
+    )
+
+  // 视口中心不重叠则直接用
+  if (!isOverlap(cx, cy)) {
+    return { x: Math.round(cx), y: Math.round(cy) }
+  }
+
+  // 螺旋搜索空闲位置
+  const STEP = 80
+  for (let r = 1; r <= 15; r++) {
+    const points = r * 8
+    for (let i = 0; i < points; i++) {
+      const angle = (i / points) * Math.PI * 2
+      const x = cx + Math.cos(angle) * r * STEP
+      const y = cy + Math.sin(angle) * r * STEP
+      if (!isOverlap(x, y)) {
+        return { x: Math.round(x), y: Math.round(y) }
+      }
+    }
+  }
+
+  // 兜底：右下偏移
+  return { x: Math.round(cx + 260), y: Math.round(cy + 130) }
 }
 
 // 切换连线模式（供父组件调用）
@@ -256,7 +318,7 @@ function autoLayout() {
   setTimeout(() => fitView(), 50)
 }
 
-defineExpose({ addNode, emitChange, toggleLinkMode, autoLayout, linkMode })
+defineExpose({ addNode, findFreePosition, emitChange, toggleLinkMode, autoLayout, linkMode })
 
 // props 变化（如加载用例）→ 同步到 VueFlow 内部状态
 // 仅在节点数量变化（加载用例、增删节点）时同步并 fitView，
@@ -289,7 +351,7 @@ watch(
 .dag-canvas {
   height: 100%;
   width: 100%;
-  background: #fafafa;
+  background: var(--app-canvas-bg);
   position: relative;
 }
 .link-status-bar {
@@ -298,11 +360,10 @@ watch(
   left: 50%;
   transform: translateX(-50%);
   padding: 6px 16px;
-  background: rgba(0, 0, 0, 0.75);
-  color: #fff;
+  background: var(--app-tooltip-bg);
+  color: var(--app-text-inverse);
   font-size: 12px;
   border-radius: var(--app-radius-sm);
-  backdrop-filter: blur(8px);
   z-index: 10;
   pointer-events: none;
   white-space: nowrap;
@@ -313,21 +374,33 @@ watch(
   border-radius: var(--app-radius-sm);
   background: var(--app-card-solid);
   border: 1px solid var(--app-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-sm);
   min-width: 150px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .dag-node.selected {
   border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.2);
+  box-shadow: var(--app-glow-primary);
+}
+.dag-node.is-new {
+  border-color: var(--app-success, #67c23a);
+  animation: dag-node-highlight 1.2s ease-in-out 3;
+}
+@keyframes dag-node-highlight {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(103, 194, 58, 0.45), var(--app-shadow-sm);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(103, 194, 58, 0.1), var(--app-shadow-sm);
+  }
 }
 .dag-node.link-source {
-  border-color: #34c759;
-  box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.3);
+  border-color: var(--app-success);
+  box-shadow: var(--app-glow-success);
 }
 .dag-node.link-target {
   border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15);
+  box-shadow: var(--app-glow-primary);
 }
 .dag-node-title {
   font-weight: 600;
@@ -347,8 +420,8 @@ watch(
   width: 12px;
   height: 12px;
   background: var(--el-color-primary);
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+  border: 2px solid var(--app-card-solid);
+  box-shadow: 0 0 0 1px var(--app-border);
   opacity: 0.8;
   transition: opacity 0.15s, transform 0.15s;
 }

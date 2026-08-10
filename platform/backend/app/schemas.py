@@ -26,6 +26,8 @@ class UserOut(ORMBase):
     username: str
     name: Optional[str] = None
     role: str = "member"
+    must_change_password: bool = False
+    has_avatar: bool = False
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
@@ -51,6 +53,16 @@ class UserRoleUpdate(BaseModel):
 
 class UserPasswordReset(BaseModel):
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """用户自助改密：仅需新密码（强制改密场景用户刚登录，已验证身份）"""
+    new_password: str
+
+
+class AvatarUpdate(BaseModel):
+    """上传头像：前端 canvas 压缩后的 base64 data URL"""
+    avatar: str = Field(..., description="data:image/(jpeg|png|webp);base64,xxx")
 
 
 class OperationLogOut(ORMBase):
@@ -394,6 +406,33 @@ class CaseBatchMove(BaseModel):
     group_id: Optional[int] = None
 
 
+# ============ ProjectVersion 项目版本快照 ============
+class ProjectVersionCreate(BaseModel):
+    """手动创建版本快照"""
+    name: str
+    description: Optional[str] = None
+
+
+class ProjectVersionOut(ORMBase):
+    """项目版本输出（列表/详情通用，列表时 snapshot 可选省略）"""
+    id: int
+    project_id: int
+    version_no: int
+    name: str
+    description: Optional[str] = None
+    snapshot: Optional[Dict[str, Any]] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class ProjectVersionDiff(BaseModel):
+    """两个项目版本对比结果：各类资源的 added/removed/modified"""
+    base: ProjectVersionOut
+    target: ProjectVersionOut
+    diff: Dict[str, Any]
+
+
 # ============ Execution ============
 class ExecutionCreate(BaseModel):
     case_id: int
@@ -450,3 +489,40 @@ class ExecutionRecordOut(ORMBase):
     steps: List[StepRecordOut] = []
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
+
+
+# ============ FieldDictionary 字段字典 ============
+class FieldDictItemIn(BaseModel):
+    """批量导入单行：key=label"""
+    key: str
+    label: str
+
+
+class FieldDictionaryCreate(BaseModel):
+    project_id: int
+    key: str
+    label: str
+
+
+class FieldDictionaryUpdate(BaseModel):
+    key: Optional[str] = None
+    label: Optional[str] = None
+
+
+class FieldDictionaryBatchIn(BaseModel):
+    """批量导入：覆盖式写入（同 key 更新 label）"""
+    project_id: int
+    items: List[FieldDictItemIn]
+
+
+class FieldDictionaryOut(ORMBase):
+    id: int
+    project_id: int
+    key: str
+    label: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None

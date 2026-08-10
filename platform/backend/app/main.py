@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db, engine, SessionLocal
-from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs
+from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs, field_dictionaries, versions
 from . import models, auth as auth_module
 from .json_safe import BigintSafeJSONResponse
 
@@ -34,10 +34,12 @@ app = FastAPI(
     default_response_class=BigintSafeJSONResponse,
 )
 
-# 允许前端开发联调
+# CORS 白名单：从环境变量读取，逗号分隔；未配置时默认仅允许本地前端开发
+# 注意：allow_origins 不能用 "*" 与 allow_credentials=True 同时使用，浏览器会拒绝
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,6 +101,7 @@ def _ensure_default_admin():
                 password_hash=auth_module.hash_password("admin123"),
                 name="管理员",
                 role="admin",
+                must_change_password=True,
             )
             db.add(admin)
             db.commit()
@@ -120,8 +123,10 @@ app.include_router(apis.router)
 app.include_router(apis.group_router)
 app.include_router(testcases.router)
 app.include_router(testcases.group_router)
+app.include_router(versions.router)
 app.include_router(executions.router)
 app.include_router(reports.router)
+app.include_router(field_dictionaries.router)
 
 
 if __name__ == "__main__":

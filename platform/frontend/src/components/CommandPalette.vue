@@ -32,12 +32,12 @@
       >
         <el-icon class="cmd-item-icon"><component :is="iconComp(item.type)" /></el-icon>
         <div class="cmd-item-main">
-          <div class="cmd-item-title">{{ item.title }}</div>
-          <div class="cmd-item-sub">{{ item.sub }}</div>
+          <div class="cmd-item-title" :title="item.title">{{ item.title }}</div>
+          <div class="cmd-item-sub" :title="item.sub">{{ item.sub }}</div>
         </div>
         <el-tag size="small" type="info" effect="plain" round>{{ item.kindLabel }}</el-tag>
       </div>
-      <el-empty v-if="!results.length" description="无匹配项" :image-size="40" />
+      <EmptyState v-if="!results.length" description="无匹配项" :image-size="40" />
     </div>
     <div class="cmd-footer">
       <span>↑↓ 选择</span>
@@ -53,6 +53,9 @@ import { useRouter } from 'vue-router'
 import { Search, Share, Connection, Folder, Document } from '@element-plus/icons-vue'
 import { caseApi, apiApi, projectApi, type TestCase, type ApiDef, type Project } from '@/api'
 import { useAppStore } from '@/stores'
+import { fuzzyMatch } from '@/utils/fuzzy'
+import { toPinyinInitials } from '@/utils/pinyin'
+import EmptyState from '@/components/EmptyState.vue'
 
 const router = useRouter()
 const store = useAppStore()
@@ -80,51 +83,85 @@ function iconComp(type: ItemType) {
   return { case: Share, api: Connection, project: Folder, nav: Document }[type]
 }
 
+/**
+ * 多字段模糊评分：对 query 在各字段上的 fuzzy + 拼音首字母匹配取最高分。
+ * 返回 -1 表示无匹配；query 为空返回 0（表示全部命中，用于无搜索词场景）。
+ */
+function scoreMatch(query: string, ...fields: string[]): number {
+  if (!query) return 0
+  let best = -1
+  for (const field of fields) {
+    if (!field) continue
+    // 直接 fuzzy 匹配（中英文均适用）
+    const direct = fuzzyMatch(query, field)
+    if (direct.matched && direct.score > best) best = direct.score
+    // 拼音首字母匹配（仅对含中文的字段生效）
+    if (/[\u4e00-\u9fff]/.test(field)) {
+      const pinyin = toPinyinInitials(field)
+      if (pinyin) {
+        const pm = fuzzyMatch(query, pinyin)
+        if (pm.matched && pm.score > best) best = pm.score
+      }
+    }
+  }
+  return best
+}
+
 const results = computed<CmdItem[]>(() => {
   const kw = keyword.value.trim().toLowerCase()
-  const list: CmdItem[] = []
-  const match = (s: string) => !kw || s.toLowerCase().includes(kw)
+  const scored: { item: CmdItem; score: number }[] = []
   for (const c of cases.value) {
-    if (match(c.name)) list.push({
+    const item: CmdItem = {
       key: 'case-' + c.id, type: 'case', title: c.name,
       sub: `用例 #${c.id}`, kindLabel: '用例',
       action: () => { router.push(`/cases/designer/${c.id}`); close() }
-    })
+    }
+    const score = scoreMatch(kw, item.title, item.sub)
+    if (!kw || score >= 0) scored.push({ item, score })
   }
   for (const a of apis.value) {
-    if (match(a.name) || match(a.code) || match(a.path || '')) list.push({
+    const item: CmdItem = {
       key: 'api-' + a.id, type: 'api', title: a.name,
       sub: `${a.method} ${a.code}`, kindLabel: '接口',
       action: () => { router.push(`/apis/edit/${a.id}`); close() }
-    })
+    }
+    const score = scoreMatch(kw, item.title, item.sub, a.code, a.path || '')
+    if (!kw || score >= 0) scored.push({ item, score })
   }
   for (const p of projects.value) {
-    if (match(p.name)) list.push({
+    const item: CmdItem = {
       key: 'proj-' + p.id, type: 'project', title: p.name,
       sub: `项目 #${p.id}`, kindLabel: '项目',
       action: () => { store.setProject(p.id); router.push('/apis'); close() }
-    })
+    }
+    const score = scoreMatch(kw, item.title, item.sub)
+    if (!kw || score >= 0) scored.push({ item, score })
   }
   // 导航快捷项
   const navs: { title: string; path: string }[] = [
     { title: '项目管理', path: '/projects' },
+    { title: '环境配置', path: '/envs' },
     { title: '接口管理', path: '/apis' },
     { title: '用例列表', path: '/cases' },
-    { title: '环境配置', path: '/envs' },
     { title: '执行记录', path: '/executions' },
+    { title: '字段字典', path: '/dictionary' },
   ]
   if (store.user?.role === 'admin') {
     navs.push({ title: '用户管理', path: '/users' })
     navs.push({ title: '操作日志', path: '/operation-logs' })
   }
   for (const n of navs) {
-    if (match(n.title)) list.push({
+    const item: CmdItem = {
       key: 'nav-' + n.path, type: 'nav', title: '前往 ' + n.title,
       sub: '页面导航', kindLabel: '导航',
       action: () => { router.push(n.path); close() }
-    })
+    }
+    const score = scoreMatch(kw, item.title, item.sub)
+    if (!kw || score >= 0) scored.push({ item, score })
   }
-  return list.slice(0, 30)
+  // 有搜索词时按分数降序，无搜索词时保持原始顺序
+  if (kw) scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, 30).map(s => s.item)
 })
 
 watch(results, () => { activeIdx.value = 0 })
