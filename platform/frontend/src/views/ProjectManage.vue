@@ -28,7 +28,7 @@
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
         <el-table v-else :data="pagedList" stripe>
           <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="name" label="项目名称" min-width="160" />
+          <el-table-column prop="name" label="项目名称" min-width="160" show-overflow-tooltip />
           <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip />
           <el-table-column label="当前" width="80" align="center">
             <template #default="{ row }">
@@ -41,12 +41,12 @@
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '未知' }}</template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" min-width="170" />
+          <el-table-column prop="created_at" label="创建时间" min-width="170" show-overflow-tooltip />
           <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" @click="onSwitch(row)">切换为当前</el-button>
-              <el-button link type="primary" @click="onEdit(row)">编辑</el-button>
-              <el-button link type="danger" @click="onRemove(row)">删除</el-button>
+              <el-button link type="primary" size="small" @click="onSwitch(row)">切换为当前</el-button>
+              <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
+              <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -64,13 +64,13 @@
       </el-card>
 
       <!-- 空状态引导 -->
-      <el-empty v-if="!loading && !list.length" description="暂无项目">
+      <EmptyState v-if="!loading && !list.length" description="暂无项目">
         <el-button type="primary" @click="openCreate">创建第一个项目</el-button>
-      </el-empty>
+      </EmptyState>
     </div>
 
     <!-- 新建/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑项目' : '新建项目'" width="480px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑项目' : '新建项目'" width="480px" align-center>
       <el-form :model="form" label-width="80px">
         <el-form-item label="项目名称">
           <el-input v-model="form.name" placeholder="如：fin-order 测试" />
@@ -92,6 +92,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectApi, userApi, type Project, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
 const list = ref<Project[]>([])
@@ -228,6 +229,6 @@ onMounted(() => {
 .card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
 }
 </style>

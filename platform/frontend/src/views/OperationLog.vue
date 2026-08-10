@@ -23,12 +23,13 @@
         </el-select>
         <el-button @click="resetFilter">重置</el-button>
         <el-button @click="load">刷新</el-button>
+        <el-button type="warning" plain @click="openCleanup">清理旧日志</el-button>
       </div>
     </div>
 
     <el-card shadow="never" class="table-card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" border>
+      <el-table v-else :data="pagedList" border empty-text="暂无操作记录">
         <el-table-column prop="id" label="ID" width="70" align="center" />
         <el-table-column label="操作人" width="120">
           <template #default="{ row }">{{ row.username || '未知' }}</template>
@@ -45,8 +46,13 @@
         </el-table-column>
         <el-table-column prop="target_id" label="目标ID" width="80" align="center" />
         <el-table-column prop="target_name" label="目标名称" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="detail" label="详情" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="操作时间" min-width="170" />
+        <el-table-column label="详情" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.detail" :title="row.detail">{{ row.detail }}</span>
+            <span v-else class="detail-empty">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="操作时间" min-width="170" show-overflow-tooltip />
       </el-table>
       <div class="pagination-wrap">
         <el-pagination
@@ -60,12 +66,29 @@
         />
       </div>
     </el-card>
+
+    <!-- 清理旧日志对话框 -->
+    <el-dialog v-model="cleanupVisible" title="清理旧操作日志" width="420px" align-center>
+      <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px">
+        将永久删除指定天数前的操作日志，此操作不可恢复。
+      </el-alert>
+      <el-form label-width="100px">
+        <el-form-item label="保留天数">
+          <el-input-number v-model="cleanupDays" :min="1" :max="365" />
+          <span style="margin-left: 8px; color: var(--app-text-muted); font-size: 12px">天前的日志将被删除</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="cleanupVisible = false">取消</el-button>
+        <el-button type="danger" :loading="cleanupLoading" @click="onCleanup">确认清理</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { logApi, userApi, type OperationLog, type SimpleUser } from '@/api'
 
 const logs = ref<OperationLog[]>([])
@@ -75,7 +98,7 @@ const filterAction = ref('')
 const filterTarget = ref('')
 const filterUserId = ref<number | null>(null)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(10)
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return logs.value.slice(start, start + pageSize.value)
@@ -133,6 +156,39 @@ function targetTypeText(t: string) {
   return map[t] || t
 }
 
+// 清理旧日志
+const cleanupVisible = ref(false)
+const cleanupDays = ref(30)
+const cleanupLoading = ref(false)
+
+function openCleanup() {
+  cleanupDays.value = 30
+  cleanupVisible.value = true
+}
+
+async function onCleanup() {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除 ${cleanupDays.value} 天前的所有操作日志？此操作不可恢复。`,
+      '清理确认',
+      { type: 'warning' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  cleanupLoading.value = true
+  try {
+    const res = await logApi.cleanup(cleanupDays.value)
+    ElMessage.success(res.message || `已清理 ${res.deleted} 条日志`)
+    cleanupVisible.value = false
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e.message || '清理失败')
+  } finally {
+    cleanupLoading.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadUsers()
@@ -145,6 +201,9 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   height: 100%;
+}
+.detail-empty {
+  color: var(--app-text-muted);
 }
 .toolbar {
   display: flex;
@@ -166,7 +225,7 @@ onMounted(() => {
 .table-card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
 }
 .pagination-wrap {
   display: flex;

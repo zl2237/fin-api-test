@@ -1,14 +1,19 @@
 <template>
   <div class="field-table">
-    <el-table :data="modelValue" size="small" border>
+    <el-table :data="modelValue" size="small" border empty-text="暂无字段，点击「添加字段」开始配置">
       <el-table-column label="字段路径（支持点号嵌套）" min-width="200">
         <template #default="{ row }">
           <el-input v-model="row.key" size="small" placeholder="order_id / to_customer.put_amount" />
         </template>
       </el-table-column>
-      <el-table-column label="中文名" width="130">
+      <el-table-column label="中文名" width="150">
         <template #default="{ row }">
-          <el-input v-model="row.label" size="small" placeholder="订单ID" />
+          <el-input
+            v-model="row.label"
+            size="small"
+            :placeholder="dictLabel(row.key) || '订单ID'"
+          />
+          <div v-if="!row.label && dictLabel(row.key)" class="dict-hint">字典: {{ dictLabel(row.key) }}</div>
         </template>
       </el-table-column>
       <el-table-column label="类型" width="110">
@@ -53,9 +58,11 @@
 
 <script setup lang="ts">
 import type { ApiField } from '@/api'
+import { useFieldDict } from '@/composables/useFieldDict'
 
 const props = defineProps<{ modelValue: ApiField[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: ApiField[]): void }>()
+const { dictLabel } = useFieldDict()
 
 function add() {
   const list = [...props.modelValue]
@@ -88,5 +95,11 @@ function remove(idx: number) {
   margin-top: 10px;
   width: 100%;
   border-style: dashed;
+}
+.dict-hint {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin-top: 2px;
+  line-height: 1.2;
 }
 </style>

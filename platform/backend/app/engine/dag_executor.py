@@ -13,38 +13,27 @@ DAG 拓扑执行引擎。
    前置处理 → 发请求 → 后置提取 → 断言 → 落库 StepRecord/AssertionRecord
 4. 默认失败即停止（断言失败或请求异常）
 """
-import json
 import time
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
-from jsonpath_ng import parse as jsonpath_parse
-from jsonpath_ng.exceptions import JsonPathParserError
 
 from .. import path_setup  # noqa: F401
 from .. import models
+from ..services.runtime_service import build_http_client, login, build_db_client
+from ..services.body_builder import build_request_body
+from ..services.notifier import send_notify
 from .context import ExecutionContext
-from .preprocessor import PreProcessor, get_nested_value, set_nested_value
+from .preprocessor import PreProcessor
 from .extractor import Extractor
 from .assertion_engine import AssertionEngine
+from .type_coercer import coerce_json_strings, apply_field_types
 
 # 复用现有项目代码
 from utils.http_client import HttpClient
 from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
-
-
-def _extract_by_jsonpath(data: Any, path: str) -> Any:
-    try:
-        matches = jsonpath_parse(path).find(data)
-        return matches[0].value if matches else None
-    except JsonPathParserError:
-        # jsonpath 语法错误（如路径写错）
-        return None
-    except (IndexError, KeyError, TypeError, AttributeError):
-        # 数据结构不匹配：取值越界 / 字段缺失 / 类型不支持
-        return None
 
 
 class DagExecutor:
@@ -60,85 +49,6 @@ class DagExecutor:
         self.db_client = None
         # 并发执行场景下由外部预先创建 record 并传入，避免后台线程重复创建
         self._precreated_record = execution_record
-
-    # ---------- 客户端准备 ----------
-    def _build_http_client(self) -> HttpClient:
-        client = HttpClient(base_url=self.env.base_url)
-        client.headers = deepcopy(self.env.common_headers or {}) or {"Content-Type": "application/json"}
-        return client
-
-    def _login(self, client: HttpClient):
-        """按 env.login_config 配置登录并注册 token 刷新回调；未配置则跳过"""
-        login_cfg: Dict[str, Any] = self.env.login_config or {}
-        login_path = login_cfg.get("login_path", "/api/home/login/userLogin")
-        login_body = login_cfg.get("login_body")
-        token_jsonpath = login_cfg.get("token_jsonpath", "$.data.token")
-        auth_header_name = login_cfg.get("auth_header_name", "Authorization")
-        # 鉴权头值模板：支持 ${token} 和 ${timestamp} 占位符
-        # 默认 ${token}（直接注入）；可配为 Bearer ${token}、${token}_${timestamp} 等
-        auth_header_value_template = login_cfg.get("auth_header_value_template") or "${token}"
-        if not login_body:
-            return
-
-        def _build_header_value(token: str) -> str:
-            """按模板渲染鉴权头值"""
-            return (auth_header_value_template
-                    .replace("${token}", str(token))
-                    .replace("${timestamp}", str(int(time.time()))))
-
-        def _do_login():
-            # 登录时带任意 Authorization 头跳过验证码校验，登录成功后会被真实 token 覆盖
-            client.set_header(auth_header_name, "skip-captcha-placeholder")
-            resp = client.post(login_path, json=login_body)
-            token = _extract_by_jsonpath(resp, token_jsonpath)
-            if token:
-                client.set_header(auth_header_name, _build_header_value(token))
-            return token
-
-        # 首次登录失败时给出清晰错误，避免 500；后续 401 重登失败由回调吞掉
-        try:
-            _do_login()
-        except Exception as e:
-            # 包装所有登录异常为 RuntimeError，给上层统一捕获并记为执行失败
-            raise RuntimeError(f"登录失败：{e}") from e
-
-        def refresh():
-            # 401 自动重登回调：失败时返回 None 触发原请求按未鉴权处理，
-            # 不抛出以免污染调用方控制流；记录日志便于排查
-            try:
-                return _do_login()
-            except Exception as e:
-                print(f"[token刷新] 重新登录失败（忽略）: {e}")
-                return None
-
-        client.set_token_refresh_callback(refresh)
-
-    def _build_db_client(self):
-        cfg = self.env.db_config or {}
-        if not cfg.get("host"):
-            return None
-        # 延迟导入，避免无 DB 环境启动报错
-        try:
-            from db.db_client import DBClient
-            return DBClient(
-                host=cfg.get("host"),
-                port=int(cfg.get("port", 3306)),
-                user=cfg.get("user", ""),
-                password=cfg.get("password", ""),
-                database=cfg.get("database", ""),
-            )
-        except ImportError as e:
-            # db_client 模块缺失（精简部署），降级为无 DB 模式
-            print(f"[DBClient] 导入失败，跳过 DB 能力: {e}")
-            return None
-        except (KeyError, ValueError, TypeError) as e:
-            # 配置项缺失或类型错误
-            print(f"[DBClient] 配置异常，跳过 DB 能力: {e}")
-            return None
-        except Exception as e:
-            # 连接失败等运行时异常
-            print(f"[DBClient] 初始化失败，跳过 DB 能力: {e}")
-            return None
 
     # ---------- 拓扑排序 ----------
     @staticmethod
@@ -167,183 +77,6 @@ class DagExecutor:
             queue.sort()
         leftover = [nid for nid in ids if nid not in order]
         return order, leftover
-
-    # ---------- 请求体构建 ----------
-    def _build_request_body(self, api: models.ApiDefinition) -> Any:
-        """
-        优先用 ApiField 组装请求体（支持点号嵌套路径）；
-        无 fields 时回退到 request_template（兼容旧数据）。
-        request_template 为 list 时标记数组请求体，组装结果包裹为 [{...}]。
-        """
-        fields = getattr(api, "fields", None) or []
-        if not fields:
-            return deepcopy(api.request_template or {})
-
-        # request_template 为 list 表示数组请求体（body 本身是 [{...}]）
-        is_array_body = isinstance(api.request_template, list)
-
-        body: Dict[str, Any] = {}
-        for f in fields:
-            if not f.key:
-                continue
-            # 解析默认值：支持 JSON（array/object 类型）、表达式、纯字符串
-            val = self._parse_field_value(f.default_value, f.field_type)
-            # 按点号路径设置到嵌套 dict
-            self._set_nested(body, f.key, val)
-        return [body] if is_array_body else body
-
-    @staticmethod
-    def _parse_field_value(raw: Optional[str], field_type: str) -> Any:
-        """解析字段默认值"""
-        if raw is None or raw == "":
-            return "" if field_type == "string" else None
-        # 含 ${} 表达式的值：先保留原始字符串，待 expr.evaluate 求值后
-        # 再由 _coerce_json_strings 转回 array/object 原生类型
-        if "${" in raw:
-            return raw
-        if field_type in ("array", "object"):
-            try:
-                return json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                # 非合法 JSON 字符串，保留原值
-                return raw
-        if field_type == "int":
-            try:
-                return int(raw)
-            except (ValueError, TypeError):
-                # 无法转为整数，保留原值
-                return raw
-        if field_type == "bool":
-            return raw.lower() in ("true", "1", "yes")
-        return raw  # string 类型，保留表达式 ${...} 由后续 preprocessor 求值
-
-    @staticmethod
-    def _coerce_json_strings(obj: Any) -> Any:
-        """递归把求值后形如 JSON 的字符串转回原生类型。
-        例如 array 字段 "[${id}]" 求值后为 "[123]" 字符串，转回 ["123"] 列表。
-        仅对形如 [...] / {...} 的字符串尝试，失败则原样返回。"""
-        if isinstance(obj, dict):
-            return {k: DagExecutor._coerce_json_strings(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [DagExecutor._coerce_json_strings(v) for v in obj]
-        if isinstance(obj, str):
-            s = obj.strip()
-            if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
-                try:
-                    return json.loads(s)
-                except (json.JSONDecodeError, TypeError):
-                    # 形似 JSON 但解析失败（如 "[abc]"），保留原字符串
-                    return obj
-        return obj
-
-    @staticmethod
-    def _set_nested(target: Dict[str, Any], path: str, value: Any):
-        """按点号路径设置嵌套 dict 值"""
-        keys = path.split(".")
-        cur = target
-        for k in keys[:-1]:
-            if k not in cur or not isinstance(cur[k], dict):
-                cur[k] = {}
-            cur = cur[k]
-        cur[keys[-1]] = value
-
-    def _apply_field_types(self, body: Any, api: models.ApiDefinition) -> Any:
-        """按 ApiField.field_type 强转标量值。
-
-        解决表达式求值后类型丢失的问题：
-        - 标量字段：${order_id} 从响应提取为 int，但字段定义为 string 时应转字符串
-          （否则下游接口用字符串方式处理 order_id 时会出错，如 orderNotice 构造 IN() 集合失败）
-        - array 字段：${xxx} 经 _coerce_json_strings 后元素变 int，但字段定义是字符串数组时
-          应转回字符串数组（如 order_fee_real_ids 期望 ["123"] 而非 [123]）
-        object 字段不处理（结构复杂，保留求值后的原生类型）。
-        数组请求体（body 为 list）时对首元素应用字段类型。
-        """
-        # 数组请求体：对第一个 dict 元素应用字段类型转换
-        if isinstance(body, list):
-            if body and isinstance(body[0], dict):
-                body[0] = self._apply_field_types(body[0], api)
-            return body
-
-        fields = getattr(api, "fields", None) or []
-        if not fields:
-            return body
-        for f in fields:
-            if not f.key:
-                continue
-            val = get_nested_value(body, f.key)
-            if val is None:
-                continue
-            if f.field_type == "array" and isinstance(val, list):
-                # 从 default_value 推断元素类型，强转每个元素
-                elem_type = self._infer_array_elem_type(f.default_value)
-                if elem_type:
-                    new_list = []
-                    for v in val:
-                        converted = self._coerce_scalar(v, elem_type)
-                        new_list.append(converted if converted is not None else v)
-                    set_nested_value(body, f.key, new_list)
-                continue
-            if f.field_type == "object":
-                continue
-            converted = self._coerce_scalar(val, f.field_type)
-            if converted is not None:
-                set_nested_value(body, f.key, converted)
-        return body
-
-    @staticmethod
-    def _infer_array_elem_type(default_value: Optional[str]) -> Optional[str]:
-        """从 array 字段的 default_value 推断元素标量类型。
-
-        default_value 形如 '["343928144446619648"]' → string；
-        '[1, 2, 3]' → int；'[true, false]' → bool。
-        空数组 / 嵌套结构（元素为 dict/list）返回 None，表示不处理。
-        """
-        if not default_value:
-            return None
-        try:
-            arr = json.loads(default_value)
-        except (json.JSONDecodeError, TypeError):
-            # 非合法 JSON 数组字符串，无法推断元素类型
-            return None
-        if not isinstance(arr, list) or not arr:
-            return None
-        first = arr[0]
-        if isinstance(first, bool):
-            return "bool"
-        if isinstance(first, int):
-            return "int"
-        if isinstance(first, str):
-            return "string"
-        # 元素是 dict/list 等嵌套结构，不处理
-        return None
-
-    @staticmethod
-    def _coerce_scalar(val: Any, field_type: str) -> Any:
-        """按字段类型强转标量值，转换失败返回 None 表示不修改原值"""
-        if field_type == "string":
-            if isinstance(val, str):
-                return val
-            # 布尔值转小写字符串（与 _parse_field_value 的处理保持一致）
-            if isinstance(val, bool):
-                return "true" if val else "false"
-            return str(val)
-        if field_type == "int":
-            if isinstance(val, bool):
-                return 1 if val else 0
-            if isinstance(val, int):
-                return val
-            try:
-                # 兼容 "123" / "123.0" / 123.0
-                return int(float(val))
-            except (ValueError, TypeError):
-                return None
-        if field_type == "bool":
-            if isinstance(val, bool):
-                return val
-            if isinstance(val, str):
-                return val.lower() in ("true", "1", "yes")
-            return bool(val)
-        return val
 
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict) -> Tuple[int, Any, Optional[str]]:
@@ -381,8 +114,8 @@ class DagExecutor:
             self.db.commit()
             self.db.refresh(record)
 
-        self.http_client = self._build_http_client()
-        self.db_client = self._build_db_client()
+        self.http_client = build_http_client(self.env)
+        self.db_client = build_db_client(self.env)
         # extractor / assertion_engine 共享 db_client，供 source=db 提取与 db_* 断言使用
         self.extractor.db_client = self.db_client
 
@@ -391,7 +124,7 @@ class DagExecutor:
         error_msg = None
         try:
             # 登录在 try 内，失败时记为执行失败而非 500
-            self._login(self.http_client)
+            login(self.http_client, self.env)
             dag = self.case.dag_config or {"nodes": [], "edges": []}
             order, leftover = self._topo_sort(dag)
             nodes_map = {n["id"]: n for n in dag.get("nodes", [])}
@@ -435,35 +168,8 @@ class DagExecutor:
                 except Exception as e:
                     print(f"[资源清理] HTTP session 关闭失败（忽略）: {e}")
             # 发送企微通知（notify_config 配置了 webhook 时）
-            self._send_notify(record)
+            send_notify(self.env, self.case, record)
         return record
-
-    def _send_notify(self, record: models.ExecutionRecord) -> None:
-        """执行完成后发送企微通知，失败不影响主流程"""
-        try:
-            notify_config = self.env.notify_config or {}
-            webhook = notify_config.get("webhook")
-            if not webhook:
-                return
-            from utils.wecom_util import WeComRobot
-            status_text = "✅ 通过" if record.status == "success" else "❌ 失败"
-            summary = record.summary or {}
-            duration = ""
-            if record.started_at and record.ended_at:
-                secs = (record.ended_at - record.started_at).total_seconds()
-                duration = f"（耗时 {secs:.1f}s）"
-            content = (
-                f"**用例执行通知**\n"
-                f"> 用例：{self.case.name}\n"
-                f"> 状态：{status_text}{duration}\n"
-                f"> 通过/总数：{summary.get('passed', 0)}/{summary.get('total', 0)}\n"
-                f"> 环境：{self.env.name}\n"
-                f"> 时间：{record.ended_at.strftime('%Y-%m-%d %H:%M:%S') if record.ended_at else ''}"
-            )
-            WeComRobot(webhook).send_markdown("用例执行通知", content)
-        except Exception as e:
-            # 通知失败不影响执行结果
-            print(f"[通知发送] 企微通知发送失败（忽略）: {e}")
 
     # ---------- 单节点执行 ----------
     def _execute_node(self, execution_id: int, node_id: str, node: Dict) -> bool:
@@ -497,7 +203,7 @@ class DagExecutor:
 
         # 1. 准备请求体 / 请求头
         # 优先用 ApiField 组装（新版本字段级配置）；无 fields 时回退到 request_template
-        body = self._build_request_body(api)
+        body = build_request_body(api)
         headers = deepcopy(self.http_client.headers or {})
 
         # PreProcessor 持有 db_client，使 set_field 的值能通过 ${db.query_value(...)} 从 DB 取值
@@ -514,10 +220,10 @@ class DagExecutor:
             body = preprocessor.expr.evaluate(body)
         # array/object 字段经表达式求值后仍是字符串（如 "[${id}]" → "[123]"），
         # 转回原生 JSON 类型，使接口收到的是列表/对象而非字符串
-        body = self._coerce_json_strings(body)
+        body = coerce_json_strings(body)
         # 按接口字段定义强转标量类型，避免表达式求值后类型丢失
         # （如 ${order_id} 提取为 int，但字段定义为 string 时应转字符串发送）
-        body = self._apply_field_types(body, api)
+        body = apply_field_types(body, api)
         # headers 中支持表达式
         for k, v in list(headers.items()):
             if isinstance(v, str) and "${" in v:

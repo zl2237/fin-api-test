@@ -8,14 +8,14 @@
       <span class="edit-title">{{ isEdit ? '编辑接口' : '新建接口' }}</span>
       <div class="header-right">
         <span v-if="dirty" class="dirty-tip">有未保存改动</span>
-        <el-button v-if="isEdit" @click="showImportFieldsDialog = true">导入 Swagger 覆盖字段</el-button>
-        <el-button v-if="isEdit" type="success" :loading="debugging" @click="openDebug">调试</el-button>
-        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+        <el-button v-if="isEdit" :disabled="loading" @click="showImportFieldsDialog = true">导入覆盖字段</el-button>
+        <el-button v-if="isEdit" type="success" :loading="debugging" :disabled="loading" @click="openDebug">调试</el-button>
+        <el-button type="primary" :loading="saving" :disabled="loading" @click="onSave">保存</el-button>
       </div>
     </div>
 
     <!-- 调试弹窗 -->
-    <el-dialog v-model="debugVisible" title="接口调试" width="780px" :close-on-click-modal="false">
+    <el-dialog v-model="debugVisible" title="接口调试" width="780px" align-center :close-on-click-modal="false">
       <div class="debug-bar">
         <el-select v-model="debugEnvId" placeholder="选择环境" style="width: 200px" :disabled="debugging">
           <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
@@ -60,34 +60,60 @@
           </div>
         </el-tab-pane>
       </el-tabs>
-      <el-empty v-else description="选择环境后点「发送请求」" :image-size="60" />
+      <EmptyState v-else description="选择环境后点「发送请求」" :image-size="60" />
     </el-dialog>
 
-    <!-- 导入 Swagger 覆盖字段弹窗 -->
-    <el-dialog v-model="showImportFieldsDialog" title="导入 Swagger 覆盖字段" width="900px" :close-on-click-modal="false">
+    <!-- 导入覆盖字段弹窗（HAR 上传 / OpenAPI 粘贴） -->
+    <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="900px" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
       <div class="import-fields-body">
         <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
-          粘贴最新 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位 operation，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
+          上传 HAR 或粘贴 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
         </el-alert>
-        <el-form label-width="90px">
-          <el-form-item label="定位依据">
-            <span class="locate-info">{{ formData.method }} {{ formData.path }}</span>
-          </el-form-item>
-          <el-form-item label="Swagger JSON">
-            <el-input
-              v-model="importFieldsSpecText"
-              type="textarea"
-              :rows="10"
-              placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
-            />
-          </el-form-item>
-        </el-form>
+        <div class="locate-row" style="margin-bottom: 12px;">
+          <span class="locate-label">定位依据：</span>
+          <span class="locate-info">{{ formData.method }} {{ formData.path }}</span>
+        </div>
+        <el-tabs v-model="importFieldsTab" class="import-fields-tabs">
+          <!-- Tab 1: HAR 文件上传（默认） -->
+          <el-tab-pane label="HAR 文件上传" name="har">
+            <el-upload
+              :auto-upload="true"
+              :show-file-list="false"
+              :before-upload="onImportFieldsHarBeforeUpload"
+              :http-request="onImportFieldsHarUpload"
+              accept=".har"
+              style="margin-bottom: 12px;"
+            >
+              <el-button type="primary" :loading="importFieldsHarParsing">
+                <el-icon style="margin-right: 4px;"><Upload /></el-icon>
+                选择 HAR 文件
+              </el-button>
+              <template #tip>
+                <div class="el-upload__tip">浏览器开发者工具 → Network → 右键 → Save all as HAR，直接上传</div>
+              </template>
+            </el-upload>
+          </el-tab-pane>
+
+          <!-- Tab 2: OpenAPI 粘贴 -->
+          <el-tab-pane label="OpenAPI / Swagger" name="openapi">
+            <el-form label-width="90px">
+              <el-form-item label="Swagger JSON">
+                <el-input
+                  v-model="importFieldsSpecText"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
+                />
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+        </el-tabs>
 
         <!-- 解析结果：新旧字段对比 -->
         <div v-if="importFieldsResult" class="fields-compare">
           <div v-if="!importFieldsResult.matched" class="compare-empty">
             <el-alert type="warning" :closable="false" show-icon>
-              未在 Swagger 中找到 {{ formData.method }} {{ formData.path }} 对应的接口，请检查 path 是否一致。
+              未找到 {{ formData.method }} {{ formData.path }} 对应的接口，请检查路径是否一致。
             </el-alert>
           </div>
           <template v-else>
@@ -103,8 +129,8 @@
                 新增 {{ addedFieldKeys.length }}，删除 {{ removedFieldKeys.length }}，更新 {{ updatedFieldKeys.length }}
               </span>
             </div>
-            <el-table :data="fieldCompareRows" size="small" border max-height="360">
-              <el-table-column label="字段路径" min-width="180">
+            <el-table :data="fieldCompareRows" size="small" border max-height="360" empty-text="暂无差异，字段定义一致">
+              <el-table-column label="字段路径" min-width="180" show-overflow-tooltip>
                 <template #default="{ row }">
                   <span :class="{ 'field-added': row.status === 'added', 'field-removed': row.status === 'removed' }">
                     {{ row.key }}
@@ -136,7 +162,7 @@
       </div>
       <template #footer>
         <el-button @click="showImportFieldsDialog = false">取消</el-button>
-        <el-button :loading="importFieldsLoading" type="primary" @click="onParseFields">解析</el-button>
+        <el-button v-if="importFieldsTab === 'openapi'" :loading="importFieldsLoading" type="primary" @click="onParseFields">解析</el-button>
         <el-button
           v-if="importFieldsResult?.matched"
           type="success"
@@ -146,15 +172,15 @@
     </el-dialog>
 
     <!-- 主体：左右布局 -->
-    <div class="edit-body">
+    <div class="edit-body" v-loading="loading" element-loading-text="加载接口配置中...">
       <!-- 左侧：基础信息 -->
       <div class="basic-panel">
         <div class="panel-title">基础信息</div>
         <el-form label-width="90px" :model="formData">
-          <el-form-item label="接口名称">
+          <el-form-item label="接口名称" required>
             <el-input v-model="formData.name" placeholder="创建订单" />
           </el-form-item>
-          <el-form-item label="接口编码">
+          <el-form-item label="接口编码" required>
             <el-input v-model="formData.code" placeholder="order_create" />
           </el-form-item>
           <el-form-item label="接口分组">
@@ -170,7 +196,7 @@
               <el-option label="DELETE" value="DELETE" />
             </el-select>
           </el-form-item>
-          <el-form-item label="请求路径">
+          <el-form-item label="请求路径" required>
             <el-input v-model="formData.path" placeholder="/api/order/orderEntrust/orderAdd" />
           </el-form-item>
           <el-form-item label="描述">
@@ -195,8 +221,9 @@
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, Upload } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
+import EmptyState from '@/components/EmptyState.vue'
 import FieldTable from '@/components/FieldTable.vue'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
@@ -210,6 +237,7 @@ const projectId = computed(() => currentProjectId.value)
 const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
 const dirty = ref(false)
+const loading = ref(false)
 const groups = ref<ApiGroup[]>([])
 
 // ===== 调试 =====
@@ -219,10 +247,13 @@ const debugEnvId = ref<number | null>(null)
 const debugResult = ref<any>(null)
 const debugTab = ref('request')
 
-// ===== 导入 Swagger 覆盖字段 =====
+// ===== 导入覆盖字段（HAR 上传 / OpenAPI 粘贴）=====
 const showImportFieldsDialog = ref(false)
 const importFieldsLoading = ref(false)
 const importFieldsSpecText = ref('')
+const importFieldsTab = ref<'har' | 'openapi'>('har')
+// HAR 解析相关
+const importFieldsHarParsing = ref(false)
 const importFieldsResult = ref<{
   matched: boolean; method: string; path: string; operation_summary: string | null
   fields: ApiField[]
@@ -295,6 +326,78 @@ function compareStatusLabel(status: string): string {
   if (status === 'removed') return '删除'
   if (status === 'updated') return '更新'
   return '不变'
+}
+
+// HAR 文件上传前校验
+function onImportFieldsHarBeforeUpload(file: File): boolean {
+  if (!file.name.toLowerCase().endsWith('.har')) {
+    ElMessage.error('请上传 .har 文件')
+    return false
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    ElMessage.error('文件超过 50MB 限制')
+    return false
+  }
+  return true
+}
+
+// HAR 上传 + 解析：按当前接口 method+path 从 HAR 预览中匹配，构造对比结果
+async function onImportFieldsHarUpload(options: any) {
+  const file = options.file as File
+  importFieldsHarParsing.value = true
+  importFieldsResult.value = null
+  try {
+    const res = await apiApi.previewHar(file)
+    if (res.total === 0) {
+      ElMessage.warning('HAR 文件中未解析出有效接口')
+      return
+    }
+    // 按当前接口 method + path 精确匹配
+    const matched = res.previews.find(
+      (p) => p.method.toUpperCase() === formData.method.toUpperCase()
+        && p.path === formData.path
+    )
+    if (!matched) {
+      importFieldsResult.value = {
+        matched: false,
+        method: formData.method,
+        path: formData.path,
+        operation_summary: null,
+        fields: [],
+      }
+      ElMessage.warning(`未在 HAR 中找到 ${formData.method} ${formData.path}，请确认路径一致`)
+      return
+    }
+    // 把 HAR 字段映射为 ApiField 结构
+    const fields: ApiField[] = matched.fields.map((f, i) => ({
+      key: f.key,
+      label: '',
+      field_type: f.field_type,
+      required: f.required,
+      default_value: f.default_value || '',
+      remark: '',
+      sort_order: i,
+    }))
+    importFieldsResult.value = {
+      matched: true,
+      method: matched.method,
+      path: matched.path,
+      operation_summary: matched.name,
+      fields,
+    }
+    ElMessage.success(`匹配成功：${fields.length} 个字段（新增 ${addedFieldKeys.value.length}，删除 ${removedFieldKeys.value.length}，更新 ${updatedFieldKeys.value.length}）`)
+  } catch (e: any) {
+    ElMessage.error(e.message || 'HAR 解析失败')
+  } finally {
+    importFieldsHarParsing.value = false
+  }
+}
+
+// 关闭导入弹窗时重置状态
+function onImportFieldsClose() {
+  importFieldsResult.value = null
+  importFieldsSpecText.value = ''
+  importFieldsTab.value = 'har'
 }
 
 async function onParseFields() {
@@ -425,6 +528,10 @@ function onBack() {
 }
 
 async function onSave() {
+  // trim 关键字段，避免首尾空格
+  formData.name = formData.name.trim()
+  formData.code = formData.code.trim()
+  formData.path = formData.path.trim()
   if (!formData.name || !formData.code || !formData.path) {
     ElMessage.warning('名称、编码、路径不能为空')
     return
@@ -458,8 +565,14 @@ async function onSave() {
 }
 
 onMounted(async () => {
-  await loadGroups()
-  await loadApi()
+  // 编辑模式加载数据期间显示骨架屏，避免空白无反馈
+  loading.value = isEdit.value
+  try {
+    await loadGroups()
+    await loadApi()
+  } finally {
+    loading.value = false
+  }
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
@@ -502,7 +615,7 @@ function onKeydown(e: KeyboardEvent) {
   gap: 10px;
 }
 .dirty-tip {
-  color: #ff9500;
+  color: var(--app-warn-accent);
   font-size: 13px;
 }
 .edit-body {
@@ -515,17 +628,17 @@ function onKeydown(e: KeyboardEvent) {
 .basic-panel {
   width: 360px;
   background: var(--app-card-solid);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--app-shadow-sm);
   height: fit-content;
 }
 .fields-panel {
   flex: 1;
   background: var(--app-card-solid);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--app-shadow-sm);
   min-width: 0;
 }
 .panel-title {
@@ -567,10 +680,10 @@ function onKeydown(e: KeyboardEvent) {
 }
 .debug-json {
   background: var(--app-bg);
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   padding: 12px;
   font-size: 12px;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--app-font-mono);
   color: var(--app-text);
   max-height: 260px;
   overflow: auto;
@@ -583,7 +696,7 @@ function onKeydown(e: KeyboardEvent) {
   overflow-y: auto;
 }
 .locate-info {
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--app-font-mono);
   font-size: 13px;
   color: var(--app-primary);
   font-weight: 600;

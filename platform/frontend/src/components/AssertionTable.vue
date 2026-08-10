@@ -1,6 +1,6 @@
 <template>
   <div class="cfg-table">
-    <el-table :data="modelValue" size="small" border>
+    <el-table :data="modelValue" size="small" border empty-text="暂无断言，点击「添加断言」开始配置">
       <el-table-column label="断言类型" width="200">
         <template #default="{ row }">
           <el-select v-model="row.type" size="small" style="width: 100%">

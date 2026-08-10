@@ -1,8 +1,7 @@
 <template>
   <div class="page">
-    <el-card shadow="never" class="card">
-      <!-- 搜索过滤栏 -->
-      <div class="filter-bar">
+    <!-- 搜索过滤栏 -->
+    <div class="filter-bar">
         <el-select
           v-model="filterProjectId"
           style="width: 180px"
@@ -50,22 +49,27 @@
         <el-button @click="resetFilter">重置</el-button>
         <span class="filter-count">共 {{ filteredList.length }} 条</span>
         <el-button v-if="store.user?.role === 'admin'" type="warning" plain @click="openCleanup">清理旧记录</el-button>
-      </div>
+    </div>
+
+    <el-card shadow="never" class="card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
       <el-table v-else :data="pagedList" stripe empty-text="暂无执行记录，前往用例列表执行用例">
         <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column label="项目" min-width="120">
+        <el-table-column label="项目" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.project_name || `#${row.project_id}` || '—' }}</template>
         </el-table-column>
-        <el-table-column label="用例" min-width="180">
+        <el-table-column label="用例" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ row.case_name || `#${row.case_id}` }}</template>
         </el-table-column>
-        <el-table-column label="环境" min-width="120">
+        <el-table-column label="环境" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.env_name || `#${row.env_id}` }}</template>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" effect="light">{{ statusText(row.status) }}</el-tag>
+            <el-tag :type="statusType(row.status)" effect="light">
+              <el-icon v-if="row.status === 'running'" class="is-loading"><Loading /></el-icon>
+              {{ statusText(row.status) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="通过/总数" width="120">
@@ -73,14 +77,14 @@
             {{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column prop="started_at" label="开始时间" min-width="170" />
-        <el-table-column prop="ended_at" label="结束时间" min-width="170" />
+        <el-table-column prop="started_at" label="开始时间" min-width="170" show-overflow-tooltip />
+        <el-table-column prop="ended_at" label="结束时间" min-width="170" show-overflow-tooltip />
         <el-table-column label="执行人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="router.push(`/reports/${row.id}`)">查看报告</el-button>
+            <el-button link type="primary" size="small" @click="router.push(`/reports/${row.id}`)">查看报告</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -98,7 +102,7 @@
     </el-card>
 
     <!-- 清理旧记录对话框 -->
-    <el-dialog v-model="cleanupVisible" title="清理旧执行记录" width="420px">
+    <el-dialog v-model="cleanupVisible" title="清理旧执行记录" width="420px" align-center>
       <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px">
         将永久删除指定天数前的执行记录（含步骤和断言），此操作不可恢复。
       </el-alert>
@@ -117,15 +121,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import { storeToRefs } from 'pinia'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+const { currentProjectId } = storeToRefs(store)
 const list = ref<ExecutionRecord[]>([])
 const loading = ref(false)
 const users = ref<SimpleUser[]>([])
@@ -138,7 +145,8 @@ const page = ref(1)
 const pageSize = ref(10)
 
 // 过滤条件：项目/执行人/用例ID 走后端，状态/时间范围本地兜底
-const filterProjectId = ref<number | null>(null)
+// 项目默认锁定当前项目，实现与环境/接口/用例一致的数据隔离
+const filterProjectId = ref<number | null>(currentProjectId.value)
 const filterExecutor = ref<number | null>(null)
 const filterCaseId = ref('')
 const filterStatus = ref('')
@@ -194,10 +202,11 @@ function startAutoRefresh() {
   if (refreshTimer) return
   refreshTimer = setInterval(async () => {
     try {
+      const projectId = filterProjectId.value ?? currentProjectId.value
+      if (!projectId) return
       const caseId = route.query.case_id ? Number(route.query.case_id) : (filterCaseId.value.trim() ? Number(filterCaseId.value) : undefined)
-      const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200 }
+      const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
       if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
-      if (filterProjectId.value) params.project_id = filterProjectId.value
       if (filterExecutor.value) params.created_by = filterExecutor.value
       list.value = await execApi.list(params)
       // 没有 running 记录了，停止轮询
@@ -218,13 +227,18 @@ function stopAutoRefresh() {
 }
 
 async function load() {
+  // 项目隔离：优先用筛选框选中的项目，未选则回退到当前项目
+  const projectId = filterProjectId.value ?? currentProjectId.value
+  if (!projectId) {
+    list.value = []
+    return
+  }
   loading.value = true
   try {
     // 后端过滤：case_id（URL 或输入框）、project_id、created_by（执行人）
     const caseId = route.query.case_id ? Number(route.query.case_id) : (filterCaseId.value.trim() ? Number(filterCaseId.value) : undefined)
-    const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200 }
+    const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
     if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
-    if (filterProjectId.value) params.project_id = filterProjectId.value
     if (filterExecutor.value) params.created_by = filterExecutor.value
     list.value = await execApi.list(params)
     // 存在执行中的记录则启动轮询，否则确保停止
@@ -281,22 +295,44 @@ onMounted(() => {
   loadUsers()
 })
 
+// 切换项目时：同步筛选框并重新加载，实现项目级数据隔离
+watch(currentProjectId, (newId) => {
+  if (newId) {
+    filterProjectId.value = newId
+    page.value = 1
+    load()
+  }
+})
+
 onUnmounted(() => {
   stopAutoRefresh()
 })
 </script>
 
 <style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 12px;
+}
 .card {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
 }
 .filter-bar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  padding: 12px 16px;
   flex-wrap: wrap;
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
 }
 .filter-count {
   margin-left: auto;

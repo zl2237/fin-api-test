@@ -74,7 +74,8 @@ def copy(env_id: int, db: Session = Depends(get_db), user: models.User = Depends
 def test_db(env_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """
     测试数据库连接：按 env 已保存的 db_config 尝试连接并执行 SELECT 1。
-    复用 dag_executor 的 _build_db_client 逻辑，保证测试与实际执行行为一致。
+    DBClient 构建方式与 runtime_service.build_db_client 一致，但此处需显式报告连接错误，
+    故直接构造而非使用 build_db_client（其失败时静默返回 None）。
     """
     env = crud.get_environment(db, env_id)
     if not env:
@@ -108,7 +109,7 @@ def test_db(env_id: int, db: Session = Depends(get_db), user: models.User = Depe
 def test_login(env_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """
     测试登录配置：按 env 已保存的 login_config 尝试登录并提取 token。
-    复用 dag_executor 的 _build_http_client + _login 逻辑，保证测试与实际执行行为一致。
+    复用 runtime_service 的 build_http_client + login 逻辑，保证测试与实际执行行为一致。
     """
     env = crud.get_environment(db, env_id)
     if not env:
@@ -117,21 +118,13 @@ def test_login(env_id: int, db: Session = Depends(get_db), user: models.User = D
     if not login_cfg.get("login_body"):
         return {"ok": False, "message": "未配置登录请求体，跳过测试"}
 
-    # 复用 DagExecutor 的登录逻辑
-    from ..engine.dag_executor import DagExecutor
-
-    class _LocalDummyCase:
-        id = 0
-        dag_config = {"nodes": [], "edges": []}
-        node_configs = []
-        name = "env-test"
+    # 复用 runtime_service 的登录逻辑
+    from ..services.runtime_service import build_http_client, login
 
     try:
-        dummy_case = _LocalDummyCase()
-        executor = DagExecutor(db, dummy_case, env)
-        client = executor._build_http_client()
+        client = build_http_client(env)
         try:
-            executor._login(client)
+            login(client, env)
             # 登录成功，提取实际注入的鉴权头
             auth_header_name = login_cfg.get("auth_header_name", "Authorization")
             auth_value = client.headers.get(auth_header_name, "")

@@ -13,15 +13,15 @@
     </div>
 
     <!-- 主体：分区卡片 -->
-    <div class="edit-body">
+    <div class="edit-body" v-loading="loading" element-loading-text="加载环境配置中...">
       <!-- 基础信息 -->
       <div class="card-section">
         <div class="section-title">基础信息</div>
         <el-form label-width="100px" :model="formData">
-          <el-form-item label="环境名称">
+          <el-form-item label="环境名称" required>
             <el-input v-model="formData.name" placeholder="test / pre / prod" style="width: 280px" />
           </el-form-item>
-          <el-form-item label="Base URL">
+          <el-form-item label="Base URL" required>
             <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" style="width: 380px" />
           </el-form-item>
           <el-form-item label="超时时间">
@@ -174,6 +174,7 @@ const { currentProjectId } = storeToRefs(store)
 const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
 const dirty = ref(false)
+const loading = ref(false)
 const testingDb = ref(false)
 const testingLogin = ref(false)
 
@@ -279,6 +280,9 @@ function onBack() {
 }
 
 async function onSave() {
+  // trim 关键字段，避免首尾空格
+  formData.name = formData.name.trim()
+  formData.base_url = formData.base_url.trim()
   if (!formData.name || !formData.base_url) {
     ElMessage.warning('环境名称和 Base URL 不能为空')
     return
@@ -358,7 +362,9 @@ async function onTestLogin() {
 }
 
 onMounted(() => {
-  loadEnv()
+  // 编辑模式加载数据期间显示遮罩，避免空白无反馈
+  loading.value = isEdit.value
+  loadEnv().finally(() => { loading.value = false })
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
@@ -401,7 +407,7 @@ function onKeydown(e: KeyboardEvent) {
   gap: 10px;
 }
 .dirty-tip {
-  color: #ff9500;
+  color: var(--app-warn-accent);
   font-size: 13px;
 }
 .edit-body {
@@ -411,10 +417,10 @@ function onKeydown(e: KeyboardEvent) {
 }
 .card-section {
   background: var(--app-card-solid);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   padding: 20px 24px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--app-shadow-sm);
 }
 .section-title {
   font-size: 14px;

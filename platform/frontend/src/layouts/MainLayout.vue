@@ -1,8 +1,39 @@
 <template>
   <el-container class="layout">
     <el-aside class="sidebar" :width="collapsed ? '64px' : '220px'">
+      <!-- 侧边栏品牌渐变背景装饰层 -->
+      <div class="sidebar-bg-deco" aria-hidden="true">
+        <svg viewBox="0 0 220 800" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+          <!-- 顶部光晕 -->
+          <ellipse cx="110" cy="60" rx="140" ry="80" fill="rgba(255,255,255,0.06)" />
+          <!-- 底部 DAG 节点装饰 -->
+          <path d="M60 620 L110 680 M110 680 L170 640 M110 680 L80 740 M110 680 L160 730" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 6" />
+          <circle cx="60" cy="620" r="5" fill="rgba(255,255,255,0.25)" />
+          <circle cx="110" cy="680" r="7" fill="rgba(255,255,255,0.3)" />
+          <circle cx="170" cy="640" r="4" fill="rgba(255,255,255,0.2)" />
+          <circle cx="80" cy="740" r="3.5" fill="rgba(255,255,255,0.2)" />
+          <circle cx="160" cy="730" r="5" fill="rgba(255,255,255,0.25)" />
+        </svg>
+      </div>
       <div class="brand">
-        <span class="brand-dot"></span>
+        <span class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ffffff" />
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.7" />
+              </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="8" fill="rgba(255,255,255,0.15)" />
+            <!-- 上方节点 -->
+            <circle cx="16" cy="9" r="2.6" fill="url(#brandGrad)" />
+            <!-- 下方两节点 -->
+            <circle cx="9" cy="23" r="2.6" fill="url(#brandGrad)" />
+            <circle cx="23" cy="23" r="2.6" fill="url(#brandGrad)" />
+            <!-- 连线 -->
+            <path d="M16 11.6 L9 20.4 M16 11.6 L23 20.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </span>
         <span v-if="!collapsed" class="brand-text">fin-api-test</span>
       </div>
       <el-menu
@@ -15,6 +46,10 @@
           <el-icon><Folder /></el-icon>
           <span>项目管理</span>
         </el-menu-item>
+        <el-menu-item index="/envs">
+          <el-icon><Setting /></el-icon>
+          <span>环境配置</span>
+        </el-menu-item>
         <el-menu-item index="/apis">
           <el-icon><Connection /></el-icon>
           <span>接口管理</span>
@@ -23,13 +58,13 @@
           <el-icon><Share /></el-icon>
           <span>用例列表</span>
         </el-menu-item>
-        <el-menu-item index="/envs">
-          <el-icon><Setting /></el-icon>
-          <span>环境配置</span>
-        </el-menu-item>
         <el-menu-item index="/executions">
           <el-icon><Histogram /></el-icon>
           <span>执行记录</span>
+        </el-menu-item>
+        <el-menu-item index="/dictionary">
+          <el-icon><DataLine /></el-icon>
+          <span>字段字典</span>
         </el-menu-item>
         <el-menu-item v-if="store.user?.role === 'admin'" index="/users">
           <el-icon><UserFilled /></el-icon>
@@ -40,12 +75,26 @@
           <span>操作日志</span>
         </el-menu-item>
       </el-menu>
+      <!-- 侧边栏底部：研发者头像 + 标识 -->
+      <div class="sidebar-foot">
+        <img
+          v-if="devAvatar"
+          :src="devAvatar"
+          class="dev-avatar"
+          :alt="devName"
+          :title="`Developed by ${devName}`"
+        />
+        <div v-else class="dev-avatar dev-avatar-fallback" :title="`Developed by ${devName}`">
+          {{ devInitial }}
+        </div>
+        <span v-if="!collapsed" class="foot-text">Developed by zhangle</span>
+      </div>
     </el-aside>
 
     <el-container>
       <el-header class="topbar">
         <div class="topbar-left">
-          <el-button text class="collapse-btn" @click="toggleSidebar">
+          <el-button text class="collapse-btn" :title="collapsed ? '展开侧边栏' : '收起侧边栏'" :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
             <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
           </el-button>
           <el-breadcrumb :separator-icon="ArrowRight" class="topbar-breadcrumb">
@@ -79,6 +128,14 @@
           </el-select>
           <el-button v-if="!store.projects.length" link type="primary" @click="router.push('/projects')">
             + 去创建
+          </el-button>
+          <el-button
+            v-if="store.currentProjectId"
+            text
+            title="项目版本管理"
+            @click="versionVisible = true"
+          >
+            <el-icon><DataLine /></el-icon>版本
           </el-button>
           <el-select
             v-model="store.currentEnvId"
@@ -116,35 +173,184 @@
           </el-dropdown>
           <el-dropdown trigger="click" @command="onUserCommand">
             <span class="user-chip">
-              <el-icon><UserFilled /></el-icon>
+              <img
+                v-if="currentAvatar"
+                :src="currentAvatar"
+                class="user-avatar"
+                :alt="store.user?.name || store.user?.username || '用户'"
+              />
+              <el-icon v-else><UserFilled /></el-icon>
               <span class="user-name">{{ store.user?.name || store.user?.username || '用户' }}</span>
               <el-tag v-if="store.user?.role === 'admin'" size="small" type="warning" effect="plain" round>管理员</el-tag>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item command="changeAvatar">
+                  <el-icon><Avatar /></el-icon>修改头像
+                </el-dropdown-item>
+                <el-dropdown-item command="changePassword">
+                  <el-icon><Lock /></el-icon>修改密码
+                </el-dropdown-item>
                 <el-dropdown-item command="logout">
                   <el-icon><SwitchButton /></el-icon>退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
+          <input
+            ref="avatarInputRef"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            style="display: none"
+            @change="onAvatarFileChange"
+          />
         </div>
       </el-header>
+      <!-- 标签页栏 -->
+      <div class="tab-bar">
+        <div class="tab-scroll">
+          <div
+            v-for="tab in tabStore.tabs"
+            :key="tab.path"
+            class="tab-item"
+            :class="{ active: tab.path === route.path }"
+            @click="router.push(tab.path)"
+            @middle-click.prevent="onTabClose(tab.path)"
+          >
+            <span class="tab-title">{{ tab.title }}</span>
+            <el-icon
+              v-if="tab.closable"
+              class="tab-close"
+              @click.stop="onTabClose(tab.path)"
+            >
+              <Close />
+            </el-icon>
+          </div>
+        </div>
+        <el-dropdown trigger="click" @command="onTabCommand" class="tab-actions">
+          <el-button text size="small" class="tab-more-btn">
+            <el-icon><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="closeOthers">关闭其他</el-dropdown-item>
+              <el-dropdown-item command="closeAll">关闭全部</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
       <el-main class="main">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <keep-alive :max="15">
+              <component :is="Component" :key="route.fullPath" />
+            </keep-alive>
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
   </el-container>
 
   <!-- 使用说明弹窗 -->
-  <el-dialog v-model="helpVisible" title="平台使用说明" width="640px">
-    <el-steps direction="vertical" :active="5">
-      <el-step title="创建项目" description="在「项目管理」新建项目。新用户注册后首个项目是操作起点，顶部选择器切换当前项目。" />
-      <el-step title="配置环境" description="在「环境配置」新建环境，填写 base_url、数据库、登录配置（用于自动获取 token 注入后续请求）。可点「测试连接」「测试登录」验证。" />
-      <el-step title="管理接口" description="在「接口管理」新建接口或导入 Swagger/OpenAPI 规范。可点「调试」单独测试单个接口。" />
-      <el-step title="编排用例" description="在「用例列表」新建用例进入编排画布：左侧点接口添加节点，连线建立执行顺序，点节点配置预处理/提取/断言。工具栏「自动布局」可一键整理节点。" />
-      <el-step title="执行与报告" description="工具栏选环境后点「执行」，查看报告：步骤详情、断言结果、耗时趋势，支持导出 CSV/PDF 和「重新执行」。" />
-    </el-steps>
+  <el-dialog v-model="helpVisible" title="平台使用说明" width="720px" align-center class="help-dialog">
+    <div class="help-content">
+      <!-- 快速上手：5 步流程 -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <el-icon class="help-section-icon"><Flag /></el-icon>
+          <span>快速上手</span>
+          <span class="help-section-sub">五步完成首个用例</span>
+        </div>
+        <div class="help-steps">
+          <div class="help-step">
+            <div class="help-step-num">1</div>
+            <div class="help-step-body">
+              <div class="help-step-title">创建项目</div>
+              <div class="help-step-desc">在「项目管理」新建项目，顶部选择器切换当前项目。</div>
+            </div>
+          </div>
+          <div class="help-step">
+            <div class="help-step-num">2</div>
+            <div class="help-step-body">
+              <div class="help-step-title">配置环境</div>
+              <div class="help-step-desc">在「环境配置」填写 base_url、数据库、登录配置（自动获取 token 注入后续请求），可点「测试连接」「测试登录」验证。</div>
+            </div>
+          </div>
+          <div class="help-step">
+            <div class="help-step-num">3</div>
+            <div class="help-step-body">
+              <div class="help-step-title">管理接口</div>
+              <div class="help-step-desc">在「接口管理」新建接口，或点「导入接口」上传 HAR 文件 / 粘贴 Swagger JSON 批量导入。编辑接口时可「导入覆盖字段」同步最新字段定义。</div>
+            </div>
+          </div>
+          <div class="help-step">
+            <div class="help-step-num">4</div>
+            <div class="help-step-body">
+              <div class="help-step-title">编排用例</div>
+              <div class="help-step-desc">在「用例列表」新建用例进入 DAG 画布：左侧点接口添加节点，连线建立执行顺序，点节点配置预处理 / 提取 / 断言。工具栏「自动布局」一键整理节点。</div>
+            </div>
+          </div>
+          <div class="help-step">
+            <div class="help-step-num">5</div>
+            <div class="help-step-body">
+              <div class="help-step-title">执行与报告</div>
+              <div class="help-step-desc">工具栏选环境后点「执行」，查看报告：步骤详情、断言结果、耗时趋势，支持导出 HTML 和「重新执行」。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 核心能力速查 -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <el-icon class="help-section-icon"><MagicStick /></el-icon>
+          <span>核心能力</span>
+          <span class="help-section-sub">字段配置中可用表达式</span>
+        </div>
+        <div class="help-features">
+          <div class="help-feature">
+            <el-icon class="help-feature-icon"><Connection /></el-icon>
+            <div class="help-feature-text">
+              <div class="help-feature-name">DAG 可视化编排</div>
+              <div class="help-feature-desc">拖拽连线描述接口执行顺序，支持缩放与 minimap</div>
+            </div>
+          </div>
+          <div class="help-feature">
+            <el-icon class="help-feature-icon"><DataLine /></el-icon>
+            <div class="help-feature-text">
+              <div class="help-feature-name">表达式引擎</div>
+              <div class="help-feature-desc"><code>${now()}</code> <code>${random_int()}</code> <code>${uuid()}</code> 等 12 个内置函数 + <code>${context.xxx}</code> 变量引用</div>
+            </div>
+          </div>
+          <div class="help-feature">
+            <el-icon class="help-feature-icon"><Checked /></el-icon>
+            <div class="help-feature-text">
+              <div class="help-feature-name">17 种断言</div>
+              <div class="help-feature-desc">JSONPath / 状态码 / 响应耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试</div>
+            </div>
+          </div>
+          <div class="help-feature">
+            <el-icon class="help-feature-icon"><Upload /></el-icon>
+            <div class="help-feature-text">
+              <div class="help-feature-name">多格式导入</div>
+              <div class="help-feature-desc">HAR 文件上传（默认）/ Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 快捷键 -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <el-icon class="help-section-icon"><Promotion /></el-icon>
+          <span>快捷键</span>
+        </div>
+        <div class="help-shortcuts">
+          <div class="help-shortcut"><kbd>Ctrl</kbd> + <kbd>K</kbd><span>打开命令面板，快速跳转任意页面</span></div>
+          <div class="help-shortcut"><kbd>Ctrl</kbd> + <kbd>Enter</kbd><span>在用例列表选中用例后快速执行</span></div>
+        </div>
+      </div>
+    </div>
     <template #footer>
       <el-button type="primary" @click="helpVisible = false">我知道了</el-button>
     </template>
@@ -152,27 +358,133 @@
 
   <!-- 全局命令面板（Ctrl+K） -->
   <CommandPalette ref="cmdPaletteRef" />
+
+  <!-- 项目版本管理 -->
+  <ProjectVersionHistory
+    v-model="versionVisible"
+    :project-id="store.currentProjectId"
+    @rollback="onVersionRollback"
+  />
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
+import { useTabStore } from '@/stores/tabs'
+import { authApi } from '@/api'
 import CommandPalette from '@/components/CommandPalette.vue'
+import ProjectVersionHistory from '@/components/ProjectVersionHistory.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+const tabStore = useTabStore()
 const helpVisible = ref(false)
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
+const versionVisible = ref(false)
 // 侧边栏折叠状态：localStorage 记忆，默认展开
 const SIDEBAR_KEY = 'fin_sidebar_collapsed'
 const collapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
 function toggleSidebar() {
   collapsed.value = !collapsed.value
   localStorage.setItem(SIDEBAR_KEY, collapsed.value ? '1' : '0')
+}
+
+// 项目版本回滚后，项目下所有接口/用例数据已变化，刷新当前页面确保数据一致
+function onVersionRollback() {
+  ElMessage.success('项目已回滚，正在刷新页面...')
+  setTimeout(() => window.location.reload(), 800)
+}
+
+// ===== 头像 =====
+// 侧边栏底部固定显示 zhangle 的头像（开发者署名）
+const devAvatar = ref<string | null>(null)
+const devName = ref('zhangle')
+const devInitial = computed(() => (devName.value || 'Z').charAt(0).toUpperCase())
+// 顶部用户菜单显示当前登录用户头像
+const currentAvatar = ref<string | null>(null)
+const avatarInputRef = ref<HTMLInputElement | null>(null)
+const avatarUploading = ref(false)
+
+async function loadDevAvatar() {
+  try {
+    const res = await authApi.getAvatarByUsername('zhangle')
+    devAvatar.value = res.avatar
+    if (res.name) devName.value = res.name
+  } catch {
+    // 用户不存在或未登录，保持 fallback
+  }
+}
+
+async function loadCurrentAvatar() {
+  if (!store.user) return
+  // has_avatar=false 时无需请求，避免 404 噪音
+  if (store.user.has_avatar === false) {
+    currentAvatar.value = null
+    return
+  }
+  try {
+    const res = await authApi.getAvatar(store.user.id)
+    currentAvatar.value = res.avatar
+  } catch {
+    currentAvatar.value = null
+  }
+}
+
+// canvas 压缩图片到 256x256，输出 jpeg base64 data URL
+function compressImage(file: File, size = 256, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')!
+        // 居中裁剪为正方形
+        const min = Math.min(img.width, img.height)
+        const sx = (img.width - min) / 2
+        const sy = (img.height - min) / 2
+        ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.onerror = () => reject(new Error('图片加载失败'))
+      img.src = reader.result as string
+    }
+    reader.onerror = () => reject(new Error('文件读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onAvatarFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片不能超过 5MB')
+    input.value = ''
+    return
+  }
+  avatarUploading.value = true
+  try {
+    const dataUrl = await compressImage(file)
+    await authApi.updateAvatar(dataUrl)
+    currentAvatar.value = dataUrl
+    ElMessage.success('头像已更新')
+    // 当前登录用户是 zhangle 时，同步刷新侧边栏开发者头像
+    if (store.user?.username === 'zhangle') {
+      devAvatar.value = dataUrl
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || err?.message || '头像上传失败')
+  } finally {
+    avatarUploading.value = false
+    input.value = ''
+  }
 }
 
 // 主题：当前生效是否深色，用于图标显示
@@ -186,7 +498,18 @@ const themeLabel = computed(() => {
   return '跟随系统'
 })
 function onThemeCommand(cmd: 'light' | 'dark' | 'auto') {
-  store.applyTheme(cmd)
+  // 圆形扩散过渡：从右上角主题按钮附近扩散（按钮在顶栏右侧）
+  const x = window.innerWidth - 60
+  const y = 40
+  document.documentElement.style.setProperty('--theme-x', `${x}px`)
+  document.documentElement.style.setProperty('--theme-y', `${y}px`)
+  const apply = () => store.applyTheme(cmd)
+  // 不支持 View Transitions API 的浏览器直接切换
+  if (!document.startViewTransition) {
+    apply()
+  } else {
+    document.startViewTransition(() => apply())
+  }
   ElMessage.success(`已切换为${cmd === 'light' ? '浅色' : cmd === 'dark' ? '深色' : '跟随系统'}模式`)
 }
 
@@ -202,13 +525,48 @@ const breadcrumbItems = computed(() => {
 })
 
 async function onUserCommand(cmd: string) {
+  if (cmd === 'changeAvatar') {
+    avatarInputRef.value?.click()
+    return
+  }
+  if (cmd === 'changePassword') {
+    router.push('/change-password')
+    return
+  }
   if (cmd === 'logout') {
     await ElMessageBox.confirm('确定退出登录吗？', '提示', { type: 'warning' })
     store.logout()
+    tabStore.reset()
     ElMessage.success('已退出登录')
     router.replace('/login')
   }
 }
+
+// ===== 标签页操作 =====
+function onTabClose(path: string) {
+  const next = tabStore.removeTab(path)
+  if (next) {
+    router.push(next)
+  }
+}
+
+function onTabCommand(cmd: string) {
+  if (cmd === 'closeOthers') {
+    tabStore.removeOthers(route.path)
+  } else if (cmd === 'closeAll') {
+    const next = tabStore.removeAll()
+    if (next && next !== route.path) {
+      router.push(next)
+    }
+  }
+}
+
+// 路由变化时自动添加标签
+watch(() => route.fullPath, () => {
+  if (route.path !== '/' && route.path !== '/login' && route.path !== '/change-password') {
+    tabStore.addTab(route)
+  }
+}, { immediate: true })
 
 onMounted(async () => {
   // 主题已在 App.vue 初始化，这里无需重复
@@ -217,10 +575,14 @@ onMounted(async () => {
   await store.loadProjects()
   if (store.currentProjectId) {
     await store.loadEnvironments()
+    await store.loadFieldDict()
   } else if (route.path !== '/projects') {
     // 无项目时自动引导到项目管理页，避免后续页面因 currentProjectId 为空而卡死
     router.replace('/projects')
   }
+  // 加载头像：当前用户头像 + 侧边栏开发者头像
+  loadCurrentAvatar()
+  loadDevAvatar()
 })
 </script>
 
@@ -229,12 +591,86 @@ onMounted(async () => {
   height: 100%;
 }
 .sidebar {
-  background: var(--app-sidebar);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-right: 1px solid var(--app-border);
+  position: relative;
+  /* 品牌渐变背景：与登录页保持视觉延续 */
+  background: linear-gradient(180deg, #1a2b4a 0%, #234e80 50%, #2b7fd6 100%);
+  border-right: none;
   padding: 16px 12px;
   transition: width 0.25s ease;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* 背景装饰层 */
+.sidebar-bg-deco {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.9;
+}
+.sidebar-bg-deco svg {
+  width: 100%;
+  height: 100%;
+}
+/* 内容层置于装饰之上 */
+.sidebar > .brand,
+.sidebar > .nav-menu,
+.sidebar > .sidebar-foot {
+  position: relative;
+  z-index: 1;
+}
+.sidebar :deep(.nav-menu) {
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+}
+.sidebar-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 4px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.sidebar-foot .foot-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.5px;
+}
+/* 开发者头像：圆形 + 悬浮放大并缓慢旋转一圈 */
+.dev-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: transform 3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.dev-avatar:hover {
+  transform: scale(1.15) rotate(360deg);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  border-color: #fff;
+}
+.dev-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+}
+/* 顶部用户菜单头像 */
+.user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--app-border);
 }
 .brand {
   display: flex;
@@ -244,13 +680,17 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 16px;
   white-space: nowrap;
+  color: #fff;
 }
-.brand-dot {
-  width: 10px;
-  height: 10px;
+.brand-text {
+  color: #fff;
+}
+.brand-logo {
   flex-shrink: 0;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--app-primary), #42a1ff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
 .nav-menu {
   border-right: none;
@@ -259,10 +699,17 @@ onMounted(async () => {
 :deep(.nav-menu .el-menu-item) {
   border-radius: var(--app-radius-sm);
   margin-bottom: 4px;
+  color: rgba(255, 255, 255, 0.75);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+:deep(.nav-menu .el-menu-item:hover) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 :deep(.nav-menu .el-menu-item.is-active) {
-  background: var(--app-active);
-  color: var(--el-color-primary);
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-weight: 500;
 }
 /* 折叠态：菜单项居中，tooltip 由 el-menu 原生提供 */
 :deep(.nav-menu.el-menu--collapse) {
@@ -274,12 +721,24 @@ onMounted(async () => {
   padding: 0 !important;
 }
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
+}
+/* topbar 底部品牌色渐变线 */
+.topbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.4) 30%, rgba(43, 127, 214, 0.4) 70%, transparent);
+  pointer-events: none;
 }
 .topbar-left {
   display: flex;
@@ -310,7 +769,7 @@ onMounted(async () => {
   gap: 6px;
   padding: 4px 10px !important;
   background: var(--app-chip-bg);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
 }
 .cmd-trigger-text {
   font-size: 13px;
@@ -329,7 +788,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   background: var(--app-chip-bg);
   cursor: pointer;
   font-size: 13px;
@@ -344,5 +803,325 @@ onMounted(async () => {
 .main {
   padding: 20px;
   overflow: auto;
+  /* 极淡品牌色渐变：从顶部微蓝过渡到背景色，营造层次感 */
+  background: linear-gradient(180deg, rgba(64, 158, 255, 0.04) 0%, var(--app-bg) 180px);
+}
+
+/* ===== 标签页栏 ===== */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  background: var(--app-sidebar, #f5f7fa);
+  border-bottom: 1px solid var(--app-border);
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+.tab-scroll {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 100%;
+  scrollbar-width: none;
+}
+.tab-scroll::-webkit-scrollbar {
+  display: none;
+}
+.tab-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--app-text-secondary, #606266);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.tab-item:hover {
+  background: var(--app-hover, rgba(0, 0, 0, 0.04));
+}
+.tab-item.active {
+  background: rgba(64, 158, 255, 0.1);
+  color: var(--app-primary, #409eff);
+  font-weight: 500;
+}
+/* active 态底部品牌色下划线 */
+.tab-item.active::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--app-primary, #409eff);
+  border-radius: 1px;
+}
+.tab-item.active .tab-close:hover {
+  background: rgba(64, 158, 255, 0.15);
+}
+.tab-title {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-close {
+  font-size: 12px;
+  border-radius: 50%;
+  padding: 2px;
+  transition: background 0.15s;
+}
+.tab-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+.tab-actions {
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.tab-more-btn {
+  padding: 4px 6px;
+}
+
+/* ===== 使用说明弹窗：内容样式（slot 内元素，scoped 可命中） ===== */
+.help-dialog .help-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.help-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.help-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.help-section-icon {
+  font-size: 18px;
+  color: var(--app-primary);
+}
+.help-section-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted);
+  margin-left: 4px;
+}
+
+/* 五步流程 */
+.help-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.help-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--app-hover);
+  border-radius: var(--app-radius-sm);
+  transition: background 0.18s ease;
+}
+.help-step:hover {
+  background: var(--app-active);
+}
+.help-step-num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--app-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-step-body {
+  flex: 1;
+  min-width: 0;
+}
+.help-step-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--app-text);
+  margin-bottom: 2px;
+}
+.help-step-desc {
+  font-size: 13px;
+  color: var(--app-text-muted);
+  line-height: 1.5;
+}
+
+/* 核心能力 */
+.help-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.help-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.help-feature:hover {
+  border-color: var(--app-primary);
+  background: var(--app-active);
+}
+.help-feature-icon {
+  flex-shrink: 0;
+  font-size: 20px;
+  color: var(--app-primary);
+  margin-top: 2px;
+}
+.help-feature-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--app-text);
+  margin-bottom: 2px;
+}
+.help-feature-desc {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.5;
+}
+.help-feature-desc code {
+  padding: 1px 5px;
+  background: var(--app-chip-bg);
+  border-radius: 4px;
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  color: var(--app-primary);
+}
+
+/* 快捷键 */
+.help-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.help-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--app-text-muted);
+}
+.help-shortcut kbd {
+  display: inline-block;
+  min-width: 28px;
+  padding: 2px 8px;
+  background: var(--app-tag-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 5px;
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+  color: var(--app-text);
+  text-align: center;
+}
+</style>
+
+<!-- 全局样式：el-dialog 默认 teleport 到 body，scoped 无法命中外层元素，需用全局样式 -->
+<style>
+/* 弹窗固定在视口内：禁止外层 overlay 滚动，弹窗自身约束高度 */
+.help-dialog.el-dialog {
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.help-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+.help-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 18px;
+}
+.help-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
+/* 自定义滚动条 */
+.help-dialog .el-dialog__body::-webkit-scrollbar {
+  width: 8px;
+}
+.help-dialog .el-dialog__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.help-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 4px;
+}
+.help-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
+  background: var(--app-text-muted);
+}
+
+/* ===== 主题切换圆形扩散过渡（View Transitions API）===== */
+/* 不支持的浏览器自动降级为无动画切换 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+  animation: theme-circle-reveal 0.55s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+@keyframes theme-circle-reveal {
+  from {
+    clip-path: circle(0% at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+  to {
+    clip-path: circle(150% at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+}
+/* 尊重用户「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* ===== 路由切换过渡：淡入 + 轻微上滑 ===== */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-fade-enter-active,
+  .page-fade-leave-active {
+    transition: none;
+  }
 }
 </style>

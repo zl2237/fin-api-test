@@ -27,19 +27,20 @@
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
         <el-table v-else :data="pagedList" stripe empty-text="暂无环境，点击左上角「新建环境」开始配置">
+          <el-table-column prop="id" label="ID" width="70" align="center" />
           <el-table-column prop="name" label="环境" width="100" />
-          <el-table-column prop="base_url" label="Base URL" min-width="200" />
+          <el-table-column prop="base_url" label="Base URL" min-width="200" show-overflow-tooltip />
           <el-table-column label="数据库" width="100" align="center">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.db_config?.host ? 'success' : 'info'" effect="plain">
-                {{ row.db_config?.host ? '已配置' : '无' }}
+              <el-tag size="small" :type="dbTag(row.db_config).type" effect="plain">
+                {{ dbTag(row.db_config).text }}
               </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="登录" width="100" align="center">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.login_config?.login_body ? 'success' : 'info'" effect="plain">
-                {{ row.login_config?.login_body ? '已配置' : '无' }}
+              <el-tag size="small" :type="loginTag(row.login_config).type" effect="plain">
+                {{ loginTag(row.login_config).text }}
               </el-tag>
             </template>
           </el-table-column>
@@ -63,9 +64,9 @@
           </el-table-column>
           <el-table-column label="操作" width="220" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" @click="onEdit(row)">编辑</el-button>
-              <el-button link type="primary" @click="onCopy(row)">复制</el-button>
-              <el-button link type="danger" @click="onRemove(row)">删除</el-button>
+              <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
+              <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
+              <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -105,6 +106,32 @@ const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return list.value.slice(start, start + pageSize.value)
 })
+
+// 配置完整度三态：无 / 未完成 / 已配置
+function dbTag(cfg: any): { type: 'success' | 'warning' | 'info'; text: string } {
+  if (!cfg) return { type: 'info', text: '无' }
+  const fields = [cfg.host, cfg.user, cfg.password, cfg.database]
+  const filled = fields.filter((v) => v && String(v).trim()).length
+  if (filled === 0) return { type: 'info', text: '无' }
+  if (filled === fields.length) return { type: 'success', text: '已配置' }
+  return { type: 'warning', text: '未完成' }
+}
+
+function loginTag(cfg: any): { type: 'success' | 'warning' | 'info'; text: string } {
+  if (!cfg) return { type: 'info', text: '无' }
+  // login_body 的每个 value 也必须非空才算填完
+  const bodyEntries = cfg.login_body ? Object.entries(cfg.login_body) : []
+  const hasBody = bodyEntries.length > 0
+  const bodyAllFilled = hasBody && bodyEntries.every(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+  // auth_header_value_template 可留空（等价于 ${token}），不参与判断
+  const fields = [cfg.login_path, hasBody, cfg.token_jsonpath, cfg.auth_header_name]
+  const filled = fields.filter((v) => v).length
+  if (filled === 0) return { type: 'info', text: '无' }
+  // login_body 有键但部分 value 为空 → 未完成
+  if (hasBody && !bodyAllFilled) return { type: 'warning', text: '未完成' }
+  if (filled === fields.length) return { type: 'success', text: '已配置' }
+  return { type: 'warning', text: '未完成' }
+}
 
 async function load() {
   if (!store.currentProjectId) return
@@ -186,7 +213,7 @@ onMounted(() => {
 .card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
 }
 .pagination-wrap {
   display: flex;

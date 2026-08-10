@@ -49,6 +49,7 @@
         >
           <template #title>
             <div class="group-title">
+              <el-icon class="group-icon"><Folder /></el-icon>
               <span class="group-name">{{ g.group?.name || '未分组' }}</span>
               <span class="group-count">{{ g.cases.length }}</span>
             </div>
@@ -68,11 +69,11 @@
               </template>
             </el-table-column>
             <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="用例名称" min-width="180" />
+            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip />
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column prop="updated_at" label="更新时间" min-width="170" />
+            <el-table-column prop="updated_at" label="更新时间" min-width="170" show-overflow-tooltip />
             <el-table-column label="创建人" width="100" align="center">
               <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
             </el-table-column>
@@ -81,13 +82,13 @@
             </el-table-column>
             <el-table-column label="操作" width="320" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="goDesign(row.id)">编排</el-button>
+                <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="选中用例后按 Ctrl+Enter 可快速执行" placement="top">
-                  <el-button link type="success" @click="runCase(row)">执行</el-button>
+                  <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-button link type="info" @click="goReport(row)">报告</el-button>
-                <el-button link type="primary" @click="onCopy(row)">复制</el-button>
-                <el-button link type="danger" @click="onRemove(row)">删除</el-button>
+                <el-button link type="info" size="small" @click="goReport(row)">报告</el-button>
+                <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
+                <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -105,16 +106,16 @@
           </div>
         </el-collapse-item>
       </el-collapse>
-      <el-empty v-if="!loading && !list.length" description="暂无用例">
+      <EmptyState v-if="!loading && !list.length" description="暂无用例">
         <div class="empty-actions">
           <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
           <el-button text @click="router.push('/apis')">先去管理接口</el-button>
         </div>
-      </el-empty>
+      </EmptyState>
     </div>
 
     <!-- 新建用例弹窗 -->
-    <el-dialog v-model="dialogVisible" title="新建用例" width="480px">
+    <el-dialog v-model="dialogVisible" title="新建用例" width="480px" align-center>
       <el-form :model="form" label-width="80px">
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="创建订单-冒烟" />
@@ -135,7 +136,7 @@
     </el-dialog>
 
     <!-- 分组管理弹窗 -->
-    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="540px">
+    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="540px" align-center>
       <div class="group-dialog-body">
         <div class="group-add">
           <el-input v-model="newGroupName" placeholder="新分组名称（如：冒烟组/订单组/付款组）" style="flex: 1" @keyup.enter="onAddGroup" />
@@ -165,7 +166,7 @@
     </el-dialog>
 
     <!-- 批量移动弹窗 -->
-    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px">
+    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center>
       <div style="margin-bottom: 12px; color: var(--app-text-muted);">
         将 {{ selectedCaseIds.length }} 个用例移动到：
       </div>
@@ -187,10 +188,14 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
-import { Rank } from '@element-plus/icons-vue'
+import { Rank, Folder } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { useGroupMemory } from '@/composables/useGroupMemory'
+import { useFaviconStatus } from '@/composables/useFaviconStatus'
+import EmptyState from '@/components/EmptyState.vue'
+
+const favicon = useFaviconStatus()
 
 const store = useAppStore()
 const router = useRouter()
@@ -402,11 +407,11 @@ function openCreate() {
 }
 
 async function onCreate() {
-  if (!form.value.name) return ElMessage.warning('请输入用例名称')
+  if (!form.value.name?.trim()) return ElMessage.warning('请输入用例名称')
   const created = await caseApi.create({
     project_id: store.currentProjectId!,
     group_id: form.value.group_id,
-    name: form.value.name,
+    name: form.value.name.trim(),
     description: form.value.description,
     dag_config: { nodes: [], edges: [] },
     node_configs: [],
@@ -426,6 +431,7 @@ async function runCase(row: TestCase) {
     // 异步执行：接口立即返回 running 状态的 record，后台线程池执行
     const rec = await caseApi.execute(row.id, store.currentEnvId)
     const execId = rec.id
+    favicon.running()
     const msg = ElMessage({
       message: `用例「${row.name}」执行中...`,
       type: 'info',
@@ -437,27 +443,32 @@ async function runCase(row: TestCase) {
     const poll = async () => {
       pollCount++
       try {
-        const cur = await execApi.get(execId)
+        const cur = await execApi.get(execId, true)
         if (cur.status === 'running' && pollCount < maxPolls) {
           setTimeout(poll, 2000)
         } else {
           msg.close()
           if (cur.status === 'success') {
+            favicon.success()
             ElMessage.success(`执行通过：${cur.summary.passed}/${cur.summary.total}`)
           } else if (pollCount >= maxPolls) {
+            favicon.reset()
             ElMessage.warning('执行超时，请到执行记录查看结果')
           } else {
+            favicon.failed()
             ElMessage.warning(`执行失败：${cur.summary.failed} 项未通过`)
           }
           router.push(`/reports/${execId}`)
         }
       } catch (e: any) {
         msg.close()
+        favicon.reset()
         ElMessage.error(e.message || '轮询执行状态失败')
       }
     }
     setTimeout(poll, 2000)
   } catch (e: any) {
+    favicon.reset()
     ElMessage.error(e.message)
   }
 }
@@ -468,6 +479,7 @@ async function onBatchRun() {
   if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
   if (batchRunning.value) return
   batchRunning.value = true
+  favicon.running()
   const msg = ElMessage({
     message: `批量执行中（共 ${selectedCaseIds.value.length} 个用例，串行执行）...`,
     type: 'info',
@@ -486,6 +498,8 @@ async function onBatchRun() {
     msg.close()
     const passed = results.filter((r) => r.status === 'success').length
     const failed = results.length - passed
+    if (failed === 0) favicon.success()
+    else favicon.failed()
     const detail = results.map((r) => {
       if (r.status === 'success') return `✓ ${r.name}：通过（${r.summary?.passed}/${r.summary?.total}）`
       if (r.status === 'failed') return `✗ ${r.name}：失败（${r.summary?.failed} 项未通过）`
@@ -502,6 +516,7 @@ async function onBatchRun() {
     await load()
   } catch (e: any) {
     msg.close()
+    favicon.reset()
     ElMessage.error(e.message || '批量执行失败')
   } finally {
     batchRunning.value = false
@@ -516,7 +531,7 @@ function pollOne(execId: number): Promise<{ status: string; summary: any }> {
     const poll = async () => {
       pollCount++
       try {
-        const cur = await execApi.get(execId)
+        const cur = await execApi.get(execId, true)
         if (cur.status === 'running' && pollCount < maxPolls) {
           setTimeout(poll, 2000)
         } else {
@@ -642,21 +657,60 @@ function onGlobalKey(e: KeyboardEvent) {
   overflow: auto;
   padding: 16px 20px;
 }
+/* 分组卡片化 */
+:deep(.el-collapse) {
+  border: none;
+}
+:deep(.el-collapse-item) {
+  margin-bottom: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  overflow: hidden;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+:deep(.el-collapse-item:hover) {
+  border-color: var(--app-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+:deep(.el-collapse-item__header) {
+  padding: 0 16px;
+  height: 48px;
+  line-height: 48px;
+  background: var(--app-card);
+  border-bottom: none;
+  font-size: 14px;
+}
+:deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+  background: transparent;
+}
+:deep(.el-collapse-item__content) {
+  padding: 0 16px 12px;
+}
 .group-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
+}
+.group-icon {
+  font-size: 16px;
+  color: var(--app-primary);
 }
 .group-name {
   font-weight: 600;
+  font-size: 14px;
   color: var(--app-text);
 }
 .group-count {
-  background: var(--app-tag-bg);
-  color: var(--app-text-muted);
+  background: var(--app-primary);
+  color: #fff;
   border-radius: 10px;
-  padding: 1px 8px;
+  padding: 1px 10px;
   font-size: 12px;
+  font-weight: 500;
+  min-width: 24px;
+  text-align: center;
 }
 .group-dialog-body {
   padding: 8px 4px;

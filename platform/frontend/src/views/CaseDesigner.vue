@@ -1,5 +1,5 @@
 <template>
-  <div class="designer">
+  <div class="designer" v-loading="loading" element-loading-text="加载用例编排数据中...">
     <!-- 左侧接口列表（按分组折叠） -->
     <div class="api-panel">
       <div class="panel-title">
@@ -17,7 +17,8 @@
           >
             <template #title>
               <div class="api-group-title">
-                <span>{{ g.group?.name || '未分组' }}</span>
+                <el-icon class="api-group-icon"><Files /></el-icon>
+                <span class="api-group-name">{{ g.group?.name || '未分组' }}</span>
                 <span class="api-group-count">{{ g.apis.length }}</span>
               </div>
             </template>
@@ -30,10 +31,10 @@
               <div class="api-item-name">{{ a.name }}</div>
               <div class="api-item-path">{{ a.method }} {{ a.path }}</div>
             </div>
-            <el-empty v-if="!g.apis.length" description="无接口" :image-size="40" />
+            <EmptyState v-if="!g.apis.length" description="无接口" :image-size="40" />
           </el-collapse-item>
         </el-collapse>
-        <el-empty v-if="!apiList.length" description="暂无接口，请先到接口管理新增" :image-size="60" />
+        <EmptyState v-if="!apiList.length" description="暂无接口，请先到接口管理新增" :image-size="60" />
       </div>
     </div>
 
@@ -102,12 +103,16 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Connection } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection, Files } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
 import { useAppStore } from '@/stores'
 import { useGroupMemory } from '@/composables/useGroupMemory'
+import { useFaviconStatus } from '@/composables/useFaviconStatus'
+import EmptyState from '@/components/EmptyState.vue'
+
+const favicon = useFaviconStatus()
 
 const route = useRoute()
 const router = useRouter()
@@ -130,6 +135,7 @@ const selectedNodeId = ref<string | null>(null)
 const saving = ref(false)
 const running = ref(false)
 const dirty = ref(false)
+const loading = ref(false)
 const linkMode = ref(false)
 const linkSourceSelected = ref(false)
 
@@ -221,10 +227,11 @@ function onBack() {
 
 function onAddNode(api: ApiDef) {
   const id = `node_${Date.now()}`
-  const count = nodes.value.length
+  // 从画布获取一个空闲位置（视口中心附近，避免覆盖已有节点）
+  const position = canvasRef.value?.findFreePosition?.() ?? { x: 80, y: 60 }
   const node = {
     id,
-    position: { x: 80 + (count % 5) * 200, y: 60 + Math.floor(count / 5) * 120 },
+    position,
     data: { label: api.name, api_id: api.id, api_method: api.method, api_path: api.path },
     label: api.name,
   }
@@ -326,6 +333,7 @@ async function onRun() {
     // 异步执行：立即返回 running，后台线程池执行，前端轮询状态
     const rec = await caseApi.execute(caseData.value.id, store.currentEnvId)
     const execId = rec.id
+    favicon.running()
     const msg = ElMessage({
       message: '执行中...',
       type: 'info',
@@ -336,22 +344,26 @@ async function onRun() {
     const poll = async () => {
       pollCount++
       try {
-        const cur = await execApi.get(execId)
+        const cur = await execApi.get(execId, true)
         if (cur.status === 'running' && pollCount < maxPolls) {
           setTimeout(poll, 2000)
         } else {
           msg.close()
           if (cur.status === 'success') {
+            favicon.success()
             ElMessage.success(`执行通过：${cur.summary.passed}/${cur.summary.total}`)
           } else if (pollCount >= maxPolls) {
+            favicon.reset()
             ElMessage.warning('执行超时，请到执行记录查看结果')
           } else {
+            favicon.failed()
             ElMessage.warning(`执行失败：${cur.summary.failed} 项未通过`)
           }
           router.push(`/reports/${execId}`)
         }
       } catch (e: any) {
         msg.close()
+        favicon.reset()
         ElMessage.error(e.message || '轮询执行状态失败')
       } finally {
         if (pollCount >= maxPolls) running.value = false
@@ -359,16 +371,23 @@ async function onRun() {
     }
     setTimeout(poll, 2000)
   } catch (e: any) {
+    favicon.reset()
     ElMessage.error(e.message)
     running.value = false
   }
 }
 
 onMounted(async () => {
-  await loadApis()
-  await loadApiGroups()
+  // 编辑模式加载数据期间显示遮罩，避免空白无反馈
   const id = Number(route.params.id)
-  if (id) await loadCase(id)
+  loading.value = !!id
+  try {
+    await loadApis()
+    await loadApiGroups()
+    if (id) await loadCase(id)
+  } finally {
+    loading.value = false
+  }
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
@@ -419,7 +438,7 @@ watch(() => store.currentProjectId, async () => {
 .api-list {
   flex: 1;
   overflow: auto;
-  padding: 4px 0;
+  padding: 8px;
 }
 .api-collapse {
   border: none;
@@ -427,18 +446,33 @@ watch(() => store.currentProjectId, async () => {
 .api-group-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-right: 8px;
+  gap: 8px;
+  width: 100%;
+}
+.api-group-icon {
+  font-size: 14px;
+  color: var(--app-primary);
+  flex-shrink: 0;
+}
+.api-group-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--app-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .api-group-count {
-  background: var(--app-tag-bg);
-  color: var(--app-text-muted);
+  background: var(--app-primary);
+  color: #fff;
   border-radius: 10px;
   padding: 1px 8px;
   font-size: 11px;
+  font-weight: 500;
+  min-width: 20px;
+  text-align: center;
+  flex-shrink: 0;
 }
 .api-item {
   padding: 8px 14px;
@@ -502,12 +536,29 @@ watch(() => store.currentProjectId, async () => {
   flex: 1;
   border: 1px solid var(--app-border);
 }
+:deep(.api-collapse .el-collapse-item) {
+  margin-bottom: 8px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  overflow: hidden;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+:deep(.api-collapse .el-collapse-item:hover) {
+  border-color: var(--app-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
 :deep(.api-collapse .el-collapse-item__header) {
   padding: 0 12px;
-  height: 36px;
-  line-height: 36px;
+  height: 38px;
+  line-height: 38px;
+  background: var(--app-card);
+  border-bottom: none;
+}
+:deep(.api-collapse .el-collapse-item__wrap) {
+  border-bottom: none;
+  background: transparent;
 }
 :deep(.api-collapse .el-collapse-item__content) {
-  padding-bottom: 0;
+  padding: 4px 0 8px;
 }
 </style>

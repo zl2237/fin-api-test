@@ -4,7 +4,7 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
-        <el-button @click="showImportDialog = true">导入 Swagger</el-button>
+        <el-button @click="showImportDialog = true">导入接口</el-button>
         <el-button @click="showGroupDialog = true">分组管理</el-button>
         <el-button
           :disabled="selectedApiIds.length === 0"
@@ -51,6 +51,7 @@
         >
           <template #title>
             <div class="group-title">
+              <el-icon class="group-icon"><Files /></el-icon>
               <span class="group-name">{{ g.group?.name || '未分组' }}</span>
               <span class="group-count">{{ g.apis.length }}</span>
             </div>
@@ -70,8 +71,8 @@
                 <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
               </template>
             </el-table-column>
-            <el-table-column label="名称" prop="name" min-width="140" />
-            <el-table-column label="编码" prop="code" width="160" />
+            <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip />
+            <el-table-column label="编码" prop="code" width="160" show-overflow-tooltip />
             <el-table-column label="方法" prop="method" width="80">
               <template #default="{ row }">
                 <el-tag :type="methodTag(row.method)" size="small" effect="plain">{{ row.method }}</el-tag>
@@ -111,17 +112,17 @@
           </div>
         </el-collapse-item>
       </el-collapse>
-      <el-empty v-if="!loading && !apis.length" description="暂无接口">
+      <EmptyState v-if="!loading && !apis.length" description="暂无接口">
         <div class="empty-actions">
           <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
-          <el-button @click="showImportDialog = true">导入 Swagger</el-button>
+          <el-button @click="showImportDialog = true">导入接口</el-button>
           <el-button text @click="router.push('/envs')">先去配置环境</el-button>
         </div>
-      </el-empty>
+      </EmptyState>
     </div>
 
     <!-- 分组管理弹窗 -->
-    <el-dialog v-model="showGroupDialog" title="接口分组管理" width="540px">
+    <el-dialog v-model="showGroupDialog" title="接口分组管理" width="540px" align-center>
       <div class="group-dialog-body">
         <div class="group-add">
           <el-input v-model="newGroupName" placeholder="新分组名称" style="flex: 1" @keyup.enter="onAddGroup" />
@@ -151,30 +152,9 @@
     </el-dialog>
 
     <!-- 导入接口弹窗（OpenAPI 粘贴 / HAR 上传） -->
-    <el-dialog v-model="showImportDialog" title="导入接口" width="780px" @close="onImportDialogClose">
+    <el-dialog v-model="showImportDialog" title="导入接口" width="780px" align-center @close="onImportDialogClose">
       <el-tabs v-model="importTab" class="import-tabs">
-        <!-- Tab 1: OpenAPI 粘贴 -->
-        <el-tab-pane label="OpenAPI / Swagger" name="openapi">
-          <div class="import-body">
-            <el-form label-width="80px">
-              <el-form-item label="目标分组">
-                <el-select v-model="importGroupId" placeholder="选择分组（可选）" clearable style="width: 100%">
-                  <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="Swagger JSON">
-                <el-input
-                  v-model="importSpecText"
-                  type="textarea"
-                  :rows="12"
-                  placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
-                />
-              </el-form-item>
-            </el-form>
-          </div>
-        </el-tab-pane>
-
-        <!-- Tab 2: HAR 文件上传 -->
+        <!-- Tab 1: HAR 文件上传（默认） -->
         <el-tab-pane label="HAR 文件上传" name="har">
           <div class="import-body">
             <el-form label-width="80px">
@@ -231,6 +211,27 @@
             </div>
           </div>
         </el-tab-pane>
+
+        <!-- Tab 2: OpenAPI 粘贴 -->
+        <el-tab-pane label="OpenAPI / Swagger" name="openapi">
+          <div class="import-body">
+            <el-form label-width="80px">
+              <el-form-item label="目标分组">
+                <el-select v-model="importGroupId" placeholder="选择分组（可选）" clearable style="width: 100%">
+                  <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="Swagger JSON">
+                <el-input
+                  v-model="importSpecText"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="粘贴完整的 Swagger/OpenAPI JSON（支持 2.0 和 3.0）"
+                />
+              </el-form-item>
+            </el-form>
+          </div>
+        </el-tab-pane>
       </el-tabs>
 
       <!-- 导入结果（两种模式共用） -->
@@ -252,7 +253,7 @@
     </el-dialog>
 
     <!-- 批量移动弹窗 -->
-    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px">
+    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center>
       <div style="margin-bottom: 12px; color: var(--app-text-muted);">
         将 {{ selectedApiIds.length }} 个接口移动到：
       </div>
@@ -274,12 +275,13 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
+import EmptyState from '@/components/EmptyState.vue'
 import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUser, type HarPreviewItem } from '@/api'
 
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { Rank, Upload } from '@element-plus/icons-vue'
+import { Rank, Upload, Files } from '@element-plus/icons-vue'
 import { useGroupMemory } from '@/composables/useGroupMemory'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
@@ -310,7 +312,7 @@ const batchMoveLoading = ref(false)
 
 // ===== 导入接口（OpenAPI 粘贴 / HAR 上传）=====
 const showImportDialog = ref(false)
-const importTab = ref<'openapi' | 'har'>('openapi')
+const importTab = ref<'openapi' | 'har'>('har')
 const importSpecText = ref('')
 const importGroupId = ref<number | null>(null)
 const importLoading = ref(false)
@@ -739,21 +741,60 @@ watch(currentProjectId, () => {
   overflow: auto;
   padding: 16px 20px;
 }
+/* 分组卡片化 */
+:deep(.el-collapse) {
+  border: none;
+}
+:deep(.el-collapse-item) {
+  margin-bottom: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  overflow: hidden;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+:deep(.el-collapse-item:hover) {
+  border-color: var(--app-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+:deep(.el-collapse-item__header) {
+  padding: 0 16px;
+  height: 48px;
+  line-height: 48px;
+  background: var(--app-card);
+  border-bottom: none;
+  font-size: 14px;
+}
+:deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+  background: transparent;
+}
+:deep(.el-collapse-item__content) {
+  padding: 0 16px 12px;
+}
 .group-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
+}
+.group-icon {
+  font-size: 16px;
+  color: var(--app-primary);
 }
 .group-name {
   font-weight: 600;
+  font-size: 14px;
   color: var(--app-text);
 }
 .group-count {
-  background: var(--app-tag-bg);
-  color: var(--app-text-muted);
+  background: var(--app-primary);
+  color: #fff;
   border-radius: 10px;
-  padding: 1px 8px;
+  padding: 1px 10px;
   font-size: 12px;
+  font-weight: 500;
+  min-width: 24px;
+  text-align: center;
 }
 .group-dialog-body {
   padding: 8px 4px;
@@ -795,9 +836,8 @@ watch(currentProjectId, () => {
   padding: 8px 12px;
   background: var(--app-warn-bg);
   color: var(--app-warn-text);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   font-size: 12px;
-  color: #8c6e2a;
   max-height: 160px;
   overflow: auto;
 }

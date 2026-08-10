@@ -1,47 +1,139 @@
+/* ===== 设计令牌：字体 ===== */
+:root {
+  --app-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+    'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+}
+
 /* ===== 亮色主题（默认） ===== */
 :root {
-  --app-radius: 12px;
+  /* 圆角阶梯 */
+  --app-radius-xs: 4px;
   --app-radius-sm: 8px;
+  --app-radius: 12px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 16px;
+
+  /* 表面与背景 */
   --app-bg: #f5f5f7;
   --app-sidebar: rgba(255, 255, 255, 0.72);
   --app-card: rgba(255, 255, 255, 0.72);
   --app-card-solid: #ffffff;
-  --app-border: rgba(0, 0, 0, 0.08);
-  --app-text: #1d1d1f;
-  --app-text-muted: #6e6e73;
+  --app-canvas-bg: #fafafa;
+  --app-input-bg: #f0f0f5;
   --app-hover: rgba(0, 0, 0, 0.04);
   --app-active: rgba(0, 122, 255, 0.08);
   --app-chip-bg: rgba(0, 113, 227, 0.08);
   --app-tag-bg: #e8e8ed;
-  --app-input-bg: #f0f0f5;
-  --app-warn-bg: #fff7e6;
-  --app-warn-text: #d97706;
+
+  /* 边框与分割 */
+  --app-border: rgba(0, 0, 0, 0.08);
+
+  /* 文字 */
+  --app-text: #1d1d1f;
+  --app-text-muted: #6e6e73;
+  --app-text-faint: #aeaeb2;
+  --app-text-inverse: #ffffff;
+
+  /* 主色与点缀 */
+  --app-primary: #0071e3;
+  --app-primary-light: #42a1ff;
+  --app-warn-accent: #ff9500;
+
+  /* 状态色（前景） */
   --app-success: #34c759;
   --app-danger: #ff3b30;
-  --app-primary: #0071e3;
+  --app-warn-text: #d97706;
+
+  /* 状态色（背景 + 配套文字） */
+  --app-warn-bg: #fff7e6;
+  --app-success-bg: #e8f7ec;
+  --app-success-text: #1a8a3f;
+  --app-danger-bg: #fdeceb;
+  --app-danger-text: #d32f2f;
+
+  /* 浮层 */
+  --app-tooltip-bg: rgba(0, 0, 0, 0.75);
+
+  /* 阴影 */
+  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.06);
+
+  /* 发光环（选中态） */
+  --app-glow-primary: 0 0 0 2px rgba(0, 113, 227, 0.2);
+  --app-glow-success: 0 0 0 3px rgba(52, 199, 89, 0.3);
+
+  /* 滚动条 */
+  --app-scrollbar-thumb: rgba(128, 128, 128, 0.4);
+
+  /* Element Plus 对齐 */
   --el-color-primary: #0071e3;
   --el-border-radius-base: var(--app-radius-sm);
 }
 
 /* ===== 暗色主题 ===== */
 html.dark {
+  /* 圆角阶梯（与亮色一致） */
+  --app-radius-xs: 4px;
+  --app-radius-sm: 8px;
+  --app-radius: 12px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 16px;
+
+  /* 表面与背景 */
   --app-bg: #1c1c1e;
   --app-sidebar: rgba(28, 28, 30, 0.72);
   --app-card: rgba(44, 44, 46, 0.72);
   --app-card-solid: #2c2c2e;
-  --app-border: rgba(255, 255, 255, 0.12);
-  --app-text: #f5f5f7;
-  --app-text-muted: #98989d;
+  --app-canvas-bg: #2c2c2e;
+  --app-input-bg: #3a3a3c;
   --app-hover: rgba(255, 255, 255, 0.06);
   --app-active: rgba(10, 132, 255, 0.18);
   --app-chip-bg: rgba(10, 132, 255, 0.16);
   --app-tag-bg: #3a3a3c;
-  --app-input-bg: #3a3a3c;
-  --app-warn-bg: rgba(255, 159, 10, 0.16);
-  --app-warn-text: #ffb340;
+
+  /* 边框与分割 */
+  --app-border: rgba(255, 255, 255, 0.12);
+
+  /* 文字 */
+  --app-text: #f5f5f7;
+  --app-text-muted: #98989d;
+  --app-text-faint: #636366;
+  --app-text-inverse: #1c1c1e;
+
+  /* 主色与点缀 */
+  --app-primary: #0a84ff;
+  --app-primary-light: #64b4ff;
+  --app-warn-accent: #ff9f0a;
+
+  /* 状态色（前景） */
   --app-success: #30d158;
   --app-danger: #ff453a;
-  --app-primary: #0a84ff;
+  --app-warn-text: #ffb340;
+
+  /* 状态色（背景 + 配套文字） */
+  --app-warn-bg: rgba(255, 159, 10, 0.16);
+  --app-success-bg: rgba(48, 209, 88, 0.16);
+  --app-success-text: #30d158;
+  --app-danger-bg: rgba(255, 69, 58, 0.16);
+  --app-danger-text: #ff453a;
+
+  /* 浮层 */
+  --app-tooltip-bg: rgba(255, 255, 255, 0.88);
+
+  /* 阴影 */
+  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+
+  /* 发光环（选中态） */
+  --app-glow-primary: 0 0 0 2px rgba(10, 132, 255, 0.35);
+  --app-glow-success: 0 0 0 3px rgba(48, 209, 88, 0.35);
+
+  /* 滚动条 */
+  --app-scrollbar-thumb: rgba(200, 200, 200, 0.3);
+
+  /* Element Plus 对齐 */
   --el-color-primary: #0a84ff;
   color-scheme: dark;
 }
@@ -59,12 +151,19 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
-    'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-family: var(--app-font-sans);
   background: var(--app-bg);
   color: var(--app-text);
   -webkit-font-smoothing: antialiased;
   transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* 等宽文本统一入口：用于 JSON 预览、SQL、断言值等 */
+.app-mono,
+pre,
+code,
+kbd {
+  font-family: var(--app-font-mono);
 }
 
 /* 统一圆角：所有卡片、面板、输入框遵循一致圆角 */
@@ -97,15 +196,133 @@ body {
   padding: 16px 12px;
 }
 
+/* 表格操作列按钮：统一文字按钮间距，避免拥挤 */
+.el-table .el-button + .el-button {
+  margin-left: 8px;
+}
+
 /* 滚动条美化 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.4);
-  border-radius: 8px;
+  background: var(--app-scrollbar-thumb);
+  border-radius: var(--app-radius-sm);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 表格行 hover 高亮：帮助视线定位操作列 */
+.el-table__row:hover > td {
+  background: var(--app-hover) !important;
+}
+
+/* 侧边栏 active 菜单项：加左侧强调条 + 字重，强化当前位置感知 */
+.nav-menu .el-menu-item.is-active {
+  position: relative;
+  font-weight: 500;
+}
+.nav-menu .el-menu-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: #fff;
+  border-radius: var(--app-radius-sm);
+}
+
+/* 按钮 hover 过渡：避免颜色突变生硬 */
+.el-button {
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+    color 0.18s ease, opacity 0.18s ease;
+}
+
+/* 输入框 focus 态：边框色平滑过渡到主色 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* ===== 按钮点击涟漪效果 ===== */
+/* currentColor 自适应按钮文字颜色：深色背景→白色涟漪，浅色背景→深色涟漪 */
+.btn-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.25;
+  transform: scale(0);
+  animation: btn-ripple-anim 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes btn-ripple-anim {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* ===== 表格表头品牌色淡底 ===== */
+.el-table__header-wrapper th.el-table__cell {
+  background: rgba(64, 158, 255, 0.06) !important;
+  font-weight: 600;
+}
+html.dark .el-table__header-wrapper th.el-table__cell {
+  background: rgba(64, 158, 255, 0.1) !important;
+}
+
+/* ===== 统计数字品牌色高亮 ===== */
+/* 用于分组数量、过滤总数等计数标记 */
+.page .group-count,
+.page .filter-count,
+.page .api-group-count {
+  color: var(--app-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 弹窗品牌色调 ===== */
+/* 标题栏：底部品牌色渐变线 + 字重加强 */
+.el-dialog__header {
+  position: relative;
+  margin-right: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+.el-dialog__header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.4) 30%, rgba(43, 127, 214, 0.4) 70%, transparent);
+  pointer-events: none;
+}
+.el-dialog__title {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+/* 关闭按钮 hover 品牌色 */
+.el-dialog__headerbtn:hover .el-dialog__close {
+  color: var(--app-primary);
+}
+/* body 内边距统一 */
+.el-dialog__body {
+  padding: 20px 24px;
+}
+/* 底部按钮区：上分隔线 + 品牌色淡底 */
+.el-dialog__footer {
+  padding-top: 16px;
+  border-top: 1px solid var(--app-border);
+}
+/* 暗色模式适配 */
+html.dark .el-dialog__header::after {
+  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.5) 30%, rgba(43, 127, 214, 0.5) 70%, transparent);
 }

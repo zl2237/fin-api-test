@@ -22,6 +22,7 @@ from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 from .. import schemas
+from ..services.spec_parser import path_to_code
 
 
 # 静态资源后缀，导入时跳过
@@ -233,7 +234,7 @@ def previews_to_api_create(
     for preview in previews:
         method = preview["method"]
         path = preview["path"]
-        code = _path_to_code(path, method)
+        code = path_to_code(path, method)
 
         if code in existing_codes:
             skipped.append(f"{method} {path}（编码 {code} 已存在）")
@@ -267,15 +268,3 @@ def previews_to_api_create(
         to_create.append((api_data, preview))
 
     return to_create, skipped
-
-
-def _path_to_code(path: str, method: str) -> str:
-    """路径转接口编码：/api/order/create -> order_create_post"""
-    parts = [p for p in path.strip("/").split("/") if p and not p.startswith("{")]
-    if len(parts) >= 2:
-        code = "_".join(parts[-2:])
-    elif parts:
-        code = parts[-1]
-    else:
-        code = "api"
-    return f"{code}_{method.lower()}"

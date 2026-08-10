@@ -15,17 +15,17 @@
 
     <el-card shadow="never" class="table-card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" border>
+      <el-table v-else :data="pagedList" border empty-text="暂无用户，点击「新建用户」开始添加">
         <el-table-column prop="id" label="ID" width="60" align="center" />
-        <el-table-column prop="username" label="用户名" min-width="120" />
-        <el-table-column prop="name" label="显示名" min-width="120" />
+        <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="name" label="显示名" min-width="120" show-overflow-tooltip />
         <el-table-column label="角色" width="120" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.role === 'admin'" type="warning" effect="plain" round size="small">管理员</el-tag>
             <el-tag v-else type="info" effect="plain" round size="small">普通成员</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" min-width="170" />
+        <el-table-column prop="created_at" label="创建时间" min-width="170" show-overflow-tooltip />
         <el-table-column label="创建人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
         </el-table-column>
@@ -34,9 +34,9 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openRoleDialog(row)">改角色</el-button>
-            <el-button size="small" type="warning" plain @click="openPasswordDialog(row)">重置密码</el-button>
-            <el-button size="small" type="danger" plain @click="onDelete(row)" :disabled="row.id === store.user?.id">删除</el-button>
+            <el-button link type="primary" size="small" @click="openRoleDialog(row)">改角色</el-button>
+            <el-button link type="warning" size="small" @click="openPasswordDialog(row)">重置密码</el-button>
+            <el-button link type="danger" size="small" @click="onDelete(row)" :disabled="row.id === store.user?.id">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -54,7 +54,7 @@
     </el-card>
 
     <!-- 新增用户对话框 -->
-    <el-dialog v-model="createVisible" title="新增用户" width="420px">
+    <el-dialog v-model="createVisible" title="新增用户" width="420px" align-center>
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="80px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="createForm.username" placeholder="登录用用户名" />
@@ -79,7 +79,7 @@
     </el-dialog>
 
     <!-- 改角色对话框 -->
-    <el-dialog v-model="roleVisible" title="修改角色" width="360px">
+    <el-dialog v-model="roleVisible" title="修改角色" width="360px" align-center>
       <el-form label-width="80px">
         <el-form-item label="用户名">{{ roleTarget?.username }}</el-form-item>
         <el-form-item label="角色">
@@ -96,7 +96,7 @@
     </el-dialog>
 
     <!-- 重置密码对话框 -->
-    <el-dialog v-model="passwordVisible" title="重置密码" width="360px">
+    <el-dialog v-model="passwordVisible" title="重置密码" width="360px" align-center>
       <el-form ref="passwordFormRef" :model="passwordForm" :rules="passwordRules" label-width="80px">
         <el-form-item label="用户名">{{ passwordTarget?.username }}</el-form-item>
         <el-form-item label="新密码" prop="password">
@@ -311,7 +311,7 @@ onMounted(load)
 .table-card {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
 }
 .pagination-wrap {
   display: flex;

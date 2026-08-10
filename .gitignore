@@ -13,6 +13,7 @@ env/
 # 日志 & 报告
 logs/
 report/
+*.log
 
 # 临时下载文件
 assets/download_tmp/
@@ -27,11 +28,27 @@ assets/download_tmp/
 .DS_Store
 Thumbs.db
 
-# 敏感信息
+# 敏感信息（环境配置含数据库密码等）
 config/env_test.yaml
 config/env_pre.yaml
 platform/backend/.env
+.env
+.env.local
 
 # 本地导入接口所需文件
 *.har
 *.openapi.json
+
+# 前端构建产物与依赖
+platform/frontend/node_modules/
+platform/frontend/dist/
+platform/frontend/.vite/
+
+# Python 测试/覆盖率缓存
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# 一次性迁移脚本（已完成历史使命，不纳入版本库）
+platform/backend/migrate_*.py

@@ -1,5 +1,5 @@
 from api.order.order_api import OrderApi
-from utils.assert_util import equal, is_not_empty
+from utils.assert_util import equal
 
 
 class OrderStep:
@@ -51,14 +51,11 @@ class OrderStep:
         equal(resp["code"], 200, "提交订单：业务code不等于200")
         return resp
 
-    def cancel_order(self, req_body: dict) -> dict:
-        pass
-
     def generate_sub_order(self, req_body: dict) -> dict:
         """
-                原子步骤：提交订单
-                :param req_body: 提交订单请求体
-                :return: 原始响应dict
+        原子步骤：生成子订单
+        :param req_body: 生成子订单请求体
+        :return: 原始响应dict
         """
         resp = self.order_api.generate_sub_order(req_body)
         equal(resp["code"], 200, "生成子订单：业务code不等于200")
@@ -66,9 +63,9 @@ class OrderStep:
 
     def fee_add(self, req_body: dict) -> dict:
         """
-                原子步骤：提交订单
-                :param req_body: 提交订单请求体
-                :return: 原始响应dict
+        原子步骤：录入订舱费用
+        :param req_body: 录入费用请求体
+        :return: 原始响应dict
         """
         resp = self.order_api.fee_add(req_body)
         equal(resp["code"], 200, "录入订舱费用：业务code不等于200")
