@@ -1,4 +1,4 @@
-# 环境配置模板，复制为 env_test.yaml / env_pre.yaml 使用
+# 环境配置模板，复制为 env_test.yaml 后按实际填写
 env_name: "test"
 
 # 接口基础地址
@@ -15,6 +15,3 @@ mysql:
   user: "root"
   password: "123456"
   database: "test_db"
-
-# 企微机器人webhook
-wecom_webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"

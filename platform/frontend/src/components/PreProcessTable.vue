@@ -1,0 +1,158 @@
+<template>
+  <div class="cfg-table">
+    <el-table :data="modelValue" size="small" border empty-text="暂无预处理，点击「添加」开始配置">
+      <el-table-column label="类型" width="140">
+        <template #default="{ row }">
+          <el-select v-model="row.type" size="small" style="width: 100%">
+            <el-option label="设置字段" value="set_field" />
+            <el-option label="新增字段" value="add_field" />
+            <el-option label="删除字段" value="delete_field" />
+            <el-option label="遍历赋值" value="iterate_set" />
+          </el-select>
+        </template>
+      </el-table-column>
+      <el-table-column :label="pathLabel" min-width="180">
+        <template #default="{ row }">
+          <el-select
+            v-model="row.path"
+            size="small"
+            filterable
+            allow-create
+            default-first-option
+            :placeholder="pathPlaceholder"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="opt in fieldOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </template>
+      </el-table-column>
+      <el-table-column label="字段" width="140" v-if="hasIterate">
+        <template #default="{ row }">
+          <el-input v-if="row.type === 'iterate_set'" v-model="row.field" size="small" placeholder="unique_id" />
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="值（支持 ${}）" min-width="200">
+        <template #default="{ row }">
+          <el-input v-if="row.type !== 'delete_field'" v-model="row.value" size="small" placeholder="${order_id}" />
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="70" fixed="right">
+        <template #default="{ $index }">
+          <el-button link type="danger" size="small" @click="remove($index)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-button class="add-btn" size="small" @click="add">+ 添加动作</el-button>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import type { ApiField } from '@/api'
+import { useFieldDict } from '@/composables/useFieldDict'
+
+const props = defineProps<{ modelValue: any[]; fields?: ApiField[] }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
+
+const fields = computed(() => props.fields || [])
+const { resolveLabel, dictLabel } = useFieldDict()
+
+interface FieldOption {
+  value: string
+  label: string
+}
+
+function tryParseJson(s: any): any {
+  if (s == null || s === '') return null
+  if (typeof s !== 'string') return s
+  try {
+    return JSON.parse(s)
+  } catch {
+    return null
+  }
+}
+
+function pickArrayItemLabel(item: any): string {
+  if (!item || typeof item !== 'object') return ''
+  const keys = ['supplier_name', 'name', 'label', 'service_item_name', 'order_sub_no', 'title']
+  for (const k of keys) {
+    if (item[k] && typeof item[k] === 'string') return item[k]
+  }
+  return ''
+}
+
+function collectKeys(obj: any, base: string, out: { value: string; label: string }[], depth = 0): void {
+  if (depth > 2) return
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return
+    obj.forEach((item, idx) => {
+      if (item && typeof item === 'object') {
+        const itemLabel = pickArrayItemLabel(item)
+        for (const [k, v] of Object.entries(item)) {
+          const childPath = `${base}.${idx}.${k}`
+          // 优先用数组项的业务标签，其次查项目字典
+          const cn = itemLabel || dictLabel(k)
+          const lbl = cn ? `${base}.${idx}.${k}（${cn}）` : `${base}.${idx}.${k}`
+          out.push({ value: childPath, label: lbl })
+          if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+        }
+      }
+    })
+  } else if (obj && typeof obj === 'object') {
+    for (const [k, v] of Object.entries(obj)) {
+      const childPath = `${base}.${k}`
+      const cn = dictLabel(k)
+      const lbl = cn ? `${base}.${k}（${cn}）` : `${base}.${k}`
+      out.push({ value: childPath, label: lbl })
+      if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+    }
+  }
+}
+
+const fieldOptions = computed<FieldOption[]>(() => {
+  const opts: FieldOption[] = []
+  for (const f of fields.value) {
+    // 优先用接口配置的 label，其次查项目字典
+    const cn = resolveLabel(f.key, f.label)
+    const label = cn ? `${f.key}（${cn}）` : f.key
+    opts.push({ value: f.key, label })
+    if (f.field_type === 'array' || f.field_type === 'object') {
+      const parsed = tryParseJson(f.default_value)
+      if (parsed) collectKeys(parsed, f.key, opts)
+    }
+  }
+  return opts
+})
+
+const hasIterate = computed(() => props.modelValue.some((r) => r?.type === 'iterate_set'))
+const pathLabel = computed(() => (hasIterate.value ? '路径 / 列表路径' : '字段路径'))
+const pathPlaceholder = computed(() => (hasIterate.value ? '如 supplier 或 to_customer.put_amount.standard_list' : '如 order_id 或 supplier.0.order_id'))
+
+function add() {
+  const next = [...props.modelValue, { type: 'set_field', path: '', value: '' }]
+  emit('update:modelValue', next)
+}
+function remove(idx: number) {
+  const next = [...props.modelValue]
+  next.splice(idx, 1)
+  emit('update:modelValue', next)
+}
+</script>
+
+<style scoped>
+.add-btn {
+  margin-top: 8px;
+  width: 100%;
+  border-style: dashed;
+}
+.muted {
+  color: var(--app-text-muted);
+}
+</style>
