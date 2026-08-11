@@ -652,7 +652,12 @@ async function load() {
 
 watch(
   () => route.params.id,
-  () => load()
+  () => {
+    // keep-alive 缓存下，其他带 :id 参数的路由变化也会触发本 watch；
+    // 仅当前路由确实是报告详情页时才加载，避免把用例 ID 当执行记录 ID 请求 404
+    if (route.name !== 'ReportDetail') return
+    load()
+  }
 )
 
 onMounted(load)

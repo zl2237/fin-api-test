@@ -129,14 +129,18 @@ class DagExecutor:
             order, leftover = self._topo_sort(dag)
             nodes_map = {n["id"]: n for n in dag.get("nodes", [])}
 
-            for node_id in order:
-                step_passed = self._execute_node(record.id, node_id, nodes_map.get(node_id, {"id": node_id}))
+            for idx, node_id in enumerate(order):
+                step_passed, wait_ms = self._execute_node(record.id, node_id, nodes_map.get(node_id, {"id": node_id}))
                 if step_passed:
                     total_passed += 1
                 else:
                     total_failed += 1
                     # 默认失败即停止
                     break
+                # 节点间等待：当前节点成功且仍有后续节点时，按配置等待若干毫秒，
+                # 给后端处理事务/数据落库留出时间，避免下游接口读到未提交数据
+                if step_passed and idx < len(order) - 1 and wait_ms and wait_ms > 0:
+                    time.sleep(wait_ms / 1000.0)
 
             if leftover:
                 # 未执行的节点计入失败统计但不落步骤记录
@@ -172,7 +176,10 @@ class DagExecutor:
         return record
 
     # ---------- 单节点执行 ----------
-    def _execute_node(self, execution_id: int, node_id: str, node: Dict) -> bool:
+    def _execute_node(self, execution_id: int, node_id: str, node: Dict) -> Tuple[bool, int]:
+        """执行单个节点。返回 (是否通过, 节点配置的 wait_after_ms)。
+        wait_after_ms 表示当前节点执行完后到下一节点请求前的等待毫秒数，由调用方在节点间应用。
+        """
         config = self.db.query(models.CaseNodeConfig).filter(
             models.CaseNodeConfig.case_id == self.case.id,
             models.CaseNodeConfig.node_id == node_id,
@@ -199,7 +206,7 @@ class DagExecutor:
             self.db.add(step)
             self.db.commit()
             self.db.refresh(step)
-            return False
+            return False, 0
 
         # 1. 准备请求体 / 请求头
         # 优先用 ApiField 组装（新版本字段级配置）；无 fields 时回退到 request_template
@@ -272,4 +279,6 @@ class DagExecutor:
             self.db.add(arec)
         self.db.commit()
 
-        return step_passed
+        # 节点配置的等待时间（ms），由调用方在节点间应用
+        wait_ms = getattr(config, "wait_after_ms", 0) or 0 if config else 0
+        return step_passed, wait_ms

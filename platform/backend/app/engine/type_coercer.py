@@ -16,8 +16,8 @@ from .preprocessor import get_nested_value, set_nested_value
 def coerce_json_strings(obj: Any) -> Any:
     """递归把求值后形如 JSON 的字符串转回原生类型。
 
-    例如 array 字段 "[${id}]" 求值后为 "[123]" 字符串，转回 ["123"] 列表。
-    仅对形如 [...] / {...} 的字符串尝试，失败则原样返回。
+    例如 array 字段 "[${id}]" 求值后为 "[123]" 字符串，转回 [123] 列表。
+    仅对形如 [...] / {...} 的字符串尝试，失败则原样返回（留给 apply_field_types 兜底）。
     """
     if isinstance(obj, dict):
         return {k: coerce_json_strings(v) for k, v in obj.items()}
@@ -29,9 +29,28 @@ def coerce_json_strings(obj: Any) -> Any:
             try:
                 return json.loads(s)
             except (json.JSONDecodeError, TypeError):
-                # 形似 JSON 但解析失败（如 "[abc]"），保留原字符串
+                # 形似 JSON 但解析失败（如 "[abc]" 非法 JSON），保留原字符串，
+                # 由 apply_field_types 依据字段类型兜底恢复为 list
                 return obj
     return obj
+
+
+def string_to_array(s: str) -> list:
+    """把形如 "[a, b, c]" / "a, b, c" / "[a]" 的字符串按数组语义拆分为 list。
+
+    用于表达式 [${bl_no}] 求值后得到 "[somestring]" 的兜底恢复：
+    coerce_json_strings 仅能处理合法 JSON（如 "[123]" / '["abc"]'），
+    对于 "[非引号字符串]" 会解析失败，此处按逗号拆分为字符串列表，
+    后续由 apply_field_types 依据字段 elem_type 再做标量强转。
+    """
+    s = s.strip()
+    if s.startswith("[") and s.endswith("]"):
+        inner = s[1:-1].strip()
+    else:
+        inner = s
+    if not inner:
+        return []
+    return [part.strip() for part in inner.split(",")]
 
 
 def apply_field_types(body: Any, api) -> Any:
@@ -60,15 +79,27 @@ def apply_field_types(body: Any, api) -> Any:
         val = get_nested_value(body, f.key)
         if val is None:
             continue
-        if f.field_type == "array" and isinstance(val, list):
+        if f.field_type == "array":
             # 从 default_value 推断元素类型，强转每个元素
             elem_type = infer_array_elem_type(f.default_value)
+            # 兜底：表达式 [${bl_no}] 求值后得到 "[somestring]"，coerce_json_strings
+            # 因非合法 JSON 无法转回 list。此处仅对 [...] 形式的字符串按数组语义恢复为 list；
+            # 无括号的普通字符串（如误配的标量值）保持原样，避免误转
+            if isinstance(val, str):
+                s = val.strip()
+                if s.startswith("[") and s.endswith("]"):
+                    val = string_to_array(val)
+            if not isinstance(val, list):
+                continue
             if elem_type:
                 new_list = []
                 for v in val:
                     converted = coerce_scalar(v, elem_type)
                     new_list.append(converted if converted is not None else v)
                 set_nested_value(body, f.key, new_list)
+            else:
+                # 无 elem_type 推断（如 default_value 为空数组），仍需把恢复的 list 写回
+                set_nested_value(body, f.key, val)
             continue
         if f.field_type == "object":
             continue
