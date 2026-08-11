@@ -61,7 +61,7 @@
           <span v-else class="expand-spacer" />
           <el-icon class="group-icon"><Files /></el-icon>
           <span class="group-name">{{ row.name }}</span>
-          <span class="group-count">{{ apisOf(row.groupId).length }}</span>
+          <span class="group-count">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
         </div>
         <div v-show="(row.isUngrouped || isGroupExpanded(row.groupId!)) && apisOf(row.groupId).length > 0" class="group-body">
           <el-table
@@ -400,7 +400,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { Rank, Upload, Files, Search, CaretRight } from '@element-plus/icons-vue'
-import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
 
@@ -415,6 +415,7 @@ const keyword = ref('')
 
 // 多级分组：树构建 + 展开记忆（按项目持久化）
 const {
+  tree,
   treeSelectData,
   treeSelectWithUngrouped,
   isExpanded: isGroupExpanded,
@@ -781,6 +782,12 @@ const filteredApis = computed(() => {
 /** 某分组的接口列表（未分组传 null） */
 function apisOf(groupId: number | null): ApiDef[] {
   return filteredApis.value.filter(a => a.group_id === groupId)
+}
+
+/** 统计分组的接口数量（含所有子孙分组，用于分组头部计数展示） */
+function countApisWithDescendants(groupId: number): number {
+  const ids = [groupId, ...collectDescendantIds(tree.value, groupId)]
+  return filteredApis.value.filter(a => a.group_id != null && ids.includes(a.group_id)).length
 }
 
 /** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行 */

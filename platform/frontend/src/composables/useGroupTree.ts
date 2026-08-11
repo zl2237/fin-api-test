@@ -84,6 +84,29 @@ export function collectNodeIds(tree: GroupTreeNode[]): number[] {
   return ids
 }
 
+/** 收集指定分组的所有子孙分组 id（不含自身） */
+export function collectDescendantIds(tree: GroupTreeNode[], id: number): number[] {
+  const ids: number[] = []
+  const walk = (nodes: GroupTreeNode[]) => {
+    for (const n of nodes) {
+      if (n.id === id) {
+        const collectChildren = (children: GroupTreeNode[]) => {
+          for (const c of children) {
+            ids.push(c.id)
+            collectChildren(c.children)
+          }
+        }
+        collectChildren(n.children)
+        return true
+      }
+      if (walk(n.children)) return true
+    }
+    return false
+  }
+  walk(tree)
+  return ids
+}
+
 /**
  * 多级分组视图模型：封装树构建、展开记忆、可见行计算。
  *
