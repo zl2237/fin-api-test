@@ -11,6 +11,17 @@ export const useAppStore = defineStore('app', () => {
   // 字段字典：当前项目的 {英文字段名: 中文含义} 映射
   const fieldDictMap = ref<Record<string, string>>({})
 
+  // 核心能力详情弹窗（表达式引擎 / 17 种断言）：跨组件共享，节点配置弹窗等可触发
+  const coreCapVisible = ref(false)
+  const coreCapTab = ref<'expression' | 'assertion'>('expression')
+  function openCoreCapability(tab: 'expression' | 'assertion') {
+    coreCapTab.value = tab
+    coreCapVisible.value = true
+  }
+  function setCoreCapVisible(visible: boolean) {
+    coreCapVisible.value = visible
+  }
+
   // 主题：light / dark / auto，auto 跟随系统
   const THEME_KEY = 'fin_theme'
   const theme = ref<'light' | 'dark' | 'auto'>('auto')
@@ -145,6 +156,8 @@ export const useAppStore = defineStore('app', () => {
     currentEnvId,
     user,
     fieldDictMap,
+    coreCapVisible,
+    coreCapTab,
     theme,
     isLoggedIn,
     loadUser,
@@ -157,5 +170,7 @@ export const useAppStore = defineStore('app', () => {
     initTheme,
     applyTheme,
     toggleTheme,
+    openCoreCapability,
+    setCoreCapVisible,
   }
 })

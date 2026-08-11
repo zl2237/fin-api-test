@@ -115,6 +115,7 @@ export interface CaseGroup {
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
   pre_process: any[]; post_extract: any[]; assertions: any[]
+  wait_after_ms?: number
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string

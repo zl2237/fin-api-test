@@ -118,6 +118,9 @@ const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
+// 追踪执行轮询定时器，组件卸载时统一清理，避免切页后继续请求已失效的执行记录
+const pollTimers: ReturnType<typeof setTimeout>[] = []
+
 const apiList = ref<ApiDef[]>([])
 const apiGroups = ref<ApiGroup[]>([])
 // 左侧接口分组展开/折叠记忆（按项目持久化）
@@ -170,7 +173,7 @@ const groupedApis = computed(() => {
 
 const currentConfig = computed<NodeConfig>(() => {
   if (!selectedNodeId.value) {
-    return { node_id: '', api_id: null, pre_process: [], post_extract: [], assertions: [] }
+    return { node_id: '', api_id: null, pre_process: [], post_extract: [], assertions: [], wait_after_ms: 0 }
   }
   const found = configs.value.find((c) => c.node_id === selectedNodeId.value)
   if (found) return found
@@ -180,6 +183,7 @@ const currentConfig = computed<NodeConfig>(() => {
     pre_process: [],
     post_extract: [],
     assertions: [],
+    wait_after_ms: 0,
   }
   configs.value.push(fresh)
   return fresh
@@ -243,6 +247,7 @@ function onAddNode(api: ApiDef) {
     pre_process: [],
     post_extract: [],
     assertions: [],
+    wait_after_ms: 0,
   })
   dirty.value = true
 }
@@ -304,6 +309,17 @@ async function onSave() {
   }
   saving.value = true
   try {
+    // 保存前 trim 后置提取的字符串字段，防止前后空格导致后续注入失败
+    const cleanedConfigs = configs.value.map((c: NodeConfig) => ({
+      ...c,
+      post_extract: (c.post_extract || []).map((r: any) => ({
+        ...r,
+        name: typeof r.name === 'string' ? r.name.trim() : r.name,
+        json_path: typeof r.json_path === 'string' ? r.json_path.trim() : r.json_path,
+        sql: typeof r.sql === 'string' ? r.sql.trim() : r.sql,
+        field: typeof r.field === 'string' ? r.field.trim() : r.field,
+      })),
+    }))
     const payloadNodes = nodes.value.map((n: any) => ({
       id: n.id,
       position: n.position,
@@ -313,8 +329,10 @@ async function onSave() {
     await caseApi.update(caseData.value.id, {
       name: caseData.value.name,
       dag_config: { nodes: payloadNodes, edges: edges.value },
-      node_configs: configs.value,
+      node_configs: cleanedConfigs,
     })
+    // 同步回本地，保持 UI 与已保存数据一致
+    configs.value = cleanedConfigs
     dirty.value = false
     ElMessage.success('已保存')
   } catch (e: any) {
@@ -346,7 +364,8 @@ async function onRun() {
       try {
         const cur = await execApi.get(execId, true)
         if (cur.status === 'running' && pollCount < maxPolls) {
-          setTimeout(poll, 2000)
+          const t = setTimeout(poll, 2000)
+          pollTimers.push(t)
         } else {
           msg.close()
           if (cur.status === 'success') {
@@ -369,7 +388,8 @@ async function onRun() {
         if (pollCount >= maxPolls) running.value = false
       }
     }
-    setTimeout(poll, 2000)
+    const t = setTimeout(poll, 2000)
+    pollTimers.push(t)
   } catch (e: any) {
     favicon.reset()
     ElMessage.error(e.message)
@@ -392,6 +412,9 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  // 清理所有执行轮询定时器，防止切页后继续请求
+  pollTimers.forEach(t => clearTimeout(t))
+  pollTimers.length = 0
 })
 
 function onKeydown(e: KeyboardEvent) {

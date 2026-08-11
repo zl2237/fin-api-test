@@ -536,6 +536,7 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
             pre_process=nc.pre_process or [],
             post_extract=nc.post_extract or [],
             assertions=nc.assertions or [],
+            wait_after_ms=nc.wait_after_ms or 0,
         )
         db.add(nnc)
     db.commit()
@@ -554,6 +555,7 @@ def _sync_node_configs(db: Session, case_id: int, node_configs: List[dict]):
             pre_process=nc.get("pre_process", []),
             post_extract=nc.get("post_extract", []),
             assertions=nc.get("assertions", []),
+            wait_after_ms=nc.get("wait_after_ms", 0) or 0,
         )
         db.add(obj)
     db.commit()
@@ -618,6 +620,7 @@ def _snapshot_cases(db: Session, project_id: int) -> List[dict]:
                     "pre_process": nc.pre_process or [],
                     "post_extract": nc.post_extract or [],
                     "assertions": nc.assertions or [],
+                    "wait_after_ms": nc.wait_after_ms or 0,
                 } for nc in (c.node_configs or [])
             ],
         })
@@ -833,6 +836,7 @@ def rollback_project_version(
                 pre_process=cfg.get("pre_process", []),
                 post_extract=cfg.get("post_extract", []),
                 assertions=cfg.get("assertions", []),
+                wait_after_ms=cfg.get("wait_after_ms", 0) or 0,
             ))
 
     db.commit()
