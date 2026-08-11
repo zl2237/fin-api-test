@@ -147,18 +147,21 @@ class EnvironmentOut(ORMBase):
 # ============ ApiGroup ============
 class ApiGroupCreate(BaseModel):
     project_id: int
+    parent_id: Optional[int] = None
     name: str
     sort_order: int = 0
 
 
 class ApiGroupUpdate(BaseModel):
     name: Optional[str] = None
+    parent_id: Optional[int] = None
     sort_order: Optional[int] = None
 
 
 class ApiGroupOut(ORMBase):
     id: int
     project_id: int
+    parent_id: Optional[int] = None
     name: str
     sort_order: int = 0
     created_at: Optional[datetime] = None
@@ -301,6 +304,25 @@ class HarImportRequest(BaseModel):
     previews: List[Dict[str, Any]]  # 用户勾选的预览项（含 method/path/name/fields/is_array_body）
 
 
+class CurlPreviewRequest(BaseModel):
+    """cURL 命令预览请求：粘贴一条或多条 cURL 命令文本"""
+    text: str  # cURL 命令文本（多条以空行分隔）
+
+
+class CurlPreviewResponse(BaseModel):
+    """cURL 解析预览响应"""
+    total: int  # 成功解析的接口总数
+    previews: List[HarPreviewItem] = []  # 复用 HAR 预览结构
+    errors: List[str] = []  # 解析失败的命令及原因
+
+
+class CurlImportRequest(BaseModel):
+    """cURL 导入请求：用户勾选的接口列表"""
+    project_id: int
+    group_id: Optional[int] = None
+    previews: List[Dict[str, Any]]  # 用户勾选的预览项（结构与 HAR 一致）
+
+
 class ApiDebugRequest(BaseModel):
     """单接口调试请求：指定环境执行一次接口，返回请求/响应详情"""
     env_id: int
@@ -330,18 +352,21 @@ class ApiOut(ORMBase):
 # ============ CaseGroup ============
 class CaseGroupCreate(BaseModel):
     project_id: int
+    parent_id: Optional[int] = None
     name: str
     sort_order: int = 0
 
 
 class CaseGroupUpdate(BaseModel):
     name: Optional[str] = None
+    parent_id: Optional[int] = None
     sort_order: Optional[int] = None
 
 
 class CaseGroupOut(ORMBase):
     id: int
     project_id: int
+    parent_id: Optional[int] = None
     name: str
     sort_order: int = 0
     created_at: Optional[datetime] = None

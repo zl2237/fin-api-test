@@ -41,28 +41,36 @@
     </div>
 
     <div class="group-list">
-      <el-collapse v-model="activeGroups">
-        <el-collapse-item
-          v-for="g in groupedCases"
-          :key="g.group?.id ?? 'ungrouped'"
-          :name="g.group?.id ?? 'ungrouped'"
+      <div
+        v-for="row in visibleGroupRows"
+        :key="row.key"
+        class="group-card"
+      >
+        <div
+          class="group-header"
+          :style="{ paddingLeft: 14 + row.depth * 22 + 'px' }"
+          @click="onToggleGroup(row)"
         >
-          <template #title>
-            <div class="group-title">
-              <el-icon class="group-icon"><Folder /></el-icon>
-              <span class="group-name">{{ g.group?.name || '未分组' }}</span>
-              <span class="group-count">{{ g.cases.length }}</span>
-            </div>
-          </template>
+          <el-icon
+            v-if="row.hasChildren"
+            class="expand-icon"
+            :class="{ expanded: isGroupExpanded(row.groupId!) }"
+          ><CaretRight /></el-icon>
+          <span v-else class="expand-spacer" />
+          <el-icon class="group-icon"><Folder /></el-icon>
+          <span class="group-name">{{ row.name }}</span>
+          <span class="group-count">{{ casesOf(row.groupId).length }}</span>
+        </div>
+        <div v-show="(row.isUngrouped || isGroupExpanded(row.groupId!)) && casesOf(row.groupId).length > 0" class="group-body">
           <el-table
-            :ref="(el: any) => setTableRef(g.group?.id ?? 'ungrouped', el)"
-            :data="pagedCases(g.group?.id ?? 'ungrouped')"
+            :ref="(el: any) => setTableRef(row.key, el)"
+            :data="pagedDataMap[String(row.key)]"
             size="small"
             stripe
             row-key="id"
-            @selection-change="(sel: any[]) => onSelectionChange(g.group?.id ?? 'ungrouped', sel)"
+            @selection-change="(sel: any[]) => onSelectionChange(row.key, sel)"
           >
-            <el-table-column type="selection" width="42" />
+            <el-table-column type="selection" width="42" :reserve-selection="true" />
             <el-table-column width="36" align="center">
               <template #default>
                 <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
@@ -92,20 +100,20 @@
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="g.cases.length > pageSize" class="pagination-wrap">
+          <div v-if="casesOf(row.groupId).length > pageSize" class="pagination-wrap">
             <el-pagination
               small
-              :current-page="pageMap[String(g.group?.id ?? 'ungrouped')] || 1"
+              :current-page="pageMap[String(row.key)] || 1"
               :page-size="pageSize"
-              :total="g.cases.length"
+              :total="casesOf(row.groupId).length"
               :page-sizes="[10, 20, 50, 100]"
               layout="total, sizes, prev, pager, next"
-              @current-change="(p: number) => onPageChange(g.group?.id ?? 'ungrouped', p)"
+              @current-change="(p: number) => onPageChange(row.key, p)"
               @size-change="onPageSizeChange"
             />
           </div>
-        </el-collapse-item>
-      </el-collapse>
+        </div>
+      </div>
       <EmptyState v-if="!loading && !list.length" description="暂无用例">
         <div class="empty-actions">
           <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
@@ -121,9 +129,16 @@
           <el-input v-model="form.name" placeholder="创建订单-冒烟" />
         </el-form-item>
         <el-form-item label="分组">
-          <el-select v-model="form.group_id" placeholder="选择分组" clearable style="width: 100%">
-            <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-          </el-select>
+          <el-tree-select
+            v-model="form.group_id"
+            :data="treeSelectData"
+            node-key="id"
+            :props="treeProps"
+            placeholder="选择分组"
+            clearable
+            check-strictly
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />
@@ -135,33 +150,50 @@
       </template>
     </el-dialog>
 
-    <!-- 分组管理弹窗 -->
-    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="540px" align-center>
+    <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序） -->
+    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="620px" align-center>
       <div class="group-dialog-body">
         <div class="group-add">
-          <el-input v-model="newGroupName" placeholder="新分组名称（如：冒烟组/订单组/付款组）" style="flex: 1" @keyup.enter="onAddGroup" />
+          <el-input
+            v-model="newGroupName"
+            placeholder="新分组名称（如：冒烟组/订单组/付款组）"
+            style="flex: 1"
+            @keyup.enter="onAddGroup"
+          />
+          <el-tree-select
+            v-model="newGroupParentId"
+            :data="treeSelectData"
+            node-key="id"
+            :props="treeProps"
+            placeholder="父分组（留空为顶层）"
+            clearable
+            check-strictly
+            style="width: 220px"
+          />
           <el-button type="primary" @click="onAddGroup">添加</el-button>
         </div>
-        <div class="group-drag-tip">拖拽行可调整分组顺序，松开自动保存</div>
-        <draggable
-          v-model="groups"
-          item-key="id"
-          handle=".group-drag-handle"
-          animation="200"
-          class="group-drag-list"
-          @end="onGroupDragEnd"
+        <div class="group-drag-tip">拖拽节点可调整层级与顺序，松开自动保存</div>
+        <el-tree
+          ref="groupTreeRef"
+          :data="groupTreeNodes"
+          node-key="id"
+          :props="treeProps"
+          :expand-on-click-node="false"
+          default-expand-all
+          draggable
+          @node-drop="onTreeNodeDrop"
         >
-          <template #item="{ element }">
-            <div class="group-drag-row">
-              <el-icon class="group-drag-handle" title="拖拽排序"><Rank /></el-icon>
-              <span class="group-drag-name">{{ element.name }}</span>
-              <div class="group-drag-actions">
-                <el-button link type="primary" size="small" @click="onRenameGroup(element)">重命名</el-button>
-                <el-button link type="danger" size="small" @click="onDeleteGroup(element)">删除</el-button>
+          <template #default="{ data }">
+            <div class="group-tree-row">
+              <span class="group-tree-name">{{ data.label }}</span>
+              <div class="group-tree-actions">
+                <el-button link type="primary" size="small" @click.stop="onRenameGroup(data)">重命名</el-button>
+                <el-button link type="danger" size="small" @click.stop="onDeleteGroup(data)">删除</el-button>
               </div>
             </div>
           </template>
-        </draggable>
+        </el-tree>
+        <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
       </div>
     </el-dialog>
 
@@ -170,10 +202,16 @@
       <div style="margin-bottom: 12px; color: var(--app-text-muted);">
         将 {{ selectedCaseIds.length }} 个用例移动到：
       </div>
-      <el-select v-model="batchMoveTarget" placeholder="选择目标分组" style="width: 100%" filterable>
-        <el-option label="未分组" :value="0" />
-        <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-      </el-select>
+      <el-tree-select
+        v-model="batchMoveTarget"
+        :data="treeSelectWithUngrouped"
+        node-key="id"
+        :props="treeProps"
+        placeholder="选择目标分组"
+        clearable
+        check-strictly
+        style="width: 100%"
+      />
       <template #footer>
         <el-button @click="batchMoveVisible = false">取消</el-button>
         <el-button type="primary" :loading="batchMoveLoading" @click="confirmBatchMove">确定移动</el-button>
@@ -186,12 +224,11 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
-import { Rank, Folder } from '@element-plus/icons-vue'
+import { Rank, Folder, CaretRight } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
-import { useGroupMemory } from '@/composables/useGroupMemory'
+import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -210,11 +247,18 @@ const filterUpdater = ref<number | null>(null)
 const loading = ref(false)
 const keyword = ref('')
 
-// 分组展开/折叠记忆（按项目持久化）
-const { activeNames: activeGroups, applyDefault: applyDefaultExpand } = useGroupMemory(
-  toRef(store, 'currentProjectId'),
-  'caseList',
-)
+// 多级分组：树构建 + 展开记忆（按项目持久化）
+const {
+  treeSelectData,
+  treeSelectWithUngrouped,
+  isExpanded: isGroupExpanded,
+  toggleExpand: toggleGroupExpand,
+  applyDefaultExpand,
+  computeVisibleRows,
+} = useGroupTree(groups, toRef(store, 'currentProjectId'), 'caseList')
+
+// el-tree / el-tree-select 公共字段映射
+const treeProps = { label: 'label', children: 'children' }
 
 // 分组内分页：每分组独立维护当前页码，全局共享每页条数
 const pageSize = ref(10)
@@ -222,6 +266,10 @@ const pageMap = ref<Record<string, number>>({})
 const dialogVisible = ref(false)
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
+const newGroupParentId = ref<number | null>(null)
+// el-tree 可变数据（管理弹窗拖拽用），groups 变化时重建
+const groupTreeNodes = ref<GroupTreeNode[]>([])
+const groupTreeRef = ref<any>(null)
 const batchMoveVisible = ref(false)
 const batchMoveTarget = ref<number | null>(null)
 const batchMoveLoading = ref(false)
@@ -262,9 +310,9 @@ function setTableRef(groupId: string | number, el: any) {
 
 async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
   if (oldIndex === newIndex) return
-  const groupItem = groupedCases.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
-  if (!groupItem) return
-  const fullList = groupItem.cases
+  // 找到该分组的用例列表（casesOf 返回新数组，元素仍为 list.value 中的同引用对象）
+  const gid = groupId === 'ungrouped' ? null : (groupId as number)
+  const fullList = casesOf(gid)
   const page = pageMap.value[String(groupId)] || 1
   const start = (page - 1) * pageSize.value
   // 在全量列表中移动（当前页内的拖拽映射到全量列表的全局位置）
@@ -282,11 +330,20 @@ async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newI
   }
 }
 
-async function onGroupDragEnd() {
-  const items = groups.value.map((g, i) => ({ id: g.id, sort_order: i }))
+/** el-tree 拖拽落点：持久化 parent_id + sort_order */
+async function onTreeNodeDrop() {
+  const updates: { id: number; parent_id: number | null; sort_order: number }[] = []
+  const walk = (nodes: GroupTreeNode[], parentId: number | null) => {
+    nodes.forEach((n, i) => {
+      updates.push({ id: n.id, parent_id: parentId, sort_order: i })
+      walk(n.children, n.id)
+    })
+  }
+  walk(groupTreeNodes.value, null)
   try {
-    await Promise.all(items.map(it => caseGroupApi.update(it.id, { sort_order: it.sort_order })))
-    ElMessage.success('分组顺序已保存')
+    await Promise.all(updates.map(it => caseGroupApi.update(it.id, { parent_id: it.parent_id, sort_order: it.sort_order })))
+    ElMessage.success('分组层级与顺序已保存')
+    await loadGroups()
   } catch (e: any) {
     ElMessage.error(e.message || '分组排序保存失败')
     await loadGroups()
@@ -325,6 +382,10 @@ async function confirmBatchMove() {
     batchMoveVisible.value = false
     selectedCaseIds.value = []
     currentSelectGroupId = null
+    // 清空 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
+    isClearing = true
+    tableRefs.forEach((tableRef) => tableRef?.clearSelection?.())
+    isClearing = false
     await load()
   } catch (e: any) {
     ElMessage.error(e.message || '批量移动失败')
@@ -339,27 +400,31 @@ const filteredList = computed(() => {
   return list.value.filter(c => c.name.toLowerCase().includes(kw))
 })
 
-const groupedCases = computed(() => {
-  const result: { group: CaseGroup | null; cases: TestCase[] }[] = []
-  for (const g of groups.value) {
-    const list = filteredList.value.filter(c => c.group_id === g.id)
-    result.push({ group: g, cases: list })
-  }
-  const ungrouped = filteredList.value.filter(c => !c.group_id)
-  if (ungrouped.length) {
-    result.push({ group: null, cases: ungrouped })
-  }
-  return result
-})
-
-/** 返回某分组当前页的数据切片 */
-function pagedCases(groupId: string | number): TestCase[] {
-  const groupItem = groupedCases.value.find(g => (g.group?.id ?? 'ungrouped') === groupId)
-  if (!groupItem) return []
-  const page = pageMap.value[String(groupId)] || 1
-  const start = (page - 1) * pageSize.value
-  return groupItem.cases.slice(start, start + pageSize.value)
+/** 某分组的用例列表（未分组传 null） */
+function casesOf(groupId: number | null): TestCase[] {
+  return filteredList.value.filter(c => c.group_id === groupId)
 }
+
+/** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行 */
+const visibleGroupRows = computed(() => computeVisibleRows(casesOf(null).length > 0))
+
+/** 切换分组展开/折叠（未分组行不响应） */
+function onToggleGroup(row: { groupId: number | null; isUngrouped: boolean }) {
+  if (row.isUngrouped || row.groupId == null) return
+  toggleGroupExpand(row.groupId)
+}
+
+/** 各分组当前页数据（computed 缓存：避免 selectedCaseIds 变化时 :data 引用变化导致 el-table 重置 selection） */
+const pagedDataMap = computed(() => {
+  const map: Record<string, TestCase[]> = {}
+  for (const row of visibleGroupRows.value) {
+    const list = casesOf(row.groupId)
+    const page = pageMap.value[String(row.key)] || 1
+    const start = (page - 1) * pageSize.value
+    map[String(row.key)] = list.slice(start, start + pageSize.value)
+  }
+  return map
+})
 
 function onPageChange(groupId: string | number, page: number) {
   pageMap.value[String(groupId)] = page
@@ -394,12 +459,10 @@ async function loadUsers() {
 async function loadGroups() {
   if (!store.currentProjectId) return
   groups.value = await caseGroupApi.list(store.currentProjectId)
-  // 无记忆时默认全部展开；有记忆则恢复上次展开的分组
-  const allIds: (number | string)[] = groups.value.map(g => g.id)
-  if (list.value.some(c => !c.group_id)) {
-    allIds.push('ungrouped')
-  }
-  applyDefaultExpand(allIds)
+  // 重建 el-tree 可变数据（深拷贝，供管理弹窗拖拽就地修改）
+  groupTreeNodes.value = JSON.parse(JSON.stringify(treeSelectData.value))
+  // 无记忆时默认全部展开
+  applyDefaultExpand()
   // 重置分页
   pageMap.value = {}
 }
@@ -576,8 +639,13 @@ async function onRemove(row: TestCase) {
 async function onAddGroup() {
   if (!newGroupName.value.trim()) return
   try {
-    await caseGroupApi.create({ project_id: store.currentProjectId!, name: newGroupName.value.trim() })
+    await caseGroupApi.create({
+      project_id: store.currentProjectId!,
+      parent_id: newGroupParentId.value,
+      name: newGroupName.value.trim(),
+    })
     newGroupName.value = ''
+    newGroupParentId.value = null
     await loadGroups()
     ElMessage.success('已添加')
   } catch (e: any) {
@@ -585,11 +653,11 @@ async function onAddGroup() {
   }
 }
 
-async function onRenameGroup(row: CaseGroup) {
+async function onRenameGroup(data: GroupTreeNode) {
   try {
-    const { value } = await ElMessageBox.prompt('分组名称', '重命名', { inputValue: row.name })
-    if (value && value !== row.name) {
-      await caseGroupApi.update(row.id, { name: value })
+    const { value } = await ElMessageBox.prompt('分组名称', '重命名', { inputValue: data.label })
+    if (value && value !== data.label) {
+      await caseGroupApi.update(data.id, { name: value })
       await loadGroups()
       ElMessage.success('已重命名')
     }
@@ -598,10 +666,14 @@ async function onRenameGroup(row: CaseGroup) {
   }
 }
 
-async function onDeleteGroup(row: CaseGroup) {
+async function onDeleteGroup(data: GroupTreeNode) {
   try {
-    await ElMessageBox.confirm(`确认删除分组「${row.name}」？组内用例将变为未分组。`, '提示', { type: 'warning' })
-    await caseGroupApi.remove(row.id)
+    await ElMessageBox.confirm(
+      `确认删除分组「${data.label}」？\n注意：含子分组或用例时将阻止删除，请先处理。`,
+      '提示',
+      { type: 'warning' },
+    )
+    await caseGroupApi.remove(data.id)
     await loadGroups()
     await load()
     ElMessage.success('已删除')
@@ -667,41 +739,43 @@ function onGlobalKey(e: KeyboardEvent) {
   overflow: auto;
   padding: 16px 20px;
 }
-/* 分组卡片化 */
-:deep(.el-collapse) {
-  border: none;
-}
-:deep(.el-collapse-item) {
+/* 分组卡片（多级树形） */
+.group-card {
   margin-bottom: 12px;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-lg);
   overflow: hidden;
+  background: var(--app-card);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-:deep(.el-collapse-item:hover) {
+.group-card:hover {
   border-color: var(--app-primary);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
-:deep(.el-collapse-item__header) {
-  padding: 0 16px;
-  height: 48px;
-  line-height: 48px;
-  background: var(--app-card);
-  border-bottom: none;
-  font-size: 14px;
-}
-:deep(.el-collapse-item__wrap) {
-  border-bottom: none;
-  background: transparent;
-}
-:deep(.el-collapse-item__content) {
-  padding: 0 16px 12px;
-}
-.group-title {
+.group-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
+  gap: 8px;
+  height: 48px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  border-bottom: 1px solid var(--app-border);
+}
+.group-header:hover {
+  background: var(--app-hover, rgba(0, 0, 0, 0.02));
+}
+.expand-icon {
+  font-size: 14px;
+  color: var(--app-text-muted);
+  transition: transform 0.18s ease;
+}
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+.expand-spacer {
+  display: inline-block;
+  width: 14px;
 }
 .group-icon {
   font-size: 16px;
@@ -711,6 +785,7 @@ function onGlobalKey(e: KeyboardEvent) {
   font-weight: 600;
   font-size: 14px;
   color: var(--app-text);
+  flex: 1;
 }
 .group-count {
   background: var(--app-primary);
@@ -721,6 +796,10 @@ function onGlobalKey(e: KeyboardEvent) {
   font-weight: 500;
   min-width: 24px;
   text-align: center;
+  margin-right: 16px;
+}
+.group-body {
+  padding: 0 16px 12px;
 }
 .group-dialog-body {
   padding: 8px 4px;
@@ -728,6 +807,22 @@ function onGlobalKey(e: KeyboardEvent) {
 .group-add {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+.group-tree-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 8px;
+}
+.group-tree-name {
+  font-size: 14px;
+  color: var(--app-text);
+}
+.group-tree-actions {
+  display: flex;
+  gap: 4px;
 }
 .pagination-wrap {
   display: flex;
@@ -756,35 +851,5 @@ function onGlobalKey(e: KeyboardEvent) {
   font-size: 12px;
   color: var(--app-text-muted);
   margin: 12px 0 8px;
-}
-.group-drag-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.group-drag-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: var(--app-card-solid);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-}
-.group-drag-handle {
-  cursor: grab;
-  color: var(--app-text-muted);
-}
-.group-drag-handle:active {
-  cursor: grabbing;
-}
-.group-drag-name {
-  flex: 1;
-  font-size: 14px;
-  color: var(--app-text);
-}
-.group-drag-actions {
-  display: flex;
-  gap: 4px;
 }
 </style>

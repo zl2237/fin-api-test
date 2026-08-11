@@ -81,11 +81,12 @@
         ref="canvasRef"
         v-model:nodes="nodes"
         v-model:edges="edges"
-        @node-click="onNodeClick"
+        @node-open="onNodeOpen"
+        @nodes-pasted="onNodesPasted"
         @link-mode-change="onLinkModeChange"
       />
       <div class="canvas-hint">
-        提示：点击接口添加节点；可拖拽节点右侧端点连线到目标左侧端点；或点「连线模式」后依次点击两个节点；点击连线删除。
+        提示：点击接口添加节点；单击选中、双击或按 Enter 打开节点配置；Ctrl+C/V 复制粘贴节点；可拖拽节点右侧端点连线到目标左侧端点；或点「连线模式」后依次点击两个节点；点击连线删除。
       </div>
     </div>
 
@@ -252,14 +253,25 @@ function onAddNode(api: ApiDef) {
   dirty.value = true
 }
 
-function onNodeClick(id: string) {
-  if (linkMode.value) {
-    // 连线模式下，通过 watch canvasRef.linkSourceId 判断
-    // 这里简单处理：不打开抽屉
-    return
-  }
+/** 双击/回车打开节点配置抽屉 */
+function onNodeOpen(id: string) {
+  if (linkMode.value) return
   selectedNodeId.value = id
   drawerVisible.value = true
+}
+
+/** 粘贴节点：克隆对应 config（深拷贝 pre_process/post_extract/assertions 避免共享引用） */
+function onNodesPasted(mapping: { oldId: string; newId: string }[]) {
+  for (const { oldId, newId } of mapping) {
+    const src = configs.value.find((c) => c.node_id === oldId)
+    if (src) {
+      configs.value.push(JSON.parse(JSON.stringify({
+        ...src,
+        node_id: newId,
+      })))
+    }
+  }
+  dirty.value = true
 }
 
 function onConfigSave(_config: NodeConfig) {
