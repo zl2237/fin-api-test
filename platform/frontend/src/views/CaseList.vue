@@ -199,6 +199,9 @@ const favicon = useFaviconStatus()
 
 const store = useAppStore()
 const router = useRouter()
+
+// 追踪所有执行轮询定时器，组件卸载时统一清理，避免切页后继续请求已失效的执行记录
+const pollTimers: ReturnType<typeof setTimeout>[] = []
 const list = ref<TestCase[]>([])
 const groups = ref<CaseGroup[]>([])
 const users = ref<SimpleUser[]>([])
@@ -445,7 +448,8 @@ async function runCase(row: TestCase) {
       try {
         const cur = await execApi.get(execId, true)
         if (cur.status === 'running' && pollCount < maxPolls) {
-          setTimeout(poll, 2000)
+          const t = setTimeout(poll, 2000)
+          pollTimers.push(t)
         } else {
           msg.close()
           if (cur.status === 'success') {
@@ -466,7 +470,8 @@ async function runCase(row: TestCase) {
         ElMessage.error(e.message || '轮询执行状态失败')
       }
     }
-    setTimeout(poll, 2000)
+    const t = setTimeout(poll, 2000)
+    pollTimers.push(t)
   } catch (e: any) {
     favicon.reset()
     ElMessage.error(e.message)
@@ -533,7 +538,8 @@ function pollOne(execId: number): Promise<{ status: string; summary: any }> {
       try {
         const cur = await execApi.get(execId, true)
         if (cur.status === 'running' && pollCount < maxPolls) {
-          setTimeout(poll, 2000)
+          const t = setTimeout(poll, 2000)
+          pollTimers.push(t)
         } else {
           resolve({ status: cur.status, summary: cur.summary })
         }
@@ -541,7 +547,8 @@ function pollOne(execId: number): Promise<{ status: string; summary: any }> {
         reject(e)
       }
     }
-    setTimeout(poll, 2000)
+    const t = setTimeout(poll, 2000)
+    pollTimers.push(t)
   })
 }
 
@@ -615,6 +622,9 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKey)
+  // 清理所有执行轮询定时器，防止切页后继续请求
+  pollTimers.forEach(t => clearTimeout(t))
+  pollTimers.length = 0
 })
 
 // Ctrl+Enter：执行当前选中的用例（取第一个），无选中则提示

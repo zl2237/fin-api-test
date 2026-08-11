@@ -305,7 +305,7 @@
         <div class="help-section-title">
           <el-icon class="help-section-icon"><MagicStick /></el-icon>
           <span>核心能力</span>
-          <span class="help-section-sub">字段配置中可用表达式</span>
+          <span class="help-section-sub">点击卡片查看详细用法</span>
         </div>
         <div class="help-features">
           <div class="help-feature">
@@ -315,17 +315,17 @@
               <div class="help-feature-desc">拖拽连线描述接口执行顺序，支持缩放与 minimap</div>
             </div>
           </div>
-          <div class="help-feature">
+          <div class="help-feature help-feature-clickable" @click="openCoreCapability('expression')">
             <el-icon class="help-feature-icon"><DataLine /></el-icon>
             <div class="help-feature-text">
-              <div class="help-feature-name">表达式引擎</div>
-              <div class="help-feature-desc"><code>${now()}</code> <code>${random_int()}</code> <code>${uuid()}</code> 等 12 个内置函数 + <code>${context.xxx}</code> 变量引用</div>
+              <div class="help-feature-name">表达式引擎 <el-icon class="help-feature-arrow"><ArrowRight /></el-icon></div>
+              <div class="help-feature-desc"><code>${now()}</code> <code>${timestamp()}</code> <code>${uuid()}</code> 等 14 个内置函数 + <code>${context.xxx}</code> 变量引用</div>
             </div>
           </div>
-          <div class="help-feature">
+          <div class="help-feature help-feature-clickable" @click="openCoreCapability('assertion')">
             <el-icon class="help-feature-icon"><Checked /></el-icon>
             <div class="help-feature-text">
-              <div class="help-feature-name">17 种断言</div>
+              <div class="help-feature-name">17 种断言 <el-icon class="help-feature-arrow"><ArrowRight /></el-icon></div>
               <div class="help-feature-desc">JSONPath / 状态码 / 响应耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试</div>
             </div>
           </div>
@@ -359,6 +359,143 @@
   <!-- 全局命令面板（Ctrl+K） -->
   <CommandPalette ref="cmdPaletteRef" />
 
+  <!-- 核心能力详情弹窗：表达式引擎 / 17 种断言（状态来自全局 store，跨组件可触发） -->
+  <el-dialog
+    v-model="store.coreCapVisible"
+    :title="store.coreCapTab === 'expression' ? '表达式引擎 · 内置函数与变量' : '17 种断言规则 · 用法示例'"
+    width="860px"
+    align-center
+    class="corecap-dialog"
+  >
+    <el-tabs v-model="store.coreCapTab" class="corecap-tabs">
+      <!-- ========== 表达式引擎 ========== -->
+      <el-tab-pane label="表达式引擎" name="expression">
+        <div class="corecap-intro">
+          在请求字段、SQL、断言期望值中均可使用 <code>${...}</code> 表达式动态求值。
+          整串为 <code>${func()}</code> 时返回原生类型（int/list 等），内嵌时做字符串替换。
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">变量引用</div>
+          <div class="corecap-cards">
+            <div v-for="fn in expressionData.variables" :key="fn.syntax" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ fn.syntax }}</code>
+                <span class="corecap-desc">{{ fn.desc }}</span>
+              </div>
+              <div class="corecap-example">示例：{{ fn.example }} → <span class="corecap-result">{{ fn.result }}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">时间与随机</div>
+          <div class="corecap-cards">
+            <div v-for="fn in expressionData.timeRandom" :key="fn.syntax" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ fn.syntax }}</code>
+                <span class="corecap-desc">{{ fn.desc }}</span>
+              </div>
+              <div class="corecap-example">示例：{{ fn.example }} → <span class="corecap-result">{{ fn.result }}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">字符串处理</div>
+          <div class="corecap-cards">
+            <div v-for="fn in expressionData.stringOps" :key="fn.syntax" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ fn.syntax }}</code>
+                <span class="corecap-desc">{{ fn.desc }}</span>
+              </div>
+              <div class="corecap-example">示例：{{ fn.example }} → <span class="corecap-result">{{ fn.result }}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">业务单号生成</div>
+          <div class="corecap-cards">
+            <div v-for="fn in expressionData.business" :key="fn.syntax" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ fn.syntax }}</code>
+                <span class="corecap-desc">{{ fn.desc }}</span>
+              </div>
+              <div class="corecap-example">示例：{{ fn.example }} → <span class="corecap-result">{{ fn.result }}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">数据库查询</div>
+          <div class="corecap-cards">
+            <div v-for="fn in expressionData.dbFuncs" :key="fn.syntax" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ fn.syntax }}</code>
+                <span class="corecap-desc">{{ fn.desc }}</span>
+              </div>
+              <div class="corecap-example">示例：{{ fn.example }} → <span class="corecap-result">{{ fn.result }}</span></div>
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
+
+      <!-- ========== 17 种断言 ========== -->
+      <el-tab-pane label="17 种断言规则" name="assertion">
+        <div class="corecap-intro">
+          在节点配置的「断言」中添加规则。DB 类断言支持 <code>retry_count</code> 和 <code>retry_interval</code> 参数应对异步落库。
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">JSONPath 响应断言（7 种）</div>
+          <div class="corecap-cards">
+            <div v-for="a in assertionData.jsonpath" :key="a.type" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ a.type }}</code>
+                <span class="corecap-desc">{{ a.desc }}</span>
+              </div>
+              <div class="corecap-example">配置：{{ a.example }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">HTTP 响应断言（2 种）</div>
+          <div class="corecap-cards">
+            <div v-for="a in assertionData.http" :key="a.type" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ a.type }}</code>
+                <span class="corecap-desc">{{ a.desc }}</span>
+              </div>
+              <div class="corecap-example">配置：{{ a.example }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">数据库断言（6 种）</div>
+          <div class="corecap-cards">
+            <div v-for="a in assertionData.db" :key="a.type" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ a.type }}</code>
+                <span class="corecap-desc">{{ a.desc }}</span>
+              </div>
+              <div class="corecap-example">配置：{{ a.example }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">DB 与响应交叉校验（2 种）</div>
+          <div class="corecap-cards">
+            <div v-for="a in assertionData.cross" :key="a.type" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ a.type }}</code>
+                <span class="corecap-desc">{{ a.desc }}</span>
+              </div>
+              <div class="corecap-example">配置：{{ a.example }}</div>
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
+    </el-tabs>
+    <template #footer>
+      <el-button type="primary" @click="store.setCoreCapVisible(false)">关闭</el-button>
+    </template>
+  </el-dialog>
+
   <!-- 项目版本管理 -->
   <ProjectVersionHistory
     v-model="versionVisible"
@@ -385,6 +522,77 @@ const tabStore = useTabStore()
 const helpVisible = ref(false)
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
+
+// 核心能力详情弹窗：状态由全局 store 管理，跨组件可触发
+function openCoreCapability(tab: 'expression' | 'assertion') {
+  helpVisible.value = false
+  store.openCoreCapability(tab)
+}
+
+// 表达式引擎数据：与后端 expression.py 的 14 个内置函数 + 变量引用 + DB 函数对齐
+const expressionData = {
+  variables: [
+    { syntax: '${var_name}', desc: '引用上下文中已提取的变量', example: '${order_id}', result: '10293' },
+    { syntax: '${context.var}', desc: '兼容旧写法，等价于 ${var}', example: '${context.bl_no}', result: 'SMOK20260810' },
+    { syntax: '${env.key}', desc: '引用环境变量', example: '${env.base_url}', result: 'https://api.example.com' },
+  ],
+  timeRandom: [
+    { syntax: '${now()}', desc: '当前时间 ISO 字符串', example: '${now()}', result: '2026-08-10T14:25:07.353066' },
+    { syntax: '${now(format=\'%Y-%m-%d\')}', desc: '按指定格式输出时间', example: "${now(format='%Y-%m-%d %H:%M')}", result: '2026-08-10 14:25' },
+    { syntax: '${timestamp()}', desc: '当前 Unix 时间戳（秒，整数）', example: '${timestamp()}', result: '1786291200' },
+    { syntax: '${date_add(days=1)}', desc: '当前日期加 N 天，默认 %Y-%m-%d', example: '${date_add(days=7)}', result: '2026-08-17' },
+    { syntax: '${date_add(days=-1, format=\'%Y%m%d\')}', desc: '昨天，自定义格式', example: "${date_add(days=-1, format='%Y%m%d')}", result: '20260809' },
+    { syntax: '${random_int(min=1, max=100)}', desc: '指定区间随机整数', example: '${random_int(min=1000, max=9999)}', result: '5623' },
+    { syntax: '${random_string(length=8)}', desc: '随机字符串（字母+数字）', example: '${random_string(length=16)}', result: 'aB3kM9xZ2pQ7vN1w' },
+    { syntax: '${uuid()}', desc: 'UUID 字符串（小写带横杠）', example: '${uuid()}', result: '550e8400-e29b-41d4-a716-446655440000' },
+  ],
+  stringOps: [
+    { syntax: '${upper(s=\'abc\')}', desc: '转大写', example: "${upper(s='hello')}", result: 'HELLO' },
+    { syntax: '${lower(s=\'ABC\')}', desc: '转小写', example: "${lower(s='WORLD')}", result: 'world' },
+    { syntax: '${md5(s=\'abc\')}', desc: 'MD5 哈希', example: "${md5(s='123456')}", result: 'e10adc3949ba59abbe56e057f20f883e' },
+  ],
+  business: [
+    { syntax: '${generate_bl_no()}', desc: '生成提单号', example: '${generate_bl_no()}', result: 'SMOK20260810143052' },
+    { syntax: '${generate_bl_no(prefix=\'TEST\')}', desc: '指定前缀生成提单号', example: "${generate_bl_no(prefix='TEST')}", result: 'TEST20260810143052' },
+    { syntax: '${generate_invoice_number()}', desc: '生成发票号', example: '${generate_invoice_number()}', result: 'INV202608101430527823' },
+    { syntax: '${generate_invoice_number(prefix=\'TEST\')}', desc: '指定前缀生成发票号', example: "${generate_invoice_number(prefix='TEST')}", result: 'TEST202608101430527823' },
+    { syntax: '${generate_unique_id()}', desc: '生成唯一 ID', example: '${generate_unique_id()}', result: 'a1b2c3d4e5f6' },
+  ],
+  dbFuncs: [
+    { syntax: '${db.query_value(sql, field)}', desc: '执行 SQL 返回标量值', example: "${db.query_value('SELECT order_id FROM sys_order WHERE bl_no=\\'${bl_no}\\'', field='order_id')}", result: '10293' },
+    { syntax: '${db.query_one(sql)}', desc: '执行 SQL 返回第一行 dict', example: "${db.query_one('SELECT * FROM sys_order WHERE id=1')}", result: '{id: 1, status: "paid"}' },
+    { syntax: '${db.query(sql)}', desc: '执行 SQL 返回全部行', example: "${db.query('SELECT id, name FROM sys_user LIMIT 5')}", result: '[{id:1,...}, {id:2,...}]' },
+  ],
+}
+
+// 17 种断言数据：与后端 assertion_engine.py 对齐
+const assertionData = {
+  jsonpath: [
+    { type: 'json_path_equals', desc: 'JSONPath 取值等于期望', example: "{type:'json_path_equals', path:'$.data.status', expected:'success'}" },
+    { type: 'json_path_not_equals', desc: 'JSONPath 取值不等于期望', example: "{type:'json_path_not_equals', path:'$.data.status', expected:'error'}" },
+    { type: 'json_path_contains', desc: '取值包含期望（字符串/列表）', example: "{type:'json_path_contains', path:'$.data.name', expected:'订单'}" },
+    { type: 'json_path_exists', desc: 'JSONPath 路径存在', example: "{type:'json_path_exists', path:'$.data.order_id'}" },
+    { type: 'json_path_not_empty', desc: '取值非空', example: "{type:'json_path_not_empty', path:'$.data.items'}" },
+    { type: 'json_path_match_regex', desc: '取值匹配正则', example: "{type:'json_path_match_regex', path:'$.data.phone', pattern:'^1[3-9]\\d{9}$'}" },
+    { type: 'json_path_type_equals', desc: '取值类型校验', example: "{type:'json_path_type_equals', path:'$.data.amount', expected:'int'} (string/int/bool/array/object/null)" },
+  ],
+  http: [
+    { type: 'response_status_equals', desc: 'HTTP 状态码等于期望', example: "{type:'response_status_equals', expected:200}" },
+    { type: 'response_time_less_than', desc: '响应时间小于期望(ms)', example: "{type:'response_time_less_than', expected:2000}" },
+  ],
+  db: [
+    { type: 'db_query_equals', desc: 'DB 查询字段等于期望', example: "{type:'db_query_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'${bl_no}\\'', field:'status', expected:'paid'}" },
+    { type: 'db_query_not_equals', desc: 'DB 查询字段不等于期望', example: "{type:'db_query_not_equals', sql:'...', field:'status', expected:'deleted'}" },
+    { type: 'db_query_not_empty', desc: 'DB 查询结果非空', example: "{type:'db_query_not_empty', sql:'SELECT id FROM sys_order WHERE bl_no=\\'${bl_no}\\''}" },
+    { type: 'db_query_count_equals', desc: '查询行数等于期望', example: "{type:'db_query_count_equals', sql:'SELECT id FROM sys_order WHERE user_id=${uid}', expected:3}" },
+    { type: 'db_query_count_greater_than', desc: '查询行数大于期望', example: "{type:'db_query_count_greater_than', sql:'...', expected:0}" },
+    { type: 'db_query_count_less_than', desc: '查询行数小于期望', example: "{type:'db_query_count_less_than', sql:'...', expected:100}" },
+  ],
+  cross: [
+    { type: 'db_vs_jsonpath_equals', desc: 'DB 值等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'${bl_no}\\'', field:'status', path:'$.data.status'}" },
+    { type: 'db_vs_jsonpath_not_equals', desc: 'DB 值不等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_not_equals', sql:'...', field:'status', path:'$.data.status'}" },
+  ],
+}
 // 侧边栏折叠状态：localStorage 记忆，默认展开
 const SIDEBAR_KEY = 'fin_sidebar_collapsed'
 const collapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
@@ -1011,6 +1219,110 @@ onMounted(async () => {
   color: var(--app-primary);
 }
 
+/* 可点击的核心能力卡片 */
+.help-feature-clickable {
+  cursor: pointer;
+  position: relative;
+}
+.help-feature-clickable:hover {
+  border-color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-primary) 15%, transparent);
+}
+.help-feature-clickable:active {
+  transform: translateY(0);
+}
+.help-feature-arrow {
+  font-size: 12px;
+  color: var(--app-primary);
+  margin-left: 4px;
+  opacity: 0.6;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.help-feature-clickable:hover .help-feature-arrow {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+/* ===== 核心能力详情弹窗（Element Plus 内部类样式见全局 style 块）===== */
+.corecap-intro {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: color-mix(in srgb, var(--app-primary) 6%, var(--app-card));
+  border-left: 3px solid var(--app-primary);
+  border-radius: 0 var(--app-radius-sm) var(--app-radius-sm) 0;
+}
+.corecap-intro code {
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  color: var(--app-primary);
+  background: var(--app-chip-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.corecap-group {
+  margin-bottom: 18px;
+}
+.corecap-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-bottom: 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--app-primary);
+}
+.corecap-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.corecap-card {
+  padding: 10px 14px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.corecap-card:hover {
+  border-color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 4%, transparent);
+}
+.corecap-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.corecap-syntax {
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.corecap-desc {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.corecap-example {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  font-family: var(--app-font-mono);
+  line-height: 1.6;
+  word-break: break-all;
+}
+.corecap-result {
+  color: var(--app-success, #34c759);
+  font-weight: 500;
+}
+
 /* 快捷键 */
 .help-shortcuts {
   display: flex;
@@ -1073,6 +1385,68 @@ onMounted(async () => {
   border-radius: 4px;
 }
 .help-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
+  background: var(--app-text-muted);
+}
+
+/* ===== 核心能力详情弹窗：参考 help-dialog 实现，弹窗固定在视口内 ===== */
+.corecap-dialog.el-dialog {
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.corecap-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+.corecap-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 8px;
+}
+.corecap-dialog .el-dialog__footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--app-border);
+}
+/* tabs 占满 body，header 固定，content 区滚动 */
+.corecap-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.corecap-tabs .el-tabs__header {
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.corecap-tabs .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.corecap-tabs .el-tabs__item.is-active {
+  color: var(--app-primary);
+}
+.corecap-tabs .el-tabs__active-bar {
+  background-color: var(--app-primary);
+}
+.corecap-tabs .el-tabs__content::-webkit-scrollbar {
+  width: 8px;
+}
+.corecap-tabs .el-tabs__content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.corecap-tabs .el-tabs__content::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 4px;
+}
+.corecap-tabs .el-tabs__content::-webkit-scrollbar-thumb:hover {
   background: var(--app-text-muted);
 }
 

@@ -207,12 +207,39 @@ class TestApplyFieldTypes:
         assert result == {"nums": [10, 20]}
 
     def test_array_field_non_list_value_skipped(self):
-        # field_type=array 但值不是 list → 走标量路径
+        # field_type=array 但值是无括号普通字符串 → 保持原样，不误转为 list
         api = _api(fields=[_field("ids", '["x"]', "array")])
         body = {"ids": "not a list"}
-        # val is str, not list → 不进 array 分支，走标量 coerce_scalar
-        # coerce_scalar("not a list", "array") → unknown type → passthrough
         assert apply_field_types(body, api) == {"ids": "not a list"}
+
+    def test_array_field_bracket_string_value_recovered_to_list(self):
+        # [${bl_no}] 求值后得到 "[somestring]"（非合法 JSON），应按数组语义恢复为 list
+        api = _api(fields=[_field("bl_nos", '[""]', "array")])
+        body = {"bl_nos": "[smoke20260811093513FKK8]"}
+        result = apply_field_types(body, api)
+        assert result == {"bl_nos": ["smoke20260811093513FKK8"]}
+
+    def test_array_field_bracket_string_multiple_values_recovered(self):
+        # [${a}, ${b}] 求值后得到 "[x, y]"，恢复为 ["x", "y"]
+        api = _api(fields=[_field("tags", '[""]', "array")])
+        body = {"tags": "[x, y]"}
+        result = apply_field_types(body, api)
+        assert result == {"tags": ["x", "y"]}
+
+    def test_array_field_bracket_string_empty_recovered(self):
+        # "[]" 应恢复为空 list
+        api = _api(fields=[_field("ids", '[""]', "array")])
+        body = {"ids": "[]"}
+        result = apply_field_types(body, api)
+        assert result == {"ids": []}
+
+    def test_array_field_bracket_string_int_elem_type_coerced(self):
+        # [${id}] 求值后得到 "[123]"，coerce_json_strings 已能转回 [123]；
+        # 此处验证 elem_type=int 时元素被正确强转为 int
+        api = _api(fields=[_field("nums", "[1]", "array")])
+        body = {"nums": "[123]"}
+        result = apply_field_types(body, api)
+        assert result == {"nums": [123]}
 
     def test_array_body_applies_to_first_element(self):
         api = _api(fields=[_field("id", "", "string")])
