@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from .. import path_setup  # noqa: F401
 from .. import models
 from ..services.runtime_service import build_http_client, login, build_db_client
-from ..services.body_builder import build_request_body
+from ..services.body_builder import build_request_body, pop_file_fields_from_body
 from ..services.notifier import send_notify
 from .context import ExecutionContext
 from .preprocessor import PreProcessor
@@ -79,13 +79,37 @@ class DagExecutor:
         return order, leftover
 
     # ---------- 请求发送 ----------
-    def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict) -> Tuple[int, Any, Optional[str]]:
-        """返回 (status_code, response_body, error_msg)"""
+    def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict,
+                      file_fields: Optional[List[Tuple[str, str]]] = None) -> Tuple[int, Any, Optional[str]]:
+        """返回 (status_code, response_body, error_msg)
+
+        :param file_fields: file 类型字段列表 [(field_name, file_id), ...]
+                            非空时构建 multipart 请求，文件从文件中心按 file_id 取
+        """
         # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
         timeout = getattr(self.env, "timeout", None) or 15
+        files_payload: list = []
         try:
             if api.method.upper() == "GET":
                 resp = self.http_client.get(api.path, params=body, timeout=timeout)
+            elif file_fields:
+                # 含文件字段：构建 multipart/form-data
+                files_payload = self._build_multipart_files(file_fields)
+                if files_payload:
+                    # multipart 请求去掉 Content-Type，让 requests 自动生成 boundary
+                    saved_headers = self.http_client.headers
+                    multipart_headers = {k: v for k, v in saved_headers.items()
+                                         if k.lower() != "content-type"}
+                    self.http_client.headers = multipart_headers
+                    form_data = body if isinstance(body, dict) else None
+                    try:
+                        resp = self.http_client.post_multipart(
+                            api.path, data=form_data, files=files_payload, timeout=timeout
+                        )
+                    finally:
+                        self.http_client.headers = saved_headers
+                else:
+                    resp = self.http_client.post(api.path, json=body, timeout=timeout)
             else:
                 resp = self.http_client.post(api.path, json=body, timeout=timeout)
             # HttpClient 成功返回即 HTTP 200 且业务码 200
@@ -100,6 +124,48 @@ class DagExecutor:
             # 未预期的请求异常（如连接错误、SSL 错误等），记录日志便于排查
             print(f"[请求异常] {api.method} {api.path} 未预期异常: {e}")
             return 0, {"error": str(e)}, str(e)
+        finally:
+            # 关闭 multipart 请求中打开的文件句柄
+            if files_payload:
+                self._close_multipart_files(files_payload)
+
+    def _build_multipart_files(self, file_fields: List[Tuple[str, str]]) -> list:
+        """将 file_id 列表转为 requests 的 files 参数格式。
+
+        返回 [(field_name, (filename, fileobj, content_type)), ...]
+        文件不存在或读取失败的字段跳过并打印日志。
+        """
+        from ..routers.files import _resolve_physical_path
+
+        files_payload: list = []
+        for field_name, file_id_str in file_fields:
+            try:
+                file_id = int(file_id_str)
+            except (ValueError, TypeError):
+                print(f"[文件上传] file_id 非法: {file_id_str}，跳过")
+                continue
+            f = self.db.query(models.TestFile).filter(models.TestFile.id == file_id).first()
+            if not f:
+                print(f"[文件上传] file_id={file_id} 不存在，跳过")
+                continue
+            physical = _resolve_physical_path(f.storage_path)
+            if not physical.exists():
+                print(f"[文件上传] 物理文件丢失: {f.storage_path}，跳过")
+                continue
+            fileobj = open(physical, "rb")
+            files_payload.append((field_name, (f.name, fileobj, f.content_type)))
+        return files_payload
+
+    def _close_multipart_files(self, files_payload: list) -> None:
+        """关闭 multipart 请求中打开的文件句柄"""
+        for item in files_payload:
+            try:
+                # 元组格式 (field_name, (filename, fileobj, content_type))
+                fileobj = item[1][1] if isinstance(item[1], tuple) else None
+                if fileobj:
+                    fileobj.close()
+            except Exception:
+                pass
 
     # ---------- 执行入口 ----------
     def execute(self) -> models.ExecutionRecord:
@@ -231,13 +297,16 @@ class DagExecutor:
         # 按接口字段定义强转标量类型，避免表达式求值后类型丢失
         # （如 ${order_id} 提取为 int，但字段定义为 string 时应转字符串发送）
         body = apply_field_types(body, api)
+        # 提取 file 类型字段：从 body 中剥离 file 字段，单独组装到 multipart files
+        # file 字段不参与 JSON body，避免被 JSON 序列化为字符串
+        body, file_fields = pop_file_fields_from_body(body, api)
         # headers 中支持表达式
         for k, v in list(headers.items()):
             if isinstance(v, str) and "${" in v:
                 headers[k] = preprocessor.expr.evaluate(v)
 
-        # 2. 发送请求
-        status_code, response_data, err = self._send_request(api, body, headers)
+        # 2. 发送请求（file_fields 非空时走 multipart 通道）
+        status_code, response_data, err = self._send_request(api, body, headers, file_fields)
         elapsed = int((time.time() - start_ts) * 1000)
 
         # 3. 后置提取（支持从响应或 DB 提取变量到上下文）

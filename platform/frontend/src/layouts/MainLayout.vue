@@ -66,6 +66,10 @@
           <el-icon><DataLine /></el-icon>
           <span>字段字典</span>
         </el-menu-item>
+        <el-menu-item index="/files">
+          <el-icon><Files /></el-icon>
+          <span>文件中心</span>
+        </el-menu-item>
         <el-menu-item v-if="store.user?.role === 'admin'" index="/users">
           <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
@@ -508,7 +512,7 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { authApi } from '@/api'

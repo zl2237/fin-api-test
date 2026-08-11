@@ -57,6 +57,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
     name = Column(String(100), nullable=False, comment="项目名称")
     description = Column(Text, comment="项目描述")
+    sort_order = Column(Integer, default=0, comment="排序序号（支持拖拽排序）")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
     created_by = Column(Integer, nullable=True, comment="创建人 user_id")
     updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
@@ -84,6 +85,7 @@ class Environment(Base):
     common_headers = Column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
     timeout = Column(Integer, default=15, comment="接口请求超时时间（秒）")
     is_default = Column(Boolean, default=False, comment="是否为项目默认环境")
+    sort_order = Column(Integer, default=0, comment="排序序号（支持拖拽排序）")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
     created_by = Column(Integer, nullable=True, comment="创建人 user_id")
     updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
@@ -309,3 +311,81 @@ class FieldDictionary(Base):
     updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
 
     project = relationship("Project")
+
+
+# ============ 文件中心 ============
+class FileCategory(Base):
+    """文件分类（项目级，支持多级树形结构）"""
+    __tablename__ = "file_categories"
+    __table_args__ = (
+        UniqueConstraint("project_id", "parent_id", "name", name="uq_file_category_project_parent_name"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
+    parent_id = Column(Integer, ForeignKey("file_categories.id"), nullable=True, comment="父分类ID，NULL表示顶层")
+    name = Column(String(100), nullable=False, comment="分类名称")
+    sort_order = Column(Integer, default=0, comment="排序序号")
+    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
+
+    project = relationship("Project")
+    children = relationship("FileCategory", back_populates="parent", cascade="all, delete-orphan")
+    parent = relationship("FileCategory", back_populates="children", remote_side=[id])
+    files = relationship("TestFile", back_populates="category", cascade="all, delete-orphan")
+
+
+class FileTag(Base):
+    """文件标签（项目级，扁平结构）"""
+    __tablename__ = "file_tags"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_file_tag_project_name"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
+    name = Column(String(50), nullable=False, comment="标签名称")
+    color = Column(String(20), default="", comment="标签颜色（如 #409EFF）")
+    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
+
+    project = relationship("Project")
+
+
+class TestFile(Base):
+    """测试文件（项目级隔离，sha256 内容去重，ref_count 引用计数）"""
+    __tablename__ = "test_files"
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
+    category_id = Column(Integer, ForeignKey("file_categories.id"), nullable=True, comment="所属分类ID，NULL 表示未分类")
+    name = Column(String(255), nullable=False, comment="显示名（可重命名）")
+    original_name = Column(String(255), nullable=False, comment="上传时原始文件名")
+    content_type = Column(String(100), default="application/octet-stream", comment="MIME 类型")
+    size = Column(Integer, default=0, comment="文件大小（字节）")
+    sha256 = Column(String(64), nullable=False, index=True, comment="内容 SHA256 指纹（去重依据）")
+    storage_path = Column(String(500), nullable=False, comment="相对存储路径：uploads/files/{sha256前2位}/{sha256}")
+    ref_count = Column(Integer, default=1, comment="引用计数，归零时可清理物理文件")
+    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+
+    project = relationship("Project")
+    category = relationship("FileCategory", back_populates="files")
+    tag_links = relationship("FileTagRelation", back_populates="file", cascade="all, delete-orphan")
+
+
+class FileTagRelation(Base):
+    """文件-标签 多对多关联"""
+    __tablename__ = "file_tag_relations"
+    __table_args__ = (
+        UniqueConstraint("file_id", "tag_id", name="uq_file_tag_relation"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    file_id = Column(Integer, ForeignKey("test_files.id"), nullable=False, index=True, comment="文件ID")
+    tag_id = Column(Integer, ForeignKey("file_tags.id"), nullable=False, index=True, comment="标签ID")
+
+    file = relationship("TestFile", back_populates="tag_links")
+    tag = relationship("FileTag")

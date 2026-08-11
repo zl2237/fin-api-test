@@ -55,6 +55,13 @@ def delete(env_id: int, db: Session = Depends(get_db), user: models.User = Depen
     return {"message": "已删除"}
 
 
+@router.post("/reorder")
+def reorder(data: schemas.EnvironmentReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    items = [{"id": it["id"], "sort_order": it["sort_order"]} for it in data.items]
+    updated = crud.reorder_environments(db, items)
+    return {"message": f"已更新 {updated} 个环境排序", "updated": updated}
+
+
 @router.post("/{env_id}/copy", response_model=schemas.EnvironmentOut)
 def copy(env_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_environment(db, env_id)

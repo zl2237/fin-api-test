@@ -71,7 +71,7 @@ export interface User {
   has_avatar?: boolean
 }
 export interface Project {
-  id: number; name: string; description?: string; created_at?: string
+  id: number; name: string; description?: string; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -81,7 +81,7 @@ export interface Environment {
   login_config: Record<string, any>
   notify_config: Record<string, any>
   variables: Record<string, any>
-  common_headers: Record<string, any>; timeout: number; is_default: boolean; created_at?: string
+  common_headers: Record<string, any>; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -241,6 +241,8 @@ export const projectApi = {
   create: (data: Partial<Project>) => http.post<Project>('/projects', data).then((r) => r.data),
   update: (id: number, data: Partial<Project>) => http.put<Project>(`/projects/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/projects/${id}`),
+  reorder: (items: { id: number; sort_order: number }[]) =>
+    http.post<{ message: string; updated: number }>('/projects/reorder', { items }).then((r) => r.data),
 }
 
 // ============ Environment ============
@@ -253,6 +255,8 @@ export const envApi = {
   copy: (id: number) => http.post<Environment>(`/environments/${id}/copy`).then((r) => r.data),
   testDb: (id: number) => http.post<{ ok: boolean; message: string; test_result?: any }>(`/environments/${id}/test-db`).then((r) => r.data),
   testLogin: (id: number) => http.post<{ ok: boolean; message: string; auth_header_name?: string; auth_header_preview?: string; base_url?: string }>(`/environments/${id}/test-login`).then((r) => r.data),
+  reorder: (items: { id: number; sort_order: number }[]) =>
+    http.post<{ message: string; updated: number }>('/environments/reorder', { items }).then((r) => r.data),
 }
 
 // ============ ApiGroup ============
@@ -374,4 +378,68 @@ export const dictApi = {
   remove: (id: number) => http.delete(`/field-dictionaries/${id}`),
   batch: (projectId: number, items: { key: string; label: string }[]) =>
     http.post<{ message: string; count: number }>('/field-dictionaries/batch', { project_id: projectId, items }).then((r) => r.data),
+}
+
+// ============ FileCenter 文件中心 ============
+export interface FileCategory {
+  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number
+  created_at?: string; created_by?: number | null; created_by_name?: string | null
+}
+
+export interface FileTag {
+  id: number; project_id: number; name: string; color: string
+  created_at?: string; created_by?: number | null; created_by_name?: string | null
+}
+
+export interface TestFile {
+  id: number; project_id: number; category_id?: number | null
+  name: string; original_name: string; content_type: string; size: number
+  sha256: string; storage_path: string; ref_count: number
+  tag_ids: number[]
+  created_at?: string; updated_at?: string
+  created_by?: number | null; updated_by?: number | null
+  created_by_name?: string | null; updated_by_name?: string | null
+}
+
+export const fileApi = {
+  // 文件 CRUD
+  list: (projectId: number, params?: { category_id?: number | null; tag_id?: number; keyword?: string }) =>
+    http.get<TestFile[]>('/files', { params: { project_id: projectId, ...params } }).then((r) => r.data),
+  get: (id: number) => http.get<TestFile>(`/files/${id}`).then((r) => r.data),
+  upload: (file: File, projectId: number, categoryId?: number | null) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return http.post<TestFile>(`/files/upload?project_id=${projectId}${categoryId ? `&category_id=${categoryId}` : ''}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+  update: (id: number, data: { name?: string; category_id?: number | null; tag_ids?: number[] }) =>
+    http.put<TestFile>(`/files/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete<{ message: string; physical_removed: boolean }>(`/files/${id}`),
+  // 下载/预览：用 axios 获取 blob（带 token），转 object URL 供 img/iframe/a 使用
+  fetchBlob: (id: number, preview = false) =>
+    http.get<Blob>(`/files/${id}/${preview ? 'preview' : 'download'}`, { responseType: 'blob' }).then((r) => {
+      const url = URL.createObjectURL(r.data)
+      return { url, blob: r.data }
+    }),
+}
+
+export const fileCategoryApi = {
+  list: (projectId: number) =>
+    http.get<FileCategory[]>('/file-categories', { params: { project_id: projectId } }).then((r) => r.data),
+  create: (data: { project_id: number; parent_id?: number | null; name: string; sort_order?: number }) =>
+    http.post<FileCategory>('/file-categories', data).then((r) => r.data),
+  update: (id: number, data: { name?: string; parent_id?: number | null; sort_order?: number }) =>
+    http.put<FileCategory>(`/file-categories/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/file-categories/${id}`),
+}
+
+export const fileTagApi = {
+  list: (projectId: number) =>
+    http.get<FileTag[]>('/file-tags', { params: { project_id: projectId } }).then((r) => r.data),
+  create: (data: { project_id: number; name: string; color?: string }) =>
+    http.post<FileTag>('/file-tags', data).then((r) => r.data),
+  update: (id: number, data: { name?: string; color?: string }) =>
+    http.put<FileTag>(`/file-tags/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/file-tags/${id}`),
 }
