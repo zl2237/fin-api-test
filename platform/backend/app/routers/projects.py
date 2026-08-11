@@ -51,3 +51,10 @@ def delete(project_id: int, db: Session = Depends(get_db), user: models.User = D
     crud.delete_project(db, obj)
     crud.log_operation(db, user, "delete", "project", obj.id, obj.name)
     return {"message": "已删除"}
+
+
+@router.post("/reorder")
+def reorder(data: schemas.ProjectReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    items = [{"id": it["id"], "sort_order": it["sort_order"]} for it in data.items]
+    updated = crud.reorder_projects(db, items)
+    return {"message": f"已更新 {updated} 个项目排序", "updated": updated}

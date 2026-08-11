@@ -145,6 +145,7 @@ const results = computed<CmdItem[]>(() => {
     { title: '用例列表', path: '/cases' },
     { title: '执行记录', path: '/executions' },
     { title: '字段字典', path: '/dictionary' },
+    { title: '文件中心', path: '/files' },
   ]
   if (store.user?.role === 'admin') {
     navs.push({ title: '用户管理', path: '/users' })

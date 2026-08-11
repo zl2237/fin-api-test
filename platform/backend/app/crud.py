@@ -126,7 +126,7 @@ def list_projects(db: Session, created_by: Optional[int] = None, updated_by: Opt
         q = q.filter(models.Project.created_by == created_by)
     if updated_by is not None:
         q = q.filter(models.Project.updated_by == updated_by)
-    return q.order_by(models.Project.id.desc()).all()
+    return q.order_by(models.Project.sort_order, models.Project.id.desc()).all()
 
 
 def update_project(db: Session, project: models.Project, data: schemas.ProjectUpdate, user_id: Optional[int] = None) -> models.Project:
@@ -142,6 +142,19 @@ def update_project(db: Session, project: models.Project, data: schemas.ProjectUp
 def delete_project(db: Session, project: models.Project):
     db.delete(project)
     db.commit()
+
+
+def reorder_projects(db: Session, items: List[dict]) -> int:
+    """批量更新项目的 sort_order（拖拽排序）"""
+    if not items:
+        return 0
+    updated = 0
+    for it in items:
+        updated += db.query(models.Project).filter(
+            models.Project.id == it["id"]
+        ).update({models.Project.sort_order: it["sort_order"]}, synchronize_session=False)
+    db.commit()
+    return updated
 
 
 # ============ Environment ============
@@ -168,7 +181,7 @@ def list_environments(db: Session, project_id: Optional[int] = None, created_by:
         q = q.filter(models.Environment.created_by == created_by)
     if updated_by is not None:
         q = q.filter(models.Environment.updated_by == updated_by)
-    return q.order_by(models.Environment.id.desc()).all()
+    return q.order_by(models.Environment.sort_order, models.Environment.id.desc()).all()
 
 
 def update_environment(db: Session, env: models.Environment, data: schemas.EnvironmentUpdate, user_id: Optional[int] = None) -> models.Environment:
@@ -184,6 +197,19 @@ def update_environment(db: Session, env: models.Environment, data: schemas.Envir
 def delete_environment(db: Session, env: models.Environment):
     db.delete(env)
     db.commit()
+
+
+def reorder_environments(db: Session, items: List[dict]) -> int:
+    """批量更新环境的 sort_order（拖拽排序）"""
+    if not items:
+        return 0
+    updated = 0
+    for it in items:
+        updated += db.query(models.Environment).filter(
+            models.Environment.id == it["id"]
+        ).update({models.Environment.sort_order: it["sort_order"]}, synchronize_session=False)
+    db.commit()
+    return updated
 
 
 def copy_environment(db: Session, env: models.Environment) -> models.Environment:
@@ -974,3 +1000,203 @@ def get_field_dict_map(db: Session, project_id: int) -> dict:
         models.FieldDictionary.project_id == project_id
     ).all()
     return {r[0]: r[1] for r in rows}
+
+
+# ============ FileCategory 文件分类 ============
+def create_file_category(db: Session, data: schemas.FileCategoryCreate, user_id: Optional[int] = None) -> models.FileCategory:
+    obj = models.FileCategory(
+        project_id=data.project_id,
+        parent_id=data.parent_id,
+        name=data.name,
+        sort_order=data.sort_order,
+        created_by=user_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def list_file_categories(db: Session, project_id: int) -> List[models.FileCategory]:
+    return db.query(models.FileCategory).filter(
+        models.FileCategory.project_id == project_id
+    ).order_by(models.FileCategory.sort_order, models.FileCategory.id).all()
+
+
+def update_file_category(db: Session, obj: models.FileCategory, data: schemas.FileCategoryUpdate) -> models.FileCategory:
+    payload = data.model_dump(exclude_unset=True)
+    for k, v in payload.items():
+        setattr(obj, k, v)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_file_category(db: Session, obj: models.FileCategory):
+    """删除分类：子分类和文件由 cascade=all,delete-orphan 级联处理"""
+    db.delete(obj)
+    db.commit()
+
+
+def get_file_category(db: Session, category_id: int) -> Optional[models.FileCategory]:
+    return db.query(models.FileCategory).filter(models.FileCategory.id == category_id).first()
+
+
+# ============ FileTag 文件标签 ============
+def create_file_tag(db: Session, data: schemas.FileTagCreate, user_id: Optional[int] = None) -> models.FileTag:
+    obj = models.FileTag(
+        project_id=data.project_id,
+        name=data.name,
+        color=data.color,
+        created_by=user_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def list_file_tags(db: Session, project_id: int) -> List[models.FileTag]:
+    return db.query(models.FileTag).filter(
+        models.FileTag.project_id == project_id
+    ).order_by(models.FileTag.id).all()
+
+
+def update_file_tag(db: Session, obj: models.FileTag, data: schemas.FileTagUpdate) -> models.FileTag:
+    payload = data.model_dump(exclude_unset=True)
+    for k, v in payload.items():
+        setattr(obj, k, v)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_file_tag(db: Session, obj: models.FileTag):
+    db.delete(obj)
+    db.commit()
+
+
+def get_file_tag(db: Session, tag_id: int) -> Optional[models.FileTag]:
+    return db.query(models.FileTag).filter(models.FileTag.id == tag_id).first()
+
+
+def get_file_tag_by_name(db: Session, project_id: int, name: str) -> Optional[models.FileTag]:
+    return db.query(models.FileTag).filter(
+        models.FileTag.project_id == project_id,
+        models.FileTag.name == name,
+    ).first()
+
+
+# ============ TestFile 测试文件 ============
+def get_file(db: Session, file_id: int) -> Optional[models.TestFile]:
+    return db.query(models.TestFile).filter(models.TestFile.id == file_id).first()
+
+
+def get_file_by_sha256(db: Session, project_id: int, sha256: str) -> Optional[models.TestFile]:
+    """按项目 + sha256 查找文件（项目内去重）"""
+    return db.query(models.TestFile).filter(
+        models.TestFile.project_id == project_id,
+        models.TestFile.sha256 == sha256,
+    ).first()
+
+
+def list_files(
+    db: Session,
+    project_id: int,
+    category_id: Optional[int] = None,
+    tag_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> List[models.TestFile]:
+    """列出项目下的文件，支持按分类/标签/名称过滤"""
+    q = db.query(models.TestFile).filter(models.TestFile.project_id == project_id)
+    if category_id is not None:
+        q = q.filter(models.TestFile.category_id == category_id)
+    if tag_id is not None:
+        q = q.join(models.FileTagRelation, models.FileTagRelation.file_id == models.TestFile.id) \
+             .filter(models.FileTagRelation.tag_id == tag_id)
+    if keyword:
+        q = q.filter(models.TestFile.name.like(f"%{keyword}%"))
+    return q.order_by(models.TestFile.created_at.desc()).all()
+
+
+def create_file_record(
+    db: Session,
+    project_id: int,
+    name: str,
+    original_name: str,
+    content_type: str,
+    size: int,
+    sha256: str,
+    storage_path: str,
+    category_id: Optional[int],
+    user_id: Optional[int],
+) -> models.TestFile:
+    obj = models.TestFile(
+        project_id=project_id,
+        category_id=category_id,
+        name=name,
+        original_name=original_name,
+        content_type=content_type,
+        size=size,
+        sha256=sha256,
+        storage_path=storage_path,
+        ref_count=1,
+        created_by=user_id,
+        updated_by=user_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def update_file(db: Session, obj: models.TestFile, data: schemas.FileUpdateRequest, user_id: Optional[int] = None) -> models.TestFile:
+    """更新文件元数据：重命名 / 改分类 / 改标签"""
+    if data.name is not None:
+        obj.name = data.name
+    if data.category_id is not None:
+        obj.category_id = data.category_id
+    if user_id is not None:
+        obj.updated_by = user_id
+    db.commit()
+    # 标签更新：先删后建
+    if data.tag_ids is not None:
+        db.query(models.FileTagRelation).filter(
+            models.FileTagRelation.file_id == obj.id
+        ).delete()
+        for tid in data.tag_ids:
+            db.add(models.FileTagRelation(file_id=obj.id, tag_id=tid))
+        db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_file(db: Session, obj: models.TestFile) -> bool:
+    """删除文件记录：ref_count - 1，归零时删除物理文件。返回是否删除了物理文件。"""
+    obj.ref_count -= 1
+    delete_physical = obj.ref_count <= 0
+    db.delete(obj)
+    db.commit()
+    return delete_physical
+
+
+def get_file_tag_ids(db: Session, file_id: int) -> List[int]:
+    rows = db.query(models.FileTagRelation.tag_id).filter(
+        models.FileTagRelation.file_id == file_id
+    ).all()
+    return [r[0] for r in rows]
+
+
+def fill_file_tag_ids(db: Session, objs: List[models.TestFile]) -> None:
+    """批量填充 tag_ids 属性（避免 N+1）"""
+    if not objs:
+        return
+    ids = [o.id for o in objs]
+    rows = db.query(models.FileTagRelation.file_id, models.FileTagRelation.tag_id).filter(
+        models.FileTagRelation.file_id.in_(ids)
+    ).all()
+    mapping: dict = {}
+    for fid, tid in rows:
+        mapping.setdefault(fid, []).append(tid)
+    for o in objs:
+        setattr(o, "tag_ids", mapping.get(o.id, []))

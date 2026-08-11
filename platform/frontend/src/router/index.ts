@@ -19,6 +19,7 @@ const routes = [
       { path: 'executions', name: 'Execution', component: () => import('@/views/Execution.vue'), meta: { title: '执行记录' } },
       { path: 'reports/:id', name: 'ReportDetail', component: () => import('@/views/ReportDetail.vue'), meta: { title: '执行报告' } },
       { path: 'dictionary', name: 'DictManage', component: () => import('@/views/DictManage.vue'), meta: { title: '字段字典' } },
+      { path: 'files', name: 'FileCenter', component: () => import('@/views/FileCenter.vue'), meta: { title: '文件中心' } },
       { path: 'users', name: 'UserManage', component: () => import('@/views/UserManage.vue'), meta: { title: '用户管理', requireAdmin: true } },
       { path: 'operation-logs', name: 'OperationLog', component: () => import('@/views/OperationLog.vue'), meta: { title: '操作日志', requireAdmin: true } },
     ],

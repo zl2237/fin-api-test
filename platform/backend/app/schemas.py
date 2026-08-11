@@ -88,10 +88,16 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
 
 
+class ProjectReorderRequest(BaseModel):
+    """批量重排序项目（拖拽排序）"""
+    items: List[Dict[str, Any]]
+
+
 class ProjectOut(ORMBase):
     id: int
     name: str
     description: Optional[str] = None
+    sort_order: int = 0
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     updated_by: Optional[int] = None
@@ -125,6 +131,11 @@ class EnvironmentUpdate(BaseModel):
     is_default: Optional[bool] = None
 
 
+class EnvironmentReorderRequest(BaseModel):
+    """批量重排序环境（拖拽排序）"""
+    items: List[Dict[str, Any]]
+
+
 class EnvironmentOut(ORMBase):
     id: int
     project_id: int
@@ -137,6 +148,7 @@ class EnvironmentOut(ORMBase):
     common_headers: Dict[str, Any] = {}
     timeout: int = 15
     is_default: bool = False
+    sort_order: int = 0
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     updated_by: Optional[int] = None
@@ -547,6 +559,81 @@ class FieldDictionaryOut(ORMBase):
     project_id: int
     key: str
     label: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    updated_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
+
+
+# ============ FileCategory 文件分类 ============
+class FileCategoryCreate(BaseModel):
+    project_id: int
+    parent_id: Optional[int] = None
+    name: str
+    sort_order: int = 0
+
+
+class FileCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class FileCategoryOut(ORMBase):
+    id: int
+    project_id: int
+    parent_id: Optional[int] = None
+    name: str
+    sort_order: int = 0
+    created_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+
+
+# ============ FileTag 文件标签 ============
+class FileTagCreate(BaseModel):
+    project_id: int
+    name: str
+    color: str = ""
+
+
+class FileTagUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
+
+class FileTagOut(ORMBase):
+    id: int
+    project_id: int
+    name: str
+    color: str = ""
+    created_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+
+
+# ============ TestFile 测试文件 ============
+class FileUpdateRequest(BaseModel):
+    """重命名 / 改分类 / 改标签"""
+    name: Optional[str] = None
+    category_id: Optional[int] = None
+    tag_ids: Optional[List[int]] = None
+
+
+class FileOut(ORMBase):
+    id: int
+    project_id: int
+    category_id: Optional[int] = None
+    name: str
+    original_name: str
+    content_type: str = "application/octet-stream"
+    size: int = 0
+    sha256: str
+    storage_path: str
+    ref_count: int = 1
+    tag_ids: List[int] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     created_by: Optional[int] = None
