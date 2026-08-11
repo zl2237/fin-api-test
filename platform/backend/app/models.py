@@ -192,6 +192,7 @@ class CaseNodeConfig(Base):
     pre_process = Column(JSON, default=list, comment="前置处理动作列表：[{type, path, value}]")
     post_extract = Column(JSON, default=list, comment="后置提取规则列表：[{name, source, jsonpath, sql, field}]")
     assertions = Column(JSON, default=list, comment="断言规则列表：[{type, path, expected, sql, ...}]")
+    wait_after_ms = Column(Integer, default=0, comment="当前节点执行完后到下一节点请求前的等待毫秒数，默认0")
 
     case = relationship("TestCase", back_populates="node_configs")
     api = relationship("ApiDefinition")

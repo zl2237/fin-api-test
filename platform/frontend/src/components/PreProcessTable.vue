@@ -11,7 +11,7 @@
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column :label="pathLabel" min-width="180">
+      <el-table-column :label="pathLabel" min-width="220">
         <template #default="{ row }">
           <el-select
             v-model="row.path"
@@ -23,7 +23,7 @@
             style="width: 100%"
           >
             <el-option
-              v-for="opt in fieldOptions"
+              v-for="opt in availableFieldOptions(row)"
               :key="opt.value"
               :label="opt.label"
               :value="opt.value"
@@ -37,9 +37,16 @@
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="值（支持 ${}）" min-width="200">
+      <el-table-column label="值（支持 ${}）" min-width="240">
         <template #default="{ row }">
-          <el-input v-if="row.type !== 'delete_field'" v-model="row.value" size="small" placeholder="${order_id}" />
+          <el-input
+            v-if="row.type !== 'delete_field'"
+            v-model="row.value"
+            size="small"
+            type="textarea"
+            :rows="1"
+            placeholder="${order_id} 或 ${db.query_value('SELECT ... WHERE id=${id}', field='xxx')}"
+          />
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -88,6 +95,16 @@ function pickArrayItemLabel(item: any): string {
   return ''
 }
 
+// 从示例值推断字段类型（用于嵌套字段，顶层字段直接用 ApiField.field_type）
+function inferType(v: any): string {
+  if (v === null || v === undefined) return 'null'
+  if (Array.isArray(v)) return 'array'
+  if (typeof v === 'object') return 'object'
+  if (typeof v === 'number') return Number.isInteger(v) ? 'int' : 'number'
+  if (typeof v === 'boolean') return 'bool'
+  return 'string'
+}
+
 function collectKeys(obj: any, base: string, out: { value: string; label: string }[], depth = 0): void {
   if (depth > 2) return
   if (Array.isArray(obj)) {
@@ -97,9 +114,10 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
         const itemLabel = pickArrayItemLabel(item)
         for (const [k, v] of Object.entries(item)) {
           const childPath = `${base}.${idx}.${k}`
+          const t = inferType(v)
           // 优先用数组项的业务标签，其次查项目字典
           const cn = itemLabel || dictLabel(k)
-          const lbl = cn ? `${base}.${idx}.${k}（${cn}）` : `${base}.${idx}.${k}`
+          const lbl = cn ? `${base}.${idx}.${k}（${cn}）[${t}]` : `${base}.${idx}.${k} [${t}]`
           out.push({ value: childPath, label: lbl })
           if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
         }
@@ -108,8 +126,9 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
   } else if (obj && typeof obj === 'object') {
     for (const [k, v] of Object.entries(obj)) {
       const childPath = `${base}.${k}`
+      const t = inferType(v)
       const cn = dictLabel(k)
-      const lbl = cn ? `${base}.${k}（${cn}）` : `${base}.${k}`
+      const lbl = cn ? `${base}.${k}（${cn}）[${t}]` : `${base}.${k} [${t}]`
       out.push({ value: childPath, label: lbl })
       if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
     }
@@ -119,9 +138,9 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
 const fieldOptions = computed<FieldOption[]>(() => {
   const opts: FieldOption[] = []
   for (const f of fields.value) {
-    // 优先用接口配置的 label，其次查项目字典
+    // 优先用接口配置的 label，其次查项目字典；末尾追加接口管理配置的字段类型
     const cn = resolveLabel(f.key, f.label)
-    const label = cn ? `${f.key}（${cn}）` : f.key
+    const label = cn ? `${f.key}（${cn}）[${f.field_type}]` : `${f.key} [${f.field_type}]`
     opts.push({ value: f.key, label })
     if (f.field_type === 'array' || f.field_type === 'object') {
       const parsed = tryParseJson(f.default_value)
@@ -130,6 +149,21 @@ const fieldOptions = computed<FieldOption[]>(() => {
   }
   return opts
 })
+
+// 当前已使用的字段路径集合（排除空值）
+const usedPaths = computed<Set<string>>(() => {
+  const s = new Set<string>()
+  for (const r of props.modelValue) {
+    if (r?.path) s.add(r.path)
+  }
+  return s
+})
+
+// 每行可选字段路径：排除其他行已设置的路径，保留当前行已选值
+function availableFieldOptions(row: any): FieldOption[] {
+  const current = row?.path
+  return fieldOptions.value.filter((opt) => opt.value === current || !usedPaths.value.has(opt.value))
+}
 
 const hasIterate = computed(() => props.modelValue.some((r) => r?.type === 'iterate_set'))
 const pathLabel = computed(() => (hasIterate.value ? '路径 / 列表路径' : '字段路径'))

@@ -354,6 +354,7 @@ class NodeConfigIn(BaseModel):
     pre_process: List[Dict[str, Any]] = []
     post_extract: List[Dict[str, Any]] = []
     assertions: List[Dict[str, Any]] = []
+    wait_after_ms: int = 0
 
 
 class NodeConfigOut(ORMBase):
@@ -364,6 +365,7 @@ class NodeConfigOut(ORMBase):
     pre_process: List[Dict[str, Any]] = []
     post_extract: List[Dict[str, Any]] = []
     assertions: List[Dict[str, Any]] = []
+    wait_after_ms: int = 0
 
 
 # ============ TestCase ============
