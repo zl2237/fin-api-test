@@ -59,7 +59,7 @@
           <span v-else class="expand-spacer" />
           <el-icon class="group-icon"><Folder /></el-icon>
           <span class="group-name">{{ row.name }}</span>
-          <span class="group-count">{{ casesOf(row.groupId).length }}</span>
+          <span class="group-count">{{ row.isUngrouped ? casesOf(null).length : countCasesWithDescendants(row.groupId!) }}</span>
         </div>
         <div v-show="(row.isUngrouped || isGroupExpanded(row.groupId!)) && casesOf(row.groupId).length > 0" class="group-body">
           <el-table
@@ -228,7 +228,7 @@ import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
-import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -249,6 +249,7 @@ const keyword = ref('')
 
 // 多级分组：树构建 + 展开记忆（按项目持久化）
 const {
+  tree,
   treeSelectData,
   treeSelectWithUngrouped,
   isExpanded: isGroupExpanded,
@@ -403,6 +404,12 @@ const filteredList = computed(() => {
 /** 某分组的用例列表（未分组传 null） */
 function casesOf(groupId: number | null): TestCase[] {
   return filteredList.value.filter(c => c.group_id === groupId)
+}
+
+/** 统计分组的用例数量（含所有子孙分组，用于分组头部计数展示） */
+function countCasesWithDescendants(groupId: number): number {
+  const ids = [groupId, ...collectDescendantIds(tree.value, groupId)]
+  return filteredList.value.filter(c => c.group_id != null && ids.includes(c.group_id)).length
 }
 
 /** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行 */
