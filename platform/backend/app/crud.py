@@ -242,7 +242,9 @@ def update_api_group(db: Session, group: models.ApiGroup, data: schemas.ApiGroup
 
 
 def delete_api_group(db: Session, group: models.ApiGroup):
-    # 阻止删除非空分组：组内仍有接口时拒绝，强制用户先移走
+    # 阻止删除非空分组：有子分组或有接口时拒绝，强制用户先移走
+    if group.children:
+        raise ValueError(f"分组「{group.name}」下还有 {len(group.children)} 个子分组，请先删除子分组")
     if group.apis:
         raise ValueError(f"分组「{group.name}」下还有 {len(group.apis)} 个接口，请先移走后再删除")
     db.delete(group)
@@ -301,6 +303,11 @@ def update_case_group(db: Session, group: models.CaseGroup, data: schemas.CaseGr
 
 
 def delete_case_group(db: Session, group: models.CaseGroup):
+    # 阻止删除非空分组：有子分组或有用例时拒绝，强制用户先移走
+    if group.children:
+        raise ValueError(f"分组「{group.name}」下还有 {len(group.children)} 个子分组，请先删除子分组")
+    if group.cases:
+        raise ValueError(f"分组「{group.name}」下还有 {len(group.cases)} 个用例，请先移走后再删除")
     db.delete(group)
     db.commit()
 
@@ -565,13 +572,13 @@ def _sync_node_configs(db: Session, case_id: int, node_configs: List[dict]):
 def _snapshot_api_groups(db: Session, project_id: int) -> List[dict]:
     rows = db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project_id)\
         .order_by(models.ApiGroup.sort_order, models.ApiGroup.id).all()
-    return [{"id": g.id, "name": g.name, "sort_order": g.sort_order} for g in rows]
+    return [{"id": g.id, "parent_id": g.parent_id, "name": g.name, "sort_order": g.sort_order} for g in rows]
 
 
 def _snapshot_case_groups(db: Session, project_id: int) -> List[dict]:
     rows = db.query(models.CaseGroup).filter(models.CaseGroup.project_id == project_id)\
         .order_by(models.CaseGroup.sort_order, models.CaseGroup.id).all()
-    return [{"id": g.id, "name": g.name, "sort_order": g.sort_order} for g in rows]
+    return [{"id": g.id, "parent_id": g.parent_id, "name": g.name, "sort_order": g.sort_order} for g in rows]
 
 
 def _snapshot_apis(db: Session, project_id: int) -> List[dict]:
@@ -753,8 +760,9 @@ def rollback_project_version(
     db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project.id).delete(synchronize_session=False)
     db.commit()
 
-    # 3. 重建分组（建立 old_id -> new_id 映射）
+    # 3. 重建分组（建立 old_id -> new_id 映射；parent_id 在全部分组创建后回填）
     api_group_map: dict = {}
+    api_group_rows: list = []
     for g in snap.get("api_groups", []):
         old_id = g.get("id")
         ng = models.ApiGroup(project_id=project.id, name=g["name"], sort_order=g.get("sort_order", 0))
@@ -762,8 +770,16 @@ def rollback_project_version(
         db.flush()
         if old_id is not None:
             api_group_map[old_id] = ng.id
+        api_group_rows.append((ng, g.get("parent_id")))
+
+    # 回填 parent_id（old_parent_id → new_parent_id）
+    for ng, old_parent_id in api_group_rows:
+        if old_parent_id is not None and old_parent_id in api_group_map:
+            ng.parent_id = api_group_map[old_parent_id]
+    db.flush()
 
     case_group_map: dict = {}
+    case_group_rows: list = []
     for g in snap.get("case_groups", []):
         old_id = g.get("id")
         ng = models.CaseGroup(project_id=project.id, name=g["name"], sort_order=g.get("sort_order", 0))
@@ -771,6 +787,12 @@ def rollback_project_version(
         db.flush()
         if old_id is not None:
             case_group_map[old_id] = ng.id
+        case_group_rows.append((ng, g.get("parent_id")))
+
+    for ng, old_parent_id in case_group_rows:
+        if old_parent_id is not None and old_parent_id in case_group_map:
+            ng.parent_id = case_group_map[old_parent_id]
+    db.flush()
 
     # 4. 重建接口（建立 old_api_id -> new_api_id 映射，转换 group_id）
     api_id_map: dict = {}

@@ -86,7 +86,7 @@ export interface Environment {
   created_by_name?: string | null; updated_by_name?: string | null
 }
 export interface ApiGroup {
-  id: number; project_id: number; name: string; sort_order: number; created_at?: string
+  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
 }
 export interface ApiField {
   id?: number; api_id?: number
@@ -110,7 +110,7 @@ export interface HarPreviewItem {
   _selected?: boolean  // 前端勾选状态
 }
 export interface CaseGroup {
-  id: number; project_id: number; name: string; sort_order: number; created_at?: string
+  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
 }
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
@@ -258,7 +258,7 @@ export const envApi = {
 // ============ ApiGroup ============
 export const apiGroupApi = {
   list: (projectId: number) => http.get<ApiGroup[]>('/api-groups', { params: { project_id: projectId } }).then((r) => r.data),
-  create: (data: { project_id: number; name: string; sort_order?: number }) => http.post<ApiGroup>('/api-groups', data).then((r) => r.data),
+  create: (data: { project_id: number; parent_id?: number | null; name: string; sort_order?: number }) => http.post<ApiGroup>('/api-groups', data).then((r) => r.data),
   update: (id: number, data: Partial<ApiGroup>) => http.put<ApiGroup>(`/api-groups/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/api-groups/${id}`),
 }
@@ -286,6 +286,10 @@ export const apiApi = {
   },
   importHar: (projectId: number, previews: HarPreviewItem[], groupId?: number | null) =>
     http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import-har', { project_id: projectId, group_id: groupId ?? null, previews }).then((r) => r.data),
+  previewCurl: (text: string) =>
+    http.post<{ total: number; previews: HarPreviewItem[]; errors: string[] }>('/apis/import-curl/preview', { text }).then((r) => r.data),
+  importCurl: (projectId: number, previews: HarPreviewItem[], groupId?: number | null) =>
+    http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import-curl', { project_id: projectId, group_id: groupId ?? null, previews }).then((r) => r.data),
   importFields: (apiId: number, method: string, path: string, spec: Record<string, any>) =>
     http.post<{
       matched: boolean; method: string; path: string; operation_summary: string | null
@@ -303,7 +307,7 @@ export const apiApi = {
 // ============ CaseGroup ============
 export const caseGroupApi = {
   list: (projectId: number) => http.get<CaseGroup[]>('/case-groups', { params: { project_id: projectId } }).then((r) => r.data),
-  create: (data: { project_id: number; name: string; sort_order?: number }) => http.post<CaseGroup>('/case-groups', data).then((r) => r.data),
+  create: (data: { project_id: number; parent_id?: number | null; name: string; sort_order?: number }) => http.post<CaseGroup>('/case-groups', data).then((r) => r.data),
   update: (id: number, data: Partial<CaseGroup>) => http.put<CaseGroup>(`/case-groups/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/case-groups/${id}`),
 }

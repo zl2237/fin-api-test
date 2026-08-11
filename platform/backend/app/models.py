@@ -92,17 +92,20 @@ class Environment(Base):
 
 
 class ApiGroup(Base):
-    """接口分组（订单组/认证组/文件组等）"""
+    """接口分组（订单组/认证组/文件组等），支持多级分组"""
     __tablename__ = "api_groups"
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
     project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    parent_id = Column(Integer, ForeignKey("api_groups.id"), nullable=True, comment="父分组ID，NULL表示顶层分组")
     name = Column(String(100), nullable=False, comment="分组名称")
     sort_order = Column(Integer, default=0, comment="排序序号")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
 
     project = relationship("Project", back_populates="api_groups")
     apis = relationship("ApiDefinition", back_populates="group", cascade="all, delete-orphan")
+    children = relationship("ApiGroup", back_populates="parent", cascade="all, delete-orphan")
+    parent = relationship("ApiGroup", back_populates="children", remote_side=[id])
 
 
 class ApiDefinition(Base):
@@ -148,17 +151,20 @@ class ApiField(Base):
 
 
 class CaseGroup(Base):
-    """用例分组（冒烟组/订单组/付款组/核销组/对账组等）"""
+    """用例分组（冒烟组/订单组/付款组/核销组/对账组等），支持多级分组"""
     __tablename__ = "case_groups"
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
     project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    parent_id = Column(Integer, ForeignKey("case_groups.id"), nullable=True, comment="父分组ID，NULL表示顶层分组")
     name = Column(String(100), nullable=False, comment="分组名称")
     sort_order = Column(Integer, default=0, comment="排序序号")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
 
     project = relationship("Project", back_populates="case_groups")
     cases = relationship("TestCase", back_populates="group", cascade="all, delete-orphan")
+    children = relationship("CaseGroup", back_populates="parent", cascade="all, delete-orphan")
+    parent = relationship("CaseGroup", back_populates="children", remote_side=[id])
 
 
 class TestCase(Base):

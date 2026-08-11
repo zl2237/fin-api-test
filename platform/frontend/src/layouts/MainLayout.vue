@@ -280,7 +280,7 @@
             <div class="help-step-num">3</div>
             <div class="help-step-body">
               <div class="help-step-title">管理接口</div>
-              <div class="help-step-desc">在「接口管理」新建接口，或点「导入接口」上传 HAR 文件 / 粘贴 Swagger JSON 批量导入。编辑接口时可「导入覆盖字段」同步最新字段定义。</div>
+              <div class="help-step-desc">在「接口管理」新建接口，或点「导入接口」批量导入：cURL 命令（默认，粘贴一条或多条）/ HAR 文件上传 / Swagger JSON。编辑接口时可「导入覆盖字段」用 cURL / HAR / Swagger 同步最新字段定义。接口支持多级分组管理（树形展示、拖拽调整层级与顺序）。</div>
             </div>
           </div>
           <div class="help-step">
@@ -333,7 +333,7 @@
             <el-icon class="help-feature-icon"><Upload /></el-icon>
             <div class="help-feature-text">
               <div class="help-feature-name">多格式导入</div>
-              <div class="help-feature-desc">HAR 文件上传（默认）/ Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段</div>
+              <div class="help-feature-desc">cURL 命令（默认，粘贴即用）/ HAR 文件上传 / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段</div>
             </div>
           </div>
         </div>

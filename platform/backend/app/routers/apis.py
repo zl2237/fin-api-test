@@ -10,6 +10,7 @@ from ..database import get_db
 from .. import crud, schemas, models, path_setup  # noqa: F401
 from ..auth import get_current_user
 from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
+from ..engine.curl_parser import parse_curl_to_previews
 from ..services.spec_parser import path_to_code, extract_fields_from_spec
 from utils.http_client import HttpClient
 from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
@@ -258,6 +259,64 @@ def import_har(
         })
 
     crud.log_operation(db, user, "create", "api", None, f"HAR 导入{len(imported)}个接口")
+    return {
+        "message": f"已导入 {len(imported)} 个接口" + (f"，跳过 {len(skipped)} 个" if skipped else ""),
+        "imported": imported,
+        "skipped": skipped,
+    }
+
+
+@router.post("/import-curl/preview")
+def preview_curl(
+    data: schemas.CurlPreviewRequest,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """解析 cURL 命令文本并返回接口预览列表，不落库。
+    前端展示预览列表供用户勾选，勾选后调 /import-curl 导入。"""
+    if not data.text or not data.text.strip():
+        raise HTTPException(400, "请粘贴 cURL 命令")
+
+    previews, errors = parse_curl_to_previews(data.text)
+    return {"total": len(previews), "previews": previews, "errors": errors}
+
+
+@router.post("/import-curl")
+def import_curl(
+    data: schemas.CurlImportRequest,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """导入用户勾选的 cURL 接口预览项，落库。
+    预览项结构与 HAR 完全一致，复用 previews_to_api_create 落库逻辑。"""
+    if not data.previews:
+        raise HTTPException(400, "请至少勾选一个接口")
+
+    # 收集已存在的 code，避免重复导入
+    existing_codes: set = set()
+    for preview in data.previews:
+        method = preview.get("method", "GET").upper()
+        path = preview.get("path", "")
+        code = path_to_code(path, method)
+        if crud.get_api_by_code(db, code):
+            existing_codes.add(code)
+
+    to_create, skipped = previews_to_api_create(
+        data.previews, data.project_id, data.group_id, existing_codes
+    )
+
+    imported = []
+    for api_data, preview in to_create:
+        obj = crud.create_api(db, api_data, user.id)
+        imported.append({
+            "id": obj.id,
+            "name": obj.name,
+            "method": obj.method,
+            "path": obj.path,
+            "fields": len(api_data.fields),
+        })
+
+    crud.log_operation(db, user, "create", "api", None, f"cURL 导入{len(imported)}个接口")
     return {
         "message": f"已导入 {len(imported)} 个接口" + (f"，跳过 {len(skipped)} 个" if skipped else ""),
         "imported": imported,
