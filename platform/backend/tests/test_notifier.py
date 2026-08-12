@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.services.notifier import send_notify
 

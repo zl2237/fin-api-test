@@ -8,7 +8,6 @@
 """
 import hashlib
 import os
-from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
