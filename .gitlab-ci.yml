@@ -46,9 +46,11 @@ workflow:
 
 # ---------------------------------------------------------------------------
 # SSH 公共准备（锚点，供 deploy 复用）。alpine 镜像用 apk，不能用 apt-get。
+# 国内访问 alpine 默认源 dl-cdn.alpinelinux.org 很慢，先换阿里云源。
 # ---------------------------------------------------------------------------
 .ssh_template: &ssh_setup
   before_script:
+    - sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
     - apk add --no-cache openssh-client
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
@@ -175,6 +177,7 @@ notify-wecom:
       optional: true
   when: always
   script:
+    - sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
     - apk add --no-cache curl
     - |
       # notify 是最后一个 stage，运行时前置 stage 的 job 状态已确定：
