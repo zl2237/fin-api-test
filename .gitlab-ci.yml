@@ -195,12 +195,12 @@ notify-wecom:
       TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
 
       MARKDOWN="## fin-api-test 部署通知  $PIPELINE_STATUS\n"
-      MARKDOWN+="> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)\n"
-      MARKDOWN+="> **分支**：$BRANCH\n"
-      MARKDOWN+="> **提交**：$SHORT_SHA - $COMMIT_MSG\n"
-      MARKDOWN+="> **提交者**：$AUTHOR\n"
-      MARKDOWN+="> **时间**：$TIMESTAMP\n"
-      MARKDOWN+="> **流水线**：[查看详情]($PIPELINE_URL)\n"
+      MARKDOWN="${MARKDOWN}> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)\n"
+      MARKDOWN="${MARKDOWN}> **分支**：$BRANCH\n"
+      MARKDOWN="${MARKDOWN}> **提交**：$SHORT_SHA - $COMMIT_MSG\n"
+      MARKDOWN="${MARKDOWN}> **提交者**：$AUTHOR\n"
+      MARKDOWN="${MARKDOWN}> **时间**：$TIMESTAMP\n"
+      MARKDOWN="${MARKDOWN}> **流水线**：[查看详情]($PIPELINE_URL)\n"
 
       curl -s -X POST "$WECOM_WEBHOOK" \
         -H 'Content-Type: application/json' \
