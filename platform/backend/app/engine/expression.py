@@ -27,7 +27,7 @@ import re
 import string
 import uuid as _uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 # 先把项目根目录加入 sys.path，再复用现有 utils
 from .. import path_setup  # noqa: F401
