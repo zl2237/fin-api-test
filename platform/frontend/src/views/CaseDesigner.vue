@@ -1,6 +1,6 @@
 <template>
   <div class="designer" v-loading="loading" element-loading-text="加载用例编排数据中...">
-    <!-- 左侧接口列表（按分组折叠） -->
+    <!-- 左侧接口列表（按分组树折叠，继承接口管理的分组与排序） -->
     <div class="api-panel">
       <div class="panel-title">
         <el-button link @click="onBack">
@@ -9,21 +9,34 @@
         <span class="title-text">接口列表</span>
       </div>
       <div class="api-list">
-        <el-collapse v-model="activeApiGroups" class="api-collapse">
-          <el-collapse-item
-            v-for="g in groupedApis"
-            :key="g.group?.id ?? 'ungrouped'"
-            :name="g.group?.id ?? 'ungrouped'"
+        <div
+          v-for="row in visibleGroupRows"
+          :key="row.key"
+          class="group-block"
+        >
+          <!-- 分组头（可折叠/展开） -->
+          <div
+            class="group-header"
+            :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+            @click="onToggleGroup(row)"
           >
-            <template #title>
-              <div class="api-group-title">
-                <el-icon class="api-group-icon"><Files /></el-icon>
-                <span class="api-group-name">{{ g.group?.name || '未分组' }}</span>
-                <span class="api-group-count">{{ g.apis.length }}</span>
-              </div>
-            </template>
+            <el-icon
+              v-if="row.hasChildren"
+              class="expand-icon"
+              :class="{ expanded: isGroupExpanded(row.groupId!) }"
+            ><CaretRight /></el-icon>
+            <span v-else class="expand-spacer" />
+            <el-icon class="group-icon"><Files /></el-icon>
+            <span class="group-name">{{ row.name }}</span>
+            <span class="group-count">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
+          </div>
+          <!-- 分组下的直接接口（仅展开时显示；无直接接口时不渲染，避免显示 No Data） -->
+          <div
+            v-if="row.isUngrouped || isGroupExpanded(row.groupId!)"
+            :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+          >
             <div
-              v-for="a in g.apis"
+              v-for="a in apisOf(row.groupId)"
               :key="a.id"
               class="api-item"
               @click="onAddNode(a)"
@@ -31,9 +44,8 @@
               <div class="api-item-name">{{ a.name }}</div>
               <div class="api-item-path">{{ a.method }} {{ a.path }}</div>
             </div>
-            <EmptyState v-if="!g.apis.length" description="无接口" :image-size="40" />
-          </el-collapse-item>
-        </el-collapse>
+          </div>
+        </div>
         <EmptyState v-if="!apiList.length" description="暂无接口，请先到接口管理新增" :image-size="60" />
       </div>
     </div>
@@ -104,12 +116,12 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Connection, Files } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection, Files, CaretRight } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
 import { useAppStore } from '@/stores'
-import { useGroupMemory } from '@/composables/useGroupMemory'
+import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -124,11 +136,39 @@ const pollTimers: ReturnType<typeof setTimeout>[] = []
 
 const apiList = ref<ApiDef[]>([])
 const apiGroups = ref<ApiGroup[]>([])
-// 左侧接口分组展开/折叠记忆（按项目持久化）
-const { activeNames: activeApiGroups, applyDefault: applyDefaultApiExpand } = useGroupMemory(
-  toRef(store, 'currentProjectId'),
-  'caseDesigner',
+
+// ===== 多级分组树（继承接口管理的分组层级与排序） =====
+const flatGroups = computed<FlatGroup[]>(() =>
+  apiGroups.value.map((g) => ({ id: g.id, parent_id: g.parent_id, name: g.name, sort_order: g.sort_order })),
 )
+const {
+  tree,
+  isExpanded: isGroupExpanded,
+  toggleExpand: toggleGroupExpand,
+  applyDefaultExpand,
+  computeVisibleRows,
+} = useGroupTree(flatGroups, toRef(store, 'currentProjectId'), 'caseDesigner')
+
+/** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行 */
+const visibleGroupRows = computed(() => computeVisibleRows(apiList.value.some((a) => !a.group_id)))
+
+/** 统计分组的接口数量（含所有子孙分组） */
+function countApisWithDescendants(groupId: number): number {
+  const ids = [groupId, ...collectDescendantIds(tree.value, groupId)]
+  return apiList.value.filter((a) => a.group_id != null && ids.includes(a.group_id)).length
+}
+
+/** 获取分组的直接接口 */
+function apisOf(groupId: number | null): ApiDef[] {
+  if (groupId === null) return apiList.value.filter((a) => !a.group_id)
+  return apiList.value.filter((a) => a.group_id === groupId)
+}
+
+/** 切换分组展开/折叠（未分组行不响应） */
+function onToggleGroup(row: { groupId: number | null; isUngrouped: boolean }) {
+  if (row.isUngrouped || row.groupId == null) return
+  toggleGroupExpand(row.groupId)
+}
 const caseData = ref<TestCase>(emptyCase())
 const nodes = ref<any[]>([])
 const edges = ref<any[]>([])
@@ -159,19 +199,6 @@ const linkHint = computed(() => {
   return '连线模式：点击目标节点'
 })
 
-const groupedApis = computed(() => {
-  const result: { group: ApiGroup | null; apis: ApiDef[] }[] = []
-  for (const g of apiGroups.value) {
-    const list = apiList.value.filter(a => a.group_id === g.id)
-    result.push({ group: g, apis: list })
-  }
-  const ungrouped = apiList.value.filter(a => !a.group_id)
-  if (ungrouped.length) {
-    result.push({ group: null, apis: ungrouped })
-  }
-  return result
-})
-
 const currentConfig = computed<NodeConfig>(() => {
   if (!selectedNodeId.value) {
     return { node_id: '', api_id: null, pre_process: [], post_extract: [], assertions: [], wait_after_ms: 0 }
@@ -198,12 +225,8 @@ async function loadApis() {
 async function loadApiGroups() {
   if (!store.currentProjectId) return
   apiGroups.value = await apiGroupApi.list(store.currentProjectId)
-  // 无记忆时默认全部展开；有记忆则恢复上次展开的分组
-  const allIds: (number | string)[] = apiGroups.value.map(g => g.id)
-  if (apiList.value.some(a => !a.group_id)) {
-    allIds.push('ungrouped')
-  }
-  applyDefaultApiExpand(allIds)
+  // 无记忆时默认全部展开
+  applyDefaultExpand()
 }
 
 async function loadCase(id: number) {
@@ -475,21 +498,41 @@ watch(() => store.currentProjectId, async () => {
   overflow: auto;
   padding: 8px;
 }
-.api-collapse {
-  border: none;
+.group-block {
+  margin-bottom: 4px;
 }
-.api-group-title {
+.group-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  gap: 6px;
+  height: 34px;
+  padding-right: 12px;
+  cursor: pointer;
+  border-radius: var(--app-radius-md);
+  transition: background 0.15s;
 }
-.api-group-icon {
+.group-header:hover {
+  background: var(--app-chip-bg);
+}
+.expand-icon {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+.expand-spacer {
+  width: 12px;
+  flex-shrink: 0;
+}
+.group-icon {
   font-size: 14px;
   color: var(--app-primary);
   flex-shrink: 0;
 }
-.api-group-name {
+.group-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--app-text);
@@ -498,7 +541,7 @@ watch(() => store.currentProjectId, async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.api-group-count {
+.group-count {
   background: var(--app-primary);
   color: #fff;
   border-radius: 10px;
@@ -570,30 +613,5 @@ watch(() => store.currentProjectId, async () => {
 :deep(.canvas-wrap .dag-canvas) {
   flex: 1;
   border: 1px solid var(--app-border);
-}
-:deep(.api-collapse .el-collapse-item) {
-  margin-bottom: 8px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
-  overflow: hidden;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-:deep(.api-collapse .el-collapse-item:hover) {
-  border-color: var(--app-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-}
-:deep(.api-collapse .el-collapse-item__header) {
-  padding: 0 12px;
-  height: 38px;
-  line-height: 38px;
-  background: var(--app-card);
-  border-bottom: none;
-}
-:deep(.api-collapse .el-collapse-item__wrap) {
-  border-bottom: none;
-  background: transparent;
-}
-:deep(.api-collapse .el-collapse-item__content) {
-  padding: 4px 0 8px;
 }
 </style>

@@ -19,7 +19,7 @@ def build_request_body(api) -> Any:
     """按 api.fields 组装请求体；无 fields 时回退 request_template。"""
     fields = getattr(api, "fields", None) or []
     if not fields:
-        return deepcopy(api.request_template or {})
+        return deepcopy(api.request_template if api.request_template is not None else {})
 
     # request_template 为 list 表示数组请求体（body 本身是 [{...}]）
     is_array_body = isinstance(api.request_template, list)

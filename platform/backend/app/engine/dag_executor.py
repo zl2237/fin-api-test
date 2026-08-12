@@ -101,7 +101,13 @@ class DagExecutor:
                     multipart_headers = {k: v for k, v in saved_headers.items()
                                          if k.lower() != "content-type"}
                     self.http_client.headers = multipart_headers
-                    form_data = body if isinstance(body, dict) else None
+                    # multipart form_data：dict 直接用，list（数组请求体）取首元素
+                    if isinstance(body, dict):
+                        form_data = body
+                    elif isinstance(body, list) and body and isinstance(body[0], dict):
+                        form_data = body[0]
+                    else:
+                        form_data = None
                     try:
                         resp = self.http_client.post_multipart(
                             api.path, data=form_data, files=files_payload, timeout=timeout

@@ -93,7 +93,13 @@ def rollback_version(version_id: int, db: Session = Depends(get_db), user: model
     project = crud.get_project(db, v.project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
-    crud.rollback_project_version(db, project, v, user.id)
+    try:
+        crud.rollback_project_version(db, project, v, user.id)
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"回滚失败：{e}")
     crud.log_operation(db, user, "rollback", "project", project.id, f"回滚到 v{v.version_no}")
     return {"message": f"已回滚到 v{v.version_no}"}
 

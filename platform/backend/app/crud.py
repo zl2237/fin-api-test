@@ -621,7 +621,7 @@ def _snapshot_apis(db: Session, project_id: int) -> List[dict]:
             "method": a.method,
             "path": a.path,
             "description": a.description,
-            "request_template": a.request_template or {},
+            "request_template": a.request_template if a.request_template is not None else {},
             "headers_template": a.headers_template or {},
             "sort_order": a.sort_order,
             "fields": [
@@ -779,12 +779,35 @@ def rollback_project_version(
 
     snap = version.snapshot or {}
 
-    # 2. 删除当前所有数据（级联删除 fields / node_configs）
+    # 2. 分离执行记录（不删除，回滚后重新关联到新用例）+ 删除其他数据
+    # 执行记录含 steps/assertions 子表，直接删除会导致回滚后历史执行记录丢失，
+    # 改为：先分离（case_id 置空），重建用例后再按 old_case_id → new_case_id 重新关联
+    case_ids = [c.id for c in db.query(models.TestCase).filter(models.TestCase.project_id == project.id).all()]
+    exec_case_map: dict = {}  # exec_id → old_case_id
+    if case_ids:
+        execs = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.case_id.in_(case_ids)).all()
+        for e in execs:
+            exec_case_map[e.id] = e.case_id
+        # 分离执行记录，避免删除用例时外键约束冲突
+        db.query(models.ExecutionRecord).filter(models.ExecutionRecord.case_id.in_(case_ids)).update(
+            {models.ExecutionRecord.case_id: None}, synchronize_session=False
+        )
+        # CaseNodeConfig 属于用例配置，需随用例一起从快照重建
+        db.query(models.CaseNodeConfig).filter(models.CaseNodeConfig.case_id.in_(case_ids)).delete(synchronize_session=False)
+
+    api_ids = [a.id for a in db.query(models.ApiDefinition).filter(models.ApiDefinition.project_id == project.id).all()]
+    if api_ids:
+        db.query(models.ApiField).filter(models.ApiField.api_id.in_(api_ids)).delete(synchronize_session=False)
+
     db.query(models.TestCase).filter(models.TestCase.project_id == project.id).delete(synchronize_session=False)
     db.query(models.ApiDefinition).filter(models.ApiDefinition.project_id == project.id).delete(synchronize_session=False)
+    # 分组有自引用外键(parent_id)，批量删除前先置空 parent_id 避免约束冲突
+    db.query(models.CaseGroup).filter(models.CaseGroup.project_id == project.id).update({models.CaseGroup.parent_id: None}, synchronize_session=False)
+    db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project.id).update({models.ApiGroup.parent_id: None}, synchronize_session=False)
     db.query(models.CaseGroup).filter(models.CaseGroup.project_id == project.id).delete(synchronize_session=False)
     db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project.id).delete(synchronize_session=False)
-    db.commit()
+    # 不在此处 commit：让删除+重建+重新关联执行记录在同一事务中完成，
+    # 若重建失败可整体回滚，避免执行记录 case_id 被永久置空
 
     # 3. 重建分组（建立 old_id -> new_id 映射；parent_id 在全部分组创建后回填）
     api_group_map: dict = {}
@@ -859,7 +882,10 @@ def rollback_project_version(
             ))
 
     # 5. 重建用例（转换 group_id，node_configs 的 api_id 用映射转换）
+    # 同时建立 old_case_id → new_case_id 映射，用于重新关联执行记录
+    case_id_map: dict = {}
     for c in snap.get("cases", []):
+        old_case_id = c.get("id")
         old_group_id = c.get("group_id")
         new_group_id = case_group_map.get(old_group_id) if old_group_id else None
         nc = models.TestCase(
@@ -874,6 +900,8 @@ def rollback_project_version(
         )
         db.add(nc)
         db.flush()
+        if old_case_id is not None:
+            case_id_map[old_case_id] = nc.id
         for cfg in c.get("node_configs", []):
             old_api_id = cfg.get("api_id")
             new_api_id = api_id_map.get(old_api_id) if old_api_id else None
@@ -886,6 +914,22 @@ def rollback_project_version(
                 assertions=cfg.get("assertions", []),
                 wait_after_ms=cfg.get("wait_after_ms", 0) or 0,
             ))
+
+    # 6. 重新关联执行记录到新用例
+    # 快照中存在的用例：更新 case_id 到新 ID；不在快照中的用例（快照后新建）：删除其执行记录及子表
+    for exec_id, old_cid in exec_case_map.items():
+        new_cid = case_id_map.get(old_cid)
+        if new_cid is not None:
+            db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).update(
+                {models.ExecutionRecord.case_id: new_cid}, synchronize_session=False
+            )
+        else:
+            # 用例不在快照中，清理其执行记录及子表
+            step_ids = [s.id for s in db.query(models.StepRecord).filter(models.StepRecord.execution_id == exec_id).all()]
+            if step_ids:
+                db.query(models.AssertionRecord).filter(models.AssertionRecord.step_id.in_(step_ids)).delete(synchronize_session=False)
+            db.query(models.StepRecord).filter(models.StepRecord.execution_id == exec_id).delete(synchronize_session=False)
+            db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).delete(synchronize_session=False)
 
     db.commit()
 
@@ -1110,7 +1154,11 @@ def list_files(
     """列出项目下的文件，支持按分类/标签/名称过滤"""
     q = db.query(models.TestFile).filter(models.TestFile.project_id == project_id)
     if category_id is not None:
-        q = q.filter(models.TestFile.category_id == category_id)
+        if category_id == 0:
+            # 哨兵值 0 表示"未分类"（category_id IS NULL）
+            q = q.filter(models.TestFile.category_id.is_(None))
+        else:
+            q = q.filter(models.TestFile.category_id == category_id)
     if tag_id is not None:
         q = q.join(models.FileTagRelation, models.FileTagRelation.file_id == models.TestFile.id) \
              .filter(models.FileTagRelation.tag_id == tag_id)
