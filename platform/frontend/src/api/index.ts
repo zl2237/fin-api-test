@@ -71,7 +71,7 @@ export interface User {
   has_avatar?: boolean
 }
 export interface Project {
-  id: number; name: string; description?: string; created_at?: string
+  id: number; name: string; description?: string; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -81,12 +81,12 @@ export interface Environment {
   login_config: Record<string, any>
   notify_config: Record<string, any>
   variables: Record<string, any>
-  common_headers: Record<string, any>; timeout: number; is_default: boolean; created_at?: string
+  common_headers: Record<string, any>; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
 export interface ApiGroup {
-  id: number; project_id: number; name: string; sort_order: number; created_at?: string
+  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
 }
 export interface ApiField {
   id?: number; api_id?: number
@@ -96,7 +96,7 @@ export interface ApiField {
 export interface ApiDef {
   id: number; project_id: number; group_id?: number | null; name: string; code: string; category?: string
   method: string; path: string; description?: string
-  request_template: Record<string, any>; headers_template: Record<string, any>
+  request_template: any; headers_template: Record<string, any>
   fields: ApiField[]; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
@@ -110,7 +110,7 @@ export interface HarPreviewItem {
   _selected?: boolean  // 前端勾选状态
 }
 export interface CaseGroup {
-  id: number; project_id: number; name: string; sort_order: number; created_at?: string
+  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
 }
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
@@ -241,6 +241,8 @@ export const projectApi = {
   create: (data: Partial<Project>) => http.post<Project>('/projects', data).then((r) => r.data),
   update: (id: number, data: Partial<Project>) => http.put<Project>(`/projects/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/projects/${id}`),
+  reorder: (items: { id: number; sort_order: number }[]) =>
+    http.post<{ message: string; updated: number }>('/projects/reorder', { items }).then((r) => r.data),
 }
 
 // ============ Environment ============
@@ -253,12 +255,14 @@ export const envApi = {
   copy: (id: number) => http.post<Environment>(`/environments/${id}/copy`).then((r) => r.data),
   testDb: (id: number) => http.post<{ ok: boolean; message: string; test_result?: any }>(`/environments/${id}/test-db`).then((r) => r.data),
   testLogin: (id: number) => http.post<{ ok: boolean; message: string; auth_header_name?: string; auth_header_preview?: string; base_url?: string }>(`/environments/${id}/test-login`).then((r) => r.data),
+  reorder: (items: { id: number; sort_order: number }[]) =>
+    http.post<{ message: string; updated: number }>('/environments/reorder', { items }).then((r) => r.data),
 }
 
 // ============ ApiGroup ============
 export const apiGroupApi = {
   list: (projectId: number) => http.get<ApiGroup[]>('/api-groups', { params: { project_id: projectId } }).then((r) => r.data),
-  create: (data: { project_id: number; name: string; sort_order?: number }) => http.post<ApiGroup>('/api-groups', data).then((r) => r.data),
+  create: (data: { project_id: number; parent_id?: number | null; name: string; sort_order?: number }) => http.post<ApiGroup>('/api-groups', data).then((r) => r.data),
   update: (id: number, data: Partial<ApiGroup>) => http.put<ApiGroup>(`/api-groups/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/api-groups/${id}`),
 }
@@ -286,6 +290,10 @@ export const apiApi = {
   },
   importHar: (projectId: number, previews: HarPreviewItem[], groupId?: number | null) =>
     http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import-har', { project_id: projectId, group_id: groupId ?? null, previews }).then((r) => r.data),
+  previewCurl: (text: string) =>
+    http.post<{ total: number; previews: HarPreviewItem[]; errors: string[] }>('/apis/import-curl/preview', { text }).then((r) => r.data),
+  importCurl: (projectId: number, previews: HarPreviewItem[], groupId?: number | null) =>
+    http.post<{ message: string; imported: any[]; skipped: string[] }>('/apis/import-curl', { project_id: projectId, group_id: groupId ?? null, previews }).then((r) => r.data),
   importFields: (apiId: number, method: string, path: string, spec: Record<string, any>) =>
     http.post<{
       matched: boolean; method: string; path: string; operation_summary: string | null
@@ -303,7 +311,7 @@ export const apiApi = {
 // ============ CaseGroup ============
 export const caseGroupApi = {
   list: (projectId: number) => http.get<CaseGroup[]>('/case-groups', { params: { project_id: projectId } }).then((r) => r.data),
-  create: (data: { project_id: number; name: string; sort_order?: number }) => http.post<CaseGroup>('/case-groups', data).then((r) => r.data),
+  create: (data: { project_id: number; parent_id?: number | null; name: string; sort_order?: number }) => http.post<CaseGroup>('/case-groups', data).then((r) => r.data),
   update: (id: number, data: Partial<CaseGroup>) => http.put<CaseGroup>(`/case-groups/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/case-groups/${id}`),
 }
@@ -370,4 +378,68 @@ export const dictApi = {
   remove: (id: number) => http.delete(`/field-dictionaries/${id}`),
   batch: (projectId: number, items: { key: string; label: string }[]) =>
     http.post<{ message: string; count: number }>('/field-dictionaries/batch', { project_id: projectId, items }).then((r) => r.data),
+}
+
+// ============ FileCenter 文件中心 ============
+export interface FileCategory {
+  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number
+  created_at?: string; created_by?: number | null; created_by_name?: string | null
+}
+
+export interface FileTag {
+  id: number; project_id: number; name: string; color: string
+  created_at?: string; created_by?: number | null; created_by_name?: string | null
+}
+
+export interface TestFile {
+  id: number; project_id: number; category_id?: number | null
+  name: string; original_name: string; content_type: string; size: number
+  sha256: string; storage_path: string; ref_count: number
+  tag_ids: number[]
+  created_at?: string; updated_at?: string
+  created_by?: number | null; updated_by?: number | null
+  created_by_name?: string | null; updated_by_name?: string | null
+}
+
+export const fileApi = {
+  // 文件 CRUD
+  list: (projectId: number, params?: { category_id?: number | null; tag_id?: number; keyword?: string }) =>
+    http.get<TestFile[]>('/files', { params: { project_id: projectId, ...params } }).then((r) => r.data),
+  get: (id: number) => http.get<TestFile>(`/files/${id}`).then((r) => r.data),
+  upload: (file: File, projectId: number, categoryId?: number | null) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return http.post<TestFile>(`/files/upload?project_id=${projectId}${categoryId ? `&category_id=${categoryId}` : ''}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+  update: (id: number, data: { name?: string; category_id?: number | null; tag_ids?: number[] }) =>
+    http.put<TestFile>(`/files/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete<{ message: string; physical_removed: boolean }>(`/files/${id}`),
+  // 下载/预览：用 axios 获取 blob（带 token），转 object URL 供 img/iframe/a 使用
+  fetchBlob: (id: number, preview = false) =>
+    http.get<Blob>(`/files/${id}/${preview ? 'preview' : 'download'}`, { responseType: 'blob' }).then((r) => {
+      const url = URL.createObjectURL(r.data)
+      return { url, blob: r.data }
+    }),
+}
+
+export const fileCategoryApi = {
+  list: (projectId: number) =>
+    http.get<FileCategory[]>('/file-categories', { params: { project_id: projectId } }).then((r) => r.data),
+  create: (data: { project_id: number; parent_id?: number | null; name: string; sort_order?: number }) =>
+    http.post<FileCategory>('/file-categories', data).then((r) => r.data),
+  update: (id: number, data: { name?: string; parent_id?: number | null; sort_order?: number }) =>
+    http.put<FileCategory>(`/file-categories/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/file-categories/${id}`),
+}
+
+export const fileTagApi = {
+  list: (projectId: number) =>
+    http.get<FileTag[]>('/file-tags', { params: { project_id: projectId } }).then((r) => r.data),
+  create: (data: { project_id: number; name: string; color?: string }) =>
+    http.post<FileTag>('/file-tags', data).then((r) => r.data),
+  update: (id: number, data: { name?: string; color?: string }) =>
+    http.put<FileTag>(`/file-tags/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/file-tags/${id}`),
 }

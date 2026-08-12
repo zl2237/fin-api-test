@@ -8,17 +8,18 @@ DagExecutor 实例的依赖（进而删除 _DummyCase 占位对象）。
 - 优先用 ApiField 组装请求体（支持点号嵌套路径）
 - 无 fields 时回退到 request_template（兼容旧数据）
 - request_template 为 list 时标记数组请求体，组装结果包裹为 [{...}]
+- file 类型字段值存 file_id（字符串），执行时由 dag_executor 转 multipart
 """
 import json
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def build_request_body(api) -> Any:
     """按 api.fields 组装请求体；无 fields 时回退 request_template。"""
     fields = getattr(api, "fields", None) or []
     if not fields:
-        return deepcopy(api.request_template or {})
+        return deepcopy(api.request_template if api.request_template is not None else {})
 
     # request_template 为 list 表示数组请求体（body 本身是 [{...}]）
     is_array_body = isinstance(api.request_template, list)
@@ -43,6 +44,7 @@ def parse_field_value(raw: Optional[str], field_type: str) -> Any:
     - int → 转整数，失败保留原值
     - bool → 按常见真值字符串判定
     - string → 保留原值（含 ${...} 表达式由后续 preprocessor 求值）
+    - file → 原样保留（值是 file_id 字符串，由 extract_file_fields 提取）
     """
     if raw is None or raw == "":
         return "" if field_type == "string" else None
@@ -64,7 +66,8 @@ def parse_field_value(raw: Optional[str], field_type: str) -> Any:
             return raw
     if field_type == "bool":
         return raw.lower() in ("true", "1", "yes")
-    return raw  # string 类型，保留表达式 ${...} 由后续 preprocessor 求值
+    # file / string 类型，保留原值
+    return raw
 
 
 def set_nested(target: Dict[str, Any], path: str, value: Any) -> None:
@@ -76,3 +79,55 @@ def set_nested(target: Dict[str, Any], path: str, value: Any) -> None:
             cur[k] = {}
         cur = cur[k]
     cur[keys[-1]] = value
+
+
+def extract_file_fields(api) -> List[Tuple[str, str]]:
+    """提取接口中 file 类型字段的 (path, file_id) 列表。
+
+    返回值供 dag_executor 构建 multipart files 参数：
+    - path：字段路径（如 'id_card' 或 'to_customer.id_card'），作为 multipart 字段名
+    - file_id：文件中心文件 ID（字符串），用于查询物理文件
+    """
+    fields = getattr(api, "fields", None) or []
+    result: List[Tuple[str, str]] = []
+    for f in fields:
+        if not f.key or f.field_type != "file":
+            continue
+        val = (f.default_value or "").strip()
+        if not val or "${" in val:
+            # 空值或表达式（file 类型暂不支持表达式注入）跳过
+            continue
+        result.append((f.key, val))
+    return result
+
+
+def pop_file_fields_from_body(body: Any, api) -> Tuple[Any, List[Tuple[str, str]]]:
+    """从请求体中剔除 file 类型字段，返回 (剩余body, file字段列表)。
+
+    file 字段不参与 JSON body，由 dag_executor 单独组装到 multipart files 参数。
+    支持点号嵌套路径（如 to_customer.id_card）。
+    """
+    fields = getattr(api, "fields", None) or []
+    file_keys = {f.key for f in fields if f.field_type == "file"}
+    if not file_keys:
+        return body, []
+
+    file_list: List[Tuple[str, str]] = []
+
+    def _pop_from_dict(d: Dict[str, Any], prefix: str = "") -> None:
+        for k in list(d.keys()):
+            full_path = f"{prefix}.{k}" if prefix else k
+            if full_path in file_keys:
+                val = d.pop(k, None)
+                if val is not None and str(val).strip():
+                    file_list.append((full_path, str(val).strip()))
+            elif isinstance(d.get(k), dict):
+                _pop_from_dict(d[k], full_path)
+
+    if isinstance(body, dict):
+        _pop_from_dict(body)
+    elif isinstance(body, list):
+        for item in body:
+            if isinstance(item, dict):
+                _pop_from_dict(item)
+    return body, file_list

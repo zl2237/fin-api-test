@@ -126,7 +126,7 @@ def list_projects(db: Session, created_by: Optional[int] = None, updated_by: Opt
         q = q.filter(models.Project.created_by == created_by)
     if updated_by is not None:
         q = q.filter(models.Project.updated_by == updated_by)
-    return q.order_by(models.Project.id.desc()).all()
+    return q.order_by(models.Project.sort_order, models.Project.id.desc()).all()
 
 
 def update_project(db: Session, project: models.Project, data: schemas.ProjectUpdate, user_id: Optional[int] = None) -> models.Project:
@@ -142,6 +142,19 @@ def update_project(db: Session, project: models.Project, data: schemas.ProjectUp
 def delete_project(db: Session, project: models.Project):
     db.delete(project)
     db.commit()
+
+
+def reorder_projects(db: Session, items: List[dict]) -> int:
+    """批量更新项目的 sort_order（拖拽排序）"""
+    if not items:
+        return 0
+    updated = 0
+    for it in items:
+        updated += db.query(models.Project).filter(
+            models.Project.id == it["id"]
+        ).update({models.Project.sort_order: it["sort_order"]}, synchronize_session=False)
+    db.commit()
+    return updated
 
 
 # ============ Environment ============
@@ -168,7 +181,7 @@ def list_environments(db: Session, project_id: Optional[int] = None, created_by:
         q = q.filter(models.Environment.created_by == created_by)
     if updated_by is not None:
         q = q.filter(models.Environment.updated_by == updated_by)
-    return q.order_by(models.Environment.id.desc()).all()
+    return q.order_by(models.Environment.sort_order, models.Environment.id.desc()).all()
 
 
 def update_environment(db: Session, env: models.Environment, data: schemas.EnvironmentUpdate, user_id: Optional[int] = None) -> models.Environment:
@@ -184,6 +197,19 @@ def update_environment(db: Session, env: models.Environment, data: schemas.Envir
 def delete_environment(db: Session, env: models.Environment):
     db.delete(env)
     db.commit()
+
+
+def reorder_environments(db: Session, items: List[dict]) -> int:
+    """批量更新环境的 sort_order（拖拽排序）"""
+    if not items:
+        return 0
+    updated = 0
+    for it in items:
+        updated += db.query(models.Environment).filter(
+            models.Environment.id == it["id"]
+        ).update({models.Environment.sort_order: it["sort_order"]}, synchronize_session=False)
+    db.commit()
+    return updated
 
 
 def copy_environment(db: Session, env: models.Environment) -> models.Environment:
@@ -242,7 +268,9 @@ def update_api_group(db: Session, group: models.ApiGroup, data: schemas.ApiGroup
 
 
 def delete_api_group(db: Session, group: models.ApiGroup):
-    # 阻止删除非空分组：组内仍有接口时拒绝，强制用户先移走
+    # 阻止删除非空分组：有子分组或有接口时拒绝，强制用户先移走
+    if group.children:
+        raise ValueError(f"分组「{group.name}」下还有 {len(group.children)} 个子分组，请先删除子分组")
     if group.apis:
         raise ValueError(f"分组「{group.name}」下还有 {len(group.apis)} 个接口，请先移走后再删除")
     db.delete(group)
@@ -301,6 +329,11 @@ def update_case_group(db: Session, group: models.CaseGroup, data: schemas.CaseGr
 
 
 def delete_case_group(db: Session, group: models.CaseGroup):
+    # 阻止删除非空分组：有子分组或有用例时拒绝，强制用户先移走
+    if group.children:
+        raise ValueError(f"分组「{group.name}」下还有 {len(group.children)} 个子分组，请先删除子分组")
+    if group.cases:
+        raise ValueError(f"分组「{group.name}」下还有 {len(group.cases)} 个用例，请先移走后再删除")
     db.delete(group)
     db.commit()
 
@@ -565,13 +598,13 @@ def _sync_node_configs(db: Session, case_id: int, node_configs: List[dict]):
 def _snapshot_api_groups(db: Session, project_id: int) -> List[dict]:
     rows = db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project_id)\
         .order_by(models.ApiGroup.sort_order, models.ApiGroup.id).all()
-    return [{"id": g.id, "name": g.name, "sort_order": g.sort_order} for g in rows]
+    return [{"id": g.id, "parent_id": g.parent_id, "name": g.name, "sort_order": g.sort_order} for g in rows]
 
 
 def _snapshot_case_groups(db: Session, project_id: int) -> List[dict]:
     rows = db.query(models.CaseGroup).filter(models.CaseGroup.project_id == project_id)\
         .order_by(models.CaseGroup.sort_order, models.CaseGroup.id).all()
-    return [{"id": g.id, "name": g.name, "sort_order": g.sort_order} for g in rows]
+    return [{"id": g.id, "parent_id": g.parent_id, "name": g.name, "sort_order": g.sort_order} for g in rows]
 
 
 def _snapshot_apis(db: Session, project_id: int) -> List[dict]:
@@ -588,7 +621,7 @@ def _snapshot_apis(db: Session, project_id: int) -> List[dict]:
             "method": a.method,
             "path": a.path,
             "description": a.description,
-            "request_template": a.request_template or {},
+            "request_template": a.request_template if a.request_template is not None else {},
             "headers_template": a.headers_template or {},
             "sort_order": a.sort_order,
             "fields": [
@@ -746,15 +779,39 @@ def rollback_project_version(
 
     snap = version.snapshot or {}
 
-    # 2. 删除当前所有数据（级联删除 fields / node_configs）
+    # 2. 分离执行记录（不删除，回滚后重新关联到新用例）+ 删除其他数据
+    # 执行记录含 steps/assertions 子表，直接删除会导致回滚后历史执行记录丢失，
+    # 改为：先分离（case_id 置空），重建用例后再按 old_case_id → new_case_id 重新关联
+    case_ids = [c.id for c in db.query(models.TestCase).filter(models.TestCase.project_id == project.id).all()]
+    exec_case_map: dict = {}  # exec_id → old_case_id
+    if case_ids:
+        execs = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.case_id.in_(case_ids)).all()
+        for e in execs:
+            exec_case_map[e.id] = e.case_id
+        # 分离执行记录，避免删除用例时外键约束冲突
+        db.query(models.ExecutionRecord).filter(models.ExecutionRecord.case_id.in_(case_ids)).update(
+            {models.ExecutionRecord.case_id: None}, synchronize_session=False
+        )
+        # CaseNodeConfig 属于用例配置，需随用例一起从快照重建
+        db.query(models.CaseNodeConfig).filter(models.CaseNodeConfig.case_id.in_(case_ids)).delete(synchronize_session=False)
+
+    api_ids = [a.id for a in db.query(models.ApiDefinition).filter(models.ApiDefinition.project_id == project.id).all()]
+    if api_ids:
+        db.query(models.ApiField).filter(models.ApiField.api_id.in_(api_ids)).delete(synchronize_session=False)
+
     db.query(models.TestCase).filter(models.TestCase.project_id == project.id).delete(synchronize_session=False)
     db.query(models.ApiDefinition).filter(models.ApiDefinition.project_id == project.id).delete(synchronize_session=False)
+    # 分组有自引用外键(parent_id)，批量删除前先置空 parent_id 避免约束冲突
+    db.query(models.CaseGroup).filter(models.CaseGroup.project_id == project.id).update({models.CaseGroup.parent_id: None}, synchronize_session=False)
+    db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project.id).update({models.ApiGroup.parent_id: None}, synchronize_session=False)
     db.query(models.CaseGroup).filter(models.CaseGroup.project_id == project.id).delete(synchronize_session=False)
     db.query(models.ApiGroup).filter(models.ApiGroup.project_id == project.id).delete(synchronize_session=False)
-    db.commit()
+    # 不在此处 commit：让删除+重建+重新关联执行记录在同一事务中完成，
+    # 若重建失败可整体回滚，避免执行记录 case_id 被永久置空
 
-    # 3. 重建分组（建立 old_id -> new_id 映射）
+    # 3. 重建分组（建立 old_id -> new_id 映射；parent_id 在全部分组创建后回填）
     api_group_map: dict = {}
+    api_group_rows: list = []
     for g in snap.get("api_groups", []):
         old_id = g.get("id")
         ng = models.ApiGroup(project_id=project.id, name=g["name"], sort_order=g.get("sort_order", 0))
@@ -762,8 +819,16 @@ def rollback_project_version(
         db.flush()
         if old_id is not None:
             api_group_map[old_id] = ng.id
+        api_group_rows.append((ng, g.get("parent_id")))
+
+    # 回填 parent_id（old_parent_id → new_parent_id）
+    for ng, old_parent_id in api_group_rows:
+        if old_parent_id is not None and old_parent_id in api_group_map:
+            ng.parent_id = api_group_map[old_parent_id]
+    db.flush()
 
     case_group_map: dict = {}
+    case_group_rows: list = []
     for g in snap.get("case_groups", []):
         old_id = g.get("id")
         ng = models.CaseGroup(project_id=project.id, name=g["name"], sort_order=g.get("sort_order", 0))
@@ -771,6 +836,12 @@ def rollback_project_version(
         db.flush()
         if old_id is not None:
             case_group_map[old_id] = ng.id
+        case_group_rows.append((ng, g.get("parent_id")))
+
+    for ng, old_parent_id in case_group_rows:
+        if old_parent_id is not None and old_parent_id in case_group_map:
+            ng.parent_id = case_group_map[old_parent_id]
+    db.flush()
 
     # 4. 重建接口（建立 old_api_id -> new_api_id 映射，转换 group_id）
     api_id_map: dict = {}
@@ -811,7 +882,10 @@ def rollback_project_version(
             ))
 
     # 5. 重建用例（转换 group_id，node_configs 的 api_id 用映射转换）
+    # 同时建立 old_case_id → new_case_id 映射，用于重新关联执行记录
+    case_id_map: dict = {}
     for c in snap.get("cases", []):
+        old_case_id = c.get("id")
         old_group_id = c.get("group_id")
         new_group_id = case_group_map.get(old_group_id) if old_group_id else None
         nc = models.TestCase(
@@ -826,6 +900,8 @@ def rollback_project_version(
         )
         db.add(nc)
         db.flush()
+        if old_case_id is not None:
+            case_id_map[old_case_id] = nc.id
         for cfg in c.get("node_configs", []):
             old_api_id = cfg.get("api_id")
             new_api_id = api_id_map.get(old_api_id) if old_api_id else None
@@ -838,6 +914,22 @@ def rollback_project_version(
                 assertions=cfg.get("assertions", []),
                 wait_after_ms=cfg.get("wait_after_ms", 0) or 0,
             ))
+
+    # 6. 重新关联执行记录到新用例
+    # 快照中存在的用例：更新 case_id 到新 ID；不在快照中的用例（快照后新建）：删除其执行记录及子表
+    for exec_id, old_cid in exec_case_map.items():
+        new_cid = case_id_map.get(old_cid)
+        if new_cid is not None:
+            db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).update(
+                {models.ExecutionRecord.case_id: new_cid}, synchronize_session=False
+            )
+        else:
+            # 用例不在快照中，清理其执行记录及子表
+            step_ids = [s.id for s in db.query(models.StepRecord).filter(models.StepRecord.execution_id == exec_id).all()]
+            if step_ids:
+                db.query(models.AssertionRecord).filter(models.AssertionRecord.step_id.in_(step_ids)).delete(synchronize_session=False)
+            db.query(models.StepRecord).filter(models.StepRecord.execution_id == exec_id).delete(synchronize_session=False)
+            db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).delete(synchronize_session=False)
 
     db.commit()
 
@@ -952,3 +1044,207 @@ def get_field_dict_map(db: Session, project_id: int) -> dict:
         models.FieldDictionary.project_id == project_id
     ).all()
     return {r[0]: r[1] for r in rows}
+
+
+# ============ FileCategory 文件分类 ============
+def create_file_category(db: Session, data: schemas.FileCategoryCreate, user_id: Optional[int] = None) -> models.FileCategory:
+    obj = models.FileCategory(
+        project_id=data.project_id,
+        parent_id=data.parent_id,
+        name=data.name,
+        sort_order=data.sort_order,
+        created_by=user_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def list_file_categories(db: Session, project_id: int) -> List[models.FileCategory]:
+    return db.query(models.FileCategory).filter(
+        models.FileCategory.project_id == project_id
+    ).order_by(models.FileCategory.sort_order, models.FileCategory.id).all()
+
+
+def update_file_category(db: Session, obj: models.FileCategory, data: schemas.FileCategoryUpdate) -> models.FileCategory:
+    payload = data.model_dump(exclude_unset=True)
+    for k, v in payload.items():
+        setattr(obj, k, v)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_file_category(db: Session, obj: models.FileCategory):
+    """删除分类：子分类和文件由 cascade=all,delete-orphan 级联处理"""
+    db.delete(obj)
+    db.commit()
+
+
+def get_file_category(db: Session, category_id: int) -> Optional[models.FileCategory]:
+    return db.query(models.FileCategory).filter(models.FileCategory.id == category_id).first()
+
+
+# ============ FileTag 文件标签 ============
+def create_file_tag(db: Session, data: schemas.FileTagCreate, user_id: Optional[int] = None) -> models.FileTag:
+    obj = models.FileTag(
+        project_id=data.project_id,
+        name=data.name,
+        color=data.color,
+        created_by=user_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def list_file_tags(db: Session, project_id: int) -> List[models.FileTag]:
+    return db.query(models.FileTag).filter(
+        models.FileTag.project_id == project_id
+    ).order_by(models.FileTag.id).all()
+
+
+def update_file_tag(db: Session, obj: models.FileTag, data: schemas.FileTagUpdate) -> models.FileTag:
+    payload = data.model_dump(exclude_unset=True)
+    for k, v in payload.items():
+        setattr(obj, k, v)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_file_tag(db: Session, obj: models.FileTag):
+    db.delete(obj)
+    db.commit()
+
+
+def get_file_tag(db: Session, tag_id: int) -> Optional[models.FileTag]:
+    return db.query(models.FileTag).filter(models.FileTag.id == tag_id).first()
+
+
+def get_file_tag_by_name(db: Session, project_id: int, name: str) -> Optional[models.FileTag]:
+    return db.query(models.FileTag).filter(
+        models.FileTag.project_id == project_id,
+        models.FileTag.name == name,
+    ).first()
+
+
+# ============ TestFile 测试文件 ============
+def get_file(db: Session, file_id: int) -> Optional[models.TestFile]:
+    return db.query(models.TestFile).filter(models.TestFile.id == file_id).first()
+
+
+def get_file_by_sha256(db: Session, project_id: int, sha256: str) -> Optional[models.TestFile]:
+    """按项目 + sha256 查找文件（项目内去重）"""
+    return db.query(models.TestFile).filter(
+        models.TestFile.project_id == project_id,
+        models.TestFile.sha256 == sha256,
+    ).first()
+
+
+def list_files(
+    db: Session,
+    project_id: int,
+    category_id: Optional[int] = None,
+    tag_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> List[models.TestFile]:
+    """列出项目下的文件，支持按分类/标签/名称过滤"""
+    q = db.query(models.TestFile).filter(models.TestFile.project_id == project_id)
+    if category_id is not None:
+        if category_id == 0:
+            # 哨兵值 0 表示"未分类"（category_id IS NULL）
+            q = q.filter(models.TestFile.category_id.is_(None))
+        else:
+            q = q.filter(models.TestFile.category_id == category_id)
+    if tag_id is not None:
+        q = q.join(models.FileTagRelation, models.FileTagRelation.file_id == models.TestFile.id) \
+             .filter(models.FileTagRelation.tag_id == tag_id)
+    if keyword:
+        q = q.filter(models.TestFile.name.like(f"%{keyword}%"))
+    return q.order_by(models.TestFile.created_at.desc()).all()
+
+
+def create_file_record(
+    db: Session,
+    project_id: int,
+    name: str,
+    original_name: str,
+    content_type: str,
+    size: int,
+    sha256: str,
+    storage_path: str,
+    category_id: Optional[int],
+    user_id: Optional[int],
+) -> models.TestFile:
+    obj = models.TestFile(
+        project_id=project_id,
+        category_id=category_id,
+        name=name,
+        original_name=original_name,
+        content_type=content_type,
+        size=size,
+        sha256=sha256,
+        storage_path=storage_path,
+        ref_count=1,
+        created_by=user_id,
+        updated_by=user_id,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def update_file(db: Session, obj: models.TestFile, data: schemas.FileUpdateRequest, user_id: Optional[int] = None) -> models.TestFile:
+    """更新文件元数据：重命名 / 改分类 / 改标签"""
+    if data.name is not None:
+        obj.name = data.name
+    if data.category_id is not None:
+        obj.category_id = data.category_id
+    if user_id is not None:
+        obj.updated_by = user_id
+    db.commit()
+    # 标签更新：先删后建
+    if data.tag_ids is not None:
+        db.query(models.FileTagRelation).filter(
+            models.FileTagRelation.file_id == obj.id
+        ).delete()
+        for tid in data.tag_ids:
+            db.add(models.FileTagRelation(file_id=obj.id, tag_id=tid))
+        db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_file(db: Session, obj: models.TestFile) -> bool:
+    """删除文件记录：ref_count - 1，归零时删除物理文件。返回是否删除了物理文件。"""
+    obj.ref_count -= 1
+    delete_physical = obj.ref_count <= 0
+    db.delete(obj)
+    db.commit()
+    return delete_physical
+
+
+def get_file_tag_ids(db: Session, file_id: int) -> List[int]:
+    rows = db.query(models.FileTagRelation.tag_id).filter(
+        models.FileTagRelation.file_id == file_id
+    ).all()
+    return [r[0] for r in rows]
+
+
+def fill_file_tag_ids(db: Session, objs: List[models.TestFile]) -> None:
+    """批量填充 tag_ids 属性（避免 N+1）"""
+    if not objs:
+        return
+    ids = [o.id for o in objs]
+    rows = db.query(models.FileTagRelation.file_id, models.FileTagRelation.tag_id).filter(
+        models.FileTagRelation.file_id.in_(ids)
+    ).all()
+    mapping: dict = {}
+    for fid, tid in rows:
+        mapping.setdefault(fid, []).append(tid)
+    for o in objs:
+        setattr(o, "tag_ids", mapping.get(o.id, []))

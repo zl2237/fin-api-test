@@ -63,18 +63,38 @@
       <EmptyState v-else description="选择环境后点「发送请求」" :image-size="60" />
     </el-dialog>
 
-    <!-- 导入覆盖字段弹窗（HAR 上传 / OpenAPI 粘贴） -->
+    <!-- 导入覆盖字段弹窗（cURL 粘贴 / HAR 上传 / OpenAPI 粘贴） -->
     <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="900px" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
       <div class="import-fields-body">
         <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
-          上传 HAR 或粘贴 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
+          粘贴 cURL 命令、上传 HAR 或粘贴 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
         </el-alert>
         <div class="locate-row" style="margin-bottom: 12px;">
           <span class="locate-label">定位依据：</span>
           <span class="locate-info">{{ formData.method }} {{ formData.path }}</span>
         </div>
         <el-tabs v-model="importFieldsTab" class="import-fields-tabs">
-          <!-- Tab 1: HAR 文件上传（默认） -->
+          <!-- Tab 1: cURL 命令粘贴（默认） -->
+          <el-tab-pane label="cURL 命令" name="curl">
+            <el-form label-width="90px">
+              <el-form-item label="cURL 命令">
+                <el-input
+                  v-model="importFieldsCurlText"
+                  type="textarea"
+                  :rows="8"
+                  placeholder="粘贴 cURL 命令，系统按当前接口 method+path 自动匹配并解析字段"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :loading="importFieldsCurlParsing" @click="onImportFieldsCurlParse">
+                  <el-icon style="margin-right: 4px;"><Search /></el-icon>
+                  解析
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+
+          <!-- Tab 2: HAR 文件上传 -->
           <el-tab-pane label="HAR 文件上传" name="har">
             <el-upload
               :auto-upload="true"
@@ -94,7 +114,7 @@
             </el-upload>
           </el-tab-pane>
 
-          <!-- Tab 2: OpenAPI 粘贴 -->
+          <!-- Tab 3: OpenAPI 粘贴 -->
           <el-tab-pane label="OpenAPI / Swagger" name="openapi">
             <el-form label-width="90px">
               <el-form-item label="Swagger JSON">
@@ -162,6 +182,7 @@
       </div>
       <template #footer>
         <el-button @click="showImportFieldsDialog = false">取消</el-button>
+        <el-button v-if="importFieldsTab === 'curl'" :loading="importFieldsCurlParsing" type="primary" @click="onImportFieldsCurlParse">解析</el-button>
         <el-button v-if="importFieldsTab === 'openapi'" :loading="importFieldsLoading" type="primary" @click="onParseFields">解析</el-button>
         <el-button
           v-if="importFieldsResult?.matched"
@@ -202,6 +223,9 @@
           <el-form-item label="描述">
             <el-input v-model="formData.description" type="textarea" :rows="2" placeholder="可选" />
           </el-form-item>
+          <el-form-item label="请求体类型">
+            <el-switch v-model="formData.is_array_body" active-text="数组 [{...}]" inactive-text="对象 {...}" />
+          </el-form-item>
         </el-form>
       </div>
 
@@ -221,7 +245,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Upload } from '@element-plus/icons-vue'
+import { ArrowLeft, Upload, Search } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import FieldTable from '@/components/FieldTable.vue'
@@ -247,11 +271,14 @@ const debugEnvId = ref<number | null>(null)
 const debugResult = ref<any>(null)
 const debugTab = ref('request')
 
-// ===== 导入覆盖字段（HAR 上传 / OpenAPI 粘贴）=====
+// ===== 导入覆盖字段（cURL 粘贴 / HAR 上传 / OpenAPI 粘贴）=====
 const showImportFieldsDialog = ref(false)
 const importFieldsLoading = ref(false)
 const importFieldsSpecText = ref('')
-const importFieldsTab = ref<'har' | 'openapi'>('har')
+const importFieldsTab = ref<'curl' | 'har' | 'openapi'>('curl')
+// cURL 解析相关
+const importFieldsCurlText = ref('')
+const importFieldsCurlParsing = ref(false)
 // HAR 解析相关
 const importFieldsHarParsing = ref(false)
 const importFieldsResult = ref<{
@@ -328,7 +355,62 @@ function compareStatusLabel(status: string): string {
   return '不变'
 }
 
-// HAR 文件上传前校验
+// cURL 解析：按当前接口 method+path 自动匹配，解析字段并构造对比结果
+async function onImportFieldsCurlParse() {
+  if (!importFieldsCurlText.value.trim()) {
+    ElMessage.warning('请粘贴 cURL 命令')
+    return
+  }
+  importFieldsCurlParsing.value = true
+  importFieldsResult.value = null
+  try {
+    const res = await apiApi.previewCurl(importFieldsCurlText.value)
+    if (res.total === 0) {
+      ElMessage.warning('未解析出有效接口')
+      return
+    }
+    // 按当前接口 method + path 精确匹配
+    const matched = res.previews.find(
+      (p) => p.method.toUpperCase() === formData.method.toUpperCase()
+        && p.path === formData.path
+    )
+    if (!matched) {
+      importFieldsResult.value = {
+        matched: false,
+        method: formData.method,
+        path: formData.path,
+        operation_summary: null,
+        fields: [],
+      }
+      ElMessage.warning(`未在 cURL 中找到 ${formData.method} ${formData.path}，请确认路径一致`)
+      return
+    }
+    // 把 cURL 字段映射为 ApiField 结构（与 HAR 覆盖字段逻辑一致）
+    const fields: ApiField[] = matched.fields.map((f: any, i: number) => ({
+      key: f.key,
+      label: '',
+      field_type: f.field_type,
+      required: f.required,
+      default_value: f.default_value || '',
+      remark: '',
+      sort_order: i,
+    }))
+    importFieldsResult.value = {
+      matched: true,
+      method: matched.method,
+      path: matched.path,
+      operation_summary: matched.name,
+      fields,
+    }
+    ElMessage.success(`匹配成功：${fields.length} 个字段（新增 ${addedFieldKeys.value.length}，删除 ${removedFieldKeys.value.length}，更新 ${updatedFieldKeys.value.length}）`)
+  } catch (e: any) {
+    ElMessage.error(e.message || 'cURL 解析失败')
+  } finally {
+    importFieldsCurlParsing.value = false
+  }
+}
+
+// HAR 上传前校验
 function onImportFieldsHarBeforeUpload(file: File): boolean {
   if (!file.name.toLowerCase().endsWith('.har')) {
     ElMessage.error('请上传 .har 文件')
@@ -397,7 +479,8 @@ async function onImportFieldsHarUpload(options: any) {
 function onImportFieldsClose() {
   importFieldsResult.value = null
   importFieldsSpecText.value = ''
-  importFieldsTab.value = 'har'
+  importFieldsCurlText.value = ''
+  importFieldsTab.value = 'curl'
 }
 
 async function onParseFields() {
@@ -440,6 +523,7 @@ function onApplyFields() {
   showImportFieldsDialog.value = false
   importFieldsResult.value = null
   importFieldsSpecText.value = ''
+  importFieldsCurlText.value = ''
 }
 
 function formatJson(v: any): string {
@@ -485,6 +569,7 @@ interface ApiFormData {
   path: string
   description: string
   fields: ApiField[]
+  is_array_body: boolean
 }
 
 const formData = reactive<ApiFormData>({
@@ -495,6 +580,7 @@ const formData = reactive<ApiFormData>({
   path: '',
   description: '',
   fields: [],
+  is_array_body: false,
 })
 
 // 监听变更
@@ -517,6 +603,8 @@ async function loadApi() {
   formData.path = api.path
   formData.description = api.description || ''
   formData.fields = (api.fields || []).map(f => ({ ...f }))
+  // request_template 为 list 表示数组请求体（body 组装为 [{...}]）
+  formData.is_array_body = Array.isArray(api.request_template)
   // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
   // 这里用 nextTick 等待 watch 触发后再重置，避免误判"有未保存改动"
   await nextTick()
@@ -547,6 +635,9 @@ async function onSave() {
       path: formData.path,
       description: formData.description,
       fields: formData.fields.filter(f => f.key),
+      // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
+      // 普通请求体用 {} 标记
+      request_template: formData.is_array_body ? [] : {},
     }
     if (isEdit.value) {
       await apiApi.update(formData.id!, payload)

@@ -39,7 +39,16 @@ class HttpClient:
     def post(self, url: str, json: Optional[Dict] = None, timeout=10) -> Dict:
         return self._request("POST", url, json=json, timeout=timeout)
 
-    def _request(self, method: str, url: str, params=None, json=None, timeout=20, retry_401: bool = True) -> Dict:
+    def post_multipart(self, url: str, data: Optional[Dict] = None, files: Optional[list] = None, timeout=20) -> Dict:
+        """发送 multipart/form-data 请求（文件上传场景）。
+
+        :param data: 表单普通字段（dict）
+        :param files: 文件字段列表，元素格式 (field_name, (filename, fileobj, content_type))
+                      与 requests 的 files 参数一致
+        """
+        return self._request("POST", url, data=data, files=files, timeout=timeout)
+
+    def _request(self, method: str, url: str, params=None, json=None, data=None, files=None, timeout=20, retry_401: bool = True) -> Dict:
         full_url = self.base_url + url
 
         # 日志脱敏
@@ -49,7 +58,7 @@ class HttpClient:
 
         logger.info(f"【HTTP请求】{method} {full_url}")
         logger.info(f"【请求头】{log_headers}")
-        logger.info(f"【请求体】{json} params={params}")
+        logger.info(f"【请求体】{json} params={params} data={data} files={len(files) if files else 0}")
 
         try:
             resp = self.session.request(
@@ -58,6 +67,8 @@ class HttpClient:
                 headers=self.headers,
                 params=params,
                 json=json,
+                data=data,
+                files=files,
                 timeout=timeout
             )
         except Timeout:
@@ -98,6 +109,8 @@ class HttpClient:
                 url=url,
                 params=params,
                 json=json,
+                data=data,
+                files=files,
                 timeout=timeout,
                 retry_401=False
             )
