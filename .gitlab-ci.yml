@@ -45,11 +45,11 @@ workflow:
     - if: $CI_COMMIT_BRANCH == "main"
 
 # ---------------------------------------------------------------------------
-# SSH 公共准备（锚点，供 deploy / notify 复用）
+# SSH 公共准备（锚点，供 deploy 复用）。alpine 镜像用 apk，不能用 apt-get。
 # ---------------------------------------------------------------------------
 .ssh_template: &ssh_setup
   before_script:
-    - which ssh-agent || (apt-get update -y && apt-get install -y openssh-client)
+    - apk add --no-cache openssh-client
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -108,7 +108,6 @@ deploy:
   image: alpine:latest
   <<: *ssh_setup
   script:
-    - apk add --no-cache openssh-client bash
     # ---- 3.1 服务器：拉取最新代码 ----
     - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "cd $DEPLOY_DIR && git fetch origin main && git reset --hard origin/main"
     # ---- 3.2 同步 .env（从 GitLab 变量写入，敏感信息不入库）----
@@ -160,11 +159,11 @@ deploy:
 
 # ===========================================================================
 # 4. 企微通知（无论成功/失败都执行）
+#    notify 只需 curl 发 webhook，不需要 SSH；用 CI 内置变量代替 git log。
 # ===========================================================================
 notify-wecom:
   stage: notify
   image: alpine:latest
-  <<: *ssh_setup
   needs:
     - job: backend-lint
       optional: true
@@ -176,20 +175,19 @@ notify-wecom:
       optional: true
   when: always
   script:
-    - apk add --no-cache curl bash
+    - apk add --no-cache curl
     - |
-      # 汇总各阶段状态（失败/成功/跳过）
-      BUILD_STATUS="${CI_JOB_STATUS}"   # notify job 自身状态，这里取上游判断
-      # 判断上游是否有失败
-      PIPELINE_STATUS="成功"
-      COLOR="info"
-      if [ "$CI_PIPELINE_STATUS" = "failed" ] || [ "$CI_PIPELINE_STATUS" = "running" ]; then
-        PIPELINE_STATUS="失败"
-        COLOR="warning"
+      # notify 是最后一个 stage，运行时前置 stage 的 job 状态已确定：
+      #   有 job 失败 → CI_PIPELINE_STATUS=failed
+      #   全部成功   → CI_PIPELINE_STATUS=running（notify 自身还在跑）
+      if [ "$CI_PIPELINE_STATUS" = "failed" ]; then
+        PIPELINE_STATUS="❌ 失败"
+      else
+        PIPELINE_STATUS="✅ 成功"
       fi
-      # 构造企微 markdown 消息
-      COMMIT_MSG=$(git log -1 --pretty=format:'%s' 2>/dev/null || echo "$CI_COMMIT_MESSAGE")
-      AUTHOR="$GITLAB_USER_NAME"
+      # 用 CI 内置变量取提交信息，不依赖 git 命令（alpine 镜像未装 git）
+      COMMIT_MSG="${CI_COMMIT_MESSAGE}"
+      AUTHOR="${GITLAB_USER_NAME}"
       SHORT_SHA="${CI_COMMIT_SHORT_SHA}"
       BRANCH="${CI_COMMIT_BRANCH}"
       PIPELINE_URL="${CI_PIPELINE_URL}"
