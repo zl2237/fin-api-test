@@ -9,6 +9,7 @@ SQLAlchemy 引擎与会话工厂（仅支持 MySQL）。
     DB_NAME（默认 fin_api_test）
 """
 import os
+from urllib.parse import quote_plus
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -24,7 +25,8 @@ def _build_mysql_url() -> str:
         raise RuntimeError(
             "[database] 未设置 DB_PASSWORD 环境变量，请配置后重启"
         )
-    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+    # 对用户名和密码做 URL 编码，避免 %、@、: 等特殊字符破坏连接串
+    return f"mysql+pymysql://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{name}?charset=utf8mb4"
 
 
 DATABASE_URL = _build_mysql_url()

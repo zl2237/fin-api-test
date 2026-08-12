@@ -1,0 +1,211 @@
+# =============================================================================
+# fin-api-test GitLab CI/CD 配置
+# 触发：main 分支的 push / merge
+# 流水线：lint → build → deploy → 企微通知
+# -----------------------------------------------------------------------------
+# 前置准备（GitLab 项目 → Settings → CI/CD → Variables）：
+#   SSH_PRIVATE_KEY   : 服务器 SSH 私钥（root@192.168.22.106 -p 13692）
+#   WECOM_WEBHOOK     : 企微群机器人 webhook 地址
+#   JWT_SECRET_KEY    : 后端 JWT 密钥（生产环境，必填）
+#   DB_PASSWORD       : 后端 MySQL 密码
+#   DB_HOST / DB_USER / DB_NAME : 数据库连接信息（可选，有默认值）
+# -----------------------------------------------------------------------------
+# 服务器侧假设（如不一致请调整下方 variables 或 deploy 脚本）：
+#   - 部署目录     : /opt/fin-api-test
+#   - 后端 venv    : /opt/fin-api-test/platform/backend/venv
+#   - 后端服务     : systemd 服务名 fin-api-test（uvicorn 启动）
+#   - 前端静态目录 : /opt/fin-api-test/frontend/dist（nginx 托管）
+# =============================================================================
+
+stages:
+  - lint
+  - build
+  - deploy
+  - notify
+
+variables:
+  # 服务器连接
+  SSH_HOST: "192.168.22.106"
+  SSH_PORT: "13692"
+  SSH_USER: "root"
+  # 部署路径
+  DEPLOY_DIR: "/opt/fin-api-test"
+  BACKEND_VENV: "/opt/fin-api-test/platform/backend/venv"
+  FRONTEND_DIST: "/opt/fin-api-test/platform/frontend/dist"
+  SYSTEMD_SERVICE: "fin-api-test"
+  # 镜像源
+  PIP_INDEX: "https://pypi.tuna.tsinghua.edu.cn/simple"
+  NPM_REGISTRY: "https://registry.npmmirror.com"
+  # git clone 深度
+  GIT_DEPTH: "1"
+
+# 仅 main 分支触发（push 和 merge request 合并后都会触发 push 事件）
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ---------------------------------------------------------------------------
+# SSH 公共准备（锚点，供 deploy / notify 复用）
+# ---------------------------------------------------------------------------
+.ssh_template: &ssh_setup
+  before_script:
+    - which ssh-agent || (apt-get update -y && apt-get install -y openssh-client)
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null
+
+# ===========================================================================
+# 1. Lint 代码检查
+# ===========================================================================
+backend-lint:
+  stage: lint
+  image: python:3.12-slim
+  script:
+    - pip install ruff -i $PIP_INDEX
+    # ruff --select F 仅检查 pyflakes 类错误（未定义变量、未使用 import 等），
+    # 不因代码风格问题阻塞流水线
+    - ruff check --select F platform/backend
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+frontend-lint:
+  stage: lint
+  image: node:20-alpine
+  script:
+    - cd platform/frontend
+    - npm config set registry $NPM_REGISTRY
+    - npm ci
+    # vue-tsc 类型检查（与本地 build 前的类型校验一致）
+    - npx vue-tsc --noEmit
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ===========================================================================
+# 2. Build 前端构建（后端为 Python 无需构建，部署时 pip install）
+# ===========================================================================
+frontend-build:
+  stage: build
+  image: node:20-alpine
+  script:
+    - cd platform/frontend
+    - npm config set registry $NPM_REGISTRY
+    - npm ci
+    - npm run build
+  artifacts:
+    name: "frontend-dist-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - platform/frontend/dist
+    expire_in: 1 day
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ===========================================================================
+# 3. Deploy 部署到服务器
+# ===========================================================================
+deploy:
+  stage: deploy
+  image: alpine:latest
+  <<: *ssh_setup
+  script:
+    - apk add --no-cache openssh-client bash
+    # ---- 3.1 服务器：拉取最新代码 ----
+    - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "cd $DEPLOY_DIR && git fetch origin main && git reset --hard origin/main"
+    # ---- 3.2 同步 .env（从 GitLab 变量写入，敏感信息不入库）----
+    - echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" > /tmp/.env.deploy
+    - echo "DB_HOST=$DB_HOST" >> /tmp/.env.deploy
+    - echo "DB_PORT=$DB_PORT" >> /tmp/.env.deploy
+    - echo "DB_USER=$DB_USER" >> /tmp/.env.deploy
+    - echo "DB_PASSWORD=$DB_PASSWORD" >> /tmp/.env.deploy
+    - echo "DB_NAME=$DB_NAME" >> /tmp/.env.deploy
+    - echo "CORS_ORIGINS=http://$SSH_HOST:8088" >> /tmp/.env.deploy
+    - scp -P $SSH_PORT /tmp/.env.deploy $SSH_USER@$SSH_HOST:$DEPLOY_DIR/platform/backend/.env
+    - rm -f /tmp/.env.deploy
+    # ---- 3.3 后端：依赖安装 + 数据库迁移 ----
+    - |
+      ssh -p $SSH_PORT $SSH_USER@$SSH_HOST bash -s <<'REMOTE'
+        set -e
+        cd /opt/fin-api-test/platform/backend
+        # 首次部署自动创建 venv（需 python3.12）
+        if [ ! -d venv ]; then
+          python3.12 -m venv venv
+        fi
+        source venv/bin/activate
+        pip install -U pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+        # 数据库迁移
+        alembic upgrade head
+      REMOTE
+    # ---- 3.3 前端：上传构建产物 ----
+    - cd platform/frontend
+    - tar czf /tmp/frontend-dist.tar.gz -C dist .
+    - scp -P $SSH_PORT /tmp/frontend-dist.tar.gz $SSH_USER@$SSH_HOST:/tmp/frontend-dist.tar.gz
+    - |
+      ssh -p $SSH_PORT $SSH_USER@$SSH_HOST bash -s <<'REMOTE'
+        set -e
+        rm -rf /opt/fin-api-test/platform/frontend/dist
+        mkdir -p /opt/fin-api-test/platform/frontend/dist
+        tar xzf /tmp/frontend-dist.tar.gz -C /opt/fin-api-test/platform/frontend/dist
+        rm -f /tmp/frontend-dist.tar.gz
+      REMOTE
+    # ---- 3.4 重启后端服务 ----
+    - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "systemctl restart $SYSTEMD_SERVICE || (echo 'systemd 服务不存在，请手动配置启动方式' && exit 1)"
+    - sleep 2
+    - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "systemctl is-active $SYSTEMD_SERVICE"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment:
+    name: production
+    url: http://192.168.22.106
+
+# ===========================================================================
+# 4. 企微通知（无论成功/失败都执行）
+# ===========================================================================
+notify-wecom:
+  stage: notify
+  image: alpine:latest
+  <<: *ssh_setup
+  needs:
+    - job: backend-lint
+      optional: true
+    - job: frontend-lint
+      optional: true
+    - job: frontend-build
+      optional: true
+    - job: deploy
+      optional: true
+  when: always
+  script:
+    - apk add --no-cache curl bash
+    - |
+      # 汇总各阶段状态（失败/成功/跳过）
+      BUILD_STATUS="${CI_JOB_STATUS}"   # notify job 自身状态，这里取上游判断
+      # 判断上游是否有失败
+      PIPELINE_STATUS="成功"
+      COLOR="info"
+      if [ "$CI_PIPELINE_STATUS" = "failed" ] || [ "$CI_PIPELINE_STATUS" = "running" ]; then
+        PIPELINE_STATUS="失败"
+        COLOR="warning"
+      fi
+      # 构造企微 markdown 消息
+      COMMIT_MSG=$(git log -1 --pretty=format:'%s' 2>/dev/null || echo "$CI_COMMIT_MESSAGE")
+      AUTHOR="$GITLAB_USER_NAME"
+      SHORT_SHA="${CI_COMMIT_SHORT_SHA}"
+      BRANCH="${CI_COMMIT_BRANCH}"
+      PIPELINE_URL="${CI_PIPELINE_URL}"
+      PROJECT_URL="${CI_PROJECT_URL}"
+      TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
+
+      MARKDOWN="## fin-api-test 部署通知  $PIPELINE_STATUS\n"
+      MARKDOWN+="> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)\n"
+      MARKDOWN+="> **分支**：$BRANCH\n"
+      MARKDOWN+="> **提交**：$SHORT_SHA - $COMMIT_MSG\n"
+      MARKDOWN+="> **提交者**：$AUTHOR\n"
+      MARKDOWN+="> **时间**：$TIMESTAMP\n"
+      MARKDOWN+="> **流水线**：[查看详情]($PIPELINE_URL)\n"
+
+      curl -s -X POST "$WECOM_WEBHOOK" \
+        -H 'Content-Type: application/json' \
+        -d "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\"$MARKDOWN\"}}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
