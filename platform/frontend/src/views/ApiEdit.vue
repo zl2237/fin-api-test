@@ -223,6 +223,9 @@
           <el-form-item label="描述">
             <el-input v-model="formData.description" type="textarea" :rows="2" placeholder="可选" />
           </el-form-item>
+          <el-form-item label="请求体类型">
+            <el-switch v-model="formData.is_array_body" active-text="数组 [{...}]" inactive-text="对象 {...}" />
+          </el-form-item>
         </el-form>
       </div>
 
@@ -566,6 +569,7 @@ interface ApiFormData {
   path: string
   description: string
   fields: ApiField[]
+  is_array_body: boolean
 }
 
 const formData = reactive<ApiFormData>({
@@ -576,6 +580,7 @@ const formData = reactive<ApiFormData>({
   path: '',
   description: '',
   fields: [],
+  is_array_body: false,
 })
 
 // 监听变更
@@ -598,6 +603,8 @@ async function loadApi() {
   formData.path = api.path
   formData.description = api.description || ''
   formData.fields = (api.fields || []).map(f => ({ ...f }))
+  // request_template 为 list 表示数组请求体（body 组装为 [{...}]）
+  formData.is_array_body = Array.isArray(api.request_template)
   // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
   // 这里用 nextTick 等待 watch 触发后再重置，避免误判"有未保存改动"
   await nextTick()
@@ -628,6 +635,9 @@ async function onSave() {
       path: formData.path,
       description: formData.description,
       fields: formData.fields.filter(f => f.key),
+      // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
+      // 普通请求体用 {} 标记
+      request_template: formData.is_array_body ? [] : {},
     }
     if (isEdit.value) {
       await apiApi.update(formData.id!, payload)

@@ -21,6 +21,7 @@
           <template #default="{ node, data }">
             <span class="tree-node">
               <span class="tree-node-label">{{ node.label }}</span>
+              <span class="tree-node-count">{{ countFilesInCategory(data.id) }}</span>
               <span class="tree-node-actions">
                 <el-icon @click.stop="openCategoryDialog(data)"><Edit /></el-icon>
                 <el-icon @click.stop="confirmDeleteCategory(data)"><Delete /></el-icon>
@@ -34,9 +35,10 @@
           <span>全部文件</span>
           <span class="count">{{ totalFiles }}</span>
         </div>
-        <div class="quick-filter" :class="{ active: filter.category_id === null }" @click="filter.category_id = null; loadFiles()">
+        <div class="quick-filter" :class="{ active: filter.category_id === 0 }" @click="filter.category_id = 0; loadFiles()">
           <el-icon><FolderOpened /></el-icon>
           <span>未分类</span>
+          <span class="count">{{ uncategorizedCount }}</span>
         </div>
       </div>
 
@@ -208,6 +210,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
+        <el-button v-if="tagDialog.editing" type="danger" plain @click="deleteTag">删除</el-button>
+        <span style="flex: 1"></span>
         <el-button @click="tagDialog.visible = false">取消</el-button>
         <el-button type="primary" @click="saveTag">保存</el-button>
       </template>
@@ -230,20 +234,60 @@ const projectId = computed(() => store.currentProjectId)
 
 // ===== 文件列表 =====
 const files = ref<TestFile[]>([])
+// 全量文件列表（不带过滤条件），用于侧边栏各分类计数
+const allFiles = ref<TestFile[]>([])
 const loading = ref(false)
 const filter = ref<{ category_id?: number | null; tag_id?: number; keyword?: string }>({})
 
-const totalFiles = computed(() => files.value.length)
+const totalFiles = computed(() => allFiles.value.length)
+const uncategorizedCount = computed(() => allFiles.value.filter(f => f.category_id == null).length)
+
+/** 收集分类及其所有子孙分类 ID（用于含子分类的文件计数） */
+function collectCategoryDescendants(catId: number): number[] {
+  const ids: number[] = []
+  const walk = (nodes: any[]) => {
+    for (const n of nodes) {
+      if (n.id === catId) {
+        const collect = (children: any[]) => {
+          for (const c of children) {
+            ids.push(c.id)
+            collect(c.children || [])
+          }
+        }
+        collect(n.children || [])
+        return true
+      }
+      if (walk(n.children || [])) return true
+    }
+    return false
+  }
+  walk(categoryTree.value)
+  return ids
+}
+
+/** 统计分类下文件数量（含所有子分类） */
+function countFilesInCategory(catId: number): number {
+  const ids = [catId, ...collectCategoryDescendants(catId)]
+  return allFiles.value.filter(f => f.category_id != null && ids.includes(f.category_id)).length
+}
 
 async function loadFiles() {
   if (!projectId.value) return
   loading.value = true
   try {
-    files.value = await fileApi.list(projectId.value, {
+    const params = {
       category_id: filter.value.category_id,
       tag_id: filter.value.tag_id,
       keyword: filter.value.keyword,
-    })
+    }
+    files.value = await fileApi.list(projectId.value, params)
+    // 同时加载全量文件用于侧边栏计数（仅在无 keyword/tag 过滤时复用 files 避免重复请求）
+    const hasFilter = params.tag_id || params.keyword
+    if (!hasFilter && params.category_id === undefined) {
+      allFiles.value = files.value
+    } else {
+      allFiles.value = await fileApi.list(projectId.value, {})
+    }
   } catch (e: any) {
     ElMessage.error(e.message || '加载文件失败')
   } finally {
@@ -386,6 +430,28 @@ async function saveTag() {
     await loadTags()
   } catch (e: any) {
     ElMessage.error(e.message || '保存失败')
+  }
+}
+
+async function deleteTag() {
+  if (!tagDialog.value.editing) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除标签「${tagDialog.value.editing.name}」？已绑定此标签的文件将自动解除关联。`,
+      '删除标签',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await fileTagApi.remove(tagDialog.value.editing.id)
+    ElMessage.success('已删除')
+    tagDialog.value.visible = false
+    await loadTags()
+    await loadFiles()
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -606,9 +672,25 @@ onMounted(() => {
 .tree-node {
   flex: 1;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 6px;
   padding-right: 8px;
+}
+.tree-node-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-node-count {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  background: var(--app-chip-bg);
+  border-radius: 8px;
+  padding: 0 6px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
 }
 .tree-node-actions {
   display: none;

@@ -104,6 +104,7 @@
     align-center
     :close-on-click-modal="false"
     append-to-body
+    class="pv-diff-dialog"
   >
     <div v-if="diffData" class="pv-diff-wrap">
       <div class="pv-diff-header">
@@ -154,6 +155,7 @@
     align-center
     :close-on-click-modal="false"
     append-to-body
+    class="pv-diff-dialog"
   >
     <div v-if="fieldDiffLines.length" class="pv-diff-body">
       <div v-for="(line, idx) in fieldDiffLines" :key="idx" :class="['pv-diff-line', line.type]">
@@ -510,5 +512,40 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
 }
 .pv-diff-text {
   flex: 1;
+}
+
+/* ===== 版本对比弹窗：固定在视口内，header/footer 固定，body 内部滚动（参考 help-dialog） ===== */
+.pv-diff-dialog.el-dialog {
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.pv-diff-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+.pv-diff-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 18px;
+}
+.pv-diff-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
+.pv-diff-dialog .el-dialog__body::-webkit-scrollbar {
+  width: 8px;
+}
+.pv-diff-dialog .el-dialog__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pv-diff-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 4px;
+}
+.pv-diff-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
+  background: var(--app-text-muted);
 }
 </style>

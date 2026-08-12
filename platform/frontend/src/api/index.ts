@@ -96,7 +96,7 @@ export interface ApiField {
 export interface ApiDef {
   id: number; project_id: number; group_id?: number | null; name: string; code: string; category?: string
   method: string; path: string; description?: string
-  request_template: Record<string, any>; headers_template: Record<string, any>
+  request_template: any; headers_template: Record<string, any>
   fields: ApiField[]; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
