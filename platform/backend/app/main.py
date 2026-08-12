@@ -20,7 +20,7 @@ import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import init_db, engine, SessionLocal
+from .database import init_db, SessionLocal
 from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs, field_dictionaries, versions, files
 from . import models, auth as auth_module
 from .json_safe import BigintSafeJSONResponse

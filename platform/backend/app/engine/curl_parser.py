@@ -27,8 +27,6 @@ import shlex
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urlparse, parse_qs
 
-from ..services.spec_parser import path_to_code
-
 
 # cURL 数据参数，命中其一即认为该 token 后跟请求体
 _DATA_FLAGS = {"-d", "--data", "--data-raw", "--data-binary", "--data-ascii"}
@@ -97,7 +95,6 @@ def _parse_single_curl(cmd: str) -> Tuple[Dict[str, Any] | None, str | None]:
     i = 1
     while i < len(tokens):
         tok = tokens[i]
-        low = tok.lower()
 
         if tok in ("-X", "--request"):
             if i + 1 < len(tokens):
