@@ -6,6 +6,7 @@
       :fit-view-on-init="true"
       @connect="onConnect"
       @node-click="onNodeClick"
+      @node-double-click="onNodeDblClick"
       @node-drag-stop="emitChange"
       @edge-click="onEdgeClick"
     >
@@ -48,7 +49,8 @@ const props = defineProps<{ nodes: any[]; edges: any[] }>()
 const emit = defineEmits<{
   (e: 'update:nodes', v: any[]): void
   (e: 'update:edges', v: any[]): void
-  (e: 'node-click', id: string): void
+  (e: 'node-open', id: string): void
+  (e: 'nodes-pasted', mapping: { oldId: string; newId: string }[]): void
   (e: 'link-mode-change', active: boolean): void
 }>()
 
@@ -64,9 +66,14 @@ const linkSourceId = ref<string | null>(null)
 // 新加入节点的 ID 集合（用于高亮区分，约 3.6s 后自动移除）
 const newNodeIds = ref<string[]>([])
 
+// 剪贴板：存放 Ctrl+C 复制的节点信息（含原始 ID，用于粘贴时克隆 config）
+const clipboard = ref<{ id: string; data: any; label: string; position: { x: number; y: number } }[]>([])
+
 // 键盘事件：
 // - Esc：linkMode 下重置已选 source 或退出模式
 // - Delete/Backspace：删除当前选中的节点（连线模式下不触发，避免误删）
+// - Enter：打开选中节点的配置抽屉
+// - Ctrl+C / Ctrl+V：复制 / 粘贴选中节点
 function onKeydown(e: KeyboardEvent) {
   // Esc 键撤销：linkMode 下重置已选 source 或退出模式
   if (e.key === 'Escape' && linkMode.value) {
@@ -80,13 +87,12 @@ function onKeydown(e: KeyboardEvent) {
     }
     return
   }
+  // 焦点在输入框/文本域中时不拦截快捷键，避免影响文本编辑
+  const target = e.target as HTMLElement | null
+  const inEditable = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+
   // Delete/Backspace 删除选中节点
-  if ((e.key === 'Delete' || e.key === 'Backspace') && !linkMode.value) {
-    // 焦点在输入框/文本域中时不拦截，避免影响文本编辑
-    const target = e.target as HTMLElement | null
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-      return
-    }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !linkMode.value && !inEditable) {
     const selected = getNodes.value.filter((n: any) => n.selected)
     if (!selected.length) return
     const ids = selected.map((n: any) => n.id)
@@ -96,6 +102,61 @@ function onKeydown(e: KeyboardEvent) {
     emit('update:nodes', serializeNodes())
     emit('update:edges', serializeEdges())
     ElMessage.success(`已删除 ${ids.length} 个节点`)
+    e.preventDefault()
+    return
+  }
+
+  // Enter 打开选中节点的配置抽屉（仅单个选中时触发）
+  if (e.key === 'Enter' && !linkMode.value && !inEditable) {
+    const selected = getNodes.value.filter((n: any) => n.selected)
+    if (selected.length === 1) {
+      emit('node-open', selected[0].id)
+      e.preventDefault()
+    }
+    return
+  }
+
+  // Ctrl+C 复制选中节点到剪贴板
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !linkMode.value && !inEditable) {
+    const selected = getNodes.value.filter((n: any) => n.selected)
+    if (!selected.length) return
+    clipboard.value = selected.map((n: any) => ({
+      id: n.id,
+      data: { ...n.data },
+      label: n.label,
+      position: { x: n.position.x, y: n.position.y },
+    }))
+    e.preventDefault()
+    return
+  }
+
+  // Ctrl+V 粘贴节点（新 ID + 偏移位置，并通知父组件克隆 config）
+  if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !linkMode.value && !inEditable) {
+    if (!clipboard.value.length) return
+    const mapping: { oldId: string; newId: string }[] = []
+    const newNodes: any[] = []
+    let counter = 0
+    for (const item of clipboard.value) {
+      const newId = `paste-${Date.now()}-${counter++}`
+      mapping.push({ oldId: item.id, newId })
+      newNodes.push({
+        id: newId,
+        position: { x: item.position.x + 40, y: item.position.y + 40 },
+        data: { ...item.data },
+        label: item.label,
+      })
+    }
+    setNodes([...getNodes.value, ...newNodes])
+    emit('update:nodes', serializeNodes())
+    // 标记新节点高亮
+    newNodeIds.value = [...newNodeIds.value, ...newNodes.map((n) => n.id)]
+    const pasteIds = newNodes.map((n) => n.id)
+    setTimeout(() => {
+      newNodeIds.value = newNodeIds.value.filter((id) => !pasteIds.includes(id))
+    }, 3600)
+    // 通知父组件克隆对应 config
+    emit('nodes-pasted', mapping)
+    ElMessage.success(`已粘贴 ${mapping.length} 个节点`)
     e.preventDefault()
   }
 }
@@ -165,9 +226,13 @@ function onNodeClick({ node }: any) {
     linkSourceId.value = null
     return
   }
-  // 普通模式：触发节点点击事件（打开配置抽屉）
-  emit('node-click', node.id)
-  emitChange()
+  // 普通模式：单击仅选中（VueFlow 内部已处理选中状态），不打开配置
+}
+
+/** 双击节点：触发打开配置抽屉 */
+function onNodeDblClick({ node }: any) {
+  if (linkMode.value) return
+  emit('node-open', node.id)
 }
 
 function onEdgeClick({ edge }: any) {

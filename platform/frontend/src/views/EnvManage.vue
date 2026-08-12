@@ -26,7 +26,12 @@
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else :data="pagedList" stripe empty-text="暂无环境，点击左上角「新建环境」开始配置">
+        <el-table v-else ref="tableRef" :data="pagedList" stripe row-key="id" empty-text="暂无环境，点击左上角「新建环境」开始配置">
+          <el-table-column width="36" align="center">
+            <template #default>
+              <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+            </template>
+          </el-table-column>
           <el-table-column prop="id" label="ID" width="70" align="center" />
           <el-table-column prop="name" label="环境" width="100" />
           <el-table-column prop="base_url" label="Base URL" min-width="200" show-overflow-tooltip />
@@ -87,9 +92,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import Sortable from 'sortablejs'
+import { Rank } from '@element-plus/icons-vue'
 import { envApi, userApi, type Environment, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 
@@ -105,6 +112,46 @@ const pageSize = ref(10)
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return list.value.slice(start, start + pageSize.value)
+})
+
+// ===== 拖拽排序（SortableJS 绑定 el-table tbody）=====
+const tableRef = ref<any>(null)
+let sortableInst: any = null
+
+function bindSortable() {
+  const tbody = tableRef.value?.$el?.querySelector?.('.el-table__body-wrapper tbody')
+  if (!tbody) return
+  if (sortableInst) { sortableInst.destroy(); sortableInst = null }
+  sortableInst = Sortable.create(tbody, {
+    handle: '.drag-handle',
+    animation: 200,
+    ghostClass: 'sortable-ghost',
+    onEnd: async (evt: any) => {
+      if (evt.oldIndex === evt.newIndex) return
+      const start = (page.value - 1) * pageSize.value
+      const moved = list.value.splice(start + evt.oldIndex, 1)[0]
+      list.value.splice(start + evt.newIndex, 0, moved)
+      const items = list.value.map((e, i) => ({ id: e.id, sort_order: i }))
+      try {
+        await envApi.reorder(items)
+        ElMessage.success('排序已保存')
+        list.value.forEach((e, i) => { e.sort_order = i })
+      } catch (e: any) {
+        ElMessage.error(e.message || '排序保存失败')
+        await load()
+      }
+    },
+  })
+}
+
+watch([pagedList, loading], () => {
+  if (!loading.value && pagedList.value.length > 0) {
+    requestAnimationFrame(bindSortable)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (sortableInst) { sortableInst.destroy(); sortableInst = null }
 })
 
 // 配置完整度三态：无 / 未完成 / 已配置
@@ -219,5 +266,12 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+.drag-handle {
+  cursor: grab;
+  color: var(--el-text-color-placeholder);
+}
+.drag-handle:active {
+  cursor: grabbing;
 }
 </style>

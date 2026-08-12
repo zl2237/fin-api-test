@@ -39,8 +39,18 @@
       </el-table-column>
       <el-table-column label="值（支持 ${}）" min-width="240">
         <template #default="{ row }">
+          <div v-if="row.type !== 'delete_field' && isFileField(row.path)" class="file-value-cell">
+            <el-input
+              :model-value="row.value ? `#${row.value}` : ''"
+              size="small"
+              readonly
+              placeholder="未选择文件"
+              class="file-value-input"
+            />
+            <el-button link type="primary" size="small" @click="openFilePicker(row)">选择</el-button>
+          </div>
           <el-input
-            v-if="row.type !== 'delete_field'"
+            v-else-if="row.type !== 'delete_field'"
             v-model="row.value"
             size="small"
             type="textarea"
@@ -57,13 +67,21 @@
       </el-table-column>
     </el-table>
     <el-button class="add-btn" size="small" @click="add">+ 添加动作</el-button>
+
+    <!-- 文件选择器 -->
+    <FilePicker
+      v-model="filePickerVisible"
+      :model-file-id="filePickerTarget?.value"
+      @select="onFileSelect"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { ApiField } from '@/api'
+import { computed, ref, shallowRef } from 'vue'
+import type { ApiField, TestFile } from '@/api'
 import { useFieldDict } from '@/composables/useFieldDict'
+import FilePicker from '@/components/FilePicker.vue'
 
 const props = defineProps<{ modelValue: any[]; fields?: ApiField[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
@@ -178,6 +196,28 @@ function remove(idx: number) {
   next.splice(idx, 1)
   emit('update:modelValue', next)
 }
+
+// 判断当前路径是否对应 file 类型字段（仅匹配顶层字段 key）
+function isFileField(path: string): boolean {
+  if (!path) return false
+  return fields.value.some((f) => f.key === path && f.field_type === 'file')
+}
+
+// ===== 文件选择器 =====
+const filePickerVisible = ref(false)
+const filePickerTarget = shallowRef<any>(null)
+
+function openFilePicker(row: any) {
+  filePickerTarget.value = row
+  filePickerVisible.value = true
+}
+
+function onFileSelect(file: TestFile) {
+  if (filePickerTarget.value) {
+    filePickerTarget.value.value = String(file.id)
+  }
+  filePickerTarget.value = null
+}
 </script>
 
 <style scoped>
@@ -188,5 +228,13 @@ function remove(idx: number) {
 }
 .muted {
   color: var(--app-text-muted);
+}
+.file-value-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.file-value-input {
+  flex: 1;
 }
 </style>
