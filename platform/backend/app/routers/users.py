@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models, schemas, auth, crud
+from .. import models, schemas, crud
 from ..auth import get_current_user, hash_password, validate_password_strength
 
 router = APIRouter(prefix="/api/users", tags=["用户管理"])

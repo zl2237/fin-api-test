@@ -11,15 +11,15 @@ def send_notify(env, case, record) -> None:
         notify_config = env.notify_config or {}
         webhook = notify_config.get("wecom_webhook")
         if not webhook:
-            print(f"[通知发送] 跳过：未配置 wecom_webhook")
+            print("[通知发送] 跳过：未配置 wecom_webhook")
             return
         # 按开关决定是否通知：成功时看 enable_on_success，失败时看 enable_on_failure
         is_success = record.status == "success"
         if is_success and not notify_config.get("enable_on_success", False):
-            print(f"[通知发送] 跳过：用例成功但 enable_on_success=False")
+            print("[通知发送] 跳过：用例成功但 enable_on_success=False")
             return
         if not is_success and not notify_config.get("enable_on_failure", True):
-            print(f"[通知发送] 跳过：用例失败但 enable_on_failure=False")
+            print("[通知发送] 跳过：用例失败但 enable_on_failure=False")
             return
         print(f"[通知发送] 发送企微通知：用例={case.name} 状态={record.status}")
         from utils.wecom_util import WeComRobot
