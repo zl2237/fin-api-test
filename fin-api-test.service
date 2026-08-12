@@ -1,0 +1,15 @@
+[Unit]
+Description=fin-api-test backend (FastAPI + uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fin-api-test/platform/backend
+EnvironmentFile=/opt/fin-api-test/platform/backend/.env
+ExecStart=/opt/fin-api-test/platform/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
