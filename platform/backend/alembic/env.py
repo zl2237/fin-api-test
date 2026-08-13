@@ -1,5 +1,6 @@
 from logging.config import fileConfig
 
+
 from alembic import context
 
 # this is the Alembic Config object, which provides

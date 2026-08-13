@@ -5,8 +5,11 @@
 """
 
 
-def send_notify(env, case, record) -> None:
-    """执行完成后发送企微通知；notify_config 未配置 webhook 或开关关闭则跳过；失败不影响主流程。"""
+def send_notify(env, case, record, executor_name: str = "") -> None:
+    """执行完成后发送企微通知；notify_config 未配置 webhook 或开关关闭则跳过；失败不影响主流程。
+
+    executor_name 为执行人姓名（由调用方从 record.created_by 查 User 表得到），空字符串则不显示。
+    """
     try:
         notify_config = env.notify_config or {}
         webhook = notify_config.get("wecom_webhook")
@@ -35,6 +38,7 @@ def send_notify(env, case, record) -> None:
             f"> 状态：{status_text}{duration}\n"
             f"> 通过/总数：{summary.get('passed', 0)}/{summary.get('total', 0)}\n"
             f"> 环境：{env.name}\n"
+            f"> 执行人：{executor_name}\n"
             f"> 时间：{record.ended_at.strftime('%Y-%m-%d %H:%M:%S') if record.ended_at else ''}"
         )
         WeComRobot(webhook).send_markdown("用例执行通知", content)
