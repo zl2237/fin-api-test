@@ -151,7 +151,7 @@
     </el-dialog>
 
     <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序） -->
-    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="620px" align-center>
+    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="620px" align-center class="group-manage-dialog">
       <div class="group-dialog-body">
         <div class="group-add">
           <el-input
@@ -173,27 +173,29 @@
           <el-button type="primary" @click="onAddGroup">添加</el-button>
         </div>
         <div class="group-drag-tip">拖拽节点可调整层级与顺序，松开自动保存</div>
-        <el-tree
-          ref="groupTreeRef"
-          :data="groupTreeNodes"
-          node-key="id"
-          :props="treeProps"
-          :expand-on-click-node="false"
-          default-expand-all
-          draggable
-          @node-drop="onTreeNodeDrop"
-        >
-          <template #default="{ data }">
-            <div class="group-tree-row">
-              <span class="group-tree-name">{{ data.label }}</span>
-              <div class="group-tree-actions">
-                <el-button link type="primary" size="small" @click.stop="onRenameGroup(data)">重命名</el-button>
-                <el-button link type="danger" size="small" @click.stop="onDeleteGroup(data)">删除</el-button>
+        <div class="group-tree-scroll">
+          <el-tree
+            ref="groupTreeRef"
+            :data="groupTreeNodes"
+            node-key="id"
+            :props="treeProps"
+            :expand-on-click-node="false"
+            default-expand-all
+            draggable
+            @node-drop="onTreeNodeDrop"
+          >
+            <template #default="{ data }">
+              <div class="group-tree-row">
+                <span class="group-tree-name">{{ data.label }}</span>
+                <div class="group-tree-actions">
+                  <el-button link type="primary" size="small" @click.stop="onRenameGroup(data)">重命名</el-button>
+                  <el-button link type="danger" size="small" @click.stop="onDeleteGroup(data)">删除</el-button>
+                </div>
               </div>
-            </div>
-          </template>
-        </el-tree>
-        <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
+            </template>
+          </el-tree>
+          <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
+        </div>
       </div>
     </el-dialog>
 
@@ -810,11 +812,21 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .group-dialog-body {
   padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 .group-add {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
+}
+.group-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 .group-tree-row {
   display: flex;
@@ -858,5 +870,44 @@ function onGlobalKey(e: KeyboardEvent) {
   font-size: 12px;
   color: var(--app-text-muted);
   margin: 12px 0 8px;
+  flex-shrink: 0;
+}
+</style>
+
+<!-- 全局样式：el-dialog 默认 teleport 到 body，scoped 无法命中外层元素，需用全局样式 -->
+<style>
+/* 分组管理弹窗固定在视口内：参考 help-dialog 实现，约束最大高度，body 滚动 */
+.group-manage-dialog.el-dialog {
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.group-manage-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+.group-manage-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.group-manage-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
+/* 自定义滚动条（滚动区域在 .group-tree-scroll） */
+.group-tree-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.group-tree-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.group-tree-scroll::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 4px;
+}
+.group-tree-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--app-text-muted);
 }
 </style>
