@@ -31,6 +31,16 @@ from urllib.parse import urlparse, parse_qs
 # cURL 数据参数，命中其一即认为该 token 后跟请求体
 _DATA_FLAGS = {"-d", "--data", "--data-raw", "--data-binary", "--data-ascii"}
 
+
+def _preprocess_ansi_c_quoting(text: str) -> str:
+    """预处理 bash 的 $'...' ANSI-C quoting 语法。
+
+    shlex 不支持 $'...'，会把 $ 当普通字符拼到后面，导致 body 变成 ${...} 无法 json.loads。
+    处理方式：把 $'...' 转成普通 '...'（去掉 $ 前缀）。
+    内部的 \\u0021 / \\n / \\t 等转义序列原样保留，后续 json.loads 能正确解析。
+    """
+    return re.sub(r"\$'", "'", text)
+
 # 非业务 HTTP 方法，跳过
 _SKIP_METHODS = {"OPTIONS", "HEAD", "CONNECT", "TRACE"}
 
@@ -80,7 +90,7 @@ def _parse_single_curl(cmd: str) -> Tuple[Dict[str, Any] | None, str | None]:
     返回 (preview, error_msg)。解析失败时 preview=None。
     """
     try:
-        tokens = shlex.split(cmd, posix=True)
+        tokens = shlex.split(_preprocess_ansi_c_quoting(cmd), posix=True)
     except ValueError as e:
         return None, f"词法解析失败：{e}"
 
@@ -99,6 +109,12 @@ def _parse_single_curl(cmd: str) -> Tuple[Dict[str, Any] | None, str | None]:
         if tok in ("-X", "--request"):
             if i + 1 < len(tokens):
                 method = tokens[i + 1].upper()
+                i += 2
+                continue
+        elif tok in ("--url",):
+            # --url 'https://...' 显式指定 URL
+            if i + 1 < len(tokens):
+                url = tokens[i + 1]
                 i += 2
                 continue
         elif tok in ("-H", "--header"):
