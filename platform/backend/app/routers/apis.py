@@ -4,7 +4,6 @@ from copy import deepcopy
 from datetime import datetime
 import json
 import time
-from jsonpath_ng import parse as jsonpath_parse
 
 from ..database import get_db
 from .. import crud, schemas, models, path_setup  # noqa: F401
@@ -12,7 +11,6 @@ from ..auth import get_current_user
 from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
 from ..engine.curl_parser import parse_curl_to_previews
 from ..services.spec_parser import path_to_code, extract_fields_from_spec
-from utils.http_client import HttpClient
 from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
 
 router = APIRouter(prefix="/api/apis", tags=["接口定义"])
