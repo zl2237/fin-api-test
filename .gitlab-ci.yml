@@ -162,6 +162,7 @@ deploy:
 # ===========================================================================
 # 4. 企微通知（无论成功/失败都执行）
 #    notify 只需 curl 发 webhook，不需要 SSH；用 CI 内置变量代替 git log。
+#    alpine 默认 UTC 无时区，需安装 tzdata 让 TZ='Asia/Shanghai' 生效。
 # ===========================================================================
 notify-wecom:
   stage: notify
@@ -178,7 +179,7 @@ notify-wecom:
   when: always
   script:
     - sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
-    - apk add --no-cache curl
+    - apk add --no-cache curl tzdata
     - |
       # notify 是最后一个 stage，运行时前置 stage 的 job 状态已确定：
       #   有 job 失败 → CI_PIPELINE_STATUS=failed
