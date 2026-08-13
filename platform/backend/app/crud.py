@@ -1,6 +1,6 @@
 """数据库 CRUD 操作"""
 from datetime import datetime
-from typing import List, Optional, Type, TypeVar
+from typing import List, Optional, TypeVar
 from sqlalchemy.orm import Session
 
 from . import models, schemas
