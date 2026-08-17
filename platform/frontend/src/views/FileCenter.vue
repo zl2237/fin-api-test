@@ -130,7 +130,7 @@
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="previewFile(row)" v-if="isPreviewable(row.content_type)">预览</el-button>
             <el-button link type="primary" size="small" @click="downloadFile(row)">下载</el-button>
-            <el-button link type="primary" size="small" @click="openRenameDialog(row)">重命名</el-button>
+            <el-button link type="primary" size="small" @click="openRenameDialog(row)">编辑</el-button>
             <el-button link type="danger" size="small" @click="confirmDeleteFile(row)">删除</el-button>
           </template>
         </el-table-column>
