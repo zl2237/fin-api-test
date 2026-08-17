@@ -79,17 +79,19 @@
           <template #title><span>操作日志</span></template>
         </el-menu-item>
       </el-menu>
-      <!-- 侧边栏底部：当前登录用户头像 + 开发者署名 -->
+      <!-- 侧边栏底部：当前登录用户头像 + 开发者署名（持续涟漪特效，悬浮旋转保留） -->
       <div class="sidebar-foot">
-        <img
-          v-if="currentAvatar"
-          :src="currentAvatar"
-          class="dev-avatar"
-          :alt="store.user?.name || store.user?.username || '用户'"
-          :title="`Developed by zhangle`"
-        />
-        <div v-else class="dev-avatar dev-avatar-fallback" title="Developed by zhangle">
-          {{ fallbackInitial }}
+        <div class="avatar-ripple">
+          <img
+            v-if="currentAvatar"
+            :src="currentAvatar"
+            class="dev-avatar"
+            :alt="store.user?.name || store.user?.username || '用户'"
+            :title="`Developed by zhangle`"
+          />
+          <div v-else class="dev-avatar dev-avatar-fallback" title="Developed by zhangle">
+            {{ fallbackInitial }}
+          </div>
         </div>
         <span v-if="!collapsed" class="foot-text">Developed by zhangle</span>
       </div>
@@ -843,6 +845,43 @@ onMounted(async () => {
   letter-spacing: 0.5px;
 }
 /* 开发者头像：圆形 + 悬浮放大并缓慢旋转一圈 */
+/* 头像涟漪特效：外层容器负责持续扩散的波纹（双圈错峰），不影响头像本身的悬浮旋转 */
+.avatar-ripple {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.avatar-ripple::before,
+.avatar-ripple::after {
+  content: '';
+  position: absolute;
+  inset: -2px; /* 覆盖头像 2px 描边 */
+  border-radius: 50%;
+  border: 2px solid rgba(64, 158, 255, 0.55);
+  animation: avatar-ripple 2.4s ease-out infinite;
+  pointer-events: none; /* 波纹不拦截头像的悬浮/点击 */
+}
+.avatar-ripple::after {
+  animation-delay: 1.2s; /* 第二圈错峰，形成持续涟漪 */
+}
+@keyframes avatar-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+/* 用户偏好减少动画时关闭涟漪 */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-ripple::before,
+  .avatar-ripple::after {
+    animation: none;
+  }
+}
 .dev-avatar {
   width: 36px;
   height: 36px;
