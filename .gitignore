@@ -59,5 +59,7 @@ platform/backend/migrate_*.py
 # 本地teach skill学习目录
 .teach
 
-# 本地skill版本信息
+# 本地skill
 skills-lock.json
+.agents
+.claude
