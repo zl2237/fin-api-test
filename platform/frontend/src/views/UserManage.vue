@@ -19,6 +19,12 @@
         <el-table-column prop="id" label="ID" width="60" align="center" />
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="显示名" min-width="120" show-overflow-tooltip />
+        <el-table-column label="手机号" min-width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.phone || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="邮箱" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.email || '—' }}</template>
+        </el-table-column>
         <el-table-column label="角色" width="120" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.role === 'admin'" type="warning" effect="plain" round size="small">管理员</el-tag>
@@ -34,7 +40,7 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openRoleDialog(row)">改角色</el-button>
+            <el-button link type="primary" size="small" @click="openRoleDialog(row)">编辑</el-button>
             <el-button link type="warning" size="small" @click="openPasswordDialog(row)">重置密码</el-button>
             <el-button link type="danger" size="small" @click="onDelete(row)" :disabled="row.id === store.user?.id">删除</el-button>
           </template>
@@ -78,17 +84,29 @@
       </template>
     </el-dialog>
 
-    <!-- 改角色对话框 -->
-    <el-dialog v-model="roleVisible" title="修改角色" width="360px" align-center>
-      <el-form label-width="80px">
-        <el-form-item label="用户名">{{ roleTarget?.username }}</el-form-item>
-        <el-form-item label="角色">
+    <!-- 编辑用户对话框 -->
+    <el-dialog v-model="roleVisible" title="编辑用户" width="440px" align-center>
+      <el-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-width="80px">
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="roleForm.username" placeholder="登录用用户名" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="显示名" prop="name">
+          <el-input v-model="roleForm.name" placeholder="留空则用用户名" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="手机号" prop="phone">
+          <el-input v-model="roleForm.phone" placeholder="选填，全局唯一" maxlength="11" />
+        </el-form-item>
+        <el-form-item label="邮箱" prop="email">
+          <el-input v-model="roleForm.email" placeholder="选填，全局唯一" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="角色" prop="role">
           <el-radio-group v-model="roleForm.role">
             <el-radio value="member">普通成员</el-radio>
             <el-radio value="admin">管理员</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
+      <div class="edit-tip">修改用户名后，该用户需使用新用户名登录</div>
       <template #footer>
         <el-button @click="roleVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="onRoleUpdate">确定</el-button>
@@ -164,10 +182,38 @@ const createRules: FormRules = {
   ],
 }
 
-// 改角色
+// 编辑用户（用户名/显示名/手机号/邮箱/角色）
 const roleVisible = ref(false)
 const roleTarget = ref<User | null>(null)
-const roleForm = reactive({ role: 'member' })
+const roleFormRef = ref<FormInstance>()
+const roleForm = reactive({ username: '', name: '', phone: '', email: '', role: 'member' })
+const roleRules: FormRules = {
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 2, max: 50, message: '用户名 2-50 个字符', trigger: 'blur' },
+  ],
+  name: [{ max: 50, message: '显示名最多 50 个字符', trigger: 'blur' }],
+  phone: [
+    {
+      validator: (_rule, value: string, callback) => {
+        if (!value) return callback()
+        if (!/^1[3-9]\d{9}$/.test(value)) return callback(new Error('手机号格式不正确'))
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+  email: [
+    {
+      validator: (_rule, value: string, callback) => {
+        if (!value) return callback()
+        if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(value)) return callback(new Error('邮箱格式不正确'))
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+}
 
 // 重置密码
 const passwordVisible = ref(false)
@@ -234,30 +280,44 @@ async function onCreate() {
 
 function openRoleDialog(row: User) {
   roleTarget.value = row
+  roleForm.username = row.username
+  roleForm.name = row.name || ''
+  roleForm.phone = row.phone || ''
+  roleForm.email = row.email || ''
   roleForm.role = row.role
+  roleFormRef.value?.clearValidate()
   roleVisible.value = true
 }
 
 async function onRoleUpdate() {
-  if (!roleTarget.value) return
-  submitLoading.value = true
-  try {
-    await userApi.updateRole(roleTarget.value.id, roleForm.role)
-    ElMessage.success('已修改角色')
-    roleVisible.value = false
-    // 把自己降级为普通成员：本页已无权访问，同步本地角色后离开，避免停留页面触发 403
-    if (store.user?.id === roleTarget.value.id && roleForm.role !== 'admin') {
-      store.user.role = roleForm.role
-      const next = tabStore.removeTab('/users')
-      router.replace(next || '/apis')
-      return
+  if (!roleTarget.value || !roleFormRef.value) return
+  await roleFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    submitLoading.value = true
+    try {
+      await userApi.update(roleTarget.value!.id, {
+        username: roleForm.username.trim(),
+        name: roleForm.name.trim() || null,
+        phone: roleForm.phone.trim() || null,
+        email: roleForm.email.trim() || null,
+        role: roleForm.role,
+      })
+      ElMessage.success('已保存')
+      roleVisible.value = false
+      // 把自己降级为普通成员：本页已无权访问，同步本地角色后离开，避免停留页面触发 403
+      if (store.user?.id === roleTarget.value!.id && roleForm.role !== 'admin') {
+        store.user.role = roleForm.role
+        const next = tabStore.removeTab('/users')
+        router.replace(next || '/apis')
+        return
+      }
+      await load()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      submitLoading.value = false
     }
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '修改失败')
-  } finally {
-    submitLoading.value = false
-  }
+  })
 }
 
 function openPasswordDialog(row: User) {
@@ -328,5 +388,14 @@ onMounted(load)
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+/* 编辑弹窗底部提示：用户名变更影响登录 */
+.edit-tip {
+  margin-top: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  background: var(--app-hover);
+  border-radius: var(--app-radius-sm);
 }
 </style>
