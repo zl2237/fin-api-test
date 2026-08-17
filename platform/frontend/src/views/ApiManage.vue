@@ -54,7 +54,7 @@
           @click="onToggleGroup(row)"
         >
           <el-icon
-            v-if="row.hasChildren"
+            v-if="row.expandable"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
           ><CaretRight /></el-icon>
@@ -792,12 +792,12 @@ function countApisWithDescendants(groupId: number): number {
   return filteredApis.value.filter(a => a.group_id != null && ids.includes(a.group_id)).length
 }
 
-/** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行 */
-const visibleGroupRows = computed(() => computeVisibleRows(apisOf(null).length > 0))
+/** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行（叶子分组有数据也可展开） */
+const visibleGroupRows = computed(() => computeVisibleRows(apisOf(null).length > 0, (id) => apisOf(id).length))
 
-/** 切换分组展开/折叠（未分组行不响应） */
-function onToggleGroup(row: { groupId: number | null; isUngrouped: boolean }) {
-  if (row.isUngrouped || row.groupId == null) return
+/** 切换分组展开/折叠（未分组行与不可展开的空分组不响应） */
+function onToggleGroup(row: { groupId: number | null; isUngrouped: boolean; expandable?: boolean }) {
+  if (row.isUngrouped || row.groupId == null || row.expandable === false) return
   toggleGroupExpand(row.groupId)
 }
 
