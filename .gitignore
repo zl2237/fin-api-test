@@ -56,6 +56,8 @@ platform/backend/migrate_*.py
 # 任意目录下，以下划线开头的文件
 **/_*
 
-
 # 本地teach skill学习目录
 .teach
+
+# 本地skill版本信息
+skills-lock.json
