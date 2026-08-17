@@ -126,7 +126,7 @@
         <el-table-column prop="created_at" label="上传时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right" align="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="previewFile(row)" v-if="isPreviewable(row.content_type)">预览</el-button>
             <el-button link type="primary" size="small" @click="downloadFile(row)">下载</el-button>
