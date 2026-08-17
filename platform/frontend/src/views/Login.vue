@@ -85,10 +85,12 @@
     <!-- 右侧表单区 -->
     <main class="form-panel">
       <div class="form-card">
-        <div class="card-header">
-          <h2 class="card-title">{{ activeTab === 'login' ? '欢迎回来' : '创建账号' }}</h2>
-          <p class="card-sub">{{ activeTab === 'login' ? '登录以继续使用平台' : '注册后即可开始编排用例' }}</p>
-        </div>
+        <Transition name="head-swap" mode="out-in">
+          <div class="card-header" :key="activeTab">
+            <h2 class="card-title">{{ activeTab === 'login' ? '欢迎回来' : '创建账号' }}</h2>
+            <p class="card-sub">{{ activeTab === 'login' ? '登录以继续使用平台' : '注册后即可开始编排用例' }}</p>
+          </div>
+        </Transition>
 
         <el-tabs v-model="activeTab" class="login-tabs" stretch>
           <el-tab-pane label="登录" name="login" />
@@ -102,18 +104,26 @@
           <el-form-item label="密码" prop="password">
             <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" size="large" />
           </el-form-item>
-          <el-form-item v-if="activeTab === 'register'" label="显示名（可选）" prop="name">
-            <el-input v-model="form.name" placeholder="留空则用用户名" size="large" />
-          </el-form-item>
+          <Transition name="field-collapse">
+            <div v-if="activeTab === 'register'" class="field-wrap">
+              <el-form-item label="显示名（可选）" prop="name">
+                <el-input v-model="form.name" placeholder="留空则用用户名" size="large" />
+              </el-form-item>
+            </div>
+          </Transition>
           <el-button type="primary" native-type="submit" class="submit-btn" :loading="loading" size="large">
             {{ activeTab === 'login' ? '登 录' : '注 册' }}
           </el-button>
         </el-form>
 
-        <div v-if="activeTab === 'register'" class="hint">
-          密码要求：至少 8 位，必须同时包含字母和数字<br>
-          首个注册用户自动成为管理员，其余为普通成员
-        </div>
+        <Transition name="field-collapse">
+          <div v-if="activeTab === 'register'" class="field-wrap">
+            <div class="hint">
+              密码要求：至少 8 位，必须同时包含字母和数字<br>
+              首个注册用户自动成为管理员，其余为普通成员
+            </div>
+          </div>
+        </Transition>
       </div>
     </main>
   </div>
@@ -322,6 +332,21 @@ async function onSubmit() {
   border-radius: 12px;
   backdrop-filter: blur(8px);
   transition: transform 0.25s ease, background 0.25s ease;
+  /* 错峰入场：三卡依次淡入上移 */
+  animation: feature-in 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+.feature-item:nth-child(1) { animation-delay: 0.15s; }
+.feature-item:nth-child(2) { animation-delay: 0.3s; }
+.feature-item:nth-child(3) { animation-delay: 0.45s; }
+@keyframes feature-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .feature-item:hover {
   transform: translateX(6px);
@@ -371,6 +396,12 @@ async function onSubmit() {
 .form-card {
   width: 100%;
   max-width: 360px;
+  /* 容器感：卡片底色 + 细边框 + 柔和阴影 + 内边距 */
+  padding: 32px 28px;
+  background: var(--app-card, #fff);
+  border: 1px solid var(--app-border, #e4e7ed);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(15, 30, 60, 0.08), 0 1px 3px rgba(15, 30, 60, 0.04);
   animation: card-enter 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 @keyframes card-enter {
@@ -415,6 +446,42 @@ async function onSubmit() {
   line-height: 1.6;
 }
 
+/* ===== 登录/注册切换过渡 ===== */
+/* 标题/副标题淡切（out-in 模式：旧的先淡出、新的再淡入） */
+.head-swap-enter-active,
+.head-swap-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.head-swap-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.head-swap-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+/* 条件字段高度展开/收起（max-height 近似，避免布局跳变） */
+.field-collapse-enter-active,
+.field-collapse-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease, max-height 0.25s ease, margin 0.25s ease;
+  overflow: hidden;
+  max-height: 110px; /* 覆盖 显示名输入框(~80px) 与 密码提示(~60px) 的实际高度 */
+}
+.field-collapse-enter-from,
+.field-collapse-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+  max-height: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .head-swap-enter-active,
+  .head-swap-leave-active,
+  .field-collapse-enter-active,
+  .field-collapse-leave-active {
+    transition: none;
+  }
+}
+
 /* ===== 响应式：窄屏隐藏左侧品牌区 ===== */
 @media (max-width: 900px) {
   .brand-panel {
@@ -428,7 +495,8 @@ async function onSubmit() {
 /* 尊重减少动态效果偏好 */
 @media (prefers-reduced-motion: reduce) {
   .deco-node,
-  .form-card {
+  .form-card,
+  .feature-item {
     animation: none;
   }
   .deco-layer {

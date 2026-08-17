@@ -4,6 +4,22 @@ import { startProgress, doneProgress } from '@/utils/requestProgress'
 const http = axios.create({
   baseURL: '/api',
   timeout: 60000,
+  // 数组参数序列化为重复键（tag_ids=1&tag_ids=2），匹配 FastAPI 的 List Query 解析；
+  // axios 默认的 tag_ids[]=1 格式后端不识别，会导致过滤参数被静默忽略
+  paramsSerializer: {
+    serialize: (params) => {
+      const sp = new URLSearchParams()
+      for (const [key, value] of Object.entries(params)) {
+        if (value === undefined || value === null) continue
+        if (Array.isArray(value)) {
+          value.forEach((v) => sp.append(key, String(v)))
+        } else {
+          sp.append(key, String(value))
+        }
+      }
+      return sp.toString()
+    },
+  },
 })
 
 // 扩展 axios config：silent=true 时跳过顶部进度条（用于轮询请求避免频繁闪烁）
@@ -195,8 +211,6 @@ export const authApi = {
   removeAvatar: () => http.delete('/auth/avatar'),
   getAvatar: (userId: number) =>
     http.get<{ avatar: string | null; name: string }>(`/auth/avatar/${userId}`).then((r) => r.data),
-  getAvatarByUsername: (username: string) =>
-    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/by-username/${username}`).then((r) => r.data),
 }
 
 // ============ User 管理（仅管理员） ============
@@ -406,7 +420,7 @@ export interface TestFile {
 
 export const fileApi = {
   // 文件 CRUD
-  list: (projectId: number, params?: { category_id?: number | null; tag_id?: number; keyword?: string }) =>
+  list: (projectId: number, params?: { category_id?: number | null; tag_ids?: number[]; tag_id?: number; keyword?: string }) =>
     http.get<TestFile[]>('/files', { params: { project_id: projectId, ...params } }).then((r) => r.data),
   get: (id: number) => http.get<TestFile>(`/files/${id}`).then((r) => r.data),
   upload: (file: File, projectId: number, categoryId?: number | null) => {

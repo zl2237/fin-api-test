@@ -310,6 +310,21 @@ async function onSubmit() {
   border-radius: 12px;
   backdrop-filter: blur(8px);
   transition: transform 0.25s ease, background 0.25s ease;
+  /* 错峰入场：三卡依次淡入上移（与登录页 feature 卡一致） */
+  animation: tip-in 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+}
+.tip-item:nth-child(1) { animation-delay: 0.15s; }
+.tip-item:nth-child(2) { animation-delay: 0.3s; }
+.tip-item:nth-child(3) { animation-delay: 0.45s; }
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .tip-item:hover {
   transform: translateX(6px);
@@ -359,6 +374,12 @@ async function onSubmit() {
 .form-card {
   width: 100%;
   max-width: 360px;
+  /* 容器感：卡片底色 + 细边框 + 柔和阴影 + 内边距（与登录页一致） */
+  padding: 32px 28px;
+  background: var(--app-card, #fff);
+  border: 1px solid var(--app-border, #e4e7ed);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(15, 30, 60, 0.08), 0 1px 3px rgba(15, 30, 60, 0.04);
   animation: card-enter 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 @keyframes card-enter {
@@ -427,7 +448,8 @@ async function onSubmit() {
 
 @media (prefers-reduced-motion: reduce) {
   .deco-node,
-  .form-card {
+  .form-card,
+  .tip-item {
     animation: none;
   }
   .deco-layer {

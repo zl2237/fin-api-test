@@ -45,17 +45,18 @@
       <div class="sidebar-section">
         <div class="sidebar-header">
           <span class="sidebar-title">标签</span>
-          <el-button link type="primary" size="small" @click="tagDialog.visible = true; tagDialog.editing = null">
+          <el-button link type="primary" size="small" @click="openTagDialog(null)">
             <el-icon><Plus /></el-icon>
           </el-button>
         </div>
         <div class="tag-cloud">
+          <!-- 初始为白色默认态，点击选中后才展示标签颜色；支持多选叠加过滤 -->
           <span
             v-for="tag in tags"
             :key="tag.id"
             class="tag-chip"
-            :class="{ active: filter.tag_id === tag.id }"
-            :style="tag.color ? { backgroundColor: tag.color + '22', borderColor: tag.color, color: tag.color } : {}"
+            :class="{ active: isTagSelected(tag.id) }"
+            :style="tagChipStyle(tag)"
             @click="toggleTagFilter(tag)"
           >
             {{ tag.name }}
@@ -114,7 +115,6 @@
               v-for="tid in row.tag_ids"
               :key="tid"
               size="small"
-              :color="tagMap[tid]?.color"
               :style="tagMap[tid]?.color ? { backgroundColor: tagMap[tid].color + '22', borderColor: tagMap[tid].color, color: tagMap[tid].color } : {}"
               class="file-tag"
             >
@@ -126,11 +126,11 @@
         <el-table-column prop="created_at" label="上传时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right" align="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="previewFile(row)" v-if="isPreviewable(row.content_type)">预览</el-button>
             <el-button link type="primary" size="small" @click="downloadFile(row)">下载</el-button>
-            <el-button link type="primary" size="small" @click="openRenameDialog(row)">重命名</el-button>
+            <el-button link type="primary" size="small" @click="openRenameDialog(row)">编辑</el-button>
             <el-button link type="danger" size="small" @click="confirmDeleteFile(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -205,15 +205,29 @@
           <el-input v-model="tagDialog.name" placeholder="如 冒烟/回归/生产" />
         </el-form-item>
         <el-form-item label="颜色">
-          <el-color-picker v-model="tagDialog.color" />
-          <el-button link @click="tagDialog.color = ''">清除</el-button>
+          <!-- 固定调色板：点击即选中。
+               不用 el-color-picker：其选色后必须再点面板内「确定」才会写入 v-model，
+               直接点外部（如保存按钮）会静默丢弃所选颜色，导致标签颜色丢失 -->
+          <div class="color-palette">
+            <span
+              v-for="c in TAG_COLORS"
+              :key="c"
+              class="color-dot"
+              :class="{ active: tagDialog.color === c }"
+              :style="{ backgroundColor: c }"
+              @click="tagDialog.color = c"
+            />
+            <el-button link size="small" @click="tagDialog.color = ''">不使用颜色</el-button>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button v-if="tagDialog.editing" type="danger" plain @click="deleteTag">删除</el-button>
-        <span style="flex: 1"></span>
-        <el-button @click="tagDialog.visible = false">取消</el-button>
-        <el-button type="primary" @click="saveTag">保存</el-button>
+        <div class="tag-dialog-footer">
+          <el-button v-if="tagDialog.editing" type="danger" plain @click="deleteTag">删除</el-button>
+          <span class="footer-spacer"></span>
+          <el-button @click="tagDialog.visible = false">取消</el-button>
+          <el-button type="primary" @click="saveTag">保存</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -237,7 +251,7 @@ const files = ref<TestFile[]>([])
 // 全量文件列表（不带过滤条件），用于侧边栏各分类计数
 const allFiles = ref<TestFile[]>([])
 const loading = ref(false)
-const filter = ref<{ category_id?: number | null; tag_id?: number; keyword?: string }>({})
+const filter = ref<{ category_id?: number | null; tag_ids: number[]; keyword?: string }>({ tag_ids: [] })
 
 const totalFiles = computed(() => allFiles.value.length)
 const uncategorizedCount = computed(() => allFiles.value.filter(f => f.category_id == null).length)
@@ -277,12 +291,12 @@ async function loadFiles() {
   try {
     const params = {
       category_id: filter.value.category_id,
-      tag_id: filter.value.tag_id,
+      tag_ids: filter.value.tag_ids.length ? filter.value.tag_ids : undefined,
       keyword: filter.value.keyword,
     }
     files.value = await fileApi.list(projectId.value, params)
     // 同时加载全量文件用于侧边栏计数（仅在无 keyword/tag 过滤时复用 files 避免重复请求）
-    const hasFilter = params.tag_id || params.keyword
+    const hasFilter = filter.value.tag_ids.length || params.keyword
     if (!hasFilter && params.category_id === undefined) {
       allFiles.value = files.value
     } else {
@@ -390,16 +404,41 @@ async function loadTags() {
   tags.value = await fileTagApi.list(projectId.value)
 }
 
+/** 标签是否处于选中过滤状态 */
+function isTagSelected(tagId: number): boolean {
+  return filter.value.tag_ids.includes(tagId)
+}
+
+/** 多选切换：已选中则移除，未选中则加入 */
 function toggleTagFilter(tag: FileTag) {
-  filter.value.tag_id = filter.value.tag_id === tag.id ? undefined : tag.id
+  const i = filter.value.tag_ids.indexOf(tag.id)
+  if (i >= 0) filter.value.tag_ids.splice(i, 1)
+  else filter.value.tag_ids.push(tag.id)
   loadFiles()
+}
+
+/** 标签色块样式：未选中为白色默认态，选中后展示标签颜色（无色标签用主题色） */
+function tagChipStyle(tag: FileTag): Record<string, string> {
+  if (!isTagSelected(tag.id)) return {}
+  const c = tag.color || 'var(--app-primary)'
+  return {
+    backgroundColor: `color-mix(in srgb, ${c} 12%, transparent)`,
+    borderColor: c,
+    color: c,
+  }
 }
 
 const tagDialog = ref<{ visible: boolean; editing: FileTag | null; name: string; color: string }>({
   visible: false, editing: null, name: '', color: '',
 })
 
-function openTagDialog(tag: FileTag) {
+// 标签可选颜色：固定调色板，点击即选（避免 el-color-picker 需二次确认的交互陷阱）
+const TAG_COLORS = [
+  '#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#9B59B6',
+  '#00B8D4', '#FF7D4D', '#2ECC71', '#34495E', '#E91E63', '#3F51B5',
+]
+
+function openTagDialog(tag: FileTag | null) {
   tagDialog.value.editing = tag
   tagDialog.value.name = tag?.name || ''
   tagDialog.value.color = tag?.color || ''
@@ -448,6 +487,8 @@ async function deleteTag() {
     await fileTagApi.remove(tagDialog.value.editing.id)
     ElMessage.success('已删除')
     tagDialog.value.visible = false
+    // 若被删标签正处于选中过滤中，同步移除，避免过滤悬空
+    filter.value.tag_ids = filter.value.tag_ids.filter((id) => id !== tagDialog.value.editing!.id)
     await loadTags()
     await loadFiles()
   } catch (e: any) {
@@ -623,7 +664,7 @@ function fileIconColor(contentType: string): string {
 
 // ===== 监听项目变化 =====
 watch(projectId, () => {
-  filter.value = {}
+  filter.value = { tag_ids: [] }
   loadFiles()
   loadCategories()
   loadTags()
@@ -744,12 +785,13 @@ onMounted(() => {
   cursor: pointer;
   border: 1px solid var(--el-border-color);
   color: var(--app-text);
-  background: var(--el-fill-color-light);
+  /* 未选中：白色底，与选中态（标签色）明确区分 */
+  background: var(--el-bg-color);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .tag-chip.active {
-  background: var(--el-color-primary-light-9);
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
+  /* 选中态颜色由 tagChipStyle 内联注入（标签色/主题色），此处仅兜底加粗 */
+  font-weight: 500;
 }
 .tag-edit {
   font-size: 10px;
@@ -795,6 +837,36 @@ onMounted(() => {
 }
 .file-tag {
   margin-right: 4px;
+}
+/* 标签颜色调色板：色块点击即选 */
+.color-palette {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.color-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 2px solid var(--app-border);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.color-dot:hover {
+  transform: scale(1.18);
+}
+.color-dot.active {
+  border-color: var(--app-text);
+  box-shadow: 0 0 0 2px var(--app-card);
+}
+/* 标签弹窗 footer：flex 布局统一按钮间距（删除靠左，取消/保存靠右） */
+.tag-dialog-footer {
+  display: flex;
+  align-items: center;
+}
+.tag-dialog-footer .footer-spacer {
+  flex: 1;
 }
 
 .preview-container {
