@@ -97,13 +97,13 @@
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSubmit">
           <el-form-item label="用户名" prop="username">
-            <el-input v-model="form.username" placeholder="请输入用户名" :prefix-icon="User" size="large" @keyup.enter="onSubmit" />
+            <el-input v-model="form.username" placeholder="请输入用户名" :prefix-icon="User" size="large" />
           </el-form-item>
           <el-form-item label="密码" prop="password">
-            <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" size="large" @keyup.enter="onSubmit" />
+            <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" size="large" />
           </el-form-item>
           <el-form-item v-if="activeTab === 'register'" label="显示名（可选）" prop="name">
-            <el-input v-model="form.name" placeholder="留空则用用户名" size="large" @keyup.enter="onSubmit" />
+            <el-input v-model="form.name" placeholder="留空则用用户名" size="large" />
           </el-form-item>
           <el-button type="primary" native-type="submit" class="submit-btn" :loading="loading" size="large">
             {{ activeTab === 'login' ? '登 录' : '注 册' }}
@@ -176,7 +176,7 @@ function onMouseMove(e: MouseEvent) {
 }
 
 async function onSubmit() {
-  if (!formRef.value) return
+  if (!formRef.value || loading.value) return
   await formRef.value.validate(async (valid) => {
     if (!valid) return
     loading.value = true
