@@ -44,39 +44,39 @@
       >
         <el-menu-item index="/projects">
           <el-icon><Folder /></el-icon>
-          <span>项目管理</span>
+          <template #title><span>项目管理</span></template>
         </el-menu-item>
         <el-menu-item index="/envs">
           <el-icon><Setting /></el-icon>
-          <span>环境配置</span>
+          <template #title><span>环境配置</span></template>
         </el-menu-item>
         <el-menu-item index="/apis">
           <el-icon><Connection /></el-icon>
-          <span>接口管理</span>
+          <template #title><span>接口管理</span></template>
         </el-menu-item>
         <el-menu-item index="/cases">
           <el-icon><Share /></el-icon>
-          <span>用例列表</span>
+          <template #title><span>用例列表</span></template>
         </el-menu-item>
         <el-menu-item index="/executions">
           <el-icon><Histogram /></el-icon>
-          <span>执行记录</span>
+          <template #title><span>执行记录</span></template>
         </el-menu-item>
         <el-menu-item index="/dictionary">
           <el-icon><DataLine /></el-icon>
-          <span>字段字典</span>
+          <template #title><span>字段字典</span></template>
         </el-menu-item>
         <el-menu-item index="/files">
           <el-icon><Files /></el-icon>
-          <span>文件中心</span>
+          <template #title><span>文件中心</span></template>
         </el-menu-item>
         <el-menu-item v-if="store.user?.role === 'admin'" index="/users">
           <el-icon><UserFilled /></el-icon>
-          <span>用户管理</span>
+          <template #title><span>用户管理</span></template>
         </el-menu-item>
         <el-menu-item v-if="store.user?.role === 'admin'" index="/operation-logs">
           <el-icon><List /></el-icon>
-          <span>操作日志</span>
+          <template #title><span>操作日志</span></template>
         </el-menu-item>
       </el-menu>
       <!-- 侧边栏底部：研发者头像 + 标识 -->
@@ -720,7 +720,13 @@ function onThemeCommand(cmd: 'light' | 'dark' | 'auto') {
   if (!document.startViewTransition) {
     apply()
   } else {
-    document.startViewTransition(() => apply())
+    // 切换前冻结全站 CSS 过渡：主题变量变化会触发 body/按钮/输入框等大量元素的
+    // 颜色过渡，与扩散动画并行时抢占主线程导致掉帧，且新快照可能拍到过渡中间色
+    const root = document.documentElement
+    root.classList.add('theme-switching')
+    const transition = document.startViewTransition(() => apply())
+    // 扩散动画结束后解冻，恢复正常交互过渡
+    transition.finished.finally(() => root.classList.remove('theme-switching'))
   }
   ElMessage.success(`已切换为${cmd === 'light' ? '浅色' : cmd === 'dark' ? '深色' : '跟随系统'}模式`)
 }
@@ -1452,6 +1458,16 @@ onMounted(async () => {
 }
 .corecap-tabs .el-tabs__content::-webkit-scrollbar-thumb:hover {
   background: var(--app-text-muted);
+}
+
+/* ===== 主题切换性能：切换瞬间冻结全站 CSS 过渡 ===== */
+/* 主题变量变化会触发大量元素的颜色过渡，与扩散动画并行时抢占主线程导致卡顿；
+   JS 在 startViewTransition 前加类、finished 后移除 */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
 }
 
 /* ===== 主题切换圆形扩散过渡（View Transitions API）===== */
