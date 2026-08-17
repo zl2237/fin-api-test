@@ -15,9 +15,6 @@ logs/
 report/
 *.log
 
-# 临时下载文件
-assets/download_tmp/
-
 # IDE
 .idea/
 .vscode/
@@ -50,10 +47,7 @@ htmlcov/
 .coverage
 .coverage.*
 
-# 一次性迁移脚本（已完成历史使命，不纳入版本库）
-platform/backend/migrate_*.py
-
-# 任意目录下，以下划线开头的文件
+# 任意目录下，以下划线开头的开发调试文件
 **/_*
 
 # 本地teach skill学习目录
