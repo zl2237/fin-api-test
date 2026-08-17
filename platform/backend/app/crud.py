@@ -1116,6 +1116,10 @@ def update_file_tag(db: Session, obj: models.FileTag, data: schemas.FileTagUpdat
 
 
 def delete_file_tag(db: Session, obj: models.FileTag):
+    """删除标签：先删除所有文件-标签关联，避免外键约束导致删除失败"""
+    db.query(models.FileTagRelation).filter(
+        models.FileTagRelation.tag_id == obj.id
+    ).delete(synchronize_session=False)
     db.delete(obj)
     db.commit()
 
@@ -1150,8 +1154,12 @@ def list_files(
     category_id: Optional[int] = None,
     tag_id: Optional[int] = None,
     keyword: Optional[str] = None,
+    tag_ids: Optional[List[int]] = None,
 ) -> List[models.TestFile]:
-    """列出项目下的文件，支持按分类/标签/名称过滤"""
+    """列出项目下的文件，支持按分类/标签（单选或多选）/名称过滤。
+
+    tag_ids 多选为 OR 语义：返回包含任一选中标签的文件（去重）。
+    """
     q = db.query(models.TestFile).filter(models.TestFile.project_id == project_id)
     if category_id is not None:
         if category_id == 0:
@@ -1159,7 +1167,13 @@ def list_files(
             q = q.filter(models.TestFile.category_id.is_(None))
         else:
             q = q.filter(models.TestFile.category_id == category_id)
-    if tag_id is not None:
+    if tag_ids:
+        # 多选标签：文件 id 在任一选中标签的关联中（子查询去重）
+        sub = db.query(models.FileTagRelation.file_id).filter(
+            models.FileTagRelation.tag_id.in_(tag_ids)
+        ).subquery()
+        q = q.filter(models.TestFile.id.in_(sub))
+    elif tag_id is not None:
         q = q.join(models.FileTagRelation, models.FileTagRelation.file_id == models.TestFile.id) \
              .filter(models.FileTagRelation.tag_id == tag_id)
     if keyword:
