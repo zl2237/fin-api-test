@@ -28,6 +28,8 @@ class UserOut(ORMBase):
     role: str = "member"
     must_change_password: bool = False
     has_avatar: bool = False
+    phone: Optional[str] = None
+    email: Optional[str] = None
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
@@ -48,6 +50,15 @@ class UserCreateRequest(BaseModel):
 
 
 class UserRoleUpdate(BaseModel):
+    role: str
+
+
+class UserInfoUpdate(BaseModel):
+    """编辑用户弹窗整弹窗提交：用户名/显示名/手机号/邮箱/角色一次保存"""
+    username: str = Field(min_length=2, max_length=50)
+    name: Optional[str] = Field(default=None, max_length=50)
+    phone: Optional[str] = Field(default=None, max_length=20)
+    email: Optional[str] = Field(default=None, max_length=100)
     role: str
 
 
