@@ -164,7 +164,12 @@
           </el-button>
           <el-dropdown trigger="click" @command="onThemeCommand">
             <el-button text :title="themeLabel">
-              <el-icon><Sunny v-if="effectiveDark" /><Moon v-else /></el-icon>
+              <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
+              <el-icon>
+                <Monitor v-if="store.theme === 'auto'" />
+                <Sunny v-else-if="store.theme === 'light'" />
+                <Moon v-else />
+              </el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
@@ -712,11 +717,6 @@ async function onAvatarFileChange(e: Event) {
   }
 }
 
-// 主题：当前生效是否深色，用于图标显示
-const effectiveDark = computed(() =>
-  store.theme === 'dark' ||
-  (store.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-)
 const themeLabel = computed(() => {
   if (store.theme === 'light') return '浅色模式'
   if (store.theme === 'dark') return '深色模式'
