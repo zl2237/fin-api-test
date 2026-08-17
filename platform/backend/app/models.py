@@ -79,7 +79,7 @@ class Environment(Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
     project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    name = Column(String(50), nullable=False, comment="环境名称：dev/test/prod")
+    name = Column(String(50), nullable=False, comment="环境名称：dev/test/pre/prod")
     base_url = Column(String(500), nullable=False, comment="接口基础地址，如 https://api.example.com")
     db_config = Column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
     login_config = Column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")
