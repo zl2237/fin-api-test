@@ -1213,10 +1213,16 @@ def create_file_record(
 
 
 def update_file(db: Session, obj: models.TestFile, data: schemas.FileUpdateRequest, user_id: Optional[int] = None) -> models.TestFile:
-    """更新文件元数据：重命名 / 改分类 / 改标签"""
+    """更新文件元数据：重命名 / 改分类 / 改标签。
+
+    category_id 通过 model_fields_set 区分两种情况：
+    - 请求未携带该字段 → 跳过更新（保持原分类）
+    - 显式传 null → 更新为未分类（category_id IS NULL）
+    因为 Optional[int]=None 下，未传与传 null 反序列化后都是 None，无法用 is not None 区分。
+    """
     if data.name is not None:
         obj.name = data.name
-    if data.category_id is not None:
+    if "category_id" in data.model_fields_set:
         obj.category_id = data.category_id
     if user_id is not None:
         obj.updated_by = user_id
