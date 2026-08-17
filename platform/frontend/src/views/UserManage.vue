@@ -113,11 +113,15 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { userApi, type User } from '@/api'
 import { useAppStore } from '@/stores'
+import { useTabStore } from '@/stores/tabs'
 
+const router = useRouter()
 const store = useAppStore()
+const tabStore = useTabStore()
 const allUsers = ref<User[]>([])
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -241,6 +245,13 @@ async function onRoleUpdate() {
     await userApi.updateRole(roleTarget.value.id, roleForm.role)
     ElMessage.success('已修改角色')
     roleVisible.value = false
+    // 把自己降级为普通成员：本页已无权访问，同步本地角色后离开，避免停留页面触发 403
+    if (store.user?.id === roleTarget.value.id && roleForm.role !== 'admin') {
+      store.user.role = roleForm.role
+      const next = tabStore.removeTab('/users')
+      router.replace(next || '/apis')
+      return
+    }
     await load()
   } catch (e: any) {
     ElMessage.error(e.message || '修改失败')
