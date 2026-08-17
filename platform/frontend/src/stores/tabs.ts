@@ -83,6 +83,24 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   /**
+   * 关闭指定标签左侧的可关闭标签（右键菜单用）
+   */
+  function removeLeft(path: string) {
+    const idx = tabs.value.findIndex((t) => t.path === path)
+    if (idx <= 0) return
+    tabs.value = tabs.value.filter((t, i) => i >= idx || !t.closable)
+  }
+
+  /**
+   * 关闭指定标签右侧的可关闭标签（右键菜单用）
+   */
+  function removeRight(path: string) {
+    const idx = tabs.value.findIndex((t) => t.path === path)
+    if (idx === -1 || idx === tabs.value.length - 1) return
+    tabs.value = tabs.value.filter((t, i) => i <= idx || !t.closable)
+  }
+
+  /**
    * 关闭所有可关闭的标签，激活首页
    */
   function removeAll() {
@@ -106,6 +124,8 @@ export const useTabStore = defineStore('tabs', () => {
     addTab,
     removeTab,
     removeOthers,
+    removeLeft,
+    removeRight,
     removeAll,
     reset,
   }
