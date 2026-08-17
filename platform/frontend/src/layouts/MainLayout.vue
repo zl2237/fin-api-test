@@ -159,6 +159,9 @@
           <el-button text @click="helpVisible = true">
             <el-icon><QuestionFilled /></el-icon>使用说明
           </el-button>
+          <el-button text :title="isFullscreen ? '退出全屏' : '进入全屏'" @click="toggleFullscreen">
+            <el-icon><FullScreen /></el-icon>
+          </el-button>
           <el-dropdown trigger="click" @command="onThemeCommand">
             <el-button text :title="themeLabel">
               <el-icon><Sunny v-if="effectiveDark" /><Moon v-else /></el-icon>
@@ -212,26 +215,29 @@
           />
         </div>
       </el-header>
-      <!-- 标签页栏 -->
+      <!-- 标签页栏（TransitionGroup 开关动画 + 右键快捷菜单） -->
       <div class="tab-bar">
         <div class="tab-scroll">
-          <div
-            v-for="tab in tabStore.tabs"
-            :key="tab.path"
-            class="tab-item"
-            :class="{ active: tab.path === route.path }"
-            @click="router.push(tab.path)"
-            @middle-click.prevent="onTabClose(tab.path)"
-          >
-            <span class="tab-title">{{ tab.title }}</span>
-            <el-icon
-              v-if="tab.closable"
-              class="tab-close"
-              @click.stop="onTabClose(tab.path)"
+          <TransitionGroup name="tab">
+            <div
+              v-for="tab in tabStore.tabs"
+              :key="tab.path"
+              class="tab-item"
+              :class="{ active: tab.path === route.path }"
+              @click="router.push(tab.path)"
+              @middle-click.prevent="onTabClose(tab.path)"
+              @contextmenu.prevent="onTabContextMenu($event, tab)"
             >
-              <Close />
-            </el-icon>
-          </div>
+              <span class="tab-title">{{ tab.title }}</span>
+              <el-icon
+                v-if="tab.closable"
+                class="tab-close"
+                @click.stop="onTabClose(tab.path)"
+              >
+                <Close />
+              </el-icon>
+            </div>
+          </TransitionGroup>
         </div>
         <el-dropdown trigger="click" @command="onTabCommand" class="tab-actions">
           <el-button text size="small" class="tab-more-btn">
@@ -245,6 +251,25 @@
           </template>
         </el-dropdown>
       </div>
+
+      <!-- 标签页右键菜单（关闭/关闭左侧/右侧/其他，浏览器 tab 式操作） -->
+      <Teleport to="body">
+        <div
+          v-if="tabCtx.visible"
+          class="tab-ctxmenu"
+          :style="{ left: tabCtx.x + 'px', top: tabCtx.y + 'px' }"
+          @click.stop
+        >
+          <div
+            v-if="tabCtx.tab?.closable"
+            class="ctx-item"
+            @click="onCtxAction('close')"
+          >关闭标签</div>
+          <div class="ctx-item" @click="onCtxAction('closeLeft')">关闭左侧</div>
+          <div class="ctx-item" @click="onCtxAction('closeRight')">关闭右侧</div>
+          <div class="ctx-item" @click="onCtxAction('closeOthers')">关闭其他</div>
+        </div>
+      </Teleport>
       <el-main class="main">
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
@@ -511,12 +536,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar, FullScreen } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
-import { useTabStore } from '@/stores/tabs'
+import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
 import CommandPalette from '@/components/CommandPalette.vue'
 import ProjectVersionHistory from '@/components/ProjectVersionHistory.vue'
@@ -723,6 +748,28 @@ function onProjectChange(id: number) {
   store.setProject(id)
 }
 
+// ===== 浏览器全屏切换 =====
+const isFullscreen = ref(false)
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.()
+  } else {
+    document.exitFullscreen?.()
+  }
+}
+
+// 监听全屏状态变化（含 Esc 退出），同步按钮提示
+function onFsChange() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFsChange)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFsChange)
+})
+
 // 面包屑：取路由 matched 链中带 title 的项（排除根布局）
 const breadcrumbItems = computed(() => {
   return route.matched
@@ -766,6 +813,45 @@ function onTabCommand(cmd: string) {
     }
   }
 }
+
+// ===== 标签页右键菜单 =====
+const tabCtx = ref<{ visible: boolean; x: number; y: number; tab: TabItem | null }>({
+  visible: false, x: 0, y: 0, tab: null,
+})
+
+function onTabContextMenu(e: MouseEvent, tab: TabItem) {
+  tabCtx.value = { visible: true, x: e.clientX, y: e.clientY, tab }
+}
+
+function hideTabCtx() {
+  tabCtx.value.visible = false
+}
+
+function onCtxAction(action: 'close' | 'closeLeft' | 'closeRight' | 'closeOthers') {
+  const tab = tabCtx.value.tab
+  hideTabCtx()
+  if (!tab) return
+  if (action === 'close') {
+    onTabClose(tab.path)
+  } else if (action === 'closeLeft') {
+    tabStore.removeLeft(tab.path)
+  } else if (action === 'closeRight') {
+    tabStore.removeRight(tab.path)
+  } else if (action === 'closeOthers') {
+    tabStore.removeOthers(tab.path)
+    if (route.path !== tab.path) router.push(tab.path)
+  }
+}
+
+// 点击任意处/滚动/右键其他位置时关闭菜单
+onMounted(() => {
+  window.addEventListener('click', hideTabCtx)
+  window.addEventListener('scroll', hideTabCtx, true)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('click', hideTabCtx)
+  window.removeEventListener('scroll', hideTabCtx, true)
+})
 
 // 路由变化时自动添加标签
 watch(() => route.fullPath, () => {
@@ -1060,6 +1146,7 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 .tab-scroll {
+  position: relative; /* tab leave 动画脱离布局流时的定位基准 */
   flex: 1;
   display: flex;
   align-items: center;
@@ -1086,6 +1173,52 @@ onMounted(async () => {
   white-space: nowrap;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
+}
+/* ===== 标签页开关动画（TransitionGroup name="tab"） ===== */
+.tab-enter-active,
+.tab-leave-active {
+  transition: all 0.18s ease;
+}
+.tab-enter-from {
+  opacity: 0;
+  transform: translateY(6px) scale(0.92);
+}
+.tab-leave-to {
+  opacity: 0;
+  transform: scale(0.85);
+}
+.tab-leave-active {
+  /* 移除中脱离布局流，其余标签平滑补位 */
+  position: absolute;
+}
+/* 减少动画偏好：关闭开关动画 */
+@media (prefers-reduced-motion: reduce) {
+  .tab-enter-active,
+  .tab-leave-active {
+    transition: none;
+  }
+}
+/* ===== 标签页右键菜单 ===== */
+.tab-ctxmenu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 120px;
+  padding: 4px;
+  background: var(--app-card, #fff);
+  border: 1px solid var(--app-border, #dcdfe6);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.tab-ctxmenu .ctx-item {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--app-text, #303133);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tab-ctxmenu .ctx-item:hover {
+  background: var(--app-hover, rgba(0, 0, 0, 0.05));
+  color: var(--app-primary, #409eff);
 }
 .tab-item:hover {
   background: var(--app-hover, rgba(0, 0, 0, 0.04));

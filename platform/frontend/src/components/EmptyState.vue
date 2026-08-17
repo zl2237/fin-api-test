@@ -74,11 +74,28 @@ const gradId = 'es-' + useId()
   justify-content: center;
   padding: 24px 12px;
   gap: 8px;
+  /* 一次性入场：整块淡入 + 上移 + 轻微放大 */
+  animation: es-enter 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) both;
 }
 .empty-state-illust {
   flex-shrink: 0;
   /* 轻微浮动动画，增加生气 */
-  animation: es-float 3s ease-in-out infinite;
+  animation: es-float 3s ease-in-out infinite 0.45s;
+  /* 悬浮微交互：轻微放大上跳 */
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.empty-state:hover .empty-state-illust {
+  transform: scale(1.08) translateY(-2px);
+}
+@keyframes es-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes es-float {
   0%, 100% { transform: translateY(0); }
@@ -96,8 +113,12 @@ const gradId = 'es-' + useId()
   margin-top: 4px;
 }
 @media (prefers-reduced-motion: reduce) {
+  .empty-state,
   .empty-state-illust {
     animation: none;
+  }
+  .empty-state:hover .empty-state-illust {
+    transform: none;
   }
 }
 </style>
