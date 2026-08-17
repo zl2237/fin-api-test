@@ -147,19 +147,6 @@ def remove_avatar(
     return {"message": "头像已删除"}
 
 
-@router.get("/avatar/by-username/{username}")
-def get_avatar_by_username(
-    username: str,
-    db: Session = Depends(get_db),
-    _current: models.User = Depends(get_current_user),
-):
-    """按用户名获取头像（侧边栏固定显示某用户头像用）。未设置返回 null。"""
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
-        raise HTTPException(404, "用户不存在")
-    return {"avatar": user.avatar, "name": user.name or user.username}
-
-
 @router.get("/avatar/{user_id}")
 def get_avatar(
     user_id: int,

@@ -79,17 +79,17 @@
           <template #title><span>操作日志</span></template>
         </el-menu-item>
       </el-menu>
-      <!-- 侧边栏底部：研发者头像 + 标识 -->
+      <!-- 侧边栏底部：当前登录用户头像 + 开发者署名 -->
       <div class="sidebar-foot">
         <img
-          v-if="devAvatar"
-          :src="devAvatar"
+          v-if="currentAvatar"
+          :src="currentAvatar"
           class="dev-avatar"
-          :alt="devName"
-          :title="`Developed by ${devName}`"
+          :alt="store.user?.name || store.user?.username || '用户'"
+          :title="`Developed by zhangle`"
         />
-        <div v-else class="dev-avatar dev-avatar-fallback" :title="`Developed by ${devName}`">
-          {{ devInitial }}
+        <div v-else class="dev-avatar dev-avatar-fallback" title="Developed by zhangle">
+          {{ fallbackInitial }}
         </div>
         <span v-if="!collapsed" class="foot-text">Developed by zhangle</span>
       </div>
@@ -612,24 +612,14 @@ function onVersionRollback() {
 }
 
 // ===== 头像 =====
-// 侧边栏底部固定显示 zhangle 的头像（开发者署名）
-const devAvatar = ref<string | null>(null)
-const devName = ref('zhangle')
-const devInitial = computed(() => (devName.value || 'Z').charAt(0).toUpperCase())
-// 顶部用户菜单显示当前登录用户头像
+// 侧边栏底部与顶部用户菜单共用当前登录用户头像
 const currentAvatar = ref<string | null>(null)
 const avatarInputRef = ref<HTMLInputElement | null>(null)
 const avatarUploading = ref(false)
-
-async function loadDevAvatar() {
-  try {
-    const res = await authApi.getAvatarByUsername('zhangle')
-    devAvatar.value = res.avatar
-    if (res.name) devName.value = res.name
-  } catch {
-    // 用户不存在或未登录，保持 fallback
-  }
-}
+// 无头像时的 fallback 首字母：优先显示名，其次用户名
+const fallbackInitial = computed(() =>
+  (store.user?.name || store.user?.username || 'U').charAt(0).toUpperCase()
+)
 
 async function loadCurrentAvatar() {
   if (!store.user) return
@@ -687,10 +677,6 @@ async function onAvatarFileChange(e: Event) {
     await authApi.updateAvatar(dataUrl)
     currentAvatar.value = dataUrl
     ElMessage.success('头像已更新')
-    // 当前登录用户是 zhangle 时，同步刷新侧边栏开发者头像
-    if (store.user?.username === 'zhangle') {
-      devAvatar.value = dataUrl
-    }
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.detail || err?.message || '头像上传失败')
   } finally {
@@ -798,9 +784,8 @@ onMounted(async () => {
     // 无项目时自动引导到项目管理页，避免后续页面因 currentProjectId 为空而卡死
     router.replace('/projects')
   }
-  // 加载头像：当前用户头像 + 侧边栏开发者头像
+  // 加载当前用户头像（侧边栏底部与顶部共用）
   loadCurrentAvatar()
-  loadDevAvatar()
 })
 </script>
 

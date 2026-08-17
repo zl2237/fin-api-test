@@ -195,8 +195,6 @@ export const authApi = {
   removeAvatar: () => http.delete('/auth/avatar'),
   getAvatar: (userId: number) =>
     http.get<{ avatar: string | null; name: string }>(`/auth/avatar/${userId}`).then((r) => r.data),
-  getAvatarByUsername: (username: string) =>
-    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/by-username/${username}`).then((r) => r.data),
 }
 
 // ============ User 管理（仅管理员） ============
