@@ -30,16 +30,24 @@
         <div class="brand-logo-row">
           <svg viewBox="0 0 32 32" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="loginBrandGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#ffffff" />
-                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.7" />
-              </linearGradient>
+              <marker id="loginBrandArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto">
+                <polygon points="0 0, 10 5, 0 10" fill="#fff"/>
+              </marker>
             </defs>
-            <rect width="32" height="32" rx="8" fill="rgba(255,255,255,0.15)" />
-            <circle cx="16" cy="9" r="2.6" fill="url(#loginBrandGrad)" />
-            <circle cx="9" cy="23" r="2.6" fill="url(#loginBrandGrad)" />
-            <circle cx="23" cy="23" r="2.6" fill="url(#loginBrandGrad)" />
-            <path d="M16 11.6 L9 20.4 M16 11.6 L23 20.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" />
+            <!-- 产品图标：DAG 节点汇聚 → 断言对勾（与 favicon 同构的白色版） -->
+            <rect width="32" height="32" rx="7" fill="rgba(255,255,255,0.16)" />
+            <g stroke="#fff" stroke-width="1" fill="none" stroke-linecap="round">
+              <path d="M7.4 9 L11 12" marker-end="url(#loginBrandArrow)" />
+              <path d="M16 7.6 L16 11.5" marker-end="url(#loginBrandArrow)" />
+              <path d="M24.6 9 L21 12" marker-end="url(#loginBrandArrow)" />
+            </g>
+            <g fill="rgba(255,255,255,0.18)" stroke="#fff" stroke-width="1.1">
+              <circle cx="6.8" cy="8.2" r="1.9" />
+              <circle cx="16" cy="6.5" r="1.9" />
+              <circle cx="25.2" cy="8.2" r="1.9" />
+            </g>
+            <path d="M11 19.6 L14.6 23.4 L21.4 15.6" fill="none" stroke="#fff" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
           </svg>
           <span class="brand-name">fin-api-test</span>
         </div>
@@ -103,6 +111,11 @@
           </el-form-item>
           <el-form-item label="密码" prop="password">
             <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" size="large" />
+            <!-- 规则提示前置到输入框旁（注册态/focus 可见），不再是提交失败后才发现规则 -->
+            <div v-if="activeTab === 'register'" class="pwd-rule-hint">
+              至少 8 位，同时包含字母和数字
+              <span :class="pwdMeetsRule ? 'pwd-ok' : 'pwd-bad'">{{ pwdMeetsRule ? '✓ 已满足' : '未满足' }}</span>
+            </div>
           </el-form-item>
           <Transition name="field-collapse">
             <div v-if="activeTab === 'register'" class="field-wrap">
@@ -151,6 +164,11 @@ const form = reactive({
   name: '',
 })
 
+// 注册密码实时合规提示（与后端 validate_password_strength 同规则：≥8 位 + 字母 + 数字）
+const pwdMeetsRule = computed(() =>
+  form.password.length >= 8 && /[a-zA-Z]/.test(form.password) && /\d/.test(form.password)
+)
+
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [
@@ -178,8 +196,11 @@ const mouseY = ref(0)
 const parallaxStyle = computed(() => ({
   transform: `translate(${mouseX.value * 12}px, ${mouseY.value * 12}px)`,
 }))
+// 尊重系统减少动效偏好：停用视差监听（原 CSS 只关 transition，JS 仍每帧改写 transform 生硬跳变）
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 function onMouseMove(e: MouseEvent) {
+  if (reduceMotion) return
   // 归一化到 -1 ~ 1
   mouseX.value = (e.clientX / window.innerWidth - 0.5) * 2
   mouseY.value = (e.clientY / window.innerHeight - 0.5) * 2
@@ -445,6 +466,15 @@ async function onSubmit() {
   text-align: center;
   line-height: 1.6;
 }
+/* 注册密码实时合规提示（前置到输入框旁） */
+.pwd-rule-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.5;
+}
+.pwd-ok { color: var(--app-success, #67c23a); margin-left: 6px; }
+.pwd-bad { color: var(--app-text-muted); margin-left: 6px; }
 
 /* ===== 登录/注册切换过渡 ===== */
 /* 标题/副标题淡切（out-in 模式：旧的先淡出、新的再淡入） */

@@ -41,8 +41,8 @@
       </div>
     </div>
 
-    <!-- 分组树形列表（多级分组，展开/折叠带祖先可见性） -->
-    <div class="group-list">
+    <!-- 分组树形列表（多级分组，展开/折叠带祖先可见性）；页面级单一加载遮罩（替代每表同闪） -->
+    <div v-loading="loading" class="group-list">
       <div
         v-for="row in visibleGroupRows"
         :key="row.key"
@@ -65,7 +65,6 @@
         </div>
         <div v-show="(row.isUngrouped || isGroupExpanded(row.groupId!)) && apisOf(row.groupId).length > 0" class="group-body">
           <el-table
-            v-loading="loading"
             :ref="(el: any) => setTableRef(row.key, el)"
             :data="pagedDataMap[String(row.key)]"
             size="small"
@@ -93,7 +92,7 @@
               </template>
             </el-table-column>
             <el-table-column label="创建人" width="100" align="center">
-              <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
+              <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
             </el-table-column>
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
@@ -106,9 +105,10 @@
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="apisOf(row.groupId).length > pageSize" class="pagination-wrap">
+          <div class="pagination-wrap">
             <el-pagination
               small
+              background
               :current-page="pageMap[String(row.key)] || 1"
               :page-size="pageSize"
               :total="apisOf(row.groupId).length"
@@ -403,7 +403,7 @@ import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { Rank, Upload, Files, Search, CaretRight } from '@element-plus/icons-vue'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
-import { useGroupedTable, collectTreeUpdates } from '@/composables/useGroupedTable'
+import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
 
@@ -428,6 +428,8 @@ const filteredApis = computed(() => {
 
 // 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
 const tableSel = useGroupedTable(groups, currentProjectId, 'apiManage', filteredApis)
+// 切分组勾选时提示（互斥勾选设计：不支持跨分组累计）
+setGroupSwitchNotifier(() => ElMessage.info('不支持跨分组勾选，已切换为当前分组的选择'))
 const {
   tree,
   treeSelectData,
@@ -443,9 +445,13 @@ const {
   pageMap,
   onPageChange,
   onPageSizeChange,
+  resetPages,
   applyPageDragReorder,
   resetSelection,
 } = tableSel
+
+// 搜索条件变化即回第 1 页，避免「第 3 页 + 结果不足一页」的空白死局
+watch(keyword, () => resetPages())
 
 // el-tree / el-tree-select 公共字段映射
 const treeProps = { label: 'label', children: 'children' }
@@ -878,8 +884,12 @@ onMounted(async () => {
   await loadUsers()
 })
 
-// 项目切换时重新加载（与 CaseList/EnvManage 保持一致，避免初始化时 projectId 为空导致 no data）
+// 项目切换时：重置筛选并回第 1 页（旧项目筛选会带着过期用户 id 请求新项目，结果集莫名变少）
 watch(currentProjectId, () => {
+  keyword.value = ''
+  filterCreator.value = null
+  filterUpdater.value = null
+  resetPages()
   loadApis()
   loadGroups()
 })
@@ -1075,41 +1085,4 @@ watch(currentProjectId, () => {
   flex-shrink: 0;
 }
 </style>
-
-<!-- 全局样式：el-dialog 默认 teleport 到 body，scoped 无法命中外层元素，需用全局样式 -->
-<style>
-/* 分组管理弹窗固定在视口内：参考 help-dialog 实现，约束最大高度，body 滚动 */
-.group-manage-dialog.el-dialog {
-  margin-top: 0 !important;
-  margin-bottom: 0;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-}
-.group-manage-dialog .el-dialog__header {
-  flex-shrink: 0;
-  margin-right: 0;
-}
-.group-manage-dialog .el-dialog__body {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-.group-manage-dialog .el-dialog__footer {
-  flex-shrink: 0;
-}
-/* 自定义滚动条（滚动区域在 .group-tree-scroll） */
-.group-tree-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-.group-tree-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.group-tree-scroll::-webkit-scrollbar-thumb {
-  background: var(--app-border);
-  border-radius: 4px;
-}
-.group-tree-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--app-text-muted);
-}
-</style>
+<!-- group-manage-dialog 全局样式已收敛至 style.css（原与 CaseList 逐字符重复，两处漂移风险） -->

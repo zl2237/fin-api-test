@@ -40,7 +40,8 @@
       </div>
     </div>
 
-    <div class="group-list">
+    <!-- 页面级加载遮罩：与 ApiManage 同范式（原缺失，请求期间无任何反馈） -->
+    <div v-loading="loading" class="group-list">
       <div
         v-for="row in visibleGroupRows"
         :key="row.key"
@@ -83,26 +84,27 @@
             </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" min-width="170" show-overflow-tooltip />
             <el-table-column label="创建人" width="100" align="center">
-              <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
+              <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
             </el-table-column>
             <el-table-column label="更新人" width="100" align="center">
-              <template #default="{ row }">{{ row.updated_by_name || '未知' }}</template>
+              <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
             <el-table-column label="操作" width="320" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
-                <el-tooltip content="选中用例后按 Ctrl+Enter 可快速执行" placement="top">
+                <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-button link type="info" size="small" @click="goReport(row)">报告</el-button>
+                <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
                 <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
                 <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="casesOf(row.groupId).length > pageSize" class="pagination-wrap">
+          <div class="pagination-wrap">
             <el-pagination
               small
+              background
               :current-page="pageMap[String(row.key)] || 1"
               :page-size="pageSize"
               :total="casesOf(row.groupId).length"
@@ -125,7 +127,7 @@
     <!-- 新建用例弹窗 -->
     <el-dialog v-model="dialogVisible" title="新建用例" width="480px" align-center>
       <el-form :model="form" label-width="80px">
-        <el-form-item label="名称">
+        <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="创建订单-冒烟" />
         </el-form-item>
         <el-form-item label="分组">
@@ -231,7 +233,7 @@ import { Rank, Folder, CaretRight } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
-import { useGroupedTable, collectTreeUpdates } from '@/composables/useGroupedTable'
+import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -258,6 +260,8 @@ const filteredList = computed(() => {
 
 // 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
 const tableSel = useGroupedTable(groups, toRef(store, 'currentProjectId'), 'caseList', filteredList)
+// 切分组勾选时提示（互斥勾选设计：不支持跨分组累计）
+setGroupSwitchNotifier(() => ElMessage.info('不支持跨分组勾选，已切换为当前分组的选择'))
 const {
   tree,
   treeSelectData,
@@ -275,7 +279,11 @@ const {
   onPageSizeChange,
   applyPageDragReorder,
   resetSelection,
+  resetPages,
 } = tableSel
+
+// 搜索条件变化即回第 1 页，避免「第 3 页 + 结果不足一页」的空白死局
+watch(keyword, () => resetPages())
 
 // el-tree / el-tree-select 公共字段映射
 const treeProps = { label: 'label', children: 'children' }
@@ -500,6 +508,16 @@ async function onBatchRun() {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
   if (batchRunning.value) return
+  // 二次确认：批量执行耗时长且产生一批执行记录，门槛不应低于「批量移动」
+  try {
+    await ElMessageBox.confirm(
+      `将串行执行 ${selectedCaseIds.value.length} 个用例，可能需要较长时间。现在开始？`,
+      '批量执行确认',
+      { type: 'warning', confirmButtonText: '开始执行', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
   batchRunning.value = true
   favicon.running()
   const msg = ElMessage({
@@ -584,10 +602,19 @@ async function onCopy(row: TestCase) {
 }
 
 async function onRemove(row: TestCase) {
-  await ElMessageBox.confirm(`确定删除用例「${row.name}」？`, '提示', { type: 'warning' })
-  await caseApi.remove(row.id)
-  ElMessage.success('已删除')
-  load()
+  // 对齐 ApiManage 的删除交互：取消静默（不产生 unhandled rejection），失败有提示
+  try {
+    await ElMessageBox.confirm(`确定删除用例「${row.name}」？`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await caseApi.remove(row.id)
+    ElMessage.success('已删除')
+    load()
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 
 async function onAddGroup() {
@@ -636,7 +663,12 @@ async function onDeleteGroup(data: GroupTreeNode) {
   }
 }
 
+// 项目切换时：重置筛选并回第 1 页（统一行为，避免携带旧项目筛选）
 watch(() => store.currentProjectId, () => {
+  keyword.value = ''
+  filterCreator.value = null
+  filterUpdater.value = null
+  resetPages()
   load()
   loadGroups()
 })
@@ -818,41 +850,4 @@ function onGlobalKey(e: KeyboardEvent) {
   flex-shrink: 0;
 }
 </style>
-
-<!-- 全局样式：el-dialog 默认 teleport 到 body，scoped 无法命中外层元素，需用全局样式 -->
-<style>
-/* 分组管理弹窗固定在视口内：参考 help-dialog 实现，约束最大高度，body 滚动 */
-.group-manage-dialog.el-dialog {
-  margin-top: 0 !important;
-  margin-bottom: 0;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-}
-.group-manage-dialog .el-dialog__header {
-  flex-shrink: 0;
-  margin-right: 0;
-}
-.group-manage-dialog .el-dialog__body {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-.group-manage-dialog .el-dialog__footer {
-  flex-shrink: 0;
-}
-/* 自定义滚动条（滚动区域在 .group-tree-scroll） */
-.group-tree-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-.group-tree-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.group-tree-scroll::-webkit-scrollbar-thumb {
-  background: var(--app-border);
-  border-radius: 4px;
-}
-.group-tree-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--app-text-muted);
-}
-</style>
+<!-- group-manage-dialog 全局样式已收敛至 style.css（原与 ApiManage 逐字符重复，两处漂移风险） -->
