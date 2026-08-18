@@ -1,13 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- 蓝色圆角底色 -->
+  <rect rx="32" width="256" height="256" fill="#007BFF"/>
+  <!-- DAG节点 -->
+  <circle cx="70" cy="80" r="14" fill="#ffffff"/>
+  <circle cx="128" cy="120" r="14" fill="#ffffff"/>
+  <circle cx="186" cy="80" r="14" fill="#ffffff"/>
+  <!-- DAG流向箭头连线 -->
+  <path d="M84 88 L114 112" stroke="#ffffff" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+  <path d="M142 120 L172 88" stroke="#ffffff" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+  <!-- 断言对勾 -->
+  <path d="M140 170 L160 190 L200 150" stroke="#ffffff" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 箭头标记定义 -->
   <defs>
-    <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#409eff" />
-      <stop offset="100%" stop-color="#2b7fd6" />
-    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#ffffff"/>
+    </marker>
   </defs>
-  <rect width="32" height="32" rx="8" fill="url(#brandGrad)" />
-  <circle cx="16" cy="9" r="2.6" fill="#fff" />
-  <circle cx="9" cy="23" r="2.6" fill="#fff" />
-  <circle cx="23" cy="23" r="2.6" fill="#fff" />
-  <path d="M16 11.6 L9 20.4 M16 11.6 L23 20.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" />
 </svg>
