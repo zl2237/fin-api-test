@@ -15,7 +15,8 @@
           <circle cx="160" cy="730" r="5" fill="rgba(255,255,255,0.25)" />
         </svg>
       </div>
-      <div class="brand">
+      <!-- 品牌区可点击回首页（首页即门户：介绍+导航+上手流程） -->
+      <div class="brand brand-link" title="回到首页" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -163,9 +164,6 @@
               :value="e.id"
             />
           </el-select>
-          <el-button text @click="helpVisible = true">
-            <el-icon><QuestionFilled /></el-icon>使用说明
-          </el-button>
           <el-button text :title="isFullscreen ? '退出全屏' : '进入全屏'" @click="toggleFullscreen">
             <el-icon><FullScreen /></el-icon>
           </el-button>
@@ -298,111 +296,6 @@
       </el-main>
     </el-container>
   </el-container>
-
-  <!-- 使用说明弹窗 -->
-  <el-dialog v-model="helpVisible" title="平台使用说明" width="720px" align-center class="help-dialog">
-    <div class="help-content">
-      <!-- 快速上手：5 步流程 -->
-      <div class="help-section">
-        <div class="help-section-title">
-          <el-icon class="help-section-icon"><Flag /></el-icon>
-          <span>快速上手</span>
-          <span class="help-section-sub">五步完成首个用例</span>
-        </div>
-        <div class="help-steps">
-          <div class="help-step">
-            <div class="help-step-num">1</div>
-            <div class="help-step-body">
-              <div class="help-step-title">创建项目</div>
-              <div class="help-step-desc">在「项目管理」新建项目，顶部选择器切换当前项目。</div>
-            </div>
-          </div>
-          <div class="help-step">
-            <div class="help-step-num">2</div>
-            <div class="help-step-body">
-              <div class="help-step-title">配置环境</div>
-              <div class="help-step-desc">在「环境配置」填写 base_url、数据库、登录配置（自动获取 token 注入后续请求），可点「测试连接」「测试登录」验证。</div>
-            </div>
-          </div>
-          <div class="help-step">
-            <div class="help-step-num">3</div>
-            <div class="help-step-body">
-              <div class="help-step-title">管理接口</div>
-              <div class="help-step-desc">在「接口管理」新建接口，或点「导入接口」批量导入：cURL 命令（默认，粘贴一条或多条）/ HAR 文件上传 / Swagger JSON。编辑接口时可「导入覆盖字段」用 cURL / HAR / Swagger 同步最新字段定义。接口支持多级分组管理（树形展示、拖拽调整层级与顺序）。</div>
-            </div>
-          </div>
-          <div class="help-step">
-            <div class="help-step-num">4</div>
-            <div class="help-step-body">
-              <div class="help-step-title">编排用例</div>
-              <div class="help-step-desc">在「用例列表」新建用例进入 DAG 画布：左侧点接口添加节点，连线建立执行顺序，点节点配置预处理 / 提取 / 断言。工具栏「自动布局」一键整理节点。</div>
-            </div>
-          </div>
-          <div class="help-step">
-            <div class="help-step-num">5</div>
-            <div class="help-step-body">
-              <div class="help-step-title">执行与报告</div>
-              <div class="help-step-desc">工具栏选环境后点「执行」，查看报告：步骤详情、断言结果、耗时趋势，支持导出 HTML 和「重新执行」。</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 核心能力速查 -->
-      <div class="help-section">
-        <div class="help-section-title">
-          <el-icon class="help-section-icon"><MagicStick /></el-icon>
-          <span>核心能力</span>
-          <span class="help-section-sub">点击卡片查看详细用法</span>
-        </div>
-        <div class="help-features">
-          <div class="help-feature">
-            <el-icon class="help-feature-icon"><Connection /></el-icon>
-            <div class="help-feature-text">
-              <div class="help-feature-name">DAG 可视化编排</div>
-              <div class="help-feature-desc">拖拽连线描述接口执行顺序，支持缩放与 minimap</div>
-            </div>
-          </div>
-          <div class="help-feature help-feature-clickable" @click="openCoreCapability('expression')">
-            <el-icon class="help-feature-icon"><DataLine /></el-icon>
-            <div class="help-feature-text">
-              <div class="help-feature-name">表达式引擎 <el-icon class="help-feature-arrow"><ArrowRight /></el-icon></div>
-              <div class="help-feature-desc"><code>${now()}</code> <code>${timestamp()}</code> <code>${uuid()}</code> 等 14 个内置函数 + <code>${context.xxx}</code> 变量引用</div>
-            </div>
-          </div>
-          <div class="help-feature help-feature-clickable" @click="openCoreCapability('assertion')">
-            <el-icon class="help-feature-icon"><Checked /></el-icon>
-            <div class="help-feature-text">
-              <div class="help-feature-name">17 种断言 <el-icon class="help-feature-arrow"><ArrowRight /></el-icon></div>
-              <div class="help-feature-desc">JSONPath / 状态码 / 响应耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试</div>
-            </div>
-          </div>
-          <div class="help-feature">
-            <el-icon class="help-feature-icon"><Upload /></el-icon>
-            <div class="help-feature-text">
-              <div class="help-feature-name">多格式导入</div>
-              <div class="help-feature-desc">cURL 命令（默认，粘贴即用）/ HAR 文件上传 / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 快捷键 -->
-      <div class="help-section">
-        <div class="help-section-title">
-          <el-icon class="help-section-icon"><Promotion /></el-icon>
-          <span>快捷键</span>
-        </div>
-        <div class="help-shortcuts">
-          <div class="help-shortcut"><kbd>Ctrl</kbd> + <kbd>K</kbd><span>打开命令面板，快速跳转任意页面</span></div>
-          <div class="help-shortcut"><kbd>Ctrl</kbd> + <kbd>Enter</kbd><span>在用例列表选中用例后快速执行</span></div>
-        </div>
-      </div>
-    </div>
-    <template #footer>
-      <el-button type="primary" @click="helpVisible = false">我知道了</el-button>
-    </template>
-  </el-dialog>
 
   <!-- 全局命令面板（Ctrl+K） -->
   <CommandPalette ref="cmdPaletteRef" />
@@ -556,7 +449,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar, FullScreen, Check } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -568,7 +461,6 @@ const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 const tabStore = useTabStore()
-const helpVisible = ref(false)
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
 
@@ -581,12 +473,6 @@ const MENU_PATHS = [
 const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
 // Mac 用户快捷键标签按平台显示（实际监听 Ctrl/Cmd 双键）
 const isMac = /mac|iphone|ipad/i.test(navigator.userAgent)
-
-// 核心能力详情弹窗：状态由全局 store 管理，跨组件可触发
-function openCoreCapability(tab: 'expression' | 'assertion') {
-  helpVisible.value = false
-  store.openCoreCapability(tab)
-}
 
 // 表达式引擎数据：与后端 expression.py 的 14 个内置函数 + 变量引用 + DB 函数对齐
 const expressionData = {
@@ -833,9 +719,20 @@ async function onTabClose(path: string) {
   }
   const idx = tabStore.tabs.findIndex((t) => t.path === path)
   if (idx === -1) return
-  // 相邻目标：优先右侧，其次左侧，最后首页（与 removeTab 内部策略一致）
-  const next = tabStore.tabs[idx + 1] || tabStore.tabs[idx - 1] || tabStore.tabs[0]
-  const failure = await router.push(next?.path || '/apis')
+  // 是否还有其他标签（不能用 tabs[0] 兜底——最后一个标签正是 tabs[0]，会自己兜住自己，
+  // 导致「最后一个标签」分支永不触发、push 自身路径返回 duplicated、removeTab 被跳过、点击无反应）
+  const others = tabStore.tabs.filter((t) => t.path !== path)
+  if (!others.length) {
+    // 最后一个标签（所有标签均可关）：删除后回首页。
+    // 若删除前已在 /home，push 是 duplicated、路由 watcher 不触发，由 ensureHomeTab 手动重建标签
+    tabStore.removeTab(path)
+    await router.push('/home')
+    tabStore.ensureHomeTab()
+    return
+  }
+  // 相邻目标：优先右侧，其次左侧（others 非空时必存在）
+  const next = tabStore.tabs[idx + 1] || tabStore.tabs[idx - 1]!
+  const failure = await router.push(next.path)
   // 导航成功（含守卫放行后由页面守卫自行 removeTab 的重入，此处为幂等空操作）才收尾
   if (!failure) tabStore.removeTab(path)
 }
@@ -1081,6 +978,17 @@ onMounted(async () => {
   font-size: 16px;
   white-space: nowrap;
   color: #fff;
+}
+/* 品牌区可点击回首页：hover 亮起 + 键盘可达 */
+.brand-link {
+  cursor: pointer;
+  border-radius: var(--app-radius-sm);
+  transition: background 0.15s ease;
+}
+.brand-link:hover,
+.brand-link:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
 }
 .brand-text {
   color: #fff;
@@ -1337,153 +1245,6 @@ onMounted(async () => {
   padding: 4px 6px;
 }
 
-/* ===== 使用说明弹窗：内容样式（slot 内元素，scoped 可命中） ===== */
-.help-dialog .help-content {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-.help-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.help-section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-.help-section-icon {
-  font-size: 18px;
-  color: var(--app-primary);
-}
-.help-section-sub {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--app-text-muted);
-  margin-left: 4px;
-}
-
-/* 五步流程 */
-.help-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.help-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--app-hover);
-  border-radius: var(--app-radius-sm);
-  transition: background 0.18s ease;
-}
-.help-step:hover {
-  background: var(--app-active);
-}
-.help-step-num {
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--app-primary);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.help-step-body {
-  flex: 1;
-  min-width: 0;
-}
-.help-step-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--app-text);
-  margin-bottom: 2px;
-}
-.help-step-desc {
-  font-size: 13px;
-  color: var(--app-text-muted);
-  line-height: 1.5;
-}
-
-/* 核心能力 */
-.help-features {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.help-feature {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  transition: border-color 0.18s ease, background 0.18s ease;
-}
-.help-feature:hover {
-  border-color: var(--app-primary);
-  background: var(--app-active);
-}
-.help-feature-icon {
-  flex-shrink: 0;
-  font-size: 20px;
-  color: var(--app-primary);
-  margin-top: 2px;
-}
-.help-feature-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--app-text);
-  margin-bottom: 2px;
-}
-.help-feature-desc {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 1.5;
-}
-.help-feature-desc code {
-  padding: 1px 5px;
-  background: var(--app-chip-bg);
-  border-radius: 4px;
-  font-family: var(--app-font-mono);
-  font-size: 11px;
-  color: var(--app-primary);
-}
-
-/* 可点击的核心能力卡片 */
-.help-feature-clickable {
-  cursor: pointer;
-  position: relative;
-}
-.help-feature-clickable:hover {
-  border-color: var(--app-primary);
-  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-primary) 15%, transparent);
-}
-.help-feature-clickable:active {
-  transform: translateY(0);
-}
-.help-feature-arrow {
-  font-size: 12px;
-  color: var(--app-primary);
-  margin-left: 4px;
-  opacity: 0.6;
-  transition: transform 0.18s ease, opacity 0.18s ease;
-}
-.help-feature-clickable:hover .help-feature-arrow {
-  opacity: 1;
-  transform: translateX(2px);
-}
 
 /* ===== 核心能力详情弹窗（Element Plus 内部类样式见全局 style 块）===== */
 .corecap-intro {
@@ -1563,32 +1324,6 @@ onMounted(async () => {
   font-weight: 500;
 }
 
-/* 快捷键 */
-.help-shortcuts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.help-shortcut {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--app-text-muted);
-}
-.help-shortcut kbd {
-  display: inline-block;
-  min-width: 28px;
-  padding: 2px 8px;
-  background: var(--app-tag-bg);
-  border: 1px solid var(--app-border);
-  border-radius: 5px;
-  font-family: var(--app-font-mono);
-  font-size: 12px;
-  color: var(--app-text);
-  text-align: center;
-}
-
 /* ===== 主题下拉当前项标记（原 is-active 类对 el-dropdown-item 无样式定义，标记从未生效） ===== */
 :deep(.theme-checked) {
   color: var(--app-primary);
@@ -1603,43 +1338,7 @@ onMounted(async () => {
 
 <!-- 全局样式：el-dialog 默认 teleport 到 body，scoped 无法命中外层元素，需用全局样式 -->
 <style>
-/* 弹窗固定在视口内：禁止外层 overlay 滚动，弹窗自身约束高度 */
-.help-dialog.el-dialog {
-  margin-top: 0 !important;
-  margin-bottom: 0;
-  max-height: 86vh;
-  display: flex;
-  flex-direction: column;
-}
-.help-dialog .el-dialog__header {
-  flex-shrink: 0;
-  margin-right: 0;
-}
-.help-dialog .el-dialog__body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 18px;
-}
-.help-dialog .el-dialog__footer {
-  flex-shrink: 0;
-}
-/* 自定义滚动条 */
-.help-dialog .el-dialog__body::-webkit-scrollbar {
-  width: 8px;
-}
-.help-dialog .el-dialog__body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.help-dialog .el-dialog__body::-webkit-scrollbar-thumb {
-  background: var(--app-border);
-  border-radius: 4px;
-}
-.help-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
-  background: var(--app-text-muted);
-}
-
-/* ===== 核心能力详情弹窗：参考 help-dialog 实现，弹窗固定在视口内 ===== */
+/* ===== 核心能力详情弹窗：弹窗固定在视口内 ===== */
 .corecap-dialog.el-dialog {
   margin-top: 0 !important;
   margin-bottom: 0;

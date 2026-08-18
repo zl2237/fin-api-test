@@ -137,8 +137,9 @@ const results = computed<CmdItem[]>(() => {
     const score = scoreMatch(kw, item.title, item.sub)
     if (!kw || score >= 0) scored.push({ item, score })
   }
-  // 导航快捷项
+  // 导航快捷项（首页置顶）
   const navs: { title: string; path: string }[] = [
+    { title: '首页', path: '/home' },
     { title: '项目管理', path: '/projects' },
     { title: '环境配置', path: '/envs' },
     { title: '接口管理', path: '/apis' },
