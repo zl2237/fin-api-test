@@ -1,19 +1,38 @@
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <!-- 蓝色圆角底色 -->
-  <rect rx="32" width="256" height="256" fill="#007BFF"/>
-  <!-- DAG节点 -->
-  <circle cx="70" cy="80" r="14" fill="#ffffff"/>
-  <circle cx="128" cy="120" r="14" fill="#ffffff"/>
-  <circle cx="186" cy="80" r="14" fill="#ffffff"/>
-  <!-- DAG流向箭头连线 -->
-  <path d="M84 88 L114 112" stroke="#ffffff" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
-  <path d="M142 120 L172 88" stroke="#ffffff" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
-  <!-- 断言对勾 -->
-  <path d="M140 170 L160 190 L200 150" stroke="#ffffff" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- 箭头标记定义 -->
+  <!-- Fin API Test Platform 产品图标：DAG 节点流转 + 断言对勾 -->
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#409EFF"/>
+      <stop offset="100%" stop-color="#1D6FD6"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto">
       <polygon points="0 0, 10 5, 0 10" fill="#ffffff"/>
     </marker>
   </defs>
+
+  <!-- 蓝色圆角底 + 顶部高光 -->
+  <rect rx="56" width="256" height="256" fill="url(#bg)"/>
+  <rect rx="56" width="256" height="150" fill="url(#glow)"/>
+
+  <!-- DAG 汇聚结构：三个上游节点流向中心断言 -->
+  <g stroke="#ffffff" stroke-width="7" fill="none" stroke-linecap="round">
+    <path d="M62 74 L104 112" marker-end="url(#arrow)"/>
+    <path d="M128 60 L128 100" marker-end="url(#arrow)"/>
+    <path d="M194 74 L152 112" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- 上游节点：环形白描边 -->
+  <g fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-width="7">
+    <circle cx="54" cy="66" r="15"/>
+    <circle cx="128" cy="52" r="15"/>
+    <circle cx="202" cy="66" r="15"/>
+  </g>
+
+  <!-- 断言对勾徽章 -->
+  <path d="M88 158 L118 190 L176 126" fill="none" stroke="#ffffff" stroke-width="16"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
