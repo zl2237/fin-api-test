@@ -40,6 +40,10 @@ platform/backend/.env
 platform/frontend/node_modules/
 platform/frontend/dist/
 platform/frontend/.vite/
+*.tsbuildinfo
+
+# OpenAPI 类型生成的中间产物（api.gen.ts 由 gen:api 重新生成并提交）
+platform/frontend/openapi.json
 
 # Python 测试/覆盖率缓存
 .pytest_cache/
@@ -49,6 +53,8 @@ htmlcov/
 
 # 任意目录下，以下划线开头的开发调试文件
 **/_*
+# 但 Python 包标记文件不能被忽略（否则 app/crud 等新包无法提交）
+!**/__init__.py
 
 # 本地teach skill学习目录
 .teach
