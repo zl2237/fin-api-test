@@ -33,6 +33,15 @@ export interface ReorderableItem extends GroupedItem {
   sort_order?: number
 }
 
+/**
+ * 切组提示注入点：视图 setup 时注入（如 ElMessage.info），
+ * composable 自身不依赖 UI 库，保持可在 node 环境测试。
+ */
+let notifyGroupSwitched: () => void = () => {}
+export function setGroupSwitchNotifier(fn: () => void) {
+  notifyGroupSwitched = fn
+}
+
 export function useGroupedTable<T extends ReorderableItem>(
   groups: Ref<FlatGroup[]>,
   projectId: Ref<number | null>,
@@ -93,6 +102,14 @@ export function useGroupedTable<T extends ReorderableItem>(
     pageMap.value = {}
   }
 
+  /**
+   * 重置所有分组页码到第 1 页。
+   * 供视图在搜索/筛选条件变化时调用，避免「停在第 3 页 + 结果不足一页」的空白死局。
+   */
+  function resetPages() {
+    pageMap.value = {}
+  }
+
   // ===== 拖拽重排（组内当前页拖拽 → 全量列表位置映射 + 顺序持久化） =====
 
   /**
@@ -143,6 +160,8 @@ export function useGroupedTable<T extends ReorderableItem>(
       isClearing = true
       clearOthers(groupId)
       isClearing = false
+      // 勾选不支持跨分组：静默清空易让批量操作覆盖面与预期不符，明确告知
+      notifyGroupSwitched()
     }
     currentSelectGroupId = groupId
     selectedIds.value = selection.map((it) => it.id)
@@ -174,6 +193,7 @@ export function useGroupedTable<T extends ReorderableItem>(
     pageMap,
     onPageChange,
     onPageSizeChange,
+    resetPages,
     // 拖拽重排 / 互斥勾选
     applyPageDragReorder,
     onSelectionChange,
