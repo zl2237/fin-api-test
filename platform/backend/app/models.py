@@ -44,6 +44,9 @@ class User(Base):
     must_change_password = Column(Boolean, default=False, comment="是否需要强制修改密码：True 时登录后强制跳转改密页")
     # 用户头像：前端 canvas 压缩后的 base64 data URL（约 10-50KB），NULL 表示未上传
     avatar = Column(Text, nullable=True, comment="头像 base64 data URL，前端压缩后上传")
+    # 联系方式：可选填写，填写时全局唯一（多个用户不能共用同一手机号/邮箱）
+    phone = Column(String(20), nullable=True, unique=True, comment="手机号，可选，填写时全局唯一")
+    email = Column(String(100), nullable=True, unique=True, comment="邮箱，可选，填写时全局唯一")
 
     @property
     def has_avatar(self) -> bool:
@@ -76,7 +79,7 @@ class Environment(Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
     project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    name = Column(String(50), nullable=False, comment="环境名称：dev/test/prod")
+    name = Column(String(50), nullable=False, comment="环境名称：dev/test/pre/prod")
     base_url = Column(String(500), nullable=False, comment="接口基础地址，如 https://api.example.com")
     db_config = Column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
     login_config = Column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")

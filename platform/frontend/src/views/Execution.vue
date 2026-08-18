@@ -47,13 +47,20 @@
           @change="onFilterChange"
         />
         <el-button @click="resetFilter">重置</el-button>
-        <span class="filter-count">共 {{ filteredList.length }} 条</span>
+        <span class="filter-count">
+          共 {{ filteredList.length }} 条<template v-if="filteredList.length >= 200">（仅显示最近 200 条）</template>
+        </span>
         <el-button v-if="store.user?.role === 'admin'" type="warning" plain @click="openCleanup">清理旧记录</el-button>
     </div>
 
     <el-card shadow="never" class="card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe empty-text="暂无执行记录，前往用例列表执行用例">
+      <el-table v-else :data="pagedList" stripe>
+        <template #empty>
+          <el-empty :image-size="80" description="暂无执行记录">
+            <el-button type="primary" @click="router.push('/cases')">前往用例列表执行用例</el-button>
+          </el-empty>
+        </template>
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column label="项目" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.project_name || `#${row.project_id}` || '—' }}</template>
@@ -291,6 +298,13 @@ async function onCleanup() {
 }
 
 onMounted(() => {
+  // URL 携带的过滤条件（如报告页跳转 ?case_id=xx）回填到输入框并清掉 query：
+  // 隐藏过滤会让「条数莫名变少」且无法清除，回填后过滤状态可见可改
+  const qCaseId = route.query.case_id ? Number(route.query.case_id) : null
+  if (qCaseId) {
+    filterCaseId.value = String(qCaseId)
+    router.replace({ query: { ...route.query, case_id: undefined } })
+  }
   load()
   loadUsers()
 })

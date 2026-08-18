@@ -24,7 +24,13 @@
       </el-select>
     </div>
     <div class="table-wrap">
-      <el-card shadow="never" class="card">
+      <!-- 空态：EmptyState 承担全部引导（表格/分页不再渲染，避免同屏双空态） -->
+      <el-card v-if="!loading && !list.length" shadow="never" class="card empty-card">
+        <EmptyState description="暂无项目">
+          <el-button type="primary" @click="openCreate">创建第一个项目</el-button>
+        </EmptyState>
+      </el-card>
+      <el-card v-else shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
         <el-table v-else ref="tableRef" :data="pagedList" stripe row-key="id">
           <el-table-column width="36" align="center">
@@ -41,10 +47,10 @@
             </template>
           </el-table-column>
           <el-table-column label="创建人" width="100" align="center">
-            <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
+            <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
           </el-table-column>
           <el-table-column label="更新人" width="100" align="center">
-            <template #default="{ row }">{{ row.updated_by_name || '未知' }}</template>
+            <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
           </el-table-column>
           <el-table-column prop="created_at" label="创建时间" min-width="170" show-overflow-tooltip />
           <el-table-column label="操作" width="260" fixed="right">
@@ -55,7 +61,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <div class="pagination-wrap">
+        <div v-if="list.length > pageSize" class="pagination-wrap">
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"
@@ -67,11 +73,6 @@
           />
         </div>
       </el-card>
-
-      <!-- 空状态引导 -->
-      <EmptyState v-if="!loading && !list.length" description="暂无项目">
-        <el-button type="primary" @click="openCreate">创建第一个项目</el-button>
-      </EmptyState>
     </div>
 
     <!-- 新建/编辑弹窗 -->
@@ -122,6 +123,8 @@ function bindSortable() {
   const tbody = tableRef.value?.$el?.querySelector?.('.el-table__body-wrapper tbody')
   if (!tbody) return
   if (sortableInst) { sortableInst.destroy(); sortableInst = null }
+  // 过滤激活时禁拖：reorder 按「过滤后顺序」重写全局 sort_order，会静默打乱未过滤数据的排序
+  if (filterCreator.value != null || filterUpdater.value != null) return
   sortableInst = Sortable.create(tbody, {
     handle: '.drag-handle',
     animation: 200,

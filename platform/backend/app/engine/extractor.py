@@ -9,8 +9,7 @@
    - field 可选，未指定时取第一行第一列
    - SQL 中支持 ${xxx} 变量引用（${context.xxx} 兼容旧写法）
 """
-import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from jsonpath_ng import parse
 

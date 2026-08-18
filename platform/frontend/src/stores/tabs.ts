@@ -36,9 +36,8 @@ export const useTabStore = defineStore('tabs', () => {
       return null
     }
     const title = (route.meta?.title as string) || route.name?.toString() || path
-    // 首页（接口管理）不可关闭，保留至少一个标签
-    const closable = path !== '/apis'
-    return { path, title, name: route.name?.toString() || '', closable }
+    // 所有标签均可关闭（含首页）：关掉最后一个标签时由 ensureHomeTab 兜底回首页
+    return { path, title, name: route.name?.toString() || '', closable: true }
   }
 
   /**
@@ -68,7 +67,7 @@ export const useTabStore = defineStore('tabs', () => {
     if (activePath.value === path) {
       // 优先激活右侧，没有则左侧，都没有则首页
       const next = tabs.value[idx] || tabs.value[idx - 1] || tabs.value[0]
-      activePath.value = next?.path || '/apis'
+      activePath.value = next?.path || '/home'
       return activePath.value
     }
     return null
@@ -83,11 +82,47 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   /**
-   * 关闭所有可关闭的标签，激活首页
+   * 关闭指定标签左侧的可关闭标签（右键菜单用）
+   */
+  function removeLeft(path: string) {
+    const idx = tabs.value.findIndex((t) => t.path === path)
+    if (idx <= 0) return
+    tabs.value = tabs.value.filter((t, i) => i >= idx || !t.closable)
+  }
+
+  /**
+   * 关闭指定标签右侧的可关闭标签（右键菜单用）
+   */
+  function removeRight(path: string) {
+    const idx = tabs.value.findIndex((t) => t.path === path)
+    if (idx === -1 || idx === tabs.value.length - 1) return
+    tabs.value = tabs.value.filter((t, i) => i <= idx || !t.closable)
+  }
+
+  /**
+   * 兜底：确保首页标签存在并激活（去重）。
+   * 用于「关闭最后一个标签」场景——若关闭前已在 /home，路由不变化，
+   * watcher 不会触发，需手动重建标签避免空标签栏。
+   */
+  function ensureHomeTab() {
+    const exists = tabs.value.find((t) => t.path === '/home')
+    if (!exists) {
+      tabs.value.push({ path: '/home', title: '首页', name: 'Home', closable: true })
+    }
+    activePath.value = '/home'
+  }
+
+  /**
+   * 关闭所有标签，激活首页
    */
   function removeAll() {
     tabs.value = tabs.value.filter((t) => !t.closable)
-    activePath.value = tabs.value[0]?.path || '/apis'
+    if (!tabs.value.length) {
+      // 全部标签可关闭后：清空即空栏，直接重建首页标签兜底
+      ensureHomeTab()
+      return activePath.value
+    }
+    activePath.value = tabs.value[0]?.path || '/home'
     return activePath.value
   }
 
@@ -106,7 +141,10 @@ export const useTabStore = defineStore('tabs', () => {
     addTab,
     removeTab,
     removeOthers,
+    removeLeft,
+    removeRight,
     removeAll,
     reset,
+    ensureHomeTab,
   }
 })
