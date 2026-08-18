@@ -8,6 +8,16 @@
         </el-button>
         <span class="title-text">接口列表</span>
       </div>
+      <!-- 接口搜索：接口上百时免逐级展开找目标（与节点配置抽屉的 filterable 对等） -->
+      <el-input
+        v-model="apiKeyword"
+        size="small"
+        clearable
+        placeholder="搜索接口名称/路径"
+        class="panel-search"
+      >
+        <template #prefix><el-icon><Search /></el-icon></template>
+      </el-input>
       <div class="api-list">
         <div
           v-for="row in visibleGroupRows"
@@ -36,7 +46,7 @@
             :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
           >
             <div
-              v-for="a in apisOf(row.groupId)"
+              v-for="a in apisOf(row.groupId, apiKeyword || undefined)"
               :key="a.id"
               class="api-item"
               @click="onAddNode(a)"
@@ -46,6 +56,7 @@
             </div>
           </div>
         </div>
+        <EmptyState v-if="apiList.length && apiKeyword && !filteredApiCount" description="无匹配接口" :image-size="60" />
         <EmptyState v-if="!apiList.length" description="暂无接口，请先到接口管理新增" :image-size="60" />
       </div>
     </div>
@@ -98,7 +109,7 @@
         @link-mode-change="onLinkModeChange"
       />
       <div class="canvas-hint">
-        提示：点击接口添加节点；单击选中、双击或按 Enter 打开节点配置；Ctrl+C/V 复制粘贴节点；可拖拽节点右侧端点连线到目标左侧端点；或点「连线模式」后依次点击两个节点；点击连线删除。
+        提示：点击接口添加节点；单击选中、双击或 Enter 打开配置；Delete 删除选中节点；Ctrl+C/V 复制粘贴；Ctrl+S 保存用例；双击连线删除。
       </div>
     </div>
 
@@ -113,14 +124,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, toRef } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { ArrowLeft, Connection, Files, CaretRight } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft, Connection, Files, CaretRight, Search } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
 import { useAppStore } from '@/stores'
+import { useTabStore } from '@/stores/tabs'
 import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
@@ -130,6 +142,7 @@ const favicon = useFaviconStatus()
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+const tabStore = useTabStore()
 
 // 追踪执行轮询定时器，组件卸载时统一清理，避免切页后继续请求已失效的执行记录
 const pollTimers: ReturnType<typeof setTimeout>[] = []
@@ -158,10 +171,22 @@ function countApisWithDescendants(groupId: number): number {
   return apiList.value.filter((a) => a.group_id != null && ids.includes(a.group_id)).length
 }
 
-/** 获取分组的直接接口 */
-function apisOf(groupId: number | null): ApiDef[] {
-  if (groupId === null) return apiList.value.filter((a) => !a.group_id)
-  return apiList.value.filter((a) => a.group_id === groupId)
+// 左侧接口搜索关键词（过滤分组内接口列表）
+const apiKeyword = ref('')
+const filteredApiCount = computed(() => {
+  if (!apiKeyword.value) return apiList.value.length
+  const kw = apiKeyword.value.toLowerCase()
+  return apiList.value.filter((a) => a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw)).length
+})
+
+/** 获取分组的直接接口（可按名称/路径关键词过滤） */
+function apisOf(groupId: number | null, keyword?: string): ApiDef[] {
+  let list: ApiDef[]
+  if (groupId === null) list = apiList.value.filter((a) => !a.group_id)
+  else list = apiList.value.filter((a) => a.group_id === groupId)
+  if (!keyword) return list
+  const kw = keyword.toLowerCase()
+  return list.filter((a) => a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw))
 }
 
 /** 切换分组展开/折叠（未分组行与不可展开的空分组不响应） */
@@ -246,12 +271,48 @@ async function loadCase(id: number) {
   })
   edges.value = (c.dag_config?.edges || []).map((e: any) => ({ ...e }))
   configs.value = (c.node_configs || []).map((nc: NodeConfig) => ({ ...nc }))
+  // deep watch(nodes/edges) 是异步批处理：同步置 false 会被随后触发的回调翻回 true，
+  // 导致「打开即脏」误弹未保存提示。须等 watch 回调跑完（nextTick 后）再复位（与 EnvEdit 同法）
+  await nextTick()
   dirty.value = false
 }
 
 function onBack() {
   router.push('/cases')
 }
+
+// ===== 未保存改动防丢失（B1）：路由离开 + 关闭/刷新标签页双层拦截 =====
+// 设计器是带 :id 的临时页：经返回按钮/侧边菜单离开时无人 removeTab（只有点标签 X 才关），
+// 残留标签 + keep-alive 缓存会让 dirty 状态的设计器可反复点回。守卫放行时统一关闭自身标签。
+onBeforeRouteLeave(async () => {
+  // removeTab 对已不存在的标签（点 X 关闭流已先移除）返回 null，无副作用，可安全重入
+  const closeSelfTab = () => tabStore.removeTab(route.path)
+  if (!dirty.value) {
+    closeSelfTab()
+    return true
+  }
+  try {
+    await ElMessageBox.confirm(
+      '有未保存的编排改动，离开后将丢失。确定离开？',
+      '未保存提示',
+      { type: 'warning', confirmButtonText: '放弃改动并离开', cancelButtonText: '留在本页' },
+    )
+    closeSelfTab()
+    return true
+  } catch {
+    // 留在本页：标签原样保留
+    return false
+  }
+})
+
+const onBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (dirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 function onAddNode(api: ApiDef) {
   const id = `node_${Date.now()}`
@@ -337,10 +398,10 @@ function onLinkModeChange(active: boolean) {
 watch(nodes, () => { dirty.value = true }, { deep: true })
 watch(edges, () => { dirty.value = true }, { deep: true })
 
-async function onSave() {
+async function onSave(): Promise<boolean> {
   if (!caseData.value.id) {
     ElMessage.warning('请从用例列表进入编排')
-    return
+    return false
   }
   saving.value = true
   try {
@@ -370,8 +431,10 @@ async function onSave() {
     configs.value = cleanedConfigs
     dirty.value = false
     ElMessage.success('已保存')
+    return true
   } catch (e: any) {
     ElMessage.error(e.message)
+    return false
   } finally {
     saving.value = false
   }
@@ -380,7 +443,9 @@ async function onSave() {
 async function onRun() {
   if (!caseData.value.id) return ElMessage.warning('请先保存用例')
   if (!store.currentEnvId) return ElMessage.warning('请先在工具栏选择环境')
-  await onSave()
+  // 保存失败即中断：避免「跑的是旧数据」（onSave 返回成功与否）
+  const saved = await onSave()
+  if (!saved) return
   running.value = true
   try {
     // 异步执行：立即返回 running，后台线程池执行，前端轮询状态
@@ -492,6 +557,9 @@ watch(() => store.currentProjectId, async () => {
 }
 .title-text {
   flex: 1;
+}
+.panel-search {
+  margin: 8px 10px 0;
 }
 .api-list {
   flex: 1;

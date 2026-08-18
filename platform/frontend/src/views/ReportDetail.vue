@@ -1,5 +1,18 @@
 <template>
   <div class="report" v-loading="loading">
+    <!-- 执行中提示条：running 态自动轮询，与列表页行为一致 -->
+    <el-alert
+      v-if="record?.status === 'running'"
+      class="running-banner"
+      type="info"
+      :closable="false"
+      show-icon
+    >
+      <template #title>
+        用例执行中，每 {{ POLL_MS / 1000 }} 秒自动刷新…
+        <el-icon class="is-loading"><Loading /></el-icon>
+      </template>
+    </el-alert>
     <!-- 顶部：摘要 + 趋势图 横向并排，节省垂直空间 -->
     <div class="top-row">
       <el-card shadow="never" class="summary-card">
@@ -65,11 +78,12 @@
       <el-card v-if="steps.length" shadow="never" class="trend-card" @mouseleave="hideTrendTip">
         <div class="trend-head">
           <span class="trend-title">步骤响应耗时趋势</span>
-          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮节点查看详情</span>
+          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮/点击节点查看步骤</span>
         </div>
+        <!-- vector-effect 等比保护：none 拉伸会把数据点拉成椭圆、轴文字变形 -->
         <svg class="trend-svg" :viewBox="`0 0 ${trendWidth} ${trendHeight}`" preserveAspectRatio="none">
           <!-- 网格线 -->
-          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" />
+          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" vector-effect="non-scaling-stroke" />
           <!-- Y 轴刻度 -->
           <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
           <!-- 面积填充（渐变，描线入场时同步淡入） -->
@@ -90,8 +104,9 @@
             stroke-width="2"
             stroke-linejoin="round"
             stroke-linecap="round"
+            vector-effect="non-scaling-stroke"
           />
-          <!-- 数据点 -->
+          <!-- 数据点（点击跳转对应步骤；X 轴标签超过 12 个抽稀防挤压） -->
           <g v-for="(p, i) in trendDots" :key="i">
             <circle
               :cx="p.x"
@@ -102,10 +117,19 @@
               @mouseenter="showTrendTip($event, i)"
               @mousemove="moveTrendTip($event)"
               @mouseleave="hideTrendTip"
+              @click="currentStepId = steps[i].id"
             />
           </g>
-          <!-- X 轴标签 -->
-          <text v-for="(p, i) in trendDots" :key="'x'+i" :x="p.x" :y="trendHeight - 4" font-size="10" class="axis-text" text-anchor="middle">{{ i + 1 }}</text>
+          <text
+            v-for="(p, i) in trendDots"
+            v-show="trendLabelVisible(i)"
+            :key="'x'+i"
+            :x="p.x"
+            :y="trendHeight - 4"
+            font-size="10"
+            class="axis-text"
+            text-anchor="middle"
+          >{{ i + 1 }}</text>
         </svg>
         <!-- 悬浮提示框 -->
         <div v-show="hoveredTrend !== null" class="trend-tip" :style="{ left: tipPos.x + 'px', top: tipPos.y + 'px' }">
@@ -126,11 +150,19 @@
     <div class="body">
       <!-- 左侧时间轴 -->
       <el-card shadow="never" class="steps-card">
-        <div class="steps-head">步骤时间轴（{{ steps.length }}）</div>
+        <div class="steps-head">
+          步骤时间轴（{{ steps.length }}）
+          <el-checkbox
+            v-if="failedStepCount > 0"
+            v-model="onlyFailed"
+            size="small"
+            class="only-failed"
+          >只看失败</el-checkbox>
+        </div>
         <el-scrollbar class="steps-scroll">
           <el-timeline>
             <el-timeline-item
-              v-for="(s, idx) in steps"
+              v-for="(s, idx) in displaySteps"
               :key="s.id"
               :type="stepType(s.status)"
               :timestamp="stepTimeText(s)"
@@ -210,7 +242,7 @@
             </el-tab-pane>
 
             <el-tab-pane :label="`断言 (${currentStep.assertions.length})`" name="assertions">
-              <el-table :data="currentStep.assertions" size="small" border>
+              <el-table :data="currentStep.assertions" size="small" border :row-class-name="assertionRowClass">
                 <el-table-column label="结果" width="80">
                   <template #default="{ row }">
                     <el-tag :type="row.result ? 'success' : 'danger'" effect="light" round size="small">
@@ -239,7 +271,8 @@
                 </el-table-column>
                 <el-table-column label="消息" min-width="180" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span class="muted">{{ row.message ?? '—' }}</span>
+                    <!-- 失败原因是一页报告里最重要的信息，不再弱化为灰色小字 -->
+                    <span :class="row.result ? 'muted' : 'fail-msg'">{{ row.message ?? '—' }}</span>
                   </template>
                 </el-table-column>
               </el-table>
@@ -254,9 +287,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
@@ -293,6 +327,18 @@ const steps = computed<StepRecord[]>(() => record.value?.steps ?? [])
 const currentStep = computed<StepRecord | null>(() =>
   steps.value.find((s) => s.id === currentStepId.value) ?? null
 )
+
+// 失败可见性：失败步骤计数 + 「只看失败」过滤
+const failedStepCount = computed(() => steps.value.filter((s) => s.status !== 'success').length)
+const onlyFailed = ref(false)
+const displaySteps = computed(() =>
+  onlyFailed.value ? steps.value.filter((s) => s.status !== 'success') : steps.value
+)
+
+/** 断言表行样式：失败行浅红底，扫一眼就能定位 */
+function assertionRowClass({ row }: { row: any }) {
+  return row.result ? '' : 'assert-fail-row'
+}
 
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
 const totalCount = computed(() => steps.value.length)
@@ -436,9 +482,18 @@ function hideTrendTip() {
   hoveredTrend.value = null
 }
 
+/** X 轴标签抽稀：步骤多时按步长隔行显示，避免标签挤成一排 */
+function trendLabelVisible(i: number) {
+  const total = trendDots.value.length
+  if (total <= 12) return true
+  const step = Math.ceil(total / 12)
+  return i % step === 0
+}
+
 function statusType(s?: string) {
   if (s === 'success') return 'success'
   if (s === 'running') return 'warning'
+  if (s == null) return 'info' // 加载中/加载失败不再是红色标签 + '-'
   return 'danger'
 }
 function statusText(s?: string) {
@@ -465,8 +520,8 @@ function stepStatusText(s?: string) {
 function httpStatusType(code?: number) {
   if (code == null) return 'info'
   if (code >= 200 && code < 300) return 'success'
-  if (code >= 400 && code < 500) return 'warning'
-  if (code >= 500) return 'danger'
+  // 接口测试语义：非 2xx 即请求层面失败（原 4xx 归 warning 与失败层级冲突）
+  if (code >= 400) return 'danger'
   return 'info'
 }
 
@@ -508,19 +563,43 @@ async function downloadExport(format: 'csv' | 'html', okMsg: string) {
   }
 }
 
-async function load() {
+// running 态轮询间隔（与执行列表页一致的节奏）
+const POLL_MS = 3000
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+function stopPolling() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+/** running 态自动轮询直到出结果；终态即停（含页面失活兜底） */
+function schedulePollIfRunning() {
+  stopPolling()
+  if (record.value?.status !== 'running') return
+  pollTimer = setTimeout(async () => {
+    await load(true)
+    schedulePollIfRunning()
+  }, POLL_MS)
+}
+
+async function load(silent = false) {
   const id = Number(route.params.id)
   if (!id) return
-  loading.value = true
+  if (!silent) loading.value = true
   try {
     record.value = await execApi.report(id)
     if (steps.value.length && currentStepId.value == null) {
-      currentStepId.value = steps.value[0].id
+      // 默认定位首个失败步骤（排障第一诉求）；无失败则回第 1 步
+      const firstFailed = steps.value.find((s) => s.status !== 'success')
+      currentStepId.value = (firstFailed ?? steps.value[0]).id
     }
+    schedulePollIfRunning()
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -535,6 +614,7 @@ watch(
 )
 
 onMounted(load)
+onUnmounted(stopPolling)
 </script>
 
 <style scoped>
@@ -792,6 +872,22 @@ onMounted(load)
   font-weight: 600;
   color: var(--app-text);
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.only-failed {
+  font-weight: 400;
+}
+
+/* 失败断言行：浅红底 + 红色消息文字（失败原因是排障第一信息，不再弱化） */
+:deep(.assert-fail-row) {
+  background: color-mix(in srgb, var(--el-color-danger) 7%, transparent);
+}
+.fail-msg {
+  color: var(--el-color-danger);
+  font-size: 12px;
 }
 
 .steps-scroll {
