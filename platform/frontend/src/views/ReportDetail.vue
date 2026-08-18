@@ -307,18 +307,6 @@ const assertionPassed = computed(() =>
   )
 )
 
-const durationText = computed(() => {
-  if (!record.value?.started_at || !record.value?.ended_at) return '-'
-  const start = new Date(record.value.started_at).getTime()
-  const end = new Date(record.value.ended_at).getTime()
-  return formatDuration(end - start)
-})
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)} ms`
-  return `${(ms / 1000).toFixed(2)} s`
-}
-
 // ===== 摘要数字 count-up 滚动（数据加载完成后从 0 滚到目标值） =====
 const passedCountUp = useCountUp(computed(() => passedCount.value))
 const totalCountUp = useCountUp(computed(() => totalCount.value))
@@ -329,6 +317,10 @@ const durationMs = computed(() => {
   if (!record.value?.started_at || !record.value?.ended_at) return 0
   return new Date(record.value.ended_at).getTime() - new Date(record.value.started_at).getTime()
 })
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  return `${(ms / 1000).toFixed(2)} s`
+}
 const durationUp = useCountUp(durationMs, 800, formatDuration)
 
 // ===== 步骤耗时趋势图（纯 SVG） =====
@@ -486,220 +478,35 @@ function stepTimeText(s: StepRecord) {
   return dur ? `${start} · ${dur}` : start
 }
 
-// 打印视图专用：JSON 格式化（pre 标签展示，避免 VueJsonPretty 在打印时渲染异常）
-function formatJson(val: any): string {
-  if (val == null) return '-'
-  if (typeof val === 'string') return val
+// ===== 导出 CSV / HTML（后端组装：/reports/executions/{id}/export，视图只负责下载） =====
+async function exportCsv() {
+  await downloadExport('csv', '已导出 CSV')
+}
+
+async function exportHtml() {
+  await downloadExport('html', '已导出 HTML 报告')
+}
+
+async function downloadExport(format: 'csv' | 'html', okMsg: string) {
+  if (!steps.value.length || !record.value?.id) return
   try {
-    return JSON.stringify(val, null, 2)
-  } catch {
-    return String(val)
+    const blob = await execApi.exportReport(record.value.id, format)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = generateReportFilename({
+      caseName: record.value?.case_name,
+      envName: record.value?.env_name,
+      status: record.value?.status,
+      ext: format,
+    })
+    link.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(okMsg)
+  } catch (e: any) {
+    ElMessage.error(e.message || '导出失败')
   }
 }
-
-function csvEscape(val: any): string {
-  if (val == null) return ''
-  const s = typeof val === 'object' ? JSON.stringify(val) : String(val)
-  // 含逗号/引号/换行时用双引号包裹，内部引号转义
-  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-  return s
-}
-
-function exportCsv() {
-  if (!steps.value.length) return
-  const header = ['序号', '步骤名称', '方法', '路径', 'HTTP状态码', '耗时(ms)', '步骤状态', '断言通过', '断言总数', '断言详情', '请求体', '响应体']
-  const rows: string[] = [header.join(',')]
-  steps.value.forEach((s, idx) => {
-    const assertDetails = (s.assertions || [])
-      .map(a => `${a.rule_type}:${a.result ? '通过' : '失败'}(${a.actual_value ?? ''} vs ${a.expected_value ?? ''})`)
-      .join(' | ')
-    rows.push([
-      idx + 1,
-      csvEscape(s.api_name || s.node_id || ''),
-      s.api_method || '',
-      csvEscape(s.api_path || ''),
-      s.response_status ?? '',
-      s.response_time_ms ?? '',
-      s.status || '',
-      (s.assertions || []).filter(a => a.result).length,
-      (s.assertions || []).length,
-      csvEscape(assertDetails),
-      csvEscape(s.request_body),
-      csvEscape(s.response_body),
-    ].join(','))
-  })
-  // 加 BOM 头确保 Excel 正确识别 UTF-8
-  const csv = '\ufeff' + rows.join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = generateReportFilename({
-    caseName: record.value?.case_name,
-    envName: record.value?.env_name,
-    status: record.value?.status,
-    ext: 'csv',
-  })
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('已导出 CSV')
-}
-
-// ===== 导出 HTML 报告（自包含，双击即可在浏览器打开） =====
-function esc(s: any): string {
-  if (s == null) return ''
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function exportHtml() {
-  const r = record.value
-  if (!r) return
-  const parts: string[] = []
-  parts.push('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">')
-  parts.push('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
-  parts.push(`<title>执行报告 #${esc(r.id)}</title>`)
-  parts.push('<style>', REPORT_HTML_CSS, '</style>')
-  parts.push('</head><body>')
-  parts.push('<div class="report">')
-
-  // 报告头
-  parts.push('<header class="report-head">')
-  parts.push(`<div class="head-title">执行报告 <span class="head-id">#${esc(r.id)}</span></div>`)
-  parts.push(`<span class="status-badge status-${esc(r.status)}">${esc(statusText(r.status))}</span>`)
-  parts.push('</header>')
-
-  // 摘要
-  parts.push('<section class="summary-grid">')
-  parts.push(summaryItem('用例', r.case_name || `#${r.case_id}`))
-  parts.push(summaryItem('环境', r.env_name || `#${r.env_id}`))
-  parts.push(summaryItem('项目', r.project_name || '—'))
-  parts.push(summaryItem('执行人', r.created_by_name || '—'))
-  parts.push(summaryItem('步骤通过 / 总数', `${passedCount.value} / ${totalCount.value}`, true))
-  parts.push(summaryItem('断言通过 / 总数', `${assertionPassed.value} / ${assertionTotal.value}`, true))
-  parts.push(summaryItem('开始时间', r.started_at ?? '—'))
-  parts.push(summaryItem('结束时间', r.ended_at ?? '—'))
-  parts.push(summaryItem('耗时', durationText.value, true))
-  parts.push('</section>')
-
-  // 各步骤
-  steps.value.forEach((s, idx) => {
-    parts.push('<article class="step">')
-    parts.push('<header class="step-head">')
-    parts.push(`<div class="step-title"><span class="step-idx">#${idx + 1}</span> ${esc(s.api_name || s.node_id || '未命名步骤')}</div>`)
-    parts.push(`<span class="step-status status-${esc(s.status)}">${esc(stepStatusText(s.status))}</span>`)
-    parts.push('</header>')
-    parts.push('<div class="step-meta">')
-    parts.push(`<span><em>请求</em> ${esc(s.api_method || '')} ${esc(s.api_path || '')}</span>`)
-    parts.push(`<span><em>HTTP</em> ${esc(s.response_status ?? '-')}</span>`)
-    parts.push(`<span><em>耗时</em> ${esc(s.response_time_ms ?? '-')} ms</span>`)
-    parts.push(`<span><em>开始</em> ${esc(s.started_at ?? '')}</span>`)
-    parts.push(`<span><em>结束</em> ${esc(s.ended_at ?? '')}</span>`)
-    parts.push('</div>')
-
-    parts.push(jsonSection('请求头', s.request_headers))
-    parts.push(jsonSection('请求体', s.request_body))
-    parts.push(jsonSection('响应体', s.response_body))
-
-    if (s.assertions && s.assertions.length) {
-      parts.push('<section class="subsection">')
-      parts.push(`<h3>断言（${s.assertions.length}）</h3>`)
-      parts.push('<table class="assert-table"><thead><tr>')
-      parts.push('<th class="col-result">结果</th><th class="col-type">类型</th>')
-      parts.push('<th class="col-actual">实际值</th><th class="col-expected">期望值</th><th>消息</th>')
-      parts.push('</tr></thead><tbody>')
-      for (const a of s.assertions) {
-        const cls = a.result ? 'pass' : 'fail'
-        parts.push('<tr>')
-        parts.push(`<td class="${cls}">${a.result ? '✓ 通过' : '✗ 失败'}</td>`)
-        parts.push(`<td>${esc(a.rule_type)}</td>`)
-        parts.push(`<td class="mono">${esc(a.actual_value ?? '—')}</td>`)
-        parts.push(`<td class="mono">${esc(a.expected_value ?? '—')}</td>`)
-        parts.push(`<td class="muted">${esc(a.message ?? '—')}</td>`)
-        parts.push('</tr>')
-      }
-      parts.push('</tbody></table>')
-      parts.push('</section>')
-    }
-    parts.push('</article>')
-  })
-
-  parts.push('<footer class="report-foot">')
-  parts.push(`由 fin-api-test 平台生成 · ${new Date().toLocaleString('zh-CN')}`)
-  parts.push('</footer>')
-
-  parts.push('</div></body></html>')
-
-  const html = parts.join('')
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = generateReportFilename({
-    caseName: r.case_name,
-    envName: r.env_name,
-    status: r.status,
-    ext: 'html',
-  })
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('已导出 HTML 报告')
-}
-
-function summaryItem(label: string, value: any, highlight = false): string {
-  const cls = highlight ? 'metric metric-hl' : 'metric'
-  return `<div class="${cls}"><div class="metric-label">${esc(label)}</div><div class="metric-value">${esc(value)}</div></div>`
-}
-
-function jsonSection(title: string, val: any): string {
-  const text = formatJson(val)
-  return `<section class="subsection"><h3>${esc(title)}</h3><pre class="json-block">${esc(text)}</pre></section>`
-}
-
-const REPORT_HTML_CSS = `
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f5f7fa; color: #1f2937; padding: 32px 16px; line-height: 1.6;
-}
-.report { max-width: 960px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-.report-head { display: flex; align-items: center; justify-content: space-between; padding: 24px 32px; background: linear-gradient(135deg, #409eff 0%, #2b7fd6 100%); color: #fff; }
-.head-title { font-size: 22px; font-weight: 600; }
-.head-id { font-weight: 400; opacity: 0.9; margin-left: 4px; }
-.status-badge { padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.4); }
-.status-success { background: rgba(255,255,255,0.25); }
-.status-failed { background: rgba(255,80,80,0.45); }
-.status-running { background: rgba(255,200,80,0.45); }
-.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 20px 32px; background: #fafbfc; border-bottom: 1px solid #ebeef5; }
-.metric { padding: 8px 0; }
-.metric-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
-.metric-value { font-size: 14px; font-weight: 500; color: #303133; word-break: break-all; }
-.metric-hl .metric-value { color: #409eff; font-size: 16px; font-weight: 600; }
-.step { padding: 24px 32px; border-bottom: 1px solid #ebeef5; }
-.step:last-of-type { border-bottom: none; }
-.step-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.step-title { font-size: 16px; font-weight: 600; color: #303133; }
-.step-idx { display: inline-block; min-width: 28px; height: 24px; line-height: 24px; text-align: center; background: #ecf5ff; color: #409eff; border-radius: 6px; font-size: 13px; margin-right: 8px; }
-.step-status { padding: 2px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.step-status.status-success { background: #f0f9eb; color: #67c23a; }
-.step-status.status-failed { background: #fef0f0; color: #f56c6c; }
-.step-status.status-running { background: #fdf6ec; color: #e6a23c; }
-.step-status.status-skipped { background: #f4f4f5; color: #909399; }
-.step-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #606266; margin-bottom: 16px; padding: 10px 14px; background: #fafbfc; border-radius: 6px; }
-.step-meta em { font-style: normal; color: #909399; margin-right: 4px; }
-.subsection { margin-bottom: 14px; }
-.subsection h3 { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; padding-left: 8px; border-left: 3px solid #409eff; }
-.json-block { background: #1e2a3a; color: #c8d3e0; padding: 12px 14px; border-radius: 6px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; overflow-x: auto; }
-.assert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.assert-table th, .assert-table td { border: 1px solid #ebeef5; padding: 8px 10px; text-align: left; vertical-align: top; }
-.assert-table th { background: #fafbfc; font-weight: 600; color: #606266; }
-.assert-table .pass { color: #67c23a; font-weight: 600; }
-.assert-table .fail { color: #f56c6c; font-weight: 600; }
-.assert-table .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; }
-.assert-table .muted { color: #909399; }
-.col-result { width: 90px; } .col-type { width: 180px; } .col-actual, .col-expected { width: 22%; }
-.report-foot { padding: 16px 32px; text-align: center; font-size: 12px; color: #909399; background: #fafbfc; }
-@media print { body { padding: 0; background: #fff; } .report { box-shadow: none; border-radius: 0; max-width: none; } .step { break-inside: avoid; } }
-`
 
 async function load() {
   const id = Number(route.params.id)
@@ -1132,5 +939,3 @@ onMounted(load)
   cursor: pointer;
 }
 </style>
-
-

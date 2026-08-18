@@ -210,14 +210,15 @@ export const authApi = {
     http.put<{ message: string }>('/auth/avatar', { avatar }).then((r) => r.data),
   removeAvatar: () => http.delete('/auth/avatar'),
   getAvatar: (userId: number) =>
-    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/${userId}`).then((r) => r.data),
+    http.get<AvatarInfo>(`/auth/avatar/${userId}`).then((r) => r.data),
 }
 
 // ============ User 管理（仅管理员） ============
-export interface SimpleUser {
-  id: number
-  name: string
-}
+// 类型来源切到 OpenAPI 生成（npm run gen:api），消除手写镜像；形状与后端 SimpleUserOut 单一事实来源
+import type { components } from '@/types/api.gen'
+
+export type SimpleUser = components['schemas']['SimpleUserOut']
+export type AvatarInfo = components['schemas']['AvatarOut']
 export const userApi = {
   list: () => http.get<User[]>('/users').then((r) => r.data),
   simple: () => http.get<SimpleUser[]>('/users/simple').then((r) => r.data),
@@ -372,6 +373,9 @@ export const execApi = {
     http.get<ExecutionRecord[]>('/executions', { params }).then((r) => r.data),
   get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
   report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
+  // 报告导出（后端组装：csv=Excel 兼容 BOM+CRLF；html=自包含单文件报告）
+  exportReport: (id: number, format: 'csv' | 'html') =>
+    http.get<Blob>(`/reports/executions/${id}/export`, { responseType: 'blob', params: { format } }).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/executions/cleanup', { params: { days } }).then((r) => r.data),
 }
 

@@ -230,7 +230,8 @@ import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
-import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupedTable, collectTreeUpdates } from '@/composables/useGroupedTable'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -249,23 +250,36 @@ const filterUpdater = ref<number | null>(null)
 const loading = ref(false)
 const keyword = ref('')
 
-// 多级分组：树构建 + 展开记忆（按项目持久化）
+const filteredList = computed(() => {
+  if (!keyword.value) return list.value
+  const kw = keyword.value.toLowerCase()
+  return list.value.filter(c => c.name.toLowerCase().includes(kw))
+})
+
+// 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
+const tableSel = useGroupedTable(groups, toRef(store, 'currentProjectId'), 'caseList', filteredList)
 const {
   tree,
   treeSelectData,
   treeSelectWithUngrouped,
   isExpanded: isGroupExpanded,
-  toggleExpand: toggleGroupExpand,
   applyDefaultExpand,
-  computeVisibleRows,
-} = useGroupTree(groups, toRef(store, 'currentProjectId'), 'caseList')
+  itemsOf: casesOf,
+  countWithDescendants: countCasesWithDescendants,
+  visibleGroupRows,
+  onToggleGroup,
+  pagedDataMap,
+  pageSize,
+  pageMap,
+  onPageChange,
+  onPageSizeChange,
+  applyPageDragReorder,
+  resetSelection,
+} = tableSel
 
 // el-tree / el-tree-select 公共字段映射
 const treeProps = { label: 'label', children: 'children' }
 
-// 分组内分页：每分组独立维护当前页码，全局共享每页条数
-const pageSize = ref(10)
-const pageMap = ref<Record<string, number>>({})
 const dialogVisible = ref(false)
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
@@ -279,11 +293,19 @@ const batchMoveLoading = ref(false)
 const batchRunning = ref(false)
 const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
 
-// ===== 批量移动：不支持跨分组勾选 =====
+// ===== 批量移动：互斥勾选状态机在 useGroupedTable；视图只持有表格实例引用 =====
 const tableRefs = new Map<string | number, any>()
-let currentSelectGroupId: string | number | null = null
-let isClearing = false
-const selectedCaseIds = ref<number[]>([])
+const selectedCaseIds = tableSel.selectedIds
+
+function clearOtherTables(keep: string | number) {
+  tableRefs.forEach((tableRef, key) => {
+    if (key !== keep) tableRef?.clearSelection?.()
+  })
+}
+
+function clearAllTables() {
+  tableRefs.forEach((tableRef) => tableRef?.clearSelection?.())
+}
 
 // ===== 组内拖拽排序（SortableJS 绑定 el-table tbody）=====
 const sortableInstances = new Map<string | number, any>()
@@ -312,21 +334,9 @@ function setTableRef(groupId: string | number, el: any) {
 }
 
 async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
-  if (oldIndex === newIndex) return
-  // 找到该分组的用例列表（casesOf 返回新数组，元素仍为 list.value 中的同引用对象）
-  const gid = groupId === 'ungrouped' ? null : (groupId as number)
-  const fullList = casesOf(gid)
-  const page = pageMap.value[String(groupId)] || 1
-  const start = (page - 1) * pageSize.value
-  // 在全量列表中移动（当前页内的拖拽映射到全量列表的全局位置）
-  const moved = fullList.splice(start + oldIndex, 1)[0]
-  fullList.splice(start + newIndex, 0, moved)
-  // 对全量列表分配 sort_order（用索引作为唯一值，确保顺序持久化）
-  const items = fullList.map((c, i) => ({ id: c.id, sort_order: i }))
   try {
-    await caseApi.reorder(items)
-    ElMessage.success('排序已保存')
-    fullList.forEach((c, i) => { c.sort_order = i })
+    const applied = await applyPageDragReorder(groupId, oldIndex, newIndex, (items) => caseApi.reorder(items))
+    if (applied) ElMessage.success('排序已保存')
   } catch (e: any) {
     ElMessage.error(e.message || '排序保存失败')
     await load()
@@ -335,14 +345,8 @@ async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newI
 
 /** el-tree 拖拽落点：持久化 parent_id + sort_order */
 async function onTreeNodeDrop() {
-  const updates: { id: number; parent_id: number | null; sort_order: number }[] = []
-  const walk = (nodes: GroupTreeNode[], parentId: number | null) => {
-    nodes.forEach((n, i) => {
-      updates.push({ id: n.id, parent_id: parentId, sort_order: i })
-      walk(n.children, n.id)
-    })
-  }
-  walk(groupTreeNodes.value, null)
+  // el-tree 拖拽后已就地更新 groupTreeNodes，收集树平面更新载荷
+  const updates = collectTreeUpdates(groupTreeNodes.value)
   try {
     await Promise.all(updates.map(it => caseGroupApi.update(it.id, { parent_id: it.parent_id, sort_order: it.sort_order })))
     ElMessage.success('分组层级与顺序已保存')
@@ -354,16 +358,7 @@ async function onTreeNodeDrop() {
 }
 
 function onSelectionChange(groupId: string | number, selection: TestCase[]) {
-  if (isClearing) return
-  if (currentSelectGroupId !== null && currentSelectGroupId !== groupId) {
-    isClearing = true
-    tableRefs.forEach((tableRef, key) => {
-      if (key !== groupId) tableRef?.clearSelection?.()
-    })
-    isClearing = false
-  }
-  currentSelectGroupId = groupId
-  selectedCaseIds.value = selection.map(c => c.id)
+  tableSel.onSelectionChange(groupId, selection, clearOtherTables)
 }
 
 function onBatchMove() {
@@ -383,12 +378,8 @@ async function confirmBatchMove() {
     const res = await caseApi.batchMove(selectedCaseIds.value, targetGroupId)
     ElMessage.success(res.message)
     batchMoveVisible.value = false
-    selectedCaseIds.value = []
-    currentSelectGroupId = null
-    // 清空 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
-    isClearing = true
-    tableRefs.forEach((tableRef) => tableRef?.clearSelection?.())
-    isClearing = false
+    // 清空选中与 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
+    resetSelection(clearAllTables)
     await load()
   } catch (e: any) {
     ElMessage.error(e.message || '批量移动失败')
@@ -397,53 +388,7 @@ async function confirmBatchMove() {
   }
 }
 
-const filteredList = computed(() => {
-  if (!keyword.value) return list.value
-  const kw = keyword.value.toLowerCase()
-  return list.value.filter(c => c.name.toLowerCase().includes(kw))
-})
-
-/** 某分组的用例列表（未分组传 null） */
-function casesOf(groupId: number | null): TestCase[] {
-  return filteredList.value.filter(c => c.group_id === groupId)
-}
-
-/** 统计分组的用例数量（含所有子孙分组，用于分组头部计数展示） */
-function countCasesWithDescendants(groupId: number): number {
-  const ids = [groupId, ...collectDescendantIds(tree.value, groupId)]
-  return filteredList.value.filter(c => c.group_id != null && ids.includes(c.group_id)).length
-}
-
-/** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行（叶子分组有数据也可展开） */
-const visibleGroupRows = computed(() => computeVisibleRows(casesOf(null).length > 0, (id) => casesOf(id).length))
-
-/** 切换分组展开/折叠（未分组行与不可展开的空分组不响应） */
-function onToggleGroup(row: { groupId: number | null; isUngrouped: boolean; expandable?: boolean }) {
-  if (row.isUngrouped || row.groupId == null || row.expandable === false) return
-  toggleGroupExpand(row.groupId)
-}
-
-/** 各分组当前页数据（computed 缓存：避免 selectedCaseIds 变化时 :data 引用变化导致 el-table 重置 selection） */
-const pagedDataMap = computed(() => {
-  const map: Record<string, TestCase[]> = {}
-  for (const row of visibleGroupRows.value) {
-    const list = casesOf(row.groupId)
-    const page = pageMap.value[String(row.key)] || 1
-    const start = (page - 1) * pageSize.value
-    map[String(row.key)] = list.slice(start, start + pageSize.value)
-  }
-  return map
-})
-
-function onPageChange(groupId: string | number, page: number) {
-  pageMap.value[String(groupId)] = page
-}
-
-/** 切换每页条数时，重置所有分组页码到第 1 页（避免越界） */
-function onPageSizeChange(size: number) {
-  pageSize.value = size
-  pageMap.value = {}
-}
+// 分组过滤/计数/可见行/组内分页等样板已收敛至 useGroupedTable（见顶部解构）
 
 async function load() {
   if (!store.currentProjectId) return

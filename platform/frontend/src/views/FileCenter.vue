@@ -12,7 +12,7 @@
         <el-tree
           :data="categoryTree"
           node-key="id"
-          :props="{ label: 'name', children: 'children' }"
+          :props="{ label: 'label', children: 'children' }"
           :expand-on-click-node="false"
           :current-node-key="filter.category_id === null ? -1 : filter.category_id"
           @node-click="onCategoryClick"
@@ -155,7 +155,7 @@
           <el-tree-select
             v-model="editingFile.category_id"
             :data="categoryTreeForSelect"
-            :props="{ label: 'name', children: 'children', value: 'id' }"
+            :props="{ label: 'label', children: 'children', value: 'id' }"
             check-strictly
             clearable
             placeholder="未分类"
@@ -184,7 +184,7 @@
           <el-tree-select
             v-model="categoryDialog.parent_id"
             :data="categoryTreeForSelect"
-            :props="{ label: 'name', children: 'children', value: 'id' }"
+            :props="{ label: 'label', children: 'children', value: 'id' }"
             check-strictly
             clearable
             placeholder="顶层分类"
@@ -241,6 +241,7 @@ import {
   Picture, Document, VideoPlay, Files as FilesIcon,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
+import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
 import { fileApi, fileCategoryApi, fileTagApi, type TestFile, type FileCategory, type FileTag } from '@/api'
 
 const store = useAppStore()
@@ -256,32 +257,9 @@ const filter = ref<{ category_id?: number | null; tag_ids: number[]; keyword?: s
 const totalFiles = computed(() => allFiles.value.length)
 const uncategorizedCount = computed(() => allFiles.value.filter(f => f.category_id == null).length)
 
-/** 收集分类及其所有子孙分类 ID（用于含子分类的文件计数） */
-function collectCategoryDescendants(catId: number): number[] {
-  const ids: number[] = []
-  const walk = (nodes: any[]) => {
-    for (const n of nodes) {
-      if (n.id === catId) {
-        const collect = (children: any[]) => {
-          for (const c of children) {
-            ids.push(c.id)
-            collect(c.children || [])
-          }
-        }
-        collect(n.children || [])
-        return true
-      }
-      if (walk(n.children || [])) return true
-    }
-    return false
-  }
-  walk(categoryTree.value)
-  return ids
-}
-
-/** 统计分类下文件数量（含所有子分类） */
+/** 统计分类下文件数量（含所有子分类，子孙 ID 收集复用公共 collectDescendantIds） */
 function countFilesInCategory(catId: number): number {
-  const ids = [catId, ...collectCategoryDescendants(catId)]
+  const ids = [catId, ...collectDescendantIds(categoryTree.value, catId)]
   return allFiles.value.filter(f => f.category_id != null && ids.includes(f.category_id)).length
 }
 
@@ -309,26 +287,11 @@ async function loadFiles() {
   }
 }
 
-// ===== 分类树 =====
+// ===== 分类树（树构建/子孙计数复用 useGroupTree 公共纯函数，消除第 4 份平行实现） =====
 const categories = ref<FileCategory[]>([])
-const categoryTree = computed(() => buildTree(categories.value))
+const categoryTree = computed(() => buildGroupTree(categories.value))
 
-const categoryTreeForSelect = computed(() => buildTree(categories.value))
-
-function buildTree(list: FileCategory[]): any[] {
-  const map = new Map<number, any>()
-  const roots: any[] = []
-  list.forEach((c) => map.set(c.id, { ...c, children: [] }))
-  list.forEach((c) => {
-    const node = map.get(c.id)!
-    if (c.parent_id && map.has(c.parent_id)) {
-      map.get(c.parent_id)!.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-  return roots
-}
+const categoryTreeForSelect = categoryTree
 
 async function loadCategories() {
   if (!projectId.value) return
