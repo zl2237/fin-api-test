@@ -662,7 +662,7 @@ async function loadCurrentAvatar() {
   }
   try {
     const res = await authApi.getAvatar(store.user.id)
-    currentAvatar.value = res.avatar
+    currentAvatar.value = res.avatar ?? null
   } catch {
     currentAvatar.value = null
   }
