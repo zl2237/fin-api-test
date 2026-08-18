@@ -8,7 +8,8 @@ const routes = [
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     children: [
-      { path: '', redirect: '/apis' },
+      { path: '', redirect: '/home' },
+      { path: 'home', name: 'Home', component: () => import('@/views/Home.vue'), meta: { title: '首页' } },
       { path: 'projects', name: 'ProjectManage', component: () => import('@/views/ProjectManage.vue'), meta: { title: '项目管理' } },
       { path: 'apis', name: 'ApiManage', component: () => import('@/views/ApiManage.vue'), meta: { title: '接口管理' } },
       { path: 'apis/edit/:id?', name: 'ApiEdit', component: () => import('@/views/ApiEdit.vue'), meta: { title: '接口编辑' } },
@@ -53,9 +54,9 @@ router.beforeEach(async (to, _from, next) => {
     next({ path: '/change-password' })
     return
   }
-  // 需要管理员权限的页面校验角色
+  // 需要管理员权限的页面校验角色（非管理员回落首页）
   if (to.meta.requireAdmin && store.user?.role !== 'admin') {
-    next({ path: '/apis' })
+    next({ path: '/home' })
     return
   }
   next()
