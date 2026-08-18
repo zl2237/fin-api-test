@@ -1,9 +1,9 @@
-"""数据库 CRUD 操作"""
+"""数据库 CRUD 操作（遗留平铺实现，逐步迁移至各域子模块，勿在此新增内容）"""
 from datetime import datetime
 from typing import List, Optional, TypeVar
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from .. import models, schemas
 
 T = TypeVar("T")
 
@@ -940,14 +940,6 @@ def delete_project_version(db: Session, version: models.ProjectVersion):
 
 
 # ============ Execution ============
-def create_execution(db: Session, case_id: int, env_id: int, user_id: Optional[int] = None) -> models.ExecutionRecord:
-    obj = models.ExecutionRecord(case_id=case_id, env_id=env_id, status="running", created_by=user_id)
-    db.add(obj)
-    db.commit()
-    db.refresh(obj)
-    return obj
-
-
 def get_execution(db: Session, exec_id: int) -> Optional[models.ExecutionRecord]:
     return db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).first()
 
