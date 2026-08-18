@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="env-edit">
     <!-- 顶部工具栏 -->
     <div class="edit-header">
@@ -8,7 +8,7 @@
       <span class="edit-title">{{ isEdit ? '编辑环境' : '新建环境' }}</span>
       <div class="header-right">
         <span v-if="dirty" class="dirty-tip">有未保存改动</span>
-        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="onSave">保存 (Ctrl+S)</el-button>
       </div>
     </div>
 
@@ -17,7 +17,7 @@
       <!-- 基础信息 -->
       <div class="card-section">
         <div class="section-title">基础信息</div>
-        <el-form label-width="100px" :model="formData">
+        <el-form label-width="120px" :model="formData">
           <el-form-item label="环境名称" required>
             <el-input v-model="formData.name" placeholder="test / pre / prod" style="width: 280px" />
           </el-form-item>
@@ -39,9 +39,13 @@
       <div class="card-section">
         <div class="section-title">
           数据库配置
-          <el-button v-if="isEdit" size="small" :loading="testingDb" @click="onTestDb">测试连接</el-button>
+          <!-- 新建态以禁用态预告能力（原 v-if 凭空消失，用户不知保存后可测试） -->
+          <el-tooltip v-if="!isEdit" content="保存后可测试连接" placement="top">
+            <el-button size="small" disabled>测试连接</el-button>
+          </el-tooltip>
+          <el-button v-else size="small" :loading="testingDb" @click="onTestDb">测试连接</el-button>
         </div>
-        <el-form label-width="100px">
+        <el-form label-width="120px">
           <div class="form-row">
             <el-form-item label="Host">
               <el-input v-model="formData.db_config.host" placeholder="127.0.0.1" />
@@ -69,7 +73,10 @@
         <div class="section-title">
           登录配置
           <span class="section-hint">用于获取 token，自动注入到后续请求 header</span>
-          <el-button v-if="isEdit" size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
+          <el-tooltip v-if="!isEdit" content="保存后可测试登录" placement="top">
+            <el-button size="small" disabled>测试登录</el-button>
+          </el-tooltip>
+          <el-button v-else size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
         </div>
         <el-form label-width="120px">
           <el-form-item label="登录接口路径">
@@ -110,7 +117,7 @@
           通知配置
           <span class="section-hint">用于执行后给企业微信机器人推送结果</span>
         </div>
-        <el-form label-width="140px">
+        <el-form label-width="120px">
           <el-form-item label="企微机器人 Webhook">
             <el-input
               v-model="formData.notify_config.wecom_webhook"
@@ -158,17 +165,19 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { envApi, type Environment } from '@/api'
 import { useAppStore } from '@/stores'
+import { useTabStore } from '@/stores/tabs'
 import { storeToRefs } from 'pinia'
 import KeyValueTable from '@/components/KeyValueTable.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+const tabStore = useTabStore()
 const { currentProjectId } = storeToRefs(store)
 
 const isEdit = computed(() => !!route.params.id)
@@ -278,6 +287,37 @@ async function loadEnv() {
 function onBack() {
   router.push('/envs')
 }
+
+// ===== 未保存改动防丢失：路由离开 + 关闭/刷新标签页双层拦截 =====
+// 与 CaseDesigner 同法：编辑页是带 :id 的临时页，守卫放行时统一关闭自身标签，避免残留 + keep-alive 复活
+onBeforeRouteLeave(async () => {
+  const closeSelfTab = () => tabStore.removeTab(route.path)
+  if (!dirty.value) {
+    closeSelfTab()
+    return true
+  }
+  try {
+    await ElMessageBox.confirm(
+      '有未保存的环境配置改动，离开后将丢失。确定离开？',
+      '未保存提示',
+      { type: 'warning', confirmButtonText: '放弃改动并离开', cancelButtonText: '留在本页' },
+    )
+    closeSelfTab()
+    return true
+  } catch {
+    // 留在本页：标签原样保留
+    return false
+  }
+})
+
+const onBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (dirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 async function onSave() {
   // trim 关键字段，避免首尾空格

@@ -9,22 +9,30 @@ SQLAlchemy 引擎与会话工厂（仅支持 MySQL）。
     DB_NAME（默认 fin_api_test）
 """
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import URL, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
-def _build_mysql_url() -> str:
-    """MySQL 连接 URL，使用 PyMySQL 驱动（utf8mb4 支持完整 Unicode 与 emoji）"""
-    host = os.getenv("DB_HOST", "127.0.0.1")
-    port = os.getenv("DB_PORT", "3306")
-    user = os.getenv("DB_USER", "root")
+def _build_mysql_url() -> URL:
+    """MySQL 连接 URL，使用 PyMySQL 驱动（utf8mb4 支持完整 Unicode 与 emoji）。
+
+    URL.create 以结构化字段传参，无需手动 URL 编码——用户名/密码中的
+    特殊字符（空格、@、:、%、/ 等）由 SQLAlchemy 正确处理。
+    """
     password = os.getenv("DB_PASSWORD", "")
-    name = os.getenv("DB_NAME", "fin_api_test")
     if not password:
         raise RuntimeError(
             "[database] 未设置 DB_PASSWORD 环境变量，请配置后重启"
         )
-    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+    return URL.create(
+        "mysql+pymysql",
+        username=os.getenv("DB_USER", "root"),
+        password=password,  # 原始字符串直接传入，无需转义
+        host=os.getenv("DB_HOST", "127.0.0.1"),
+        port=int(os.getenv("DB_PORT", "3306")),
+        database=os.getenv("DB_NAME", "fin_api_test"),
+        query={"charset": "utf8mb4"},
+    )
 
 
 DATABASE_URL = _build_mysql_url()

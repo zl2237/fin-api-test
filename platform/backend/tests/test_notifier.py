@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.services.notifier import send_notify
 
@@ -58,7 +58,7 @@ class TestSendNotify:
 
         with patch("utils.wecom_util.WeComRobot") as MockRobot:
             mock_instance = MockRobot.return_value
-            send_notify(env, case, record)
+            send_notify(env, case, record, executor_name="张三")
             MockRobot.assert_called_once_with("http://fake/webhook")
             mock_instance.send_markdown.assert_called_once()
             args = mock_instance.send_markdown.call_args
@@ -69,6 +69,7 @@ class TestSendNotify:
             assert "✅ 通过" in content
             assert "5/5" in content
             assert "测试环境" in content
+            assert "张三" in content
             assert "2026-01-15 10:30:00" in content
 
     def test_failure_notification_sent(self):

@@ -29,7 +29,7 @@
 
     <el-card shadow="never" class="table-card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" border empty-text="暂无操作记录">
+      <el-table v-else :data="pagedList" stripe empty-text="暂无操作记录">
         <el-table-column prop="id" label="ID" width="70" align="center" />
         <el-table-column label="操作人" width="120">
           <template #default="{ row }">{{ row.username || '未知' }}</template>

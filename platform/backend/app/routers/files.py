@@ -8,7 +8,6 @@
 """
 import hashlib
 import os
-from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -92,12 +91,13 @@ async def upload_file(
 def list_files(
     project_id: int = Query(..., description="所属项目ID"),
     category_id: Optional[int] = Query(None, description="按分类过滤"),
-    tag_id: Optional[int] = Query(None, description="按标签过滤"),
+    tag_id: Optional[int] = Query(None, description="按标签过滤（单选，兼容旧参数）"),
+    tag_ids: Optional[List[int]] = Query(None, description="按标签过滤（多选，OR 语义）"),
     keyword: Optional[str] = Query(None, description="按名称模糊搜索"),
     db: Session = Depends(get_db),
     _user: models.User = Depends(get_current_user),
 ):
-    objs = crud.list_files(db, project_id, category_id, tag_id, keyword)
+    objs = crud.list_files(db, project_id, category_id, tag_id, keyword, tag_ids)
     crud.fill_audit_names_batch(db, objs)
     crud.fill_file_tag_ids(db, objs)
     return objs

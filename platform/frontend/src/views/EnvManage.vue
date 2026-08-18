@@ -33,7 +33,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="id" label="ID" width="70" align="center" />
-          <el-table-column prop="name" label="环境" width="100" />
+          <el-table-column prop="name" label="环境" width="120" show-overflow-tooltip />
           <el-table-column prop="base_url" label="Base URL" min-width="200" show-overflow-tooltip />
           <el-table-column label="数据库" width="100" align="center">
             <template #default="{ row }">
@@ -122,6 +122,8 @@ function bindSortable() {
   const tbody = tableRef.value?.$el?.querySelector?.('.el-table__body-wrapper tbody')
   if (!tbody) return
   if (sortableInst) { sortableInst.destroy(); sortableInst = null }
+  // 过滤激活时禁拖：reorder 按「过滤后顺序」重写全局 sort_order，会静默打乱未过滤数据的排序
+  if (filterCreator.value != null || filterUpdater.value != null) return
   sortableInst = Sortable.create(tbody, {
     handle: '.drag-handle',
     animation: 200,
