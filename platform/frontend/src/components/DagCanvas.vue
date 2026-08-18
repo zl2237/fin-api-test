@@ -8,9 +8,9 @@
       @node-click="onNodeClick"
       @node-double-click="onNodeDblClick"
       @node-drag-stop="emitChange"
-      @edge-click="onEdgeClick"
+      @edge-double-click="onEdgeClick"
     >
-      <Background pattern-color="#aaa" :gap="16" />
+      <Background :pattern-color="isDark ? '#3f4148' : '#c9ccd4'" :gap="16" />
       <Controls />
       <MiniMap />
       <template #node-default="props">
@@ -29,6 +29,12 @@
         </div>
       </template>
     </VueFlow>
+    <!-- 空画布引导：首个节点添加后消失 -->
+    <div v-if="!nodes.length" class="canvas-empty">
+      <div class="canvas-empty-title">从空白画布开始编排</div>
+      <div class="canvas-empty-line">在左侧接口列表中点击接口，即可添加为 DAG 节点</div>
+      <div class="canvas-empty-line">拖拽节点右侧端点到目标左侧端点建立依赖，双击节点配置断言与提取</div>
+    </div>
     <!-- 连线模式状态栏 -->
     <div v-if="linkMode" class="link-status-bar">
       <span v-if="!linkSourceId">连线模式：点击源节点（source）</span>
@@ -39,7 +45,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { VueFlow, useVueFlow, Position, Handle } from '@vue-flow/core'
+import { VueFlow, useVueFlow, Position, Handle, MarkerType } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -55,6 +61,20 @@ const emit = defineEmits<{
 }>()
 
 const { setNodes, setEdges, addEdges, removeEdges, removeNodes, getNodes, getEdges, fitView, viewport, vueFlowRef } = useVueFlow()
+
+// 暗色主题感知：监听 html.dark class 变化（含 auto 跟随系统），画布点阵随之切换
+const isDark = ref(document.documentElement.classList.contains('dark'))
+let themeObserver: MutationObserver | null = null
+onMounted(() => {
+  themeObserver = new MutationObserver(() => {
+    isDark.value = document.documentElement.classList.contains('dark')
+  })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+})
+onUnmounted(() => {
+  themeObserver?.disconnect()
+  themeObserver = null
+})
 
 // 防止内部变化触发 emit 后又同步回内部造成循环
 const syncing = ref(false)
@@ -91,8 +111,8 @@ function onKeydown(e: KeyboardEvent) {
   const target = e.target as HTMLElement | null
   const inEditable = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 
-  // Delete/Backspace 删除选中节点
-  if ((e.key === 'Delete' || e.key === 'Backspace') && !linkMode.value && !inEditable) {
+  // Delete 删除选中节点（Backspace 不再绑定删除：退格是高频编辑键，误触代价高）
+  if (e.key === 'Delete' && !linkMode.value && !inEditable) {
     const selected = getNodes.value.filter((n: any) => n.selected)
     if (!selected.length) return
     const ids = selected.map((n: any) => n.id)
@@ -186,7 +206,7 @@ function emitChange() {
 }
 
 function onConnect(params: any) {
-  addEdges([params])
+  addEdges([{ ...params, markerEnd: MarkerType.ArrowClosed }])
   emit('update:edges', serializeEdges())
 }
 
@@ -219,6 +239,7 @@ function onNodeClick({ node }: any) {
       id: `e-${src}-${tgt}-${Date.now()}`,
       source: src,
       target: tgt,
+      markerEnd: MarkerType.ArrowClosed,
     }
     addEdges([newEdge])
     emit('update:edges', serializeEdges())
@@ -235,9 +256,11 @@ function onNodeDblClick({ node }: any) {
   emit('node-open', node.id)
 }
 
+/** 双击连线删除（原「单击即删」误触率高：hover 变红是唯一预告，想选中看看就已删除） */
 function onEdgeClick({ edge }: any) {
   removeEdges([edge.id])
   emit('update:edges', serializeEdges())
+  ElMessage.success(`已删除连线 ${edge.source} → ${edge.target}`)
 }
 
 function addNode(node: any) {
@@ -405,7 +428,8 @@ watch(
   (newEdges) => {
     if (!newEdges) return
     syncing.value = true
-    setEdges(newEdges.map((e: any) => ({ ...e })))
+    // 所有边带闭合箭头：DAG 的方向语义必须可辨（无向线段在交叉时无法区分 A→B / B→A）
+    setEdges(newEdges.map((e: any) => ({ ...e, markerEnd: e.markerEnd ?? MarkerType.ArrowClosed })))
     syncing.value = false
   },
   { immediate: true, deep: true },
@@ -433,6 +457,31 @@ watch(
   pointer-events: none;
   white-space: nowrap;
 }
+/* 空画布引导卡片 */
+.canvas-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 22px 30px;
+  text-align: center;
+  background: var(--app-card-solid);
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-sm);
+  pointer-events: none;
+}
+.canvas-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-bottom: 8px;
+}
+.canvas-empty-line {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.8;
+}
 .dag-node {
   position: relative;
   padding: 10px 18px;
@@ -442,6 +491,12 @@ watch(
   box-shadow: var(--app-shadow-sm);
   min-width: 150px;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+/* hover 反馈：预判可点击（双击开配置），cursor 提示交互 */
+.dag-node:hover {
+  border-color: color-mix(in srgb, var(--el-color-primary) 55%, var(--app-border));
+  box-shadow: var(--app-shadow);
+  cursor: pointer;
 }
 .dag-node.selected {
   border-color: var(--el-color-primary);
@@ -507,5 +562,27 @@ watch(
 :deep(.vue-flow__edge:hover .vue-flow__edge-path) {
   stroke: var(--el-color-danger);
   stroke-width: 3;
+}
+
+/* ===== 暗色主题下 Vue Flow 官方控件的适配（默认亮色，暗画布上刺眼） ===== */
+html.dark :deep(.vue-flow__controls) {
+  background: var(--app-card, #1e2330);
+  border: 1px solid var(--app-border, #3a4050);
+  box-shadow: none;
+}
+html.dark :deep(.vue-flow__controls-button) {
+  background: transparent;
+  border-bottom: 1px solid var(--app-border, #3a4050);
+  fill: var(--app-text-muted, #98989d);
+}
+html.dark :deep(.vue-flow__controls-button:hover) {
+  background: var(--app-hover, rgba(255, 255, 255, 0.06));
+}
+html.dark :deep(.vue-flow__minimap) {
+  background: var(--app-card, #1e2330);
+  border: 1px solid var(--app-border, #3a4050);
+}
+html.dark :deep(.vue-flow__minimap-svg) {
+  fill: var(--app-hover, rgba(255, 255, 255, 0.06));
 }
 </style>

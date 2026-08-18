@@ -3,18 +3,19 @@
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
     title="节点配置"
-    size="780px"
+    size="min(780px, 92vw)"
     direction="rtl"
     class="node-config-drawer"
+    destroy-on-close
   >
-    <el-tabs v-model="activeTab" class="node-config-tabs">
+    <el-tabs v-if="draft" v-model="activeTab" class="node-config-tabs">
       <el-tab-pane label="基础配置" name="basic">
         <el-form label-width="90px">
           <el-form-item label="节点ID">
-            <el-input :model-value="config.node_id" disabled />
+            <el-input :model-value="draft.node_id" disabled />
           </el-form-item>
-          <el-form-item label="绑定接口">
-            <el-select v-model="config.api_id" placeholder="选择接口" filterable style="width: 100%">
+          <el-form-item label="绑定接口" required>
+            <el-select v-model="draft.api_id" placeholder="选择接口（必选）" filterable style="width: 100%">
               <el-option
                 v-for="a in apis"
                 :key="a.id"
@@ -39,7 +40,7 @@
       </el-tab-pane>
 
       <el-tab-pane label="前置处理" name="pre">
-        <PreProcessTable v-model="config.pre_process" :fields="currentApiFields" />
+        <PreProcessTable v-model="draft.pre_process" :fields="currentApiFields" />
         <div class="tip-with-help">
           <p class="tip">设置字段值支持表达式：<code>${order_id}</code>、<code>${generate_bl_no(prefix='smoke')}</code>。遍历赋值用于费用 unique_id 关联。</p>
           <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
@@ -49,12 +50,12 @@
       </el-tab-pane>
 
       <el-tab-pane label="后置提取" name="extract">
-        <PostExtractTable v-model="config.post_extract" />
+        <PostExtractTable v-model="draft.post_extract" />
         <p class="tip">提取的变量存入上下文，供后续节点以 <code>${变量名}</code> 引用。</p>
       </el-tab-pane>
 
       <el-tab-pane label="断言规则" name="assert">
-        <AssertionTable v-model="config.assertions" />
+        <AssertionTable v-model="draft.assertions" />
         <div class="tip-with-help">
           <p class="tip">DB 断言 SQL 中可用 <code>${变量名}</code> 引用已提取变量。</p>
           <el-button text size="small" class="help-link" @click="store.openCoreCapability('assertion')">
@@ -65,7 +66,7 @@
     </el-tabs>
 
     <template #footer>
-      <el-button @click="$emit('update:visible', false)">关闭</el-button>
+      <el-button @click="$emit('update:visible', false)">取消</el-button>
       <el-button type="primary" @click="onSave">保存配置</el-button>
     </template>
   </el-drawer>
@@ -95,22 +96,41 @@ const emit = defineEmits<{
 
 const activeTab = ref('basic')
 
+// 编辑草稿：打开抽屉时深拷贝一份，避免直接 mutate 父组件引用导致
+// 「关闭即生效、保存按钮无实义」的假保存语义；取消即丢弃草稿。
+const draft = ref<NodeConfig | null>(null)
+watch(
+  () => props.visible,
+  (v) => {
+    if (v) {
+      draft.value = JSON.parse(JSON.stringify(props.config))
+    }
+  },
+  { immediate: true },
+)
+
 // 当前节点绑定接口的请求字段，供前置处理字段路径选择
 const currentApiFields = computed<ApiField[]>(() => {
-  if (!props.config.api_id) return []
-  const api = props.apis.find((a) => a.id === props.config.api_id)
+  if (!draft.value?.api_id) return []
+  const api = props.apis.find((a) => a.id === draft.value!.api_id)
   return api?.fields || []
 })
 
 // 节点间等待时间（ms），默认 0；用 computed 兼容旧数据未携带该字段的情况
 const waitAfterMs = computed<number>({
-  get: () => props.config.wait_after_ms ?? 0,
-  set: (v: number) => { props.config.wait_after_ms = v },
+  get: () => draft.value?.wait_after_ms ?? 0,
+  set: (v: number) => { if (draft.value) draft.value.wait_after_ms = v },
 })
 
 function onSave() {
-  emit('save', { ...props.config })
-  ElMessage.success('节点配置已保存（点击右上角「保存用例」持久化）')
+  if (!draft.value) return
+  if (!draft.value.api_id) {
+    ElMessage.warning('请先绑定接口，未绑定接口的节点不会执行')
+    return
+  }
+  emit('save', JSON.parse(JSON.stringify(draft.value)))
+  emit('update:visible', false)
+  ElMessage.success('配置已保存（点右上角「保存用例」持久化）')
 }
 </script>
 
