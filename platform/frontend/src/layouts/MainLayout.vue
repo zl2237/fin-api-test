@@ -19,25 +19,30 @@
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#ffffff" />
-                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.7" />
-              </linearGradient>
+              <marker id="brandArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto">
+                <polygon points="0 0, 10 5, 0 10" fill="#fff"/>
+              </marker>
             </defs>
-            <rect width="32" height="32" rx="8" fill="rgba(255,255,255,0.15)" />
-            <!-- 上方节点 -->
-            <circle cx="16" cy="9" r="2.6" fill="url(#brandGrad)" />
-            <!-- 下方两节点 -->
-            <circle cx="9" cy="23" r="2.6" fill="url(#brandGrad)" />
-            <circle cx="23" cy="23" r="2.6" fill="url(#brandGrad)" />
-            <!-- 连线 -->
-            <path d="M16 11.6 L9 20.4 M16 11.6 L23 20.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" />
+            <!-- 产品图标：DAG 节点汇聚 → 断言对勾（与 favicon 同构的白色版） -->
+            <rect width="32" height="32" rx="7" fill="rgba(255,255,255,0.16)" />
+            <g stroke="#fff" stroke-width="1" fill="none" stroke-linecap="round">
+              <path d="M7.4 9 L11 12" marker-end="url(#brandArrow)" />
+              <path d="M16 7.6 L16 11.5" marker-end="url(#brandArrow)" />
+              <path d="M24.6 9 L21 12" marker-end="url(#brandArrow)" />
+            </g>
+            <g fill="rgba(255,255,255,0.18)" stroke="#fff" stroke-width="1.1">
+              <circle cx="6.8" cy="8.2" r="1.9" />
+              <circle cx="16" cy="6.5" r="1.9" />
+              <circle cx="25.2" cy="8.2" r="1.9" />
+            </g>
+            <path d="M11 19.6 L14.6 23.4 L21.4 15.6" fill="none" stroke="#fff" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </span>
         <span v-if="!collapsed" class="brand-text">fin-api-test</span>
       </div>
       <el-menu
-        :default-active="route.path"
+        :default-active="menuActive"
         router
         class="nav-menu"
         :collapse="collapsed"
@@ -82,16 +87,18 @@
       <!-- 侧边栏底部：当前登录用户头像 + 开发者署名（持续涟漪特效，悬浮旋转保留） -->
       <div class="sidebar-foot">
         <div class="avatar-ripple">
+          <!-- 用户本人头像：tooltip 显示用户名（开发者署名另见 foot-text，不再混在头像上） -->
           <img
             v-if="currentAvatar"
             :src="currentAvatar"
             class="dev-avatar"
             :alt="store.user?.name || store.user?.username || '用户'"
-            :title="`Developed by zhangle`"
+            :title="store.user?.name || store.user?.username || '当前用户'"
           />
-          <div v-else class="dev-avatar dev-avatar-fallback" title="Developed by zhangle">
+          <div v-else class="dev-avatar dev-avatar-fallback" :title="store.user?.name || store.user?.username || '当前用户'">
             {{ fallbackInitial }}
           </div>
+          <div v-if="avatarUploading" class="avatar-uploading" title="头像上传中…">…</div>
         </div>
         <span v-if="!collapsed" class="foot-text">Developed by zhangle</span>
       </div>
@@ -114,7 +121,7 @@
           <el-button text class="cmd-trigger" @click="cmdPaletteRef?.open()">
             <el-icon><Search /></el-icon>
             <span class="cmd-trigger-text">搜索</span>
-            <el-tag size="small" effect="plain" round class="cmd-trigger-kbd">Ctrl K</el-tag>
+            <el-tag size="small" effect="plain" round class="cmd-trigger-kbd">{{ isMac ? 'Cmd K' : 'Ctrl K' }}</el-tag>
           </el-button>
         </div>
         <div class="topbar-selectors">
@@ -173,14 +180,17 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="light" :class="{ 'is-active': store.theme === 'light' }">
+                <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">
                   <el-icon><Sunny /></el-icon>浅色
+                  <el-icon v-if="store.theme === 'light'" class="theme-check"><Check /></el-icon>
                 </el-dropdown-item>
-                <el-dropdown-item command="dark" :class="{ 'is-active': store.theme === 'dark' }">
+                <el-dropdown-item command="dark" :class="{ 'theme-checked': store.theme === 'dark' }">
                   <el-icon><Moon /></el-icon>深色
+                  <el-icon v-if="store.theme === 'dark'" class="theme-check"><Check /></el-icon>
                 </el-dropdown-item>
-                <el-dropdown-item command="auto" :class="{ 'is-active': store.theme === 'auto' }">
+                <el-dropdown-item command="auto" :class="{ 'theme-checked': store.theme === 'auto' }">
                   <el-icon><Monitor /></el-icon>跟随系统
+                  <el-icon v-if="store.theme === 'auto'" class="theme-check"><Check /></el-icon>
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -230,7 +240,7 @@
               class="tab-item"
               :class="{ active: tab.path === route.path }"
               @click="router.push(tab.path)"
-              @middle-click.prevent="onTabClose(tab.path)"
+              @mousedown="onTabMouseDown($event, tab)"
               @contextmenu.prevent="onTabContextMenu($event, tab)"
             >
               <span class="tab-title">{{ tab.title }}</span>
@@ -250,7 +260,9 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="closeOthers">关闭其他</el-dropdown-item>
+              <el-dropdown-item command="closeLeft">关闭左侧</el-dropdown-item>
+              <el-dropdown-item command="closeRight">关闭右侧</el-dropdown-item>
+              <el-dropdown-item command="closeOthers" divided>关闭其他</el-dropdown-item>
               <el-dropdown-item command="closeAll">关闭全部</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -544,12 +556,13 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar, FullScreen } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar, FullScreen, Check } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
 import CommandPalette from '@/components/CommandPalette.vue'
 import ProjectVersionHistory from '@/components/ProjectVersionHistory.vue'
+import { resolveMenuActive } from '@/utils/ui'
 
 const route = useRoute()
 const router = useRouter()
@@ -558,6 +571,16 @@ const tabStore = useTabStore()
 const helpVisible = ref(false)
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
+
+// 侧边菜单项（与模板 el-menu-item index 一一对应）
+const MENU_PATHS = [
+  '/projects', '/envs', '/apis', '/cases', '/executions',
+  '/dictionary', '/files', '/users', '/operation-logs',
+]
+// 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失
+const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
+// Mac 用户快捷键标签按平台显示（实际监听 Ctrl/Cmd 双键）
+const isMac = /mac|iphone|ipad/i.test(navigator.userAgent)
 
 // 核心能力详情弹窗：状态由全局 store 管理，跨组件可触发
 function openCoreCapability(tab: 'expression' | 'assertion') {
@@ -796,15 +819,41 @@ async function onUserCommand(cmd: string) {
 }
 
 // ===== 标签页操作 =====
-function onTabClose(path: string) {
-  const next = tabStore.removeTab(path)
-  if (next) {
-    router.push(next)
+/**
+ * 关闭标签。关闭当前页面时须「先导航、成功后再移除」：
+ * 页面级 onBeforeRouteLeave（未保存确认）可能取消导航，若先移除标签，
+ * 取消后会出现「人还在页面、标签却没了 + 高亮错位」。vue-router 4 的 push
+ * 被守卫拒绝时 resolve NavigationFailure（非 undefined），以此判定是否移除。
+ */
+async function onTabClose(path: string) {
+  if (route.path !== path) {
+    // 关闭非当前标签：无导航，直接移除
+    tabStore.removeTab(path)
+    return
+  }
+  const idx = tabStore.tabs.findIndex((t) => t.path === path)
+  if (idx === -1) return
+  // 相邻目标：优先右侧，其次左侧，最后首页（与 removeTab 内部策略一致）
+  const next = tabStore.tabs[idx + 1] || tabStore.tabs[idx - 1] || tabStore.tabs[0]
+  const failure = await router.push(next?.path || '/apis')
+  // 导航成功（含守卫放行后由页面守卫自行 removeTab 的重入，此处为幂等空操作）才收尾
+  if (!failure) tabStore.removeTab(path)
+}
+
+/** 中键关闭标签（浏览器 tab 习惯）：mousedown 时 button===1，preventDefault 阻止自动滚动 */
+function onTabMouseDown(e: MouseEvent, tab: TabItem) {
+  if (e.button === 1) {
+    e.preventDefault()
+    if (tab.closable) onTabClose(tab.path)
   }
 }
 
 function onTabCommand(cmd: string) {
-  if (cmd === 'closeOthers') {
+  if (cmd === 'closeLeft') {
+    tabStore.removeLeft(route.path)
+  } else if (cmd === 'closeRight') {
+    tabStore.removeRight(route.path)
+  } else if (cmd === 'closeOthers') {
     tabStore.removeOthers(route.path)
   } else if (cmd === 'closeAll') {
     const next = tabStore.removeAll()
@@ -929,6 +978,9 @@ onMounted(async () => {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.65);
   letter-spacing: 0.5px;
+  /* 折叠时先淡出再由 v-if 移除，配合宽度过渡避免文字瞬跳 */
+  transition: opacity 0.18s ease;
+  opacity: 1;
 }
 /* 开发者头像：圆形 + 悬浮放大并缓慢旋转一圈 */
 /* 头像涟漪特效：外层容器负责持续扩散的波纹（双圈错峰），不影响头像本身的悬浮旋转 */
@@ -938,13 +990,33 @@ onMounted(async () => {
   height: 36px;
   flex-shrink: 0;
 }
+/* 头像上传中角标（原 avatarUploading 状态从未在模板使用） */
+.avatar-uploading {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  font-size: 9px;
+  color: #fff;
+  background: var(--app-primary);
+  border-radius: 7px;
+  animation: avatar-uploading-blink 1s ease-in-out infinite;
+}
+@keyframes avatar-uploading-blink {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
 .avatar-ripple::before,
 .avatar-ripple::after {
   content: '';
   position: absolute;
   inset: -2px; /* 覆盖头像 2px 描边 */
   border-radius: 50%;
-  border: 2px solid rgba(64, 158, 255, 0.55);
+  /* 涟漪衬在侧边栏蓝色渐变上，必须用亮色变体（primary 本色 #0071e3 偏深，与渐变对比不足会看不见） */
+  border: 2px solid color-mix(in srgb, var(--app-primary-light) 55%, transparent);
   animation: avatar-ripple 2.4s ease-out infinite;
   pointer-events: none; /* 波纹不拦截头像的悬浮/点击 */
 }
@@ -1065,7 +1137,7 @@ onMounted(async () => {
   right: 0;
   bottom: -1px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.4) 30%, rgba(43, 127, 214, 0.4) 70%, transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-primary) 40%, transparent) 30%, color-mix(in srgb, var(--app-primary) 40%, transparent) 70%, transparent);
   pointer-events: none;
 }
 .topbar-left {
@@ -1132,7 +1204,7 @@ onMounted(async () => {
   padding: 20px;
   overflow: auto;
   /* 极淡品牌色渐变：从顶部微蓝过渡到背景色，营造层次感 */
-  background: linear-gradient(180deg, rgba(64, 158, 255, 0.04) 0%, var(--app-bg) 180px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-primary) 4%, transparent) 0%, var(--app-bg) 180px);
 }
 
 /* ===== 标签页栏 ===== */
@@ -1218,14 +1290,15 @@ onMounted(async () => {
 }
 .tab-ctxmenu .ctx-item:hover {
   background: var(--app-hover, rgba(0, 0, 0, 0.05));
-  color: var(--app-primary, #409eff);
+  color: var(--app-primary);
 }
 .tab-item:hover {
   background: var(--app-hover, rgba(0, 0, 0, 0.04));
 }
 .tab-item.active {
-  background: rgba(64, 158, 255, 0.1);
-  color: var(--app-primary, #409eff);
+  /* 主色派生统一走 color-mix，消除与主题主色并存的第二种蓝 */
+  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
+  color: var(--app-primary);
   font-weight: 500;
 }
 /* active 态底部品牌色下划线 */
@@ -1236,11 +1309,11 @@ onMounted(async () => {
   right: 8px;
   bottom: -1px;
   height: 2px;
-  background: var(--app-primary, #409eff);
+  background: var(--app-primary);
   border-radius: 1px;
 }
 .tab-item.active .tab-close:hover {
-  background: rgba(64, 158, 255, 0.15);
+  background: color-mix(in srgb, var(--app-primary) 15%, transparent);
 }
 .tab-title {
   max-width: 160px;
@@ -1514,6 +1587,17 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--app-text);
   text-align: center;
+}
+
+/* ===== 主题下拉当前项标记（原 is-active 类对 el-dropdown-item 无样式定义，标记从未生效） ===== */
+:deep(.theme-checked) {
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
+}
+.theme-check {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--app-primary);
 }
 </style>
 
