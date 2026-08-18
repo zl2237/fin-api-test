@@ -1,9 +1,9 @@
-"""数据库 CRUD 操作"""
+"""数据库 CRUD 操作（遗留平铺实现，逐步迁移至各域子模块，勿在此新增内容）"""
 from datetime import datetime
 from typing import List, Optional, TypeVar
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from .. import models, schemas
 
 T = TypeVar("T")
 
@@ -940,14 +940,6 @@ def delete_project_version(db: Session, version: models.ProjectVersion):
 
 
 # ============ Execution ============
-def create_execution(db: Session, case_id: int, env_id: int, user_id: Optional[int] = None) -> models.ExecutionRecord:
-    obj = models.ExecutionRecord(case_id=case_id, env_id=env_id, status="running", created_by=user_id)
-    db.add(obj)
-    db.commit()
-    db.refresh(obj)
-    return obj
-
-
 def get_execution(db: Session, exec_id: int) -> Optional[models.ExecutionRecord]:
     return db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).first()
 
@@ -1116,6 +1108,10 @@ def update_file_tag(db: Session, obj: models.FileTag, data: schemas.FileTagUpdat
 
 
 def delete_file_tag(db: Session, obj: models.FileTag):
+    """删除标签：先删除所有文件-标签关联，避免外键约束导致删除失败"""
+    db.query(models.FileTagRelation).filter(
+        models.FileTagRelation.tag_id == obj.id
+    ).delete(synchronize_session=False)
     db.delete(obj)
     db.commit()
 
@@ -1150,8 +1146,12 @@ def list_files(
     category_id: Optional[int] = None,
     tag_id: Optional[int] = None,
     keyword: Optional[str] = None,
+    tag_ids: Optional[List[int]] = None,
 ) -> List[models.TestFile]:
-    """列出项目下的文件，支持按分类/标签/名称过滤"""
+    """列出项目下的文件，支持按分类/标签（单选或多选）/名称过滤。
+
+    tag_ids 多选为 OR 语义：返回包含任一选中标签的文件（去重）。
+    """
     q = db.query(models.TestFile).filter(models.TestFile.project_id == project_id)
     if category_id is not None:
         if category_id == 0:
@@ -1159,7 +1159,13 @@ def list_files(
             q = q.filter(models.TestFile.category_id.is_(None))
         else:
             q = q.filter(models.TestFile.category_id == category_id)
-    if tag_id is not None:
+    if tag_ids:
+        # 多选标签：文件 id 在任一选中标签的关联中（子查询去重）
+        sub = db.query(models.FileTagRelation.file_id).filter(
+            models.FileTagRelation.tag_id.in_(tag_ids)
+        ).subquery()
+        q = q.filter(models.TestFile.id.in_(sub))
+    elif tag_id is not None:
         q = q.join(models.FileTagRelation, models.FileTagRelation.file_id == models.TestFile.id) \
              .filter(models.FileTagRelation.tag_id == tag_id)
     if keyword:
@@ -1199,10 +1205,16 @@ def create_file_record(
 
 
 def update_file(db: Session, obj: models.TestFile, data: schemas.FileUpdateRequest, user_id: Optional[int] = None) -> models.TestFile:
-    """更新文件元数据：重命名 / 改分类 / 改标签"""
+    """更新文件元数据：重命名 / 改分类 / 改标签。
+
+    category_id 通过 model_fields_set 区分两种情况：
+    - 请求未携带该字段 → 跳过更新（保持原分类）
+    - 显式传 null → 更新为未分类（category_id IS NULL）
+    因为 Optional[int]=None 下，未传与传 null 反序列化后都是 None，无法用 is not None 区分。
+    """
     if data.name is not None:
         obj.name = data.name
-    if data.category_id is not None:
+    if "category_id" in data.model_fields_set:
         obj.category_id = data.category_id
     if user_id is not None:
         obj.updated_by = user_id

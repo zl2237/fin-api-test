@@ -24,13 +24,13 @@ export interface FlatGroup {
   sort_order: number
 }
 
-/** 主列表展示用的行：包含深度、是否含子节点等渲染信息 */
+/** 主列表展示用的行：包含深度、是否可展开（有子分组或有直接数据）等渲染信息 */
 export interface GroupRow {
   key: number | string
   groupId: number | null
   name: string
   depth: number
-  hasChildren: boolean
+  expandable: boolean
   isUngrouped: boolean
 }
 
@@ -190,15 +190,22 @@ export function useGroupTree(
   /**
    * 计算主列表可见行（含未分组行）。
    * @param hasUngrouped 是否存在未分组数据
+   * @param itemCount 返回指定分组下直接条目数量的函数（接口/用例），
+   *                  用于判定叶子分组是否可展开（有数据即显示展开箭头）
    */
-  function computeVisibleRows(hasUngrouped: boolean): GroupRow[] {
+  function computeVisibleRows(
+    hasUngrouped: boolean,
+    itemCount?: (id: number) => number,
+  ): GroupRow[] {
     const rows: GroupRow[] = flattenTreeVisible(tree.value, isExpanded).map(
       ({ node, depth }) => ({
         key: node.id,
         groupId: node.id,
         name: node.label,
         depth,
-        hasChildren: node.children.length > 0,
+        expandable:
+          node.children.length > 0 ||
+          (itemCount ? itemCount(node.id) > 0 : false),
         isUngrouped: false,
       }),
     )
@@ -208,7 +215,7 @@ export function useGroupTree(
         groupId: null,
         name: '未分组',
         depth: 0,
-        hasChildren: false,
+        expandable: false,
         isUngrouped: true,
       })
     }

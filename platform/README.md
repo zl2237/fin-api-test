@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="banner.svg" alt="Fin API Test Platform" width="100%" />
+</p>
+
 # Fin API Test Platform
 
 > 把用例从"一段代码"变成"一张可复用、可 diff 的 DAG 图"。
@@ -6,16 +10,18 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
+[![Tests](https://img.shields.io/badge/pytest-397_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
 
 - **DAG 可视化编排** — 拖拽节点 + 连线描述执行顺序，自动布局 / 新节点防重叠 / minimap
 - **字段级接口配置** — 字段表维护请求体（key、类型、默认值、必填），告别手写 JSON
-- **多格式导入** — cURL / HAR/ Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段
+- **多格式导入** — cURL / HAR / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段
 - **表达式引擎** — `${now()}` `${random_int()}` `${uuid()}` 等 12 个内置函数 + `${context.xxx}` 变量引用 + `db.query()` 内联 SQL 查询
 - **17 种断言** — JSONPath / 状态码 / 耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试应对异步落库
-- **结构化报告** — 每步请求/响应/断言全量落库，HTML 导出（可打印 PDF）+ 耗时趋势图
+- **结构化报告** — 每步请求/响应/断言全量落库，后端导出 CSV（Excel 兼容）/ HTML（可打印 PDF）+ 耗时趋势图
+- **文件中心** — 分类树 + 标签 + multipart 上传，`file` 字段直接引用文件中心资源
 - **工程化** — JWT 鉴权 + admin/member 角色 + 操作审计 + Alembic 迁移 + 亮暗主题 + 标签页 + 命令面板（Ctrl+K）
 
 ## Quick Start
@@ -40,28 +46,75 @@ npm install && npm run dev
 ## Architecture
 
 ```
-┌───────────────────────────────────────────┐
-│      前端 Vue3 + Element Plus + Vue Flow     │
-│  ApiManage · CaseDesigner · ReportDetail    │
-└──────────────────┬────────────────────────┘
-                   │ /api
-┌──────────────────▼────────────────────────┐
-│             后端 FastAPI                    │
-│  projects · environments · apis · cases    │
-│  executions · reports · users · logs       │
-└──────────────────┬────────────────────────┘
-                   │ 线程池异步执行
-┌──────────────────▼────────────────────────┐
-│             DAG 执行引擎                    │
-│  拓扑排序 → 前置处理 → 请求 → 提取 → 断言    │
-└──────────────────┬────────────────────────┘
-         ┌─────────┴─────────┐
-         ▼                   ▼
-    HTTP Client          MySQL Client
-    401 自动重登          落库数据校验
+┌─────────────────────────────────────────────────┐
+│        前端 Vue3 + Element Plus + Vue Flow        │
+│  views (15 页)  ←  composables (useGroupedTable) │
+│       │                    ↑ 复用分组/拖拽/勾选     │
+│       │ api/index.ts ← types/api.gen.ts (OpenAPI) │
+└──────────────────────────┬──────────────────────┘
+                           │ /api
+┌──────────────────────────▼──────────────────────┐
+│                 路由层 routers/                   │
+│  HTTP 语义 + 鉴权 + 审计日志（薄层，无业务逻辑）      │
+├─────────────────────────────────────────────────┤
+│       数据访问层 crud/（按域拆分）                  │
+│  users · auth · executions · legacy(兼容导出)     │
+├─────────────────────────────────────────────────┤
+│                 服务层 services/                   │
+│  runtime · body_builder · request_sender          │
+│  spec_parser · report_export · notifier · files   │
+└──────────────────────────┬──────────────────────┘
+                           │ 线程池异步执行
+┌──────────────────────────▼──────────────────────┐
+│              DAG 执行引擎 engine/                  │
+│  拓扑排序 → 前置处理 → 请求 → 提取 → 断言           │
+│  events.py: StepResult → ExecutionSink 接缝       │
+│  （事件产出与落库解耦，主链路可脱离 DB 测试）          │
+└──────────────────────────┬──────────────────────┘
+                ┌─────────┴─────────┐
+                ▼                   ▼
+          HTTP Client          MySQL Client
+          401 自动重登          落库数据校验
 ```
 
-路由层与执行引擎解耦，公共逻辑抽到 `services/`（runtime / body_builder / spec_parser / notifier）供两层复用。
+**分层规约**（由测试守卫）：
+
+- 路由层不内联 ORM，业务不变量下沉 `crud/` 域模块（如登录锁定策略在 `crud/auth.py`）
+- 单次 HTTP 请求（GET/POST/multipart + 异常四分类）只有一份实现 `services/request_sender.py`，
+  执行引擎与单接口调试共用
+- 执行引擎产出 `StepResult` 事件经 `ExecutionSink` 落库（`DbSink`），
+  引擎不反向 import 路由层 —— `test_engine_does_not_import_routers` 守卫
+- 报告导出为后端纯函数 `services/report_export.py`，`GET /reports/executions/{id}/export?format=csv|html`
+
+## 前后端类型单一事实来源
+
+后端 Pydantic schema 经 `scripts/export_openapi.py` 导出 OpenAPI JSON，
+前端生成 TS 类型消费（含全部 Out 契约，字段漂移在编译期暴露）：
+
+```bash
+npm run gen:api    # platform/frontend 下执行：导出 schema → 生成 src/types/api.gen.ts
+```
+
+审计字段（created/updated × by/name）由 `schemas.AuditMixin` 单一声明，7 个 Out schema 继承。
+
+## Testing
+
+```bash
+cd platform/backend
+python -m pytest tests/ -q          # 397 passed
+python -m ruff check --select F platform/backend   # 与 CI backend-lint 同口径
+cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口径
+```
+
+测试布局（fake-db 单测，不依赖真实 MySQL）：
+
+| 域 | 文件 | 覆盖 |
+|---|---|---|
+| 执行引擎 | `test_execute_node.py` | 单节点 9 步管线 + 分层守卫 |
+| 请求发送 | `test_request_sender.py` | 分发/multipart/异常分类 + 防平行实现守卫 |
+| crud 域 | `test_{users,auth,executions}_domain.py` | 登录锁定/首管理员/最后管理员保护等 |
+| 报告导出 | `test_report_export.py` | CSV/HTML 契约 |
+| schema | `test_audit_mixin.py` | 审计字段继承 + Out 契约 |
 
 ## Expression & Assertion
 
@@ -85,13 +138,15 @@ sign: ${md5(s='${context.token}_${timestamp()}')}
 
 **后端** · FastAPI · SQLAlchemy 2.0 · Pydantic 2 · Alembic · jsonpath-ng · PyMySQL
 
-**前端** · Vue 3.5 · Element Plus · Vue Flow · Vue Router · Pinia · Vite
+**前端** · Vue 3.5 · Element Plus · Vue Flow · Vue Router · Pinia · Vite · openapi-typescript
 
 ## FAQ
 
 - **uvicorn 无 access log** — `alembic/env.py` 的 `fileConfig()` 需设 `disable_existing_loggers=False`
 - **admin 被强制跳转改密页** — 预期行为，迁移标记旧库 admin `must_change_password=True`，改密即恢复
 - **路由切换后页面空白** — 顶层 `<router-view>` 不可加 `:key="route.path"`，会触发 MainLayout 重挂载丢状态
+- **后端模块 import 报 `No module named 'utils'`** — 先 `from .. import path_setup`（把仓库根注入 sys.path）；
+  若本机装过 `pr_study` editable 包会遮蔽同名 `utils`，注意 venv 隔离
 
 ## License
 

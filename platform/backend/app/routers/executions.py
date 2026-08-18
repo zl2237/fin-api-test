@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import crud, schemas, models
+from ..crud import executions as exec_domain
 from ..auth import get_current_user
 from ..engine.runner import submit_execution, submit_batch_execution
 
@@ -24,13 +25,7 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
     if not env:
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
-    # 先创建 running 状态的执行记录，立即返回给前端
-    record = models.ExecutionRecord(
-        case_id=case_id, env_id=data.env_id, status="running", created_by=user.id,
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
+    record = exec_domain.create_execution(db, case_id=case_id, env_id=data.env_id, user_id=user.id)
     crud.fill_audit_names(db, record)
     crud.fill_exec_names(db, record)
 
@@ -49,20 +44,14 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     if not env:
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
-    records = []
     for case_id in data.case_ids:
-        case = crud.get_testcase(db, case_id)
-        if not case:
+        if not crud.get_testcase(db, case_id):
             raise HTTPException(404, f"用例不存在: {case_id}")
-        record = models.ExecutionRecord(
-            case_id=case_id, env_id=data.env_id, status="running", created_by=user.id,
-        )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
+
+    records = exec_domain.create_executions_batch(db, data.case_ids, data.env_id, user.id)
+    for record in records:
         crud.fill_audit_names(db, record)
         crud.fill_exec_names(db, record)
-        records.append(record)
 
     # 提交批量串行执行（非阻塞）
     submit_batch_execution([r.id for r in records], data.case_ids, data.env_id)
@@ -85,14 +74,7 @@ def cleanup_executions(days: int = 30, db: Session = Depends(get_db), user: mode
     if days < 1:
         raise HTTPException(400, "天数必须大于 0")
     cutoff = datetime.now() - timedelta(days=days)
-    # StepRecord/AssertionRecord 通过 ORM 级联删除
-    old_execs = db.query(models.ExecutionRecord).filter(
-        models.ExecutionRecord.started_at < cutoff
-    ).all()
-    count = len(old_execs)
-    for exec_obj in old_execs:
-        db.delete(exec_obj)
-    db.commit()
+    count = exec_domain.cleanup_old_records(db, cutoff)
     return {"message": f"已清理 {count} 条 {days} 天前的执行记录", "deleted": count, "days": days}
 
 

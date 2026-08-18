@@ -4,6 +4,22 @@ import { startProgress, doneProgress } from '@/utils/requestProgress'
 const http = axios.create({
   baseURL: '/api',
   timeout: 60000,
+  // 数组参数序列化为重复键（tag_ids=1&tag_ids=2），匹配 FastAPI 的 List Query 解析；
+  // axios 默认的 tag_ids[]=1 格式后端不识别，会导致过滤参数被静默忽略
+  paramsSerializer: {
+    serialize: (params) => {
+      const sp = new URLSearchParams()
+      for (const [key, value] of Object.entries(params)) {
+        if (value === undefined || value === null) continue
+        if (Array.isArray(value)) {
+          value.forEach((v) => sp.append(key, String(v)))
+        } else {
+          sp.append(key, String(value))
+        }
+      }
+      return sp.toString()
+    },
+  },
 })
 
 // 扩展 axios config：silent=true 时跳过顶部进度条（用于轮询请求避免频繁闪烁）
@@ -66,6 +82,7 @@ http.interceptors.response.use(
 // ============ 类型 ============
 export interface User {
   id: number; username: string; name?: string; role: string; must_change_password?: boolean; created_at?: string
+  phone?: string | null; email?: string | null
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   has_avatar?: boolean
@@ -193,16 +210,15 @@ export const authApi = {
     http.put<{ message: string }>('/auth/avatar', { avatar }).then((r) => r.data),
   removeAvatar: () => http.delete('/auth/avatar'),
   getAvatar: (userId: number) =>
-    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/${userId}`).then((r) => r.data),
-  getAvatarByUsername: (username: string) =>
-    http.get<{ avatar: string | null; name: string }>(`/auth/avatar/by-username/${username}`).then((r) => r.data),
+    http.get<AvatarInfo>(`/auth/avatar/${userId}`).then((r) => r.data),
 }
 
 // ============ User 管理（仅管理员） ============
-export interface SimpleUser {
-  id: number
-  name: string
-}
+// 类型来源切到 OpenAPI 生成（npm run gen:api），消除手写镜像；形状与后端 SimpleUserOut 单一事实来源
+import type { components } from '@/types/api.gen'
+
+export type SimpleUser = components['schemas']['SimpleUserOut']
+export type AvatarInfo = components['schemas']['AvatarOut']
 export const userApi = {
   list: () => http.get<User[]>('/users').then((r) => r.data),
   simple: () => http.get<SimpleUser[]>('/users/simple').then((r) => r.data),
@@ -210,6 +226,8 @@ export const userApi = {
     http.post<User>('/users', data).then((r) => r.data),
   updateRole: (id: number, role: string) =>
     http.put<User>(`/users/${id}/role`, { role }).then((r) => r.data),
+  update: (id: number, data: { username: string; name?: string | null; phone?: string | null; email?: string | null; role: string }) =>
+    http.put<User>(`/users/${id}`, data).then((r) => r.data),
   resetPassword: (id: number, password: string) =>
     http.put(`/users/${id}/password`, { password }),
   remove: (id: number) => http.delete(`/users/${id}`),
@@ -355,6 +373,9 @@ export const execApi = {
     http.get<ExecutionRecord[]>('/executions', { params }).then((r) => r.data),
   get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
   report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
+  // 报告导出（后端组装：csv=Excel 兼容 BOM+CRLF；html=自包含单文件报告）
+  exportReport: (id: number, format: 'csv' | 'html') =>
+    http.get<Blob>(`/reports/executions/${id}/export`, { responseType: 'blob', params: { format } }).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/executions/cleanup', { params: { days } }).then((r) => r.data),
 }
 
@@ -403,7 +424,7 @@ export interface TestFile {
 
 export const fileApi = {
   // 文件 CRUD
-  list: (projectId: number, params?: { category_id?: number | null; tag_id?: number; keyword?: string }) =>
+  list: (projectId: number, params?: { category_id?: number | null; tag_ids?: number[]; tag_id?: number; keyword?: string }) =>
     http.get<TestFile[]>('/files', { params: { project_id: projectId, ...params } }).then((r) => r.data),
   get: (id: number) => http.get<TestFile>(`/files/${id}`).then((r) => r.data),
   upload: (file: File, projectId: number, categoryId?: number | null) => {

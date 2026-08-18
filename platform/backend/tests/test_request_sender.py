@@ -1,0 +1,160 @@
+"""共享请求发送器单测（debug_api 与 DagExecutor 复用同一实现）。
+
+已知事实独立复述自两处现有平行实现（dag_executor._send_request / apis.debug_api）：
+- GET → client.get(path, params=body)
+- POST 无文件 → client.post(path, json=body)
+- POST 含文件 → multipart：Content-Type 头剥离/恢复、form_data 取 dict
+- 异常四分类：HttpStatusError(status) / BusinessError(200+code) / Auth|Timeout|JsonParse(0) / 其他(0)
+- multipart 文件句柄用后关闭
+"""
+from types import SimpleNamespace
+
+import pytest
+
+from app.services.request_sender import send_request
+from utils.exceptions import AuthError, BusinessError, HttpStatusError, HttpTimeoutError
+
+
+class StubClient:
+    def __init__(self, resp=None, exc=None):
+        self.headers = {"Content-Type": "application/json", "X-Token": "t"}
+        self._resp = resp if resp is not None else {"code": 200}
+        self._exc = exc
+        self.calls = []
+
+    def get(self, path, params=None, timeout=None):
+        self.calls.append(("get", path, params, timeout))
+        if self._exc:
+            raise self._exc
+        return self._resp
+
+    def post(self, path, json=None, timeout=None):
+        self.calls.append(("post", path, json, timeout))
+        if self._exc:
+            raise self._exc
+        return self._resp
+
+    def post_multipart(self, path, data=None, files=None, timeout=None):
+        self.calls.append(("multipart", path, data, [f[0] for f in files], timeout))
+        if self._exc:
+            raise self._exc
+        return self._resp
+
+
+def _api(method="POST"):
+    return SimpleNamespace(method=method, path="/order")
+
+
+class TestSendRequestDispatch:
+    def test_get_uses_params(self):
+        c = StubClient(resp={"ok": 1})
+        code, data, err = send_request(None, c, _api("GET"), {"a": 1}, timeout=7)
+        assert (code, err) == (200, None)
+        assert data == {"ok": 1}
+        assert c.calls[0][0] == "get"
+        assert c.calls[0][2] == {"a": 1}
+
+    def test_post_uses_json(self):
+        c = StubClient()
+        code, data, err = send_request(None, c, _api("POST"), {"a": 1}, timeout=7)
+        assert code == 200 and err is None
+        assert c.calls[0][0] == "post"
+
+    def test_multipart_strips_and_restores_content_type(self, tmp_path, monkeypatch):
+        """含文件字段 → multipart 通道：Content-Type 剥离/恢复、form_data 直传 dict"""
+        physical = tmp_path / "upload.bin"
+        physical.write_bytes(b"file-content")
+        import app.services.request_sender as rs
+        monkeypatch.setattr(rs, "resolve_physical_path", lambda p: physical)
+
+        class _Db:
+            def query(self, *_a):
+                class _Q:
+                    def filter(self, *a):
+                        return self
+
+                    def first(self):
+                        return SimpleNamespace(storage_path="files/ab/abc", name="f.bin", content_type="application/octet-stream")
+
+                return _Q()
+
+        c = StubClient()
+        code, data, err = send_request(_Db(), c, _api("POST"), {"k": "v"}, file_fields=[("file1", "3")], timeout=7)
+        assert code == 200 and err is None
+        kind, _, form, field_names, _ = c.calls[0]
+        assert kind == "multipart"
+        assert field_names == ["file1"]
+        assert form == {"k": "v"}
+        # 请求后 Content-Type 恢复
+        assert c.headers["Content-Type"] == "application/json"
+
+    def test_multipart_list_body_takes_first_dict(self):
+        """数组请求体时 form_data 取首元素（dag_executor 现行为）"""
+        c = StubClient()
+
+        class _Db:
+            def query(self, *_a):
+                class _Q:
+                    def filter(self, *a):
+                        return self
+
+                    def first(self):
+                        return None
+
+                return _Q()
+
+        # file 字段在 DB 中不存在 → files_payload 为空 → 退回 json 通道，数组体原样发出
+        code, _, err = send_request(_Db(), c, _api("POST"), [{"a": 1}], file_fields=[("file1", "9")])
+        assert code == 200
+        assert c.calls[0][0] == "post"
+
+
+class TestSendRequestErrorTaxonomy:
+    def test_http_status_error_keeps_status(self):
+        c = StubClient(exc=HttpStatusError(502, "/order", "bad gateway"))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 502
+        assert "error" in data and err
+
+    def test_business_error_returns_200_with_code(self):
+        c = StubClient(exc=BusinessError(40001, "余额不足", "/order", "{}"))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 200
+        assert data["code"] == 40001 and data["msg"] == "余额不足"
+
+    @pytest.mark.parametrize("exc", [
+        AuthError("/order", "未登录"),
+        HttpTimeoutError("/order", 15),
+        __import__("utils.exceptions", fromlist=["JsonParseError"]).JsonParseError("/order", "<html>"),
+    ])
+    def test_auth_timeout_returns_zero(self, exc):
+        c = StubClient(exc=exc)
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 0 and err
+
+    def test_unexpected_error_returns_zero(self):
+        c = StubClient(exc=RuntimeError("conn refused"))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 0 and "conn refused" in str(data["error"])
+
+
+class TestNoParallelImplementations:
+    """架构守卫：请求发送只允许一份实现（services.request_sender）"""
+
+    def test_debug_api_reuses_shared_sender(self):
+        import inspect
+
+        from app.routers import apis
+
+        src = inspect.getsource(apis)
+        assert "post_multipart" not in src, "debug_api 内联了 multipart 组装，应复用 services.request_sender"
+        assert "from ..services.request_sender import send_request" in src
+
+    def test_dag_executor_delegates_to_shared_sender(self):
+        import inspect
+
+        from app.engine import dag_executor
+
+        src = inspect.getsource(dag_executor)
+        assert "from ..services.request_sender import send_request" in src
+        assert "_build_multipart_files" not in src, "DagExecutor 仍持有私有 multipart 组装，应删除并委托"

@@ -1,0 +1,54 @@
+# =============================================================================
+# pre-commit 预检查：与 .gitlab-ci.yml 的 lint stage 同口径
+#   backend-lint  : ruff check --select F platform/backend（未定义变量/未用 import）
+#   frontend-lint : cd platform/frontend && npx vue-tsc --noEmit
+# -----------------------------------------------------------------------------
+# 安装（一次性）：
+#   pip install pre-commit && pre-commit install
+# 手动全量跑：pre-commit run --all-files
+# 更新 hook 版本：pre-commit autoupdate（改完记得跑一次全量确认）
+# =============================================================================
+default_language_version:
+  python: python3
+
+repos:
+  # ---- 通用卫生检查（无环境依赖，秒级） ----
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: 去除行尾空白
+        exclude: ^platform/frontend/src/types/api\.gen\.ts$  # 生成文件不动
+      - id: end-of-file-fixer
+        name: 确保文件末尾换行
+        exclude: ^platform/frontend/src/types/api\.gen\.ts$
+      - id: check-yaml
+        name: YAML 语法检查
+        args: [--allow-multiple-documents]
+      - id: check-json
+        name: JSON 语法检查
+        exclude: (^\.idea/|/tsconfig\.tsbuildinfo$)  # IDE 配置与构建缓存常含尾随内容
+      - id: check-merge-conflict
+        name: 合并冲突标记检查
+      - id: check-added-large-files
+        name: 大文件拦截（>500KB，提醒误提交二进制）
+        args: [--maxkb=500]
+
+  # ---- 后端：ruff（与 CI backend-lint 完全同口径） ----
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff
+        name: ruff (pyflakes)
+        args: [--select, F]
+        files: ^platform/backend/
+
+  # ---- 前端：vue-tsc（与 CI frontend-lint 同口径；Python 运行器保证 Windows/Linux 可用） ----
+  - repo: local
+    hooks:
+      - id: frontend-typecheck
+        name: vue-tsc 类型检查 (frontend)
+        entry: python scripts/frontend_typecheck.py
+        language: system
+        files: ^platform/frontend/.*
+        types_or: [ts, vue, json]
