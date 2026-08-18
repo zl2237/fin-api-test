@@ -11,7 +11,7 @@ from ..auth import get_current_user
 from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
 from ..engine.curl_parser import parse_curl_to_previews
 from ..services.spec_parser import path_to_code, extract_fields_from_spec
-from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
+from ..services.request_sender import send_request
 
 router = APIRouter(prefix="/api/apis", tags=["接口定义"])
 
@@ -425,71 +425,12 @@ def debug_api(
         # 剥离 file 类型字段：file 字段不参与 JSON body，单独组装到 multipart files
         body, file_fields = pop_file_fields_from_body(body, api)
 
-        headers = deepcopy(client.headers or {})
-
-        # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
+        # 发送请求（与 DAG 执行同一实现：services.request_sender）
         req_timeout = getattr(env, "timeout", None) or 15
-        # 发送请求
-        files_payload: list = []
-        try:
-            if method == "GET":
-                resp = client.get(api.path, params=body, timeout=req_timeout)
-            elif file_fields:
-                # 含文件字段：构建 multipart/form-data
-                from .files import _resolve_physical_path
-                files_payload = []
-                for field_name, file_id_str in file_fields:
-                    try:
-                        file_id = int(file_id_str)
-                    except (ValueError, TypeError):
-                        continue
-                    f = db.query(models.TestFile).filter(models.TestFile.id == file_id).first()
-                    if not f:
-                        continue
-                    physical = _resolve_physical_path(f.storage_path)
-                    if not physical.exists():
-                        continue
-                    files_payload.append((field_name, (f.name, open(physical, "rb"), f.content_type)))
-                if files_payload:
-                    # multipart 去掉 Content-Type，让 requests 自动生成 boundary
-                    saved_headers = client.headers
-                    client.headers = {k: v for k, v in saved_headers.items()
-                                      if k.lower() != "content-type"}
-                    form_data = body if isinstance(body, dict) else None
-                    try:
-                        resp = client.post_multipart(api.path, data=form_data, files=files_payload, timeout=req_timeout)
-                    finally:
-                        client.headers = saved_headers
-                else:
-                    resp = client.post(api.path, json=body, timeout=req_timeout)
-            else:
-                resp = client.post(api.path, json=body, timeout=req_timeout)
-            status_code = 200
-            response_data = resp if isinstance(resp, (dict, list)) else {"text": str(resp)}
-            error_msg = None
-        except HttpStatusError as e:
-            status_code = e.status_code
-            response_data = {"error": str(e)}
-            error_msg = str(e)
-        except BusinessError as e:
-            status_code = 200
-            response_data = {"code": e.code, "msg": e.msg, "error": str(e)}
-            error_msg = str(e)
-        except (AuthError, HttpTimeoutError, JsonParseError) as e:
-            status_code = 0
-            response_data = {"error": str(e)}
-            error_msg = str(e)
-        except Exception as e:
-            status_code = 0
-            response_data = {"error": str(e)}
-            error_msg = str(e)
-        finally:
-            # 关闭 multipart 请求打开的文件句柄
-            for item in files_payload:
-                try:
-                    item[1][1].close()
-                except Exception:
-                    pass
+        status_code, response_data, error_msg = send_request(
+            db, client, api, body, file_fields=file_fields, timeout=req_timeout
+        )
+        headers = deepcopy(client.headers or {})
 
         return _debug_response(api, method, headers, body, status_code, response_data, started_at, start_ts, error=error_msg)
     finally:

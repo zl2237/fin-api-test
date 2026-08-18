@@ -25,20 +25,22 @@ from .. import models
 from ..services.runtime_service import build_http_client, login, build_db_client
 from ..services.body_builder import build_request_body, pop_file_fields_from_body
 from ..services.notifier import send_notify
+from ..services.request_sender import send_request
 from .context import ExecutionContext
+from .events import AssertionResult, DbSink, ExecutionSink, StepResult
 from .preprocessor import PreProcessor
 from .extractor import Extractor
 from .assertion_engine import AssertionEngine
 from .type_coercer import coerce_json_strings, apply_field_types
 
-# 复用现有项目代码
+# 复用现有项目代码（异常分类已收敛至 services.request_sender）
 from utils.http_client import HttpClient
-from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
 
 
 class DagExecutor:
     def __init__(self, db: Session, case: models.TestCase, env: models.Environment,
-                 execution_record: Optional[models.ExecutionRecord] = None):
+                 execution_record: Optional[models.ExecutionRecord] = None,
+                 sink: Optional[ExecutionSink] = None):
         self.db = db
         self.case = case
         self.env = env
@@ -49,6 +51,8 @@ class DagExecutor:
         self.db_client = None
         # 并发执行场景下由外部预先创建 record 并传入，避免后台线程重复创建
         self._precreated_record = execution_record
+        # 事件出口：默认落库；测试/dry-run 注入内存 sink（持久化接缝）
+        self.sink: ExecutionSink = sink or DbSink(db)
 
     # ---------- 拓扑排序 ----------
     @staticmethod
@@ -81,97 +85,11 @@ class DagExecutor:
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict,
                       file_fields: Optional[List[Tuple[str, str]]] = None) -> Tuple[int, Any, Optional[str]]:
-        """返回 (status_code, response_body, error_msg)
-
-        :param file_fields: file 类型字段列表 [(field_name, file_id), ...]
-                            非空时构建 multipart 请求，文件从文件中心按 file_id 取
-        """
+        """委托共享发送器（与单接口调试同一实现），返回 (status_code, response_body, error_msg)"""
         # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
         timeout = getattr(self.env, "timeout", None) or 15
-        files_payload: list = []
-        try:
-            if api.method.upper() == "GET":
-                resp = self.http_client.get(api.path, params=body, timeout=timeout)
-            elif file_fields:
-                # 含文件字段：构建 multipart/form-data
-                files_payload = self._build_multipart_files(file_fields)
-                if files_payload:
-                    # multipart 请求去掉 Content-Type，让 requests 自动生成 boundary
-                    saved_headers = self.http_client.headers
-                    multipart_headers = {k: v for k, v in saved_headers.items()
-                                         if k.lower() != "content-type"}
-                    self.http_client.headers = multipart_headers
-                    # multipart form_data：dict 直接用，list（数组请求体）取首元素
-                    if isinstance(body, dict):
-                        form_data = body
-                    elif isinstance(body, list) and body and isinstance(body[0], dict):
-                        form_data = body[0]
-                    else:
-                        form_data = None
-                    try:
-                        resp = self.http_client.post_multipart(
-                            api.path, data=form_data, files=files_payload, timeout=timeout
-                        )
-                    finally:
-                        self.http_client.headers = saved_headers
-                else:
-                    resp = self.http_client.post(api.path, json=body, timeout=timeout)
-            else:
-                resp = self.http_client.post(api.path, json=body, timeout=timeout)
-            # HttpClient 成功返回即 HTTP 200 且业务码 200
-            return 200, resp, None
-        except HttpStatusError as e:
-            return e.status_code, {"error": str(e)}, str(e)
-        except BusinessError as e:
-            return 200, {"code": e.code, "msg": e.msg, "error": str(e)}, str(e)
-        except (AuthError, HttpTimeoutError, JsonParseError) as e:
-            return 0, {"error": str(e)}, str(e)
-        except Exception as e:
-            # 未预期的请求异常（如连接错误、SSL 错误等），记录日志便于排查
-            print(f"[请求异常] {api.method} {api.path} 未预期异常: {e}")
-            return 0, {"error": str(e)}, str(e)
-        finally:
-            # 关闭 multipart 请求中打开的文件句柄
-            if files_payload:
-                self._close_multipart_files(files_payload)
-
-    def _build_multipart_files(self, file_fields: List[Tuple[str, str]]) -> list:
-        """将 file_id 列表转为 requests 的 files 参数格式。
-
-        返回 [(field_name, (filename, fileobj, content_type)), ...]
-        文件不存在或读取失败的字段跳过并打印日志。
-        """
-        from ..routers.files import _resolve_physical_path
-
-        files_payload: list = []
-        for field_name, file_id_str in file_fields:
-            try:
-                file_id = int(file_id_str)
-            except (ValueError, TypeError):
-                print(f"[文件上传] file_id 非法: {file_id_str}，跳过")
-                continue
-            f = self.db.query(models.TestFile).filter(models.TestFile.id == file_id).first()
-            if not f:
-                print(f"[文件上传] file_id={file_id} 不存在，跳过")
-                continue
-            physical = _resolve_physical_path(f.storage_path)
-            if not physical.exists():
-                print(f"[文件上传] 物理文件丢失: {f.storage_path}，跳过")
-                continue
-            fileobj = open(physical, "rb")
-            files_payload.append((field_name, (f.name, fileobj, f.content_type)))
-        return files_payload
-
-    def _close_multipart_files(self, files_payload: list) -> None:
-        """关闭 multipart 请求中打开的文件句柄"""
-        for item in files_payload:
-            try:
-                # 元组格式 (field_name, (filename, fileobj, content_type))
-                fileobj = item[1][1] if isinstance(item[1], tuple) else None
-                if fileobj:
-                    fileobj.close()
-            except Exception:
-                pass
+        return send_request(self.db, self.http_client, api, body,
+                            file_fields=file_fields, timeout=timeout)
 
     # ---------- 执行入口 ----------
     def execute(self) -> models.ExecutionRecord:
@@ -269,9 +187,9 @@ class DagExecutor:
         started_at = datetime.now()
         start_ts = time.time()
 
-        # 无配置或无接口定义 → 记录失败步骤
+        # 无配置或无接口定义 → 产出失败事件
         if not api:
-            step = models.StepRecord(
+            self.sink.record_step(StepResult(
                 execution_id=execution_id, node_id=node_id,
                 api_name=node.get("data", {}).get("label") if isinstance(node.get("data"), dict) else node_id,
                 api_path="", api_method="",
@@ -279,10 +197,7 @@ class DagExecutor:
                 response_status=0, response_body={"error": "节点未绑定接口或配置缺失"},
                 response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
                 status="failed",
-            )
-            self.db.add(step)
-            self.db.commit()
-            self.db.refresh(step)
+            ))
             return False, 0
 
         # 1. 准备请求体 / 请求头
@@ -335,8 +250,8 @@ class DagExecutor:
 
         step_passed = (err is None) and all(r["pass"] for r in assertion_results)
 
-        # 5. 落库步骤
-        step = models.StepRecord(
+        # 5. 产出步骤事件（落库/收集交给 sink）
+        self.sink.record_step(StepResult(
             execution_id=execution_id, node_id=node_id,
             api_name=api.name, api_path=api.path, api_method=api.method,
             request_headers=headers, request_body=body,
@@ -344,20 +259,14 @@ class DagExecutor:
             response_body=response_data if isinstance(response_data, (dict, list)) else {"text": str(response_data)},
             response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
             status="success" if step_passed else "failed",
-        )
-        self.db.add(step)
-        self.db.commit()
-        self.db.refresh(step)
-
-        # 6. 落库断言
-        for ar in assertion_results:
-            arec = models.AssertionRecord(
-                step_id=step.id, rule_type=ar["type"], rule_config=ar,
-                result=ar["pass"], actual_value=str(ar.get("actual")),
-                expected_value=str(ar.get("expected")), message=ar.get("message", ""),
-            )
-            self.db.add(arec)
-        self.db.commit()
+            assertions=[
+                AssertionResult(
+                    type=ar["type"], rule_config=ar, passed=ar["pass"],
+                    actual=ar.get("actual"), expected=ar.get("expected"),
+                    message=ar.get("message", ""),
+                ) for ar in assertion_results
+            ],
+        ))
 
         # 节点配置的等待时间（ms），由调用方在节点间应用
         wait_ms = getattr(config, "wait_after_ms", 0) or 0 if config else 0
