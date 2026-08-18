@@ -83,18 +83,19 @@
             placeholder="按名称搜索"
             clearable
             style="width: 240px"
-            @keyup.enter="loadFiles"
-            @clear="loadFiles"
+            @input="onKeywordInput"
+            @clear="onKeywordInput"
           >
             <template #prefix><el-icon><Search /></el-icon></template>
           </el-input>
         </div>
         <div class="toolbar-right">
-          <span class="muted">共 {{ totalFiles }} 个文件</span>
+          <!-- 显示当前过滤结果数（全量计数只在左侧树），避免「筛后 5 行却写共 120 个」的误导 -->
+          <span class="muted">共 {{ files.length }} 个文件</span>
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="files" stripe row-key="id" :row-style="{ height: '48px' }" :cell-style="{ padding: '4px 0' }">
+      <el-table v-loading="loading" :data="files" stripe size="small" row-key="id">
         <el-table-column prop="name" label="文件名" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <el-icon class="file-icon" :style="{ color: fileIconColor(row.content_type) }">
@@ -126,7 +127,7 @@
         <el-table-column prop="created_at" label="上传时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right" align="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="previewFile(row)" v-if="isPreviewable(row.content_type)">预览</el-button>
             <el-button link type="primary" size="small" @click="downloadFile(row)">下载</el-button>
@@ -138,7 +139,7 @@
     </div>
 
     <!-- 预览弹窗 -->
-    <el-dialog v-model="previewVisible" :title="previewFileObj?.name" width="80%" destroy-on-close @close="closePreview">
+    <el-dialog v-model="previewVisible" :title="previewFileObj?.name" width="80%" align-center destroy-on-close @close="closePreview">
       <div class="preview-container" v-loading="previewLoading">
         <img v-if="previewType === 'image' && previewUrl" :src="previewUrl" class="preview-img" />
         <iframe v-else-if="previewType === 'pdf' && previewUrl" :src="previewUrl" class="preview-iframe"></iframe>
@@ -146,9 +147,9 @@
     </el-dialog>
 
     <!-- 重命名/改分类/改标签 弹窗 -->
-    <el-dialog v-model="renameVisible" title="编辑文件" width="480px">
+    <el-dialog v-model="renameVisible" title="编辑文件" width="480px" align-center>
       <el-form v-if="editingFile" label-width="80px">
-        <el-form-item label="文件名">
+        <el-form-item label="文件名" required>
           <el-input v-model="editingFile.name" />
         </el-form-item>
         <el-form-item label="分类">
@@ -175,9 +176,9 @@
     </el-dialog>
 
     <!-- 分类编辑弹窗 -->
-    <el-dialog v-model="categoryDialog.visible" :title="categoryDialog.editing ? '编辑分类' : '新建分类'" width="400px">
+    <el-dialog v-model="categoryDialog.visible" :title="categoryDialog.editing ? '编辑分类' : '新建分类'" width="400px" align-center>
       <el-form label-width="80px">
-        <el-form-item label="名称">
+        <el-form-item label="名称" required>
           <el-input v-model="categoryDialog.name" placeholder="如 身份证/合同/发票" />
         </el-form-item>
         <el-form-item label="父分类">
@@ -199,9 +200,9 @@
     </el-dialog>
 
     <!-- 标签编辑弹窗 -->
-    <el-dialog v-model="tagDialog.visible" :title="tagDialog.editing ? '编辑标签' : '新建标签'" width="400px">
+    <el-dialog v-model="tagDialog.visible" :title="tagDialog.editing ? '编辑标签' : '新建标签'" width="400px" align-center>
       <el-form label-width="80px">
-        <el-form-item label="名称">
+        <el-form-item label="名称" required>
           <el-input v-model="tagDialog.name" placeholder="如 冒烟/回归/生产" />
         </el-form-item>
         <el-form-item label="颜色">
@@ -243,6 +244,7 @@ import {
 import { useAppStore } from '@/stores'
 import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
 import { fileApi, fileCategoryApi, fileTagApi, type TestFile, type FileCategory, type FileTag } from '@/api'
+import { debounce } from '@/utils/ui'
 
 const store = useAppStore()
 const projectId = computed(() => store.currentProjectId)
@@ -286,6 +288,11 @@ async function loadFiles() {
     loading.value = false
   }
 }
+
+// 搜索输入：300ms 防抖统一搜索范式（与 DictManage 一致，替代原「回车才触发」）
+const onKeywordInput = debounce(() => {
+  loadFiles()
+}, 300)
 
 // ===== 分类树（树构建/子孙计数复用 useGroupTree 公共纯函数，消除第 4 份平行实现） =====
 const categories = ref<FileCategory[]>([])
@@ -543,9 +550,11 @@ function openRenameDialog(file: TestFile) {
 
 async function saveRename() {
   if (!editingFile.value) return
+  // 必填校验对齐同页分类/标签弹窗（原可保存空文件名）
+  if (!editingFile.value.name.trim()) return ElMessage.warning('文件名不能为空')
   try {
     await fileApi.update(editingFile.value.id, {
-      name: editingFile.value.name,
+      name: editingFile.value.name.trim(),
       category_id: editingFile.value.category_id ?? null,
       tag_ids: editingFile.value.tag_ids,
     })
