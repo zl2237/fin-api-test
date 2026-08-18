@@ -103,7 +103,6 @@
             v-for="tid in row.tag_ids"
             :key="tid"
             size="small"
-            :color="tagMap[tid]?.color"
             :style="tagMap[tid]?.color ? { backgroundColor: tagMap[tid].color + '22', borderColor: tagMap[tid].color, color: tagMap[tid].color } : {}"
             class="file-tag"
           >

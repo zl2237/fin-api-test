@@ -41,8 +41,8 @@
       </div>
     </div>
 
-    <!-- 分组树形列表（多级分组，展开/折叠带祖先可见性） -->
-    <div class="group-list">
+    <!-- 分组树形列表（多级分组，展开/折叠带祖先可见性）；页面级单一加载遮罩（替代每表同闪） -->
+    <div v-loading="loading" class="group-list">
       <div
         v-for="row in visibleGroupRows"
         :key="row.key"
@@ -54,7 +54,7 @@
           @click="onToggleGroup(row)"
         >
           <el-icon
-            v-if="row.hasChildren"
+            v-if="row.expandable"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
           ><CaretRight /></el-icon>
@@ -65,7 +65,6 @@
         </div>
         <div v-show="(row.isUngrouped || isGroupExpanded(row.groupId!)) && apisOf(row.groupId).length > 0" class="group-body">
           <el-table
-            v-loading="loading"
             :ref="(el: any) => setTableRef(row.key, el)"
             :data="pagedDataMap[String(row.key)]"
             size="small"
@@ -93,7 +92,7 @@
               </template>
             </el-table-column>
             <el-table-column label="创建人" width="100" align="center">
-              <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
+              <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
             </el-table-column>
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
@@ -106,9 +105,10 @@
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="apisOf(row.groupId).length > pageSize" class="pagination-wrap">
+          <div class="pagination-wrap">
             <el-pagination
               small
+              background
               :current-page="pageMap[String(row.key)] || 1"
               :page-size="pageSize"
               :total="apisOf(row.groupId).length"
@@ -130,7 +130,7 @@
     </div>
 
     <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序） -->
-    <el-dialog v-model="showGroupDialog" title="接口分组管理" width="620px" align-center>
+    <el-dialog v-model="showGroupDialog" title="接口分组管理" width="620px" align-center class="group-manage-dialog">
       <div class="group-dialog-body">
         <div class="group-add">
           <el-input
@@ -152,27 +152,29 @@
           <el-button type="primary" @click="onAddGroup">添加</el-button>
         </div>
         <div class="group-drag-tip">拖拽节点可调整层级与顺序，松开自动保存</div>
-        <el-tree
-          ref="groupTreeRef"
-          :data="groupTreeNodes"
-          node-key="id"
-          :props="treeProps"
-          :expand-on-click-node="false"
-          default-expand-all
-          draggable
-          @node-drop="onTreeNodeDrop"
-        >
-          <template #default="{ data }">
-            <div class="group-tree-row">
-              <span class="group-tree-name">{{ data.label }}</span>
-              <div class="group-tree-actions">
-                <el-button link type="primary" size="small" @click.stop="onRenameGroup(data)">重命名</el-button>
-                <el-button link type="danger" size="small" @click.stop="onDeleteGroup(data)">删除</el-button>
+        <div class="group-tree-scroll">
+          <el-tree
+            ref="groupTreeRef"
+            :data="groupTreeNodes"
+            node-key="id"
+            :props="treeProps"
+            :expand-on-click-node="false"
+            default-expand-all
+            draggable
+            @node-drop="onTreeNodeDrop"
+          >
+            <template #default="{ data }">
+              <div class="group-tree-row">
+                <span class="group-tree-name">{{ data.label }}</span>
+                <div class="group-tree-actions">
+                  <el-button link type="primary" size="small" @click.stop="onRenameGroup(data)">重命名</el-button>
+                  <el-button link type="danger" size="small" @click.stop="onDeleteGroup(data)">删除</el-button>
+                </div>
               </div>
-            </div>
-          </template>
-        </el-tree>
-        <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
+            </template>
+          </el-tree>
+          <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
+        </div>
       </div>
     </el-dialog>
 
@@ -400,7 +402,8 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { Rank, Upload, Files, Search, CaretRight } from '@element-plus/icons-vue'
-import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
 
@@ -413,23 +416,46 @@ const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
 const keyword = ref('')
 
-// 多级分组：树构建 + 展开记忆（按项目持久化）
+const filteredApis = computed(() => {
+  if (!keyword.value) return apis.value
+  const kw = keyword.value.toLowerCase()
+  return apis.value.filter(a =>
+    a.name.toLowerCase().includes(kw) ||
+    a.code.toLowerCase().includes(kw) ||
+    a.path.toLowerCase().includes(kw)
+  )
+})
+
+// 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
+const tableSel = useGroupedTable(groups, currentProjectId, 'apiManage', filteredApis)
+// 切分组勾选时提示（互斥勾选设计：不支持跨分组累计）
+setGroupSwitchNotifier(() => ElMessage.info('不支持跨分组勾选，已切换为当前分组的选择'))
 const {
   tree,
   treeSelectData,
   treeSelectWithUngrouped,
   isExpanded: isGroupExpanded,
-  toggleExpand: toggleGroupExpand,
   applyDefaultExpand,
-  computeVisibleRows,
-} = useGroupTree(groups, currentProjectId, 'apiManage')
+  itemsOf: apisOf,
+  countWithDescendants: countApisWithDescendants,
+  visibleGroupRows,
+  onToggleGroup,
+  pagedDataMap,
+  pageSize,
+  pageMap,
+  onPageChange,
+  onPageSizeChange,
+  resetPages,
+  applyPageDragReorder,
+  resetSelection,
+} = tableSel
+
+// 搜索条件变化即回第 1 页，避免「第 3 页 + 结果不足一页」的空白死局
+watch(keyword, () => resetPages())
 
 // el-tree / el-tree-select 公共字段映射
 const treeProps = { label: 'label', children: 'children' }
 
-// 分组内分页：每分组独立维护当前页码，全局共享每页条数
-const pageSize = ref(10)
-const pageMap = ref<Record<string, number>>({})
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
 const newGroupParentId = ref<number | null>(null)
@@ -643,14 +669,24 @@ function onImportDialogClose() {
   importSpecText.value = ''
 }
 
-// ===== 批量移动：不支持跨分组勾选 =====
+// ===== 批量移动：互斥勾选状态机在 useGroupedTable；视图只持有表格实例引用 =====
 // 每个分组的 el-table 实例引用
 const tableRefs = new Map<string | number, any>()
-// 当前选中所在的分组 id（切换分组时清空其他分组选中）
-let currentSelectGroupId: string | number | null = null
-// 清空其他分组选中时的标志位，避免触发循环 selection-change
-let isClearing = false
-const selectedApiIds = ref<number[]>([])
+const selectedApiIds = tableSel.selectedIds
+
+function clearOtherTables(keep: string | number) {
+  tableRefs.forEach((tableRef, key) => {
+    if (key !== keep) tableRef?.clearSelection?.()
+  })
+}
+
+function clearAllTables() {
+  tableRefs.forEach((tableRef) => tableRef?.clearSelection?.())
+}
+
+function onSelectionChange(groupId: string | number, selection: ApiDef[]) {
+  tableSel.onSelectionChange(groupId, selection, clearOtherTables)
+}
 
 // ===== 组内拖拽排序（SortableJS 绑定 el-table tbody）=====
 const sortableInstances = new Map<string | number, any>()
@@ -681,21 +717,9 @@ function setTableRef(groupId: string | number, el: any) {
 }
 
 async function onApiRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
-  if (oldIndex === newIndex) return
-  // 找到该分组的接口列表（apisOf 返回新数组，元素仍为 apis.value 中的同引用对象）
-  const gid = groupId === 'ungrouped' ? null : (groupId as number)
-  const fullList = apisOf(gid)
-  const page = pageMap.value[String(groupId)] || 1
-  const start = (page - 1) * pageSize.value
-  // 在全量列表中移动（当前页内的拖拽映射到全量列表的全局位置）
-  const moved = fullList.splice(start + oldIndex, 1)[0]
-  fullList.splice(start + newIndex, 0, moved)
-  // 对全量列表分配 sort_order（用索引作为唯一值，确保顺序持久化）
-  const items = fullList.map((a, i) => ({ id: a.id, sort_order: i }))
   try {
-    await apiApi.reorder(items)
-    ElMessage.success('排序已保存')
-    fullList.forEach((a, i) => { a.sort_order = i })
+    const applied = await applyPageDragReorder(groupId, oldIndex, newIndex, (items) => apiApi.reorder(items))
+    if (applied) ElMessage.success('排序已保存')
   } catch (e: any) {
     ElMessage.error(e.message || '排序保存失败')
     await loadApis()
@@ -704,15 +728,8 @@ async function onApiRowDragEnd(groupId: string | number, oldIndex: number, newIn
 
 /** el-tree 拖拽落点：持久化 parent_id + sort_order */
 async function onTreeNodeDrop() {
-  // el-tree 拖拽后已就地更新 groupTreeNodes，遍历树重建 parent_id / sort_order
-  const updates: { id: number; parent_id: number | null; sort_order: number }[] = []
-  const walk = (nodes: GroupTreeNode[], parentId: number | null) => {
-    nodes.forEach((n, i) => {
-      updates.push({ id: n.id, parent_id: parentId, sort_order: i })
-      walk(n.children, n.id)
-    })
-  }
-  walk(groupTreeNodes.value, null)
+  // el-tree 拖拽后已就地更新 groupTreeNodes，收集树平面更新载荷
+  const updates = collectTreeUpdates(groupTreeNodes.value)
   try {
     await Promise.all(updates.map(it => apiGroupApi.update(it.id, { parent_id: it.parent_id, sort_order: it.sort_order })))
     ElMessage.success('分组层级与顺序已保存')
@@ -721,21 +738,6 @@ async function onTreeNodeDrop() {
     ElMessage.error(e.message || '分组排序保存失败')
     await loadGroups()
   }
-}
-
-function onSelectionChange(groupId: string | number, selection: ApiDef[]) {
-  // 清空操作触发的空 selection 不处理，避免循环
-  if (isClearing) return
-  // 切换到不同分组勾选时，清空其他分组的选中（不支持跨分组）
-  if (currentSelectGroupId !== null && currentSelectGroupId !== groupId) {
-    isClearing = true
-    tableRefs.forEach((tableRef, key) => {
-      if (key !== groupId) tableRef?.clearSelection?.()
-    })
-    isClearing = false
-  }
-  currentSelectGroupId = groupId
-  selectedApiIds.value = selection.map(a => a.id)
 }
 
 function onBatchMove() {
@@ -755,12 +757,8 @@ async function confirmBatchMove() {
     const res = await apiApi.batchMove(selectedApiIds.value, targetGroupId)
     ElMessage.success(res.message)
     batchMoveVisible.value = false
-    selectedApiIds.value = []
-    currentSelectGroupId = null
-    // 清空 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
-    isClearing = true
-    tableRefs.forEach((tableRef) => tableRef?.clearSelection?.())
-    isClearing = false
+    // 清空选中与 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
+    resetSelection(clearAllTables)
     await loadApis()
   } catch (e: any) {
     ElMessage.error(e.message || '批量移动失败')
@@ -769,57 +767,7 @@ async function confirmBatchMove() {
   }
 }
 
-const filteredApis = computed(() => {
-  if (!keyword.value) return apis.value
-  const kw = keyword.value.toLowerCase()
-  return apis.value.filter(a =>
-    a.name.toLowerCase().includes(kw) ||
-    a.code.toLowerCase().includes(kw) ||
-    a.path.toLowerCase().includes(kw)
-  )
-})
-
-/** 某分组的接口列表（未分组传 null） */
-function apisOf(groupId: number | null): ApiDef[] {
-  return filteredApis.value.filter(a => a.group_id === groupId)
-}
-
-/** 统计分组的接口数量（含所有子孙分组，用于分组头部计数展示） */
-function countApisWithDescendants(groupId: number): number {
-  const ids = [groupId, ...collectDescendantIds(tree.value, groupId)]
-  return filteredApis.value.filter(a => a.group_id != null && ids.includes(a.group_id)).length
-}
-
-/** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行 */
-const visibleGroupRows = computed(() => computeVisibleRows(apisOf(null).length > 0))
-
-/** 切换分组展开/折叠（未分组行不响应） */
-function onToggleGroup(row: { groupId: number | null; isUngrouped: boolean }) {
-  if (row.isUngrouped || row.groupId == null) return
-  toggleGroupExpand(row.groupId)
-}
-
-/** 各分组当前页数据（computed 缓存：避免 selectedApiIds 变化时 :data 引用变化导致 el-table 重置 selection） */
-const pagedDataMap = computed(() => {
-  const map: Record<string, ApiDef[]> = {}
-  for (const row of visibleGroupRows.value) {
-    const list = apisOf(row.groupId)
-    const page = pageMap.value[String(row.key)] || 1
-    const start = (page - 1) * pageSize.value
-    map[String(row.key)] = list.slice(start, start + pageSize.value)
-  }
-  return map
-})
-
-function onPageChange(groupId: string | number, page: number) {
-  pageMap.value[String(groupId)] = page
-}
-
-/** 切换每页条数时，重置所有分组页码到第 1 页（避免越界） */
-function onPageSizeChange(size: number) {
-  pageSize.value = size
-  pageMap.value = {}
-}
+// 分组过滤/计数/可见行/组内分页等样板已收敛至 useGroupedTable（见顶部解构）
 
 function methodTag(method: string) {
   const map: Record<string, any> = { GET: 'success', POST: 'primary', PUT: 'warning', DELETE: 'danger' }
@@ -936,8 +884,12 @@ onMounted(async () => {
   await loadUsers()
 })
 
-// 项目切换时重新加载（与 CaseList/EnvManage 保持一致，避免初始化时 projectId 为空导致 no data）
+// 项目切换时：重置筛选并回第 1 页（旧项目筛选会带着过期用户 id 请求新项目，结果集莫名变少）
 watch(currentProjectId, () => {
+  keyword.value = ''
+  filterCreator.value = null
+  filterUpdater.value = null
+  resetPages()
   loadApis()
   loadGroups()
 })
@@ -1032,11 +984,21 @@ watch(currentProjectId, () => {
 }
 .group-dialog-body {
   padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 .group-add {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
+}
+.group-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 .group-tree-row {
   display: flex;
@@ -1120,5 +1082,7 @@ watch(currentProjectId, () => {
   font-size: 12px;
   color: var(--app-text-muted);
   margin: 12px 0 8px;
+  flex-shrink: 0;
 }
 </style>
+<!-- group-manage-dialog 全局样式已收敛至 style.css（原与 CaseList 逐字符重复，两处漂移风险） -->

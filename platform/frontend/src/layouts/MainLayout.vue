@@ -19,77 +19,86 @@
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#ffffff" />
-                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.7" />
-              </linearGradient>
+              <marker id="brandArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto">
+                <polygon points="0 0, 10 5, 0 10" fill="#fff"/>
+              </marker>
             </defs>
-            <rect width="32" height="32" rx="8" fill="rgba(255,255,255,0.15)" />
-            <!-- 上方节点 -->
-            <circle cx="16" cy="9" r="2.6" fill="url(#brandGrad)" />
-            <!-- 下方两节点 -->
-            <circle cx="9" cy="23" r="2.6" fill="url(#brandGrad)" />
-            <circle cx="23" cy="23" r="2.6" fill="url(#brandGrad)" />
-            <!-- 连线 -->
-            <path d="M16 11.6 L9 20.4 M16 11.6 L23 20.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" />
+            <!-- 产品图标：DAG 节点汇聚 → 断言对勾（与 favicon 同构的白色版） -->
+            <rect width="32" height="32" rx="7" fill="rgba(255,255,255,0.16)" />
+            <g stroke="#fff" stroke-width="1" fill="none" stroke-linecap="round">
+              <path d="M7.4 9 L11 12" marker-end="url(#brandArrow)" />
+              <path d="M16 7.6 L16 11.5" marker-end="url(#brandArrow)" />
+              <path d="M24.6 9 L21 12" marker-end="url(#brandArrow)" />
+            </g>
+            <g fill="rgba(255,255,255,0.18)" stroke="#fff" stroke-width="1.1">
+              <circle cx="6.8" cy="8.2" r="1.9" />
+              <circle cx="16" cy="6.5" r="1.9" />
+              <circle cx="25.2" cy="8.2" r="1.9" />
+            </g>
+            <path d="M11 19.6 L14.6 23.4 L21.4 15.6" fill="none" stroke="#fff" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </span>
         <span v-if="!collapsed" class="brand-text">fin-api-test</span>
       </div>
       <el-menu
-        :default-active="route.path"
+        :default-active="menuActive"
         router
         class="nav-menu"
         :collapse="collapsed"
       >
         <el-menu-item index="/projects">
           <el-icon><Folder /></el-icon>
-          <span>项目管理</span>
+          <template #title><span>项目管理</span></template>
         </el-menu-item>
         <el-menu-item index="/envs">
           <el-icon><Setting /></el-icon>
-          <span>环境配置</span>
+          <template #title><span>环境配置</span></template>
         </el-menu-item>
         <el-menu-item index="/apis">
           <el-icon><Connection /></el-icon>
-          <span>接口管理</span>
+          <template #title><span>接口管理</span></template>
         </el-menu-item>
         <el-menu-item index="/cases">
           <el-icon><Share /></el-icon>
-          <span>用例列表</span>
+          <template #title><span>用例列表</span></template>
         </el-menu-item>
         <el-menu-item index="/executions">
           <el-icon><Histogram /></el-icon>
-          <span>执行记录</span>
+          <template #title><span>执行记录</span></template>
         </el-menu-item>
         <el-menu-item index="/dictionary">
           <el-icon><DataLine /></el-icon>
-          <span>字段字典</span>
+          <template #title><span>字段字典</span></template>
         </el-menu-item>
         <el-menu-item index="/files">
           <el-icon><Files /></el-icon>
-          <span>文件中心</span>
+          <template #title><span>文件中心</span></template>
         </el-menu-item>
         <el-menu-item v-if="store.user?.role === 'admin'" index="/users">
           <el-icon><UserFilled /></el-icon>
-          <span>用户管理</span>
+          <template #title><span>用户管理</span></template>
         </el-menu-item>
         <el-menu-item v-if="store.user?.role === 'admin'" index="/operation-logs">
           <el-icon><List /></el-icon>
-          <span>操作日志</span>
+          <template #title><span>操作日志</span></template>
         </el-menu-item>
       </el-menu>
-      <!-- 侧边栏底部：研发者头像 + 标识 -->
+      <!-- 侧边栏底部：当前登录用户头像 + 开发者署名（持续涟漪特效，悬浮旋转保留） -->
       <div class="sidebar-foot">
-        <img
-          v-if="devAvatar"
-          :src="devAvatar"
-          class="dev-avatar"
-          :alt="devName"
-          :title="`Developed by ${devName}`"
-        />
-        <div v-else class="dev-avatar dev-avatar-fallback" :title="`Developed by ${devName}`">
-          {{ devInitial }}
+        <div class="avatar-ripple">
+          <!-- 用户本人头像：tooltip 显示用户名（开发者署名另见 foot-text，不再混在头像上） -->
+          <img
+            v-if="currentAvatar"
+            :src="currentAvatar"
+            class="dev-avatar"
+            :alt="store.user?.name || store.user?.username || '用户'"
+            :title="store.user?.name || store.user?.username || '当前用户'"
+          />
+          <div v-else class="dev-avatar dev-avatar-fallback" :title="store.user?.name || store.user?.username || '当前用户'">
+            {{ fallbackInitial }}
+          </div>
+          <div v-if="avatarUploading" class="avatar-uploading" title="头像上传中…">…</div>
         </div>
         <span v-if="!collapsed" class="foot-text">Developed by zhangle</span>
       </div>
@@ -112,7 +121,7 @@
           <el-button text class="cmd-trigger" @click="cmdPaletteRef?.open()">
             <el-icon><Search /></el-icon>
             <span class="cmd-trigger-text">搜索</span>
-            <el-tag size="small" effect="plain" round class="cmd-trigger-kbd">Ctrl K</el-tag>
+            <el-tag size="small" effect="plain" round class="cmd-trigger-kbd">{{ isMac ? 'Cmd K' : 'Ctrl K' }}</el-tag>
           </el-button>
         </div>
         <div class="topbar-selectors">
@@ -157,20 +166,31 @@
           <el-button text @click="helpVisible = true">
             <el-icon><QuestionFilled /></el-icon>使用说明
           </el-button>
+          <el-button text :title="isFullscreen ? '退出全屏' : '进入全屏'" @click="toggleFullscreen">
+            <el-icon><FullScreen /></el-icon>
+          </el-button>
           <el-dropdown trigger="click" @command="onThemeCommand">
             <el-button text :title="themeLabel">
-              <el-icon><Sunny v-if="effectiveDark" /><Moon v-else /></el-icon>
+              <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
+              <el-icon>
+                <Monitor v-if="store.theme === 'auto'" />
+                <Sunny v-else-if="store.theme === 'light'" />
+                <Moon v-else />
+              </el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="light" :class="{ 'is-active': store.theme === 'light' }">
+                <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">
                   <el-icon><Sunny /></el-icon>浅色
+                  <el-icon v-if="store.theme === 'light'" class="theme-check"><Check /></el-icon>
                 </el-dropdown-item>
-                <el-dropdown-item command="dark" :class="{ 'is-active': store.theme === 'dark' }">
+                <el-dropdown-item command="dark" :class="{ 'theme-checked': store.theme === 'dark' }">
                   <el-icon><Moon /></el-icon>深色
+                  <el-icon v-if="store.theme === 'dark'" class="theme-check"><Check /></el-icon>
                 </el-dropdown-item>
-                <el-dropdown-item command="auto" :class="{ 'is-active': store.theme === 'auto' }">
+                <el-dropdown-item command="auto" :class="{ 'theme-checked': store.theme === 'auto' }">
                   <el-icon><Monitor /></el-icon>跟随系统
+                  <el-icon v-if="store.theme === 'auto'" class="theme-check"><Check /></el-icon>
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -210,26 +230,29 @@
           />
         </div>
       </el-header>
-      <!-- 标签页栏 -->
+      <!-- 标签页栏（TransitionGroup 开关动画 + 右键快捷菜单） -->
       <div class="tab-bar">
         <div class="tab-scroll">
-          <div
-            v-for="tab in tabStore.tabs"
-            :key="tab.path"
-            class="tab-item"
-            :class="{ active: tab.path === route.path }"
-            @click="router.push(tab.path)"
-            @middle-click.prevent="onTabClose(tab.path)"
-          >
-            <span class="tab-title">{{ tab.title }}</span>
-            <el-icon
-              v-if="tab.closable"
-              class="tab-close"
-              @click.stop="onTabClose(tab.path)"
+          <TransitionGroup name="tab">
+            <div
+              v-for="tab in tabStore.tabs"
+              :key="tab.path"
+              class="tab-item"
+              :class="{ active: tab.path === route.path }"
+              @click="router.push(tab.path)"
+              @mousedown="onTabMouseDown($event, tab)"
+              @contextmenu.prevent="onTabContextMenu($event, tab)"
             >
-              <Close />
-            </el-icon>
-          </div>
+              <span class="tab-title">{{ tab.title }}</span>
+              <el-icon
+                v-if="tab.closable"
+                class="tab-close"
+                @click.stop="onTabClose(tab.path)"
+              >
+                <Close />
+              </el-icon>
+            </div>
+          </TransitionGroup>
         </div>
         <el-dropdown trigger="click" @command="onTabCommand" class="tab-actions">
           <el-button text size="small" class="tab-more-btn">
@@ -237,12 +260,33 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="closeOthers">关闭其他</el-dropdown-item>
+              <el-dropdown-item command="closeLeft">关闭左侧</el-dropdown-item>
+              <el-dropdown-item command="closeRight">关闭右侧</el-dropdown-item>
+              <el-dropdown-item command="closeOthers" divided>关闭其他</el-dropdown-item>
               <el-dropdown-item command="closeAll">关闭全部</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
+
+      <!-- 标签页右键菜单（关闭/关闭左侧/右侧/其他，浏览器 tab 式操作） -->
+      <Teleport to="body">
+        <div
+          v-if="tabCtx.visible"
+          class="tab-ctxmenu"
+          :style="{ left: tabCtx.x + 'px', top: tabCtx.y + 'px' }"
+          @click.stop
+        >
+          <div
+            v-if="tabCtx.tab?.closable"
+            class="ctx-item"
+            @click="onCtxAction('close')"
+          >关闭标签</div>
+          <div class="ctx-item" @click="onCtxAction('closeLeft')">关闭左侧</div>
+          <div class="ctx-item" @click="onCtxAction('closeRight')">关闭右侧</div>
+          <div class="ctx-item" @click="onCtxAction('closeOthers')">关闭其他</div>
+        </div>
+      </Teleport>
       <el-main class="main">
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
@@ -509,15 +553,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, QuestionFilled, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, Flag, MagicStick, DataLine, Checked, Upload, Promotion, Close, ArrowDown, Avatar, FullScreen, Check } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
-import { useTabStore } from '@/stores/tabs'
+import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
 import CommandPalette from '@/components/CommandPalette.vue'
 import ProjectVersionHistory from '@/components/ProjectVersionHistory.vue'
+import { resolveMenuActive } from '@/utils/ui'
 
 const route = useRoute()
 const router = useRouter()
@@ -526,6 +571,16 @@ const tabStore = useTabStore()
 const helpVisible = ref(false)
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
+
+// 侧边菜单项（与模板 el-menu-item index 一一对应）
+const MENU_PATHS = [
+  '/projects', '/envs', '/apis', '/cases', '/executions',
+  '/dictionary', '/files', '/users', '/operation-logs',
+]
+// 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失
+const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
+// Mac 用户快捷键标签按平台显示（实际监听 Ctrl/Cmd 双键）
+const isMac = /mac|iphone|ipad/i.test(navigator.userAgent)
 
 // 核心能力详情弹窗：状态由全局 store 管理，跨组件可触发
 function openCoreCapability(tab: 'expression' | 'assertion') {
@@ -612,24 +667,14 @@ function onVersionRollback() {
 }
 
 // ===== 头像 =====
-// 侧边栏底部固定显示 zhangle 的头像（开发者署名）
-const devAvatar = ref<string | null>(null)
-const devName = ref('zhangle')
-const devInitial = computed(() => (devName.value || 'Z').charAt(0).toUpperCase())
-// 顶部用户菜单显示当前登录用户头像
+// 侧边栏底部与顶部用户菜单共用当前登录用户头像
 const currentAvatar = ref<string | null>(null)
 const avatarInputRef = ref<HTMLInputElement | null>(null)
 const avatarUploading = ref(false)
-
-async function loadDevAvatar() {
-  try {
-    const res = await authApi.getAvatarByUsername('zhangle')
-    devAvatar.value = res.avatar
-    if (res.name) devName.value = res.name
-  } catch {
-    // 用户不存在或未登录，保持 fallback
-  }
-}
+// 无头像时的 fallback 首字母：优先显示名，其次用户名
+const fallbackInitial = computed(() =>
+  (store.user?.name || store.user?.username || 'U').charAt(0).toUpperCase()
+)
 
 async function loadCurrentAvatar() {
   if (!store.user) return
@@ -640,7 +685,7 @@ async function loadCurrentAvatar() {
   }
   try {
     const res = await authApi.getAvatar(store.user.id)
-    currentAvatar.value = res.avatar
+    currentAvatar.value = res.avatar ?? null
   } catch {
     currentAvatar.value = null
   }
@@ -687,10 +732,6 @@ async function onAvatarFileChange(e: Event) {
     await authApi.updateAvatar(dataUrl)
     currentAvatar.value = dataUrl
     ElMessage.success('头像已更新')
-    // 当前登录用户是 zhangle 时，同步刷新侧边栏开发者头像
-    if (store.user?.username === 'zhangle') {
-      devAvatar.value = dataUrl
-    }
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.detail || err?.message || '头像上传失败')
   } finally {
@@ -699,11 +740,6 @@ async function onAvatarFileChange(e: Event) {
   }
 }
 
-// 主题：当前生效是否深色，用于图标显示
-const effectiveDark = computed(() =>
-  store.theme === 'dark' ||
-  (store.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-)
 const themeLabel = computed(() => {
   if (store.theme === 'light') return '浅色模式'
   if (store.theme === 'dark') return '深色模式'
@@ -720,7 +756,13 @@ function onThemeCommand(cmd: 'light' | 'dark' | 'auto') {
   if (!document.startViewTransition) {
     apply()
   } else {
-    document.startViewTransition(() => apply())
+    // 切换前冻结全站 CSS 过渡：主题变量变化会触发 body/按钮/输入框等大量元素的
+    // 颜色过渡，与扩散动画并行时抢占主线程导致掉帧，且新快照可能拍到过渡中间色
+    const root = document.documentElement
+    root.classList.add('theme-switching')
+    const transition = document.startViewTransition(() => apply())
+    // 扩散动画结束后解冻，恢复正常交互过渡
+    transition.finished.finally(() => root.classList.remove('theme-switching'))
   }
   ElMessage.success(`已切换为${cmd === 'light' ? '浅色' : cmd === 'dark' ? '深色' : '跟随系统'}模式`)
 }
@@ -728,6 +770,28 @@ function onThemeCommand(cmd: 'light' | 'dark' | 'auto') {
 function onProjectChange(id: number) {
   store.setProject(id)
 }
+
+// ===== 浏览器全屏切换 =====
+const isFullscreen = ref(false)
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.()
+  } else {
+    document.exitFullscreen?.()
+  }
+}
+
+// 监听全屏状态变化（含 Esc 退出），同步按钮提示
+function onFsChange() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFsChange)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFsChange)
+})
 
 // 面包屑：取路由 matched 链中带 title 的项（排除根布局）
 const breadcrumbItems = computed(() => {
@@ -755,15 +819,41 @@ async function onUserCommand(cmd: string) {
 }
 
 // ===== 标签页操作 =====
-function onTabClose(path: string) {
-  const next = tabStore.removeTab(path)
-  if (next) {
-    router.push(next)
+/**
+ * 关闭标签。关闭当前页面时须「先导航、成功后再移除」：
+ * 页面级 onBeforeRouteLeave（未保存确认）可能取消导航，若先移除标签，
+ * 取消后会出现「人还在页面、标签却没了 + 高亮错位」。vue-router 4 的 push
+ * 被守卫拒绝时 resolve NavigationFailure（非 undefined），以此判定是否移除。
+ */
+async function onTabClose(path: string) {
+  if (route.path !== path) {
+    // 关闭非当前标签：无导航，直接移除
+    tabStore.removeTab(path)
+    return
+  }
+  const idx = tabStore.tabs.findIndex((t) => t.path === path)
+  if (idx === -1) return
+  // 相邻目标：优先右侧，其次左侧，最后首页（与 removeTab 内部策略一致）
+  const next = tabStore.tabs[idx + 1] || tabStore.tabs[idx - 1] || tabStore.tabs[0]
+  const failure = await router.push(next?.path || '/apis')
+  // 导航成功（含守卫放行后由页面守卫自行 removeTab 的重入，此处为幂等空操作）才收尾
+  if (!failure) tabStore.removeTab(path)
+}
+
+/** 中键关闭标签（浏览器 tab 习惯）：mousedown 时 button===1，preventDefault 阻止自动滚动 */
+function onTabMouseDown(e: MouseEvent, tab: TabItem) {
+  if (e.button === 1) {
+    e.preventDefault()
+    if (tab.closable) onTabClose(tab.path)
   }
 }
 
 function onTabCommand(cmd: string) {
-  if (cmd === 'closeOthers') {
+  if (cmd === 'closeLeft') {
+    tabStore.removeLeft(route.path)
+  } else if (cmd === 'closeRight') {
+    tabStore.removeRight(route.path)
+  } else if (cmd === 'closeOthers') {
     tabStore.removeOthers(route.path)
   } else if (cmd === 'closeAll') {
     const next = tabStore.removeAll()
@@ -772,6 +862,45 @@ function onTabCommand(cmd: string) {
     }
   }
 }
+
+// ===== 标签页右键菜单 =====
+const tabCtx = ref<{ visible: boolean; x: number; y: number; tab: TabItem | null }>({
+  visible: false, x: 0, y: 0, tab: null,
+})
+
+function onTabContextMenu(e: MouseEvent, tab: TabItem) {
+  tabCtx.value = { visible: true, x: e.clientX, y: e.clientY, tab }
+}
+
+function hideTabCtx() {
+  tabCtx.value.visible = false
+}
+
+function onCtxAction(action: 'close' | 'closeLeft' | 'closeRight' | 'closeOthers') {
+  const tab = tabCtx.value.tab
+  hideTabCtx()
+  if (!tab) return
+  if (action === 'close') {
+    onTabClose(tab.path)
+  } else if (action === 'closeLeft') {
+    tabStore.removeLeft(tab.path)
+  } else if (action === 'closeRight') {
+    tabStore.removeRight(tab.path)
+  } else if (action === 'closeOthers') {
+    tabStore.removeOthers(tab.path)
+    if (route.path !== tab.path) router.push(tab.path)
+  }
+}
+
+// 点击任意处/滚动/右键其他位置时关闭菜单
+onMounted(() => {
+  window.addEventListener('click', hideTabCtx)
+  window.addEventListener('scroll', hideTabCtx, true)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('click', hideTabCtx)
+  window.removeEventListener('scroll', hideTabCtx, true)
+})
 
 // 路由变化时自动添加标签
 watch(() => route.fullPath, () => {
@@ -792,9 +921,8 @@ onMounted(async () => {
     // 无项目时自动引导到项目管理页，避免后续页面因 currentProjectId 为空而卡死
     router.replace('/projects')
   }
-  // 加载头像：当前用户头像 + 侧边栏开发者头像
+  // 加载当前用户头像（侧边栏底部与顶部共用）
   loadCurrentAvatar()
-  loadDevAvatar()
 })
 </script>
 
@@ -850,8 +978,68 @@ onMounted(async () => {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.65);
   letter-spacing: 0.5px;
+  /* 折叠时先淡出再由 v-if 移除，配合宽度过渡避免文字瞬跳 */
+  transition: opacity 0.18s ease;
+  opacity: 1;
 }
 /* 开发者头像：圆形 + 悬浮放大并缓慢旋转一圈 */
+/* 头像涟漪特效：外层容器负责持续扩散的波纹（双圈错峰），不影响头像本身的悬浮旋转 */
+.avatar-ripple {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+/* 头像上传中角标（原 avatarUploading 状态从未在模板使用） */
+.avatar-uploading {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  font-size: 9px;
+  color: #fff;
+  background: var(--app-primary);
+  border-radius: 7px;
+  animation: avatar-uploading-blink 1s ease-in-out infinite;
+}
+@keyframes avatar-uploading-blink {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.avatar-ripple::before,
+.avatar-ripple::after {
+  content: '';
+  position: absolute;
+  inset: -2px; /* 覆盖头像 2px 描边 */
+  border-radius: 50%;
+  /* 涟漪衬在侧边栏蓝色渐变上，必须用亮色变体（primary 本色 #0071e3 偏深，与渐变对比不足会看不见） */
+  border: 2px solid color-mix(in srgb, var(--app-primary-light) 55%, transparent);
+  animation: avatar-ripple 2.4s ease-out infinite;
+  pointer-events: none; /* 波纹不拦截头像的悬浮/点击 */
+}
+.avatar-ripple::after {
+  animation-delay: 1.2s; /* 第二圈错峰，形成持续涟漪 */
+}
+@keyframes avatar-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+/* 用户偏好减少动画时关闭涟漪 */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-ripple::before,
+  .avatar-ripple::after {
+    animation: none;
+  }
+}
 .dev-avatar {
   width: 36px;
   height: 36px;
@@ -949,7 +1137,7 @@ onMounted(async () => {
   right: 0;
   bottom: -1px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.4) 30%, rgba(43, 127, 214, 0.4) 70%, transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-primary) 40%, transparent) 30%, color-mix(in srgb, var(--app-primary) 40%, transparent) 70%, transparent);
   pointer-events: none;
 }
 .topbar-left {
@@ -1016,7 +1204,7 @@ onMounted(async () => {
   padding: 20px;
   overflow: auto;
   /* 极淡品牌色渐变：从顶部微蓝过渡到背景色，营造层次感 */
-  background: linear-gradient(180deg, rgba(64, 158, 255, 0.04) 0%, var(--app-bg) 180px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-primary) 4%, transparent) 0%, var(--app-bg) 180px);
 }
 
 /* ===== 标签页栏 ===== */
@@ -1030,6 +1218,7 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 .tab-scroll {
+  position: relative; /* tab leave 动画脱离布局流时的定位基准 */
   flex: 1;
   display: flex;
   align-items: center;
@@ -1057,12 +1246,59 @@ onMounted(async () => {
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
 }
+/* ===== 标签页开关动画（TransitionGroup name="tab"） ===== */
+.tab-enter-active,
+.tab-leave-active {
+  transition: all 0.18s ease;
+}
+.tab-enter-from {
+  opacity: 0;
+  transform: translateY(6px) scale(0.92);
+}
+.tab-leave-to {
+  opacity: 0;
+  transform: scale(0.85);
+}
+.tab-leave-active {
+  /* 移除中脱离布局流，其余标签平滑补位 */
+  position: absolute;
+}
+/* 减少动画偏好：关闭开关动画 */
+@media (prefers-reduced-motion: reduce) {
+  .tab-enter-active,
+  .tab-leave-active {
+    transition: none;
+  }
+}
+/* ===== 标签页右键菜单 ===== */
+.tab-ctxmenu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 120px;
+  padding: 4px;
+  background: var(--app-card, #fff);
+  border: 1px solid var(--app-border, #dcdfe6);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.tab-ctxmenu .ctx-item {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--app-text, #303133);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tab-ctxmenu .ctx-item:hover {
+  background: var(--app-hover, rgba(0, 0, 0, 0.05));
+  color: var(--app-primary);
+}
 .tab-item:hover {
   background: var(--app-hover, rgba(0, 0, 0, 0.04));
 }
 .tab-item.active {
-  background: rgba(64, 158, 255, 0.1);
-  color: var(--app-primary, #409eff);
+  /* 主色派生统一走 color-mix，消除与主题主色并存的第二种蓝 */
+  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
+  color: var(--app-primary);
   font-weight: 500;
 }
 /* active 态底部品牌色下划线 */
@@ -1073,11 +1309,11 @@ onMounted(async () => {
   right: 8px;
   bottom: -1px;
   height: 2px;
-  background: var(--app-primary, #409eff);
+  background: var(--app-primary);
   border-radius: 1px;
 }
 .tab-item.active .tab-close:hover {
-  background: rgba(64, 158, 255, 0.15);
+  background: color-mix(in srgb, var(--app-primary) 15%, transparent);
 }
 .tab-title {
   max-width: 160px;
@@ -1352,6 +1588,17 @@ onMounted(async () => {
   color: var(--app-text);
   text-align: center;
 }
+
+/* ===== 主题下拉当前项标记（原 is-active 类对 el-dropdown-item 无样式定义，标记从未生效） ===== */
+:deep(.theme-checked) {
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
+}
+.theme-check {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--app-primary);
+}
 </style>
 
 <!-- 全局样式：el-dialog 默认 teleport 到 body，scoped 无法命中外层元素，需用全局样式 -->
@@ -1452,6 +1699,16 @@ onMounted(async () => {
 }
 .corecap-tabs .el-tabs__content::-webkit-scrollbar-thumb:hover {
   background: var(--app-text-muted);
+}
+
+/* ===== 主题切换性能：切换瞬间冻结全站 CSS 过渡 ===== */
+/* 主题变量变化会触发大量元素的颜色过渡，与扩散动画并行时抢占主线程导致卡顿；
+   JS 在 startViewTransition 前加类、finished 后移除 */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
 }
 
 /* ===== 主题切换圆形扩散过渡（View Transitions API）===== */

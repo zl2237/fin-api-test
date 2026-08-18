@@ -9,6 +9,17 @@ class ORMBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AuditMixin(BaseModel):
+    """审计字段单一事实来源：Out schema 混入即获得创建审计三字段。
+
+    之前这组字段在 7 个 Out 类中逐字段重复声明，任何调整需改 7 处。
+    updated_* 变体按需在各 Out 单独声明（并非所有实体都有更新人语义）。
+    """
+    created_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+
+
 # ============ User / Auth ============
 class LoginRequest(BaseModel):
     username: str
@@ -28,6 +39,8 @@ class UserOut(ORMBase):
     role: str = "member"
     must_change_password: bool = False
     has_avatar: bool = False
+    phone: Optional[str] = None
+    email: Optional[str] = None
     created_at: Optional[datetime] = None
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
@@ -48,6 +61,15 @@ class UserCreateRequest(BaseModel):
 
 
 class UserRoleUpdate(BaseModel):
+    role: str
+
+
+class UserInfoUpdate(BaseModel):
+    """编辑用户弹窗整弹窗提交：用户名/显示名/手机号/邮箱/角色一次保存"""
+    username: str = Field(min_length=2, max_length=50)
+    name: Optional[str] = Field(default=None, max_length=50)
+    phone: Optional[str] = Field(default=None, max_length=20)
+    email: Optional[str] = Field(default=None, max_length=100)
     role: str
 
 
@@ -93,15 +115,12 @@ class ProjectReorderRequest(BaseModel):
     items: List[Dict[str, Any]]
 
 
-class ProjectOut(ORMBase):
+class ProjectOut(ORMBase, AuditMixin):
     id: int
     name: str
     description: Optional[str] = None
     sort_order: int = 0
-    created_at: Optional[datetime] = None
-    created_by: Optional[int] = None
     updated_by: Optional[int] = None
-    created_by_name: Optional[str] = None
     updated_by_name: Optional[str] = None
 
 
@@ -136,7 +155,7 @@ class EnvironmentReorderRequest(BaseModel):
     items: List[Dict[str, Any]]
 
 
-class EnvironmentOut(ORMBase):
+class EnvironmentOut(ORMBase, AuditMixin):
     id: int
     project_id: int
     name: str
@@ -149,10 +168,7 @@ class EnvironmentOut(ORMBase):
     timeout: int = 15
     is_default: bool = False
     sort_order: int = 0
-    created_at: Optional[datetime] = None
-    created_by: Optional[int] = None
     updated_by: Optional[int] = None
-    created_by_name: Optional[str] = None
     updated_by_name: Optional[str] = None
 
 
@@ -554,16 +570,13 @@ class FieldDictionaryBatchIn(BaseModel):
     items: List[FieldDictItemIn]
 
 
-class FieldDictionaryOut(ORMBase):
+class FieldDictionaryOut(ORMBase, AuditMixin):
     id: int
     project_id: int
     key: str
     label: str
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    created_by: Optional[int] = None
     updated_by: Optional[int] = None
-    created_by_name: Optional[str] = None
     updated_by_name: Optional[str] = None
 
 
@@ -581,15 +594,12 @@ class FileCategoryUpdate(BaseModel):
     sort_order: Optional[int] = None
 
 
-class FileCategoryOut(ORMBase):
+class FileCategoryOut(ORMBase, AuditMixin):
     id: int
     project_id: int
     parent_id: Optional[int] = None
     name: str
     sort_order: int = 0
-    created_at: Optional[datetime] = None
-    created_by: Optional[int] = None
-    created_by_name: Optional[str] = None
 
 
 # ============ FileTag 文件标签 ============
@@ -604,14 +614,11 @@ class FileTagUpdate(BaseModel):
     color: Optional[str] = None
 
 
-class FileTagOut(ORMBase):
+class FileTagOut(ORMBase, AuditMixin):
     id: int
     project_id: int
     name: str
     color: str = ""
-    created_at: Optional[datetime] = None
-    created_by: Optional[int] = None
-    created_by_name: Optional[str] = None
 
 
 # ============ TestFile 测试文件 ============
@@ -622,7 +629,7 @@ class FileUpdateRequest(BaseModel):
     tag_ids: Optional[List[int]] = None
 
 
-class FileOut(ORMBase):
+class FileOut(ORMBase, AuditMixin):
     id: int
     project_id: int
     category_id: Optional[int] = None
@@ -634,9 +641,19 @@ class FileOut(ORMBase):
     storage_path: str
     ref_count: int = 1
     tag_ids: List[int] = []
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    created_by: Optional[int] = None
     updated_by: Optional[int] = None
-    created_by_name: Optional[str] = None
     updated_by_name: Optional[str] = None
+
+
+# ============ 轻量契约（原裸 dict 出参） ============
+class SimpleUserOut(BaseModel):
+    """筛选下拉用轻量用户：仅 id 与显示名"""
+    id: int
+    name: str
+
+
+class AvatarOut(BaseModel):
+    """按用户 ID 查头像的响应"""
+    avatar: Optional[str] = None
+    name: str

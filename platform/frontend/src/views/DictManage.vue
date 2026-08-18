@@ -1,19 +1,19 @@
 <template>
   <div class="page">
     <div class="page-head">
+      <el-button type="primary" @click="openCreate">+ 新增字典</el-button>
+      <el-button type="success" @click="openBatch">批量导入</el-button>
+      <span style="flex: 1" />
       <el-input
         v-model="keyword"
         style="width: 240px"
         placeholder="搜索字段名 / 中文名"
         clearable
-        @input="load"
-        @clear="load"
+        @input="onSearchInput"
+        @clear="onSearchInput"
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <span style="flex: 1" />
-      <el-button type="primary" @click="openCreate">+ 新增字典</el-button>
-      <el-button type="success" @click="openBatch">批量导入</el-button>
     </div>
     <div class="table-wrap">
       <el-card shadow="never" class="card">
@@ -104,6 +104,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { dictApi, type FieldDictionary } from '@/api'
 import { useAppStore } from '@/stores'
+import { debounce } from '@/utils/ui'
 
 const store = useAppStore()
 const list = ref<FieldDictionary[]>([])
@@ -128,6 +129,12 @@ async function load() {
     loading.value = false
   }
 }
+
+// 搜索输入：回第 1 页 + 300ms 防抖（避免每敲一键发一次请求）
+const onSearchInput = debounce(() => {
+  page.value = 1
+  load()
+}, 300)
 
 // ===== 新增/编辑 =====
 const dialogVisible = ref(false)
@@ -293,11 +300,12 @@ watch(() => store.currentProjectId, (n, old) => {
 .batch-guide .guide-example {
   margin-top: 6px;
   padding: 8px 10px;
-  background: var(--app-bg-muted, #f5f7fa);
+  /* 用已定义的主题 token（原 --app-bg-muted/--app-text-secondary 未定义，暗色下永久浅色） */
+  background: var(--app-hover);
   border-radius: 4px;
   font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--app-text-secondary, #606266);
+  color: var(--app-text-muted);
 }
 </style>

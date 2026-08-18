@@ -268,13 +268,54 @@ kbd {
   }
 }
 
-/* ===== 表格表头品牌色淡底 ===== */
+/* ===== 表格表头品牌色淡底（主色派生统一 color-mix，跟随主题主色） ===== */
 .el-table__header-wrapper th.el-table__cell {
-  background: rgba(64, 158, 255, 0.06) !important;
+  background: color-mix(in srgb, var(--app-primary) 6%, transparent) !important;
   font-weight: 600;
 }
 html.dark .el-table__header-wrapper th.el-table__cell {
-  background: rgba(64, 158, 255, 0.1) !important;
+  background: color-mix(in srgb, var(--app-primary) 10%, transparent) !important;
+}
+
+/* ===== SortableJS 拖拽占位全局样式（各列表页 ghostClass 通用） ===== */
+.sortable-ghost {
+  opacity: 0.45;
+  background: color-mix(in srgb, var(--app-primary) 8%, transparent) !important;
+}
+
+/* ===== 分组管理弹窗（el-dialog teleport 到 body，scoped 无法命中，原 ApiManage/CaseList 两份重复定义） ===== */
+.group-manage-dialog.el-dialog {
+  margin-top: 0 !important;
+  margin-bottom: 0;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.group-manage-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+.group-manage-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.group-manage-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
+/* 弹窗内树滚动区滚动条 */
+.group-tree-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.group-tree-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.group-tree-scroll::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 4px;
+}
+.group-tree-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--app-text-muted);
 }
 
 /* ===== 统计数字品牌色高亮 ===== */

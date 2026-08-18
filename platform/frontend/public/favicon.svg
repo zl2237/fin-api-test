@@ -1,13 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fin API Test Platform 产品图标：DAG 节点流转 + 断言对勾 -->
   <defs>
-    <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#409eff" />
-      <stop offset="100%" stop-color="#2b7fd6" />
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#409EFF"/>
+      <stop offset="100%" stop-color="#1D6FD6"/>
     </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#ffffff"/>
+    </marker>
   </defs>
-  <rect width="32" height="32" rx="8" fill="url(#brandGrad)" />
-  <circle cx="16" cy="9" r="2.6" fill="#fff" />
-  <circle cx="9" cy="23" r="2.6" fill="#fff" />
-  <circle cx="23" cy="23" r="2.6" fill="#fff" />
-  <path d="M16 11.6 L9 20.4 M16 11.6 L23 20.4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" />
+
+  <!-- 蓝色圆角底 + 顶部高光 -->
+  <rect rx="56" width="256" height="256" fill="url(#bg)"/>
+  <rect rx="56" width="256" height="150" fill="url(#glow)"/>
+
+  <!-- DAG 汇聚结构：三个上游节点流向中心断言 -->
+  <g stroke="#ffffff" stroke-width="7" fill="none" stroke-linecap="round">
+    <path d="M62 74 L104 112" marker-end="url(#arrow)"/>
+    <path d="M128 60 L128 100" marker-end="url(#arrow)"/>
+    <path d="M194 74 L152 112" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- 上游节点：环形白描边 -->
+  <g fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-width="7">
+    <circle cx="54" cy="66" r="15"/>
+    <circle cx="128" cy="52" r="15"/>
+    <circle cx="202" cy="66" r="15"/>
+  </g>
+
+  <!-- 断言对勾徽章 -->
+  <path d="M88 158 L118 190 L176 126" fill="none" stroke="#ffffff" stroke-width="16"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

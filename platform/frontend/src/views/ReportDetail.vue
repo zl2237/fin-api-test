@@ -1,5 +1,18 @@
 <template>
   <div class="report" v-loading="loading">
+    <!-- 执行中提示条：running 态自动轮询，与列表页行为一致 -->
+    <el-alert
+      v-if="record?.status === 'running'"
+      class="running-banner"
+      type="info"
+      :closable="false"
+      show-icon
+    >
+      <template #title>
+        用例执行中，每 {{ POLL_MS / 1000 }} 秒自动刷新…
+        <el-icon class="is-loading"><Loading /></el-icon>
+      </template>
+    </el-alert>
     <!-- 顶部：摘要 + 趋势图 横向并排，节省垂直空间 -->
     <div class="top-row">
       <el-card shadow="never" class="summary-card">
@@ -37,17 +50,17 @@
           <div class="metric">
             <div class="metric-label">步骤通过 / 总数</div>
             <div class="metric-value">
-              <span class="pass">{{ passedCount }}</span>
+              <span class="pass">{{ passedCountUp }}</span>
               <span class="sep">/</span>
-              <span>{{ totalCount }}</span>
+              <span>{{ totalCountUp }}</span>
             </div>
           </div>
           <div class="metric">
             <div class="metric-label">断言通过 / 总数</div>
             <div class="metric-value">
-              <span class="pass">{{ assertionPassed }}</span>
+              <span class="pass">{{ assertionPassedUp }}</span>
               <span class="sep">/</span>
-              <span>{{ assertionTotal }}</span>
+              <span>{{ assertionTotalUp }}</span>
             </div>
           </div>
           <div class="metric">
@@ -56,7 +69,7 @@
           </div>
           <div class="metric">
             <div class="metric-label">耗时</div>
-            <div class="metric-value">{{ durationText }}</div>
+            <div class="metric-value">{{ durationUp }}</div>
           </div>
         </div>
       </el-card>
@@ -65,16 +78,35 @@
       <el-card v-if="steps.length" shadow="never" class="trend-card" @mouseleave="hideTrendTip">
         <div class="trend-head">
           <span class="trend-title">步骤响应耗时趋势</span>
-          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮节点查看详情</span>
+          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮/点击节点查看步骤</span>
         </div>
+        <!-- vector-effect 等比保护：none 拉伸会把数据点拉成椭圆、轴文字变形 -->
         <svg class="trend-svg" :viewBox="`0 0 ${trendWidth} ${trendHeight}`" preserveAspectRatio="none">
           <!-- 网格线 -->
-          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" />
+          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" vector-effect="non-scaling-stroke" />
           <!-- Y 轴刻度 -->
           <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
-          <!-- 折线 -->
-          <polyline :points="trendPoints" fill="none" class="trend-line" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-          <!-- 数据点 -->
+          <!-- 面积填充（渐变，描线入场时同步淡入） -->
+          <polygon v-if="trendDots.length >= 2" :points="areaPoints" class="trend-area" :class="{ drawn: trendDrawn }" :fill="'url(#trend-grad)'" />
+          <defs>
+            <linearGradient id="trend-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--app-primary)" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="var(--app-primary)" stop-opacity="0.02" />
+            </linearGradient>
+          </defs>
+          <!-- 折线（描线入场：stroke-dashoffset 从总长滚到 0） -->
+          <polyline
+            ref="trendLineRef"
+            :points="trendPoints"
+            fill="none"
+            class="trend-line"
+            :class="{ drawn: trendDrawn }"
+            stroke-width="2"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+            vector-effect="non-scaling-stroke"
+          />
+          <!-- 数据点（点击跳转对应步骤；X 轴标签超过 12 个抽稀防挤压） -->
           <g v-for="(p, i) in trendDots" :key="i">
             <circle
               :cx="p.x"
@@ -85,10 +117,19 @@
               @mouseenter="showTrendTip($event, i)"
               @mousemove="moveTrendTip($event)"
               @mouseleave="hideTrendTip"
+              @click="currentStepId = steps[i].id"
             />
           </g>
-          <!-- X 轴标签 -->
-          <text v-for="(p, i) in trendDots" :key="'x'+i" :x="p.x" :y="trendHeight - 4" font-size="10" class="axis-text" text-anchor="middle">{{ i + 1 }}</text>
+          <text
+            v-for="(p, i) in trendDots"
+            v-show="trendLabelVisible(i)"
+            :key="'x'+i"
+            :x="p.x"
+            :y="trendHeight - 4"
+            font-size="10"
+            class="axis-text"
+            text-anchor="middle"
+          >{{ i + 1 }}</text>
         </svg>
         <!-- 悬浮提示框 -->
         <div v-show="hoveredTrend !== null" class="trend-tip" :style="{ left: tipPos.x + 'px', top: tipPos.y + 'px' }">
@@ -109,11 +150,19 @@
     <div class="body">
       <!-- 左侧时间轴 -->
       <el-card shadow="never" class="steps-card">
-        <div class="steps-head">步骤时间轴（{{ steps.length }}）</div>
+        <div class="steps-head">
+          步骤时间轴（{{ steps.length }}）
+          <el-checkbox
+            v-if="failedStepCount > 0"
+            v-model="onlyFailed"
+            size="small"
+            class="only-failed"
+          >只看失败</el-checkbox>
+        </div>
         <el-scrollbar class="steps-scroll">
           <el-timeline>
             <el-timeline-item
-              v-for="(s, idx) in steps"
+              v-for="(s, idx) in displaySteps"
               :key="s.id"
               :type="stepType(s.status)"
               :timestamp="stepTimeText(s)"
@@ -193,7 +242,7 @@
             </el-tab-pane>
 
             <el-tab-pane :label="`断言 (${currentStep.assertions.length})`" name="assertions">
-              <el-table :data="currentStep.assertions" size="small" border>
+              <el-table :data="currentStep.assertions" size="small" border :row-class-name="assertionRowClass">
                 <el-table-column label="结果" width="80">
                   <template #default="{ row }">
                     <el-tag :type="row.result ? 'success' : 'danger'" effect="light" round size="small">
@@ -222,7 +271,8 @@
                 </el-table-column>
                 <el-table-column label="消息" min-width="180" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span class="muted">{{ row.message ?? '—' }}</span>
+                    <!-- 失败原因是一页报告里最重要的信息，不再弱化为灰色小字 -->
+                    <span :class="row.result ? 'muted' : 'fail-msg'">{{ row.message ?? '—' }}</span>
                   </template>
                 </el-table-column>
               </el-table>
@@ -237,14 +287,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
+import { useCountUp } from '@/composables/useCountUp'
 
 const route = useRoute()
 const router = useRouter()
@@ -276,6 +328,18 @@ const currentStep = computed<StepRecord | null>(() =>
   steps.value.find((s) => s.id === currentStepId.value) ?? null
 )
 
+// 失败可见性：失败步骤计数 + 「只看失败」过滤
+const failedStepCount = computed(() => steps.value.filter((s) => s.status !== 'success').length)
+const onlyFailed = ref(false)
+const displaySteps = computed(() =>
+  onlyFailed.value ? steps.value.filter((s) => s.status !== 'success') : steps.value
+)
+
+/** 断言表行样式：失败行浅红底，扫一眼就能定位 */
+function assertionRowClass({ row }: { row: any }) {
+  return row.result ? '' : 'assert-fail-row'
+}
+
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
 const totalCount = computed(() => steps.value.length)
 
@@ -289,14 +353,21 @@ const assertionPassed = computed(() =>
   )
 )
 
-const durationText = computed(() => {
-  if (!record.value?.started_at || !record.value?.ended_at) return '-'
-  const start = new Date(record.value.started_at).getTime()
-  const end = new Date(record.value.ended_at).getTime()
-  const ms = end - start
-  if (ms < 1000) return `${ms} ms`
-  return `${(ms / 1000).toFixed(2)} s`
+// ===== 摘要数字 count-up 滚动（数据加载完成后从 0 滚到目标值） =====
+const passedCountUp = useCountUp(computed(() => passedCount.value))
+const totalCountUp = useCountUp(computed(() => totalCount.value))
+const assertionPassedUp = useCountUp(computed(() => assertionPassed.value))
+const assertionTotalUp = useCountUp(computed(() => assertionTotal.value))
+// 耗时滚动：毫秒数值滚动 + 同款格式化（<1s 显示整数 ms，否则秒两位小数）
+const durationMs = computed(() => {
+  if (!record.value?.started_at || !record.value?.ended_at) return 0
+  return new Date(record.value.ended_at).getTime() - new Date(record.value.started_at).getTime()
 })
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  return `${(ms / 1000).toFixed(2)} s`
+}
+const durationUp = useCountUp(durationMs, 800, formatDuration)
 
 // ===== 步骤耗时趋势图（纯 SVG） =====
 const trendWidth = 720
@@ -347,6 +418,40 @@ const trendPoints = computed(() =>
   trendDots.value.map(p => `${p.x},${p.y}`).join(' ')
 )
 
+// 面积多边形：折线点 + 底边闭合（左右落到基线）
+const areaPoints = computed(() => {
+  const dots = trendDots.value
+  if (dots.length < 2) return ''
+  const base = trendHeight - trendPadding.bottom
+  const first = dots[0]
+  const last = dots[dots.length - 1]
+  return `${first.x},${base} ${dots.map(p => `${p.x},${p.y}`).join(' ')} ${last.x},${base}`
+})
+
+// ===== 描线入场：steps 数据就位后，dashoffset 从总长动画到 0（从左向右画出折线） =====
+const trendLineRef = ref<SVGPolylineElement | null>(null)
+const trendDrawn = ref(false)
+watch(trendPoints, async (pts) => {
+  if (!pts) return
+  await nextTick()
+  const el = trendLineRef.value
+  if (!el) return
+  const total = el.getTotalLength ? el.getTotalLength() : 0
+  if (!total) {
+    trendDrawn.value = true
+    return
+  }
+  // 重置后触发 CSS transition 完成描线；减少动画偏好时 CSS 侧直接置 0 跳过
+  trendDrawn.value = false
+  el.style.strokeDasharray = String(total)
+  el.style.strokeDashoffset = String(total)
+  // 强制回流使起始状态生效
+  void el.getBoundingClientRect()
+  requestAnimationFrame(() => {
+    trendDrawn.value = true
+  })
+}, { immediate: true })
+
 // ===== 趋势图悬浮提示 =====
 const hoveredTrend = ref<number | null>(null)
 const tipPos = ref({ x: 0, y: 0 })
@@ -377,9 +482,18 @@ function hideTrendTip() {
   hoveredTrend.value = null
 }
 
+/** X 轴标签抽稀：步骤多时按步长隔行显示，避免标签挤成一排 */
+function trendLabelVisible(i: number) {
+  const total = trendDots.value.length
+  if (total <= 12) return true
+  const step = Math.ceil(total / 12)
+  return i % step === 0
+}
+
 function statusType(s?: string) {
   if (s === 'success') return 'success'
   if (s === 'running') return 'warning'
+  if (s == null) return 'info' // 加载中/加载失败不再是红色标签 + '-'
   return 'danger'
 }
 function statusText(s?: string) {
@@ -406,8 +520,8 @@ function stepStatusText(s?: string) {
 function httpStatusType(code?: number) {
   if (code == null) return 'info'
   if (code >= 200 && code < 300) return 'success'
-  if (code >= 400 && code < 500) return 'warning'
-  if (code >= 500) return 'danger'
+  // 接口测试语义：非 2xx 即请求层面失败（原 4xx 归 warning 与失败层级冲突）
+  if (code >= 400) return 'danger'
   return 'info'
 }
 
@@ -419,234 +533,73 @@ function stepTimeText(s: StepRecord) {
   return dur ? `${start} · ${dur}` : start
 }
 
-// 打印视图专用：JSON 格式化（pre 标签展示，避免 VueJsonPretty 在打印时渲染异常）
-function formatJson(val: any): string {
-  if (val == null) return '-'
-  if (typeof val === 'string') return val
+// ===== 导出 CSV / HTML（后端组装：/reports/executions/{id}/export，视图只负责下载） =====
+async function exportCsv() {
+  await downloadExport('csv', '已导出 CSV')
+}
+
+async function exportHtml() {
+  await downloadExport('html', '已导出 HTML 报告')
+}
+
+async function downloadExport(format: 'csv' | 'html', okMsg: string) {
+  if (!steps.value.length || !record.value?.id) return
   try {
-    return JSON.stringify(val, null, 2)
-  } catch {
-    return String(val)
+    const blob = await execApi.exportReport(record.value.id, format)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = generateReportFilename({
+      caseName: record.value?.case_name,
+      envName: record.value?.env_name,
+      status: record.value?.status,
+      ext: format,
+    })
+    link.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(okMsg)
+  } catch (e: any) {
+    ElMessage.error(e.message || '导出失败')
   }
 }
 
-function csvEscape(val: any): string {
-  if (val == null) return ''
-  const s = typeof val === 'object' ? JSON.stringify(val) : String(val)
-  // 含逗号/引号/换行时用双引号包裹，内部引号转义
-  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-  return s
+// running 态轮询间隔（与执行列表页一致的节奏）
+const POLL_MS = 3000
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+function stopPolling() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
 }
 
-function exportCsv() {
-  if (!steps.value.length) return
-  const header = ['序号', '步骤名称', '方法', '路径', 'HTTP状态码', '耗时(ms)', '步骤状态', '断言通过', '断言总数', '断言详情', '请求体', '响应体']
-  const rows: string[] = [header.join(',')]
-  steps.value.forEach((s, idx) => {
-    const assertDetails = (s.assertions || [])
-      .map(a => `${a.rule_type}:${a.result ? '通过' : '失败'}(${a.actual_value ?? ''} vs ${a.expected_value ?? ''})`)
-      .join(' | ')
-    rows.push([
-      idx + 1,
-      csvEscape(s.api_name || s.node_id || ''),
-      s.api_method || '',
-      csvEscape(s.api_path || ''),
-      s.response_status ?? '',
-      s.response_time_ms ?? '',
-      s.status || '',
-      (s.assertions || []).filter(a => a.result).length,
-      (s.assertions || []).length,
-      csvEscape(assertDetails),
-      csvEscape(s.request_body),
-      csvEscape(s.response_body),
-    ].join(','))
-  })
-  // 加 BOM 头确保 Excel 正确识别 UTF-8
-  const csv = '\ufeff' + rows.join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = generateReportFilename({
-    caseName: record.value?.case_name,
-    envName: record.value?.env_name,
-    status: record.value?.status,
-    ext: 'csv',
-  })
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('已导出 CSV')
+/** running 态自动轮询直到出结果；终态即停（含页面失活兜底） */
+function schedulePollIfRunning() {
+  stopPolling()
+  if (record.value?.status !== 'running') return
+  pollTimer = setTimeout(async () => {
+    await load(true)
+    schedulePollIfRunning()
+  }, POLL_MS)
 }
 
-// ===== 导出 HTML 报告（自包含，双击即可在浏览器打开） =====
-function esc(s: any): string {
-  if (s == null) return ''
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function exportHtml() {
-  const r = record.value
-  if (!r) return
-  const parts: string[] = []
-  parts.push('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">')
-  parts.push('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
-  parts.push(`<title>执行报告 #${esc(r.id)}</title>`)
-  parts.push('<style>', REPORT_HTML_CSS, '</style>')
-  parts.push('</head><body>')
-  parts.push('<div class="report">')
-
-  // 报告头
-  parts.push('<header class="report-head">')
-  parts.push(`<div class="head-title">执行报告 <span class="head-id">#${esc(r.id)}</span></div>`)
-  parts.push(`<span class="status-badge status-${esc(r.status)}">${esc(statusText(r.status))}</span>`)
-  parts.push('</header>')
-
-  // 摘要
-  parts.push('<section class="summary-grid">')
-  parts.push(summaryItem('用例', r.case_name || `#${r.case_id}`))
-  parts.push(summaryItem('环境', r.env_name || `#${r.env_id}`))
-  parts.push(summaryItem('项目', r.project_name || '—'))
-  parts.push(summaryItem('执行人', r.created_by_name || '—'))
-  parts.push(summaryItem('步骤通过 / 总数', `${passedCount.value} / ${totalCount.value}`, true))
-  parts.push(summaryItem('断言通过 / 总数', `${assertionPassed.value} / ${assertionTotal.value}`, true))
-  parts.push(summaryItem('开始时间', r.started_at ?? '—'))
-  parts.push(summaryItem('结束时间', r.ended_at ?? '—'))
-  parts.push(summaryItem('耗时', durationText.value, true))
-  parts.push('</section>')
-
-  // 各步骤
-  steps.value.forEach((s, idx) => {
-    parts.push('<article class="step">')
-    parts.push('<header class="step-head">')
-    parts.push(`<div class="step-title"><span class="step-idx">#${idx + 1}</span> ${esc(s.api_name || s.node_id || '未命名步骤')}</div>`)
-    parts.push(`<span class="step-status status-${esc(s.status)}">${esc(stepStatusText(s.status))}</span>`)
-    parts.push('</header>')
-    parts.push('<div class="step-meta">')
-    parts.push(`<span><em>请求</em> ${esc(s.api_method || '')} ${esc(s.api_path || '')}</span>`)
-    parts.push(`<span><em>HTTP</em> ${esc(s.response_status ?? '-')}</span>`)
-    parts.push(`<span><em>耗时</em> ${esc(s.response_time_ms ?? '-')} ms</span>`)
-    parts.push(`<span><em>开始</em> ${esc(s.started_at ?? '')}</span>`)
-    parts.push(`<span><em>结束</em> ${esc(s.ended_at ?? '')}</span>`)
-    parts.push('</div>')
-
-    parts.push(jsonSection('请求头', s.request_headers))
-    parts.push(jsonSection('请求体', s.request_body))
-    parts.push(jsonSection('响应体', s.response_body))
-
-    if (s.assertions && s.assertions.length) {
-      parts.push('<section class="subsection">')
-      parts.push(`<h3>断言（${s.assertions.length}）</h3>`)
-      parts.push('<table class="assert-table"><thead><tr>')
-      parts.push('<th class="col-result">结果</th><th class="col-type">类型</th>')
-      parts.push('<th class="col-actual">实际值</th><th class="col-expected">期望值</th><th>消息</th>')
-      parts.push('</tr></thead><tbody>')
-      for (const a of s.assertions) {
-        const cls = a.result ? 'pass' : 'fail'
-        parts.push('<tr>')
-        parts.push(`<td class="${cls}">${a.result ? '✓ 通过' : '✗ 失败'}</td>`)
-        parts.push(`<td>${esc(a.rule_type)}</td>`)
-        parts.push(`<td class="mono">${esc(a.actual_value ?? '—')}</td>`)
-        parts.push(`<td class="mono">${esc(a.expected_value ?? '—')}</td>`)
-        parts.push(`<td class="muted">${esc(a.message ?? '—')}</td>`)
-        parts.push('</tr>')
-      }
-      parts.push('</tbody></table>')
-      parts.push('</section>')
-    }
-    parts.push('</article>')
-  })
-
-  parts.push('<footer class="report-foot">')
-  parts.push(`由 fin-api-test 平台生成 · ${new Date().toLocaleString('zh-CN')}`)
-  parts.push('</footer>')
-
-  parts.push('</div></body></html>')
-
-  const html = parts.join('')
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = generateReportFilename({
-    caseName: r.case_name,
-    envName: r.env_name,
-    status: r.status,
-    ext: 'html',
-  })
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('已导出 HTML 报告')
-}
-
-function summaryItem(label: string, value: any, highlight = false): string {
-  const cls = highlight ? 'metric metric-hl' : 'metric'
-  return `<div class="${cls}"><div class="metric-label">${esc(label)}</div><div class="metric-value">${esc(value)}</div></div>`
-}
-
-function jsonSection(title: string, val: any): string {
-  const text = formatJson(val)
-  return `<section class="subsection"><h3>${esc(title)}</h3><pre class="json-block">${esc(text)}</pre></section>`
-}
-
-const REPORT_HTML_CSS = `
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f5f7fa; color: #1f2937; padding: 32px 16px; line-height: 1.6;
-}
-.report { max-width: 960px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-.report-head { display: flex; align-items: center; justify-content: space-between; padding: 24px 32px; background: linear-gradient(135deg, #409eff 0%, #2b7fd6 100%); color: #fff; }
-.head-title { font-size: 22px; font-weight: 600; }
-.head-id { font-weight: 400; opacity: 0.9; margin-left: 4px; }
-.status-badge { padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.4); }
-.status-success { background: rgba(255,255,255,0.25); }
-.status-failed { background: rgba(255,80,80,0.45); }
-.status-running { background: rgba(255,200,80,0.45); }
-.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 20px 32px; background: #fafbfc; border-bottom: 1px solid #ebeef5; }
-.metric { padding: 8px 0; }
-.metric-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
-.metric-value { font-size: 14px; font-weight: 500; color: #303133; word-break: break-all; }
-.metric-hl .metric-value { color: #409eff; font-size: 16px; font-weight: 600; }
-.step { padding: 24px 32px; border-bottom: 1px solid #ebeef5; }
-.step:last-of-type { border-bottom: none; }
-.step-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.step-title { font-size: 16px; font-weight: 600; color: #303133; }
-.step-idx { display: inline-block; min-width: 28px; height: 24px; line-height: 24px; text-align: center; background: #ecf5ff; color: #409eff; border-radius: 6px; font-size: 13px; margin-right: 8px; }
-.step-status { padding: 2px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.step-status.status-success { background: #f0f9eb; color: #67c23a; }
-.step-status.status-failed { background: #fef0f0; color: #f56c6c; }
-.step-status.status-running { background: #fdf6ec; color: #e6a23c; }
-.step-status.status-skipped { background: #f4f4f5; color: #909399; }
-.step-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #606266; margin-bottom: 16px; padding: 10px 14px; background: #fafbfc; border-radius: 6px; }
-.step-meta em { font-style: normal; color: #909399; margin-right: 4px; }
-.subsection { margin-bottom: 14px; }
-.subsection h3 { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; padding-left: 8px; border-left: 3px solid #409eff; }
-.json-block { background: #1e2a3a; color: #c8d3e0; padding: 12px 14px; border-radius: 6px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; overflow-x: auto; }
-.assert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.assert-table th, .assert-table td { border: 1px solid #ebeef5; padding: 8px 10px; text-align: left; vertical-align: top; }
-.assert-table th { background: #fafbfc; font-weight: 600; color: #606266; }
-.assert-table .pass { color: #67c23a; font-weight: 600; }
-.assert-table .fail { color: #f56c6c; font-weight: 600; }
-.assert-table .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; }
-.assert-table .muted { color: #909399; }
-.col-result { width: 90px; } .col-type { width: 180px; } .col-actual, .col-expected { width: 22%; }
-.report-foot { padding: 16px 32px; text-align: center; font-size: 12px; color: #909399; background: #fafbfc; }
-@media print { body { padding: 0; background: #fff; } .report { box-shadow: none; border-radius: 0; max-width: none; } .step { break-inside: avoid; } }
-`
-
-async function load() {
+async function load(silent = false) {
   const id = Number(route.params.id)
   if (!id) return
-  loading.value = true
+  if (!silent) loading.value = true
   try {
     record.value = await execApi.report(id)
     if (steps.value.length && currentStepId.value == null) {
-      currentStepId.value = steps.value[0].id
+      // 默认定位首个失败步骤（排障第一诉求）；无失败则回第 1 步
+      const firstFailed = steps.value.find((s) => s.status !== 'success')
+      currentStepId.value = (firstFailed ?? steps.value[0]).id
     }
+    schedulePollIfRunning()
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -661,6 +614,7 @@ watch(
 )
 
 onMounted(load)
+onUnmounted(stopPolling)
 </script>
 
 <style scoped>
@@ -731,6 +685,34 @@ onMounted(load)
 }
 .trend-svg .trend-line {
   stroke: var(--app-primary);
+  /* 描线入场：dasharray/offset 由脚本按总长设置，drawn 后过渡到 0 */
+  transition: stroke-dashoffset 1.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.trend-svg .trend-line.drawn {
+  stroke-dashoffset: 0 !important;
+}
+/* 减少动画偏好：跳过描线直接显示 */
+@media (prefers-reduced-motion: reduce) {
+  .trend-svg .trend-line {
+    transition: none;
+  }
+  .trend-svg .trend-line.drawn {
+    stroke-dashoffset: 0 !important;
+  }
+}
+/* 面积填充：随描线完成淡入 */
+.trend-svg .trend-area {
+  opacity: 0;
+  transition: opacity 0.6s ease 0.5s;
+}
+.trend-svg .trend-area.drawn {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .trend-svg .trend-area {
+    opacity: 1;
+    transition: none;
+  }
 }
 .trend-svg .dot-ok {
   fill: var(--app-success);
@@ -890,6 +872,22 @@ onMounted(load)
   font-weight: 600;
   color: var(--app-text);
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.only-failed {
+  font-weight: 400;
+}
+
+/* 失败断言行：浅红底 + 红色消息文字（失败原因是排障第一信息，不再弱化） */
+:deep(.assert-fail-row) {
+  background: color-mix(in srgb, var(--el-color-danger) 7%, transparent);
+}
+.fail-msg {
+  color: var(--el-color-danger);
+  font-size: 12px;
 }
 
 .steps-scroll {
@@ -1037,5 +1035,3 @@ onMounted(load)
   cursor: pointer;
 }
 </style>
-
-
