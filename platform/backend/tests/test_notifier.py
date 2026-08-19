@@ -85,6 +85,34 @@ class TestSendNotify:
             assert "退款流程" in content
             assert "2/3" in content
 
+    def test_project_name_included_when_provided(self):
+        """project_name 非空时插入「项目」行，且不破坏环境/执行人/时间等原有行"""
+        env = _env(notify_config=WEBHOOK_CFG)
+        case = _case(name="下单流程")
+        record = _record(status="success")
+
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            mock_instance = MockRobot.return_value
+            send_notify(env, case, record, project_name="订单系统")
+            content = mock_instance.send_markdown.call_args[0][1]
+            assert "> 项目：订单系统" in content
+            # 原有字段不丢失
+            assert "> 环境：测试环境" in content
+            assert "> 时间：" in content
+
+    def test_project_line_absent_when_empty(self):
+        """project_name 为空时不输出「项目」行（默认调用兼容）"""
+        env = _env(notify_config=WEBHOOK_CFG)
+        case = _case()
+        record = _record()
+
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            mock_instance = MockRobot.return_value
+            send_notify(env, case, record)
+            content = mock_instance.send_markdown.call_args[0][1]
+            assert "> 项目：" not in content
+            assert "> 环境：测试环境" in content
+
     def test_duration_included_when_timestamps_present(self):
         env = _env(notify_config=WEBHOOK_CFG)
         case = _case()
