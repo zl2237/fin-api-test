@@ -167,7 +167,12 @@ class DagExecutor:
                 user = self.db.query(models.User).filter(models.User.id == record.created_by).first()
                 if user:
                     executor_name = user.username
-            send_notify(self.env, self.case, record, executor_name=executor_name)
+            project_name = ""
+            if self.case.project_id:
+                project = self.db.query(models.Project).filter(models.Project.id == self.case.project_id).first()
+                if project:
+                    project_name = project.name
+            send_notify(self.env, self.case, record, executor_name=executor_name, project_name=project_name)
         return record
 
     # ---------- 单节点执行 ----------
