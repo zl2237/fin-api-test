@@ -146,12 +146,31 @@
       </el-card>
     </div>
 
+    <!-- 失败摘要卡：与导出 HTML 报告同构（仅失败时渲染，点击跳转对应步骤） -->
+    <el-card v-if="failedSteps.length" shadow="never" class="fail-summary">
+      <div class="fail-summary-head">
+        <el-icon class="fail-icon"><CircleCloseFilled /></el-icon>
+        失败摘要 · {{ failedSteps.length }} 个步骤未通过（点击跳转）
+      </div>
+      <div
+        v-for="fs in failedSteps"
+        :key="fs.id"
+        class="fail-summary-item"
+        @click="jumpToStep(fs)"
+      >
+        <span class="fs-idx">#{{ fs.index + 1 }}</span>
+        <span class="fs-name" :title="fs.api_name || fs.node_id || '未命名步骤'">{{ fs.api_name || fs.node_id || '未命名步骤' }}</span>
+        <span class="fs-why">{{ fs.why }}</span>
+        <span class="fs-count">{{ fs.failCount }} 条断言失败</span>
+      </div>
+    </el-card>
+
     <!-- 主体：时间轴 + 详情 -->
     <div class="body">
       <!-- 左侧时间轴 -->
       <el-card shadow="never" class="steps-card">
         <div class="steps-head">
-          步骤时间轴（{{ steps.length }}）
+          步骤时间轴（{{ displaySteps.length }}<template v-if="onlyFailed">/{{ steps.length }}</template>）
           <el-checkbox
             v-if="failedStepCount > 0"
             v-model="onlyFailed"
@@ -159,10 +178,20 @@
             class="only-failed"
           >只看失败</el-checkbox>
         </div>
+        <!-- 导航搜索：与导出报告同构（按名称/方法/路径过滤） -->
+        <div class="steps-search">
+          <el-input
+            v-model="stepKeyword"
+            size="small"
+            clearable
+            placeholder="搜索步骤 / 路径…"
+            :prefix-icon="Search"
+          />
+        </div>
         <el-scrollbar class="steps-scroll">
           <el-timeline>
             <el-timeline-item
-              v-for="(s, idx) in displaySteps"
+              v-for="s in displaySteps"
               :key="s.id"
               :type="stepType(s.status)"
               :timestamp="stepTimeText(s)"
@@ -175,7 +204,7 @@
                 :class="{ active: currentStepId === s.id }"
                 @click="currentStepId = s.id"
               >
-                <div class="step-idx">#{{ idx + 1 }}</div>
+                <div class="step-idx">#{{ stepNo(s) }}</div>
                 <div class="step-main">
                   <div class="step-title">{{ s.api_name || s.node_id || '未命名步骤' }}</div>
                   <div class="step-sub">{{ s.api_method }} {{ s.api_path }}</div>
@@ -290,7 +319,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, Search, CircleCloseFilled } from '@element-plus/icons-vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
@@ -328,12 +357,49 @@ const currentStep = computed<StepRecord | null>(() =>
   steps.value.find((s) => s.id === currentStepId.value) ?? null
 )
 
-// 失败可见性：失败步骤计数 + 「只看失败」过滤
+// 失败可见性：失败步骤计数 + 「只看失败」过滤 + 导航搜索（与导出报告同构）
 const failedStepCount = computed(() => steps.value.filter((s) => s.status !== 'success').length)
 const onlyFailed = ref(false)
-const displaySteps = computed(() =>
-  onlyFailed.value ? steps.value.filter((s) => s.status !== 'success') : steps.value
+const stepKeyword = ref('')
+const displaySteps = computed(() => {
+  let list = onlyFailed.value ? steps.value.filter((s) => s.status !== 'success') : steps.value
+  const kw = stepKeyword.value.trim().toLowerCase()
+  if (kw) {
+    list = list.filter((s) =>
+      (s.api_name || s.node_id || '').toLowerCase().includes(kw)
+      || (s.api_method || '').toLowerCase().includes(kw)
+      || (s.api_path || '').toLowerCase().includes(kw),
+    )
+  }
+  return list
+})
+
+// 失败摘要卡数据：失败步骤 + 原始序号 + 首条失败断言原因（与导出报告 fail-card 同构）
+const failedSteps = computed(() =>
+  steps.value
+    .map((s, index) => {
+      if (s.status === 'success') return null
+      const failedAsserts = (s.assertions ?? []).filter((a) => !a.result)
+      const why = failedAsserts.length
+        ? (failedAsserts[0].message || failedAsserts[0].rule_type)
+        : (s.status || '失败')
+      return { ...s, index, why, failCount: failedAsserts.length }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null),
 )
+
+/** 失败摘要卡跳转：清筛选保可见 + 选中 + 联动详情 Tab 定位到断言 */
+function jumpToStep(fs: (typeof failedSteps.value)[number]) {
+  onlyFailed.value = false
+  stepKeyword.value = ''
+  currentStepId.value = fs.id
+  activeTab.value = 'assertions'
+}
+
+/** 时间轴序号：过滤/搜索后仍显示原始步骤序号（与失败摘要卡、导出报告一致） */
+function stepNo(s: StepRecord) {
+  return steps.value.indexOf(s) + 1
+}
 
 /** 断言表行样式：失败行浅红底，扫一眼就能定位 */
 function assertionRowClass({ row }: { row: any }) {
@@ -875,6 +941,73 @@ onUnmounted(stopPolling)
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* 导航搜索框（与导出报告同构） */
+.steps-search {
+  margin-bottom: 8px;
+}
+
+/* ===== 失败摘要卡（与导出报告 fail-card 同构） ===== */
+.fail-summary {
+  flex-shrink: 0;
+  border-left: 4px solid var(--app-danger, #f56c6c);
+}
+.fail-summary :deep(.el-card__body) {
+  padding: 0;
+}
+.fail-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-danger, #f56c6c);
+  background: color-mix(in srgb, var(--app-danger, #f56c6c) 8%, transparent);
+}
+.fail-icon {
+  font-size: 15px;
+}
+.fail-summary-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 18px;
+  border-top: 1px solid var(--app-border);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.fail-summary-item:hover {
+  background: color-mix(in srgb, var(--app-primary) 6%, transparent);
+}
+.fs-idx {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-danger, #f56c6c);
+  flex-shrink: 0;
+}
+.fs-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+  /* 超长步骤名单行截断（title 悬浮全文），防摘要卡被撑高 */
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-why {
+  flex: 1;
+  min-width: 200px;
+  font-size: 12px;
+  color: var(--app-danger, #f56c6c);
+}
+.fs-count {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
 }
 
 .only-failed {
