@@ -79,13 +79,6 @@ const gradId = 'es-' + useId()
 }
 .empty-state-illust {
   flex-shrink: 0;
-  /* 轻微浮动动画，增加生气 */
-  animation: es-float 3s ease-in-out infinite 0.45s;
-  /* 悬浮微交互：轻微放大上跳 */
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.empty-state:hover .empty-state-illust {
-  transform: scale(1.08) translateY(-2px);
 }
 @keyframes es-enter {
   from {
@@ -96,10 +89,6 @@ const gradId = 'es-' + useId()
     opacity: 1;
     transform: none;
   }
-}
-@keyframes es-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
 }
 .empty-state-desc {
   margin: 0;

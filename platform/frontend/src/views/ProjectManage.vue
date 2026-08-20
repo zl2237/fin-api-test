@@ -32,7 +32,7 @@
       </el-card>
       <el-card v-else shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe row-key="id">
+        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id">
           <el-table-column width="36" align="center">
             <template #default>
               <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
