@@ -4,6 +4,8 @@ import { getToken } from '@/api'
 const routes = [
   { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { title: '登录', public: true } },
   { path: '/change-password', name: 'ChangePassword', component: () => import('@/views/ChangePassword.vue'), meta: { title: '修改密码' } },
+  // 兜底 404：public 保证未登录访问未知路径也能看到友好提示而非空白
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFound.vue'), meta: { title: '页面不存在', public: true } },
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
@@ -60,6 +62,12 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
   next()
+})
+
+// 动态标签标题：index.html 的静态标题仅作首屏兜底
+router.afterEach((to) => {
+  const title = to.meta.title
+  document.title = typeof title === 'string' ? `${title} - fin-api-test 测试平台` : 'fin-api-test 测试平台'
 })
 
 export default router
