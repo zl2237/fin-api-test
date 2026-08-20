@@ -332,7 +332,7 @@ async function saveCategory() {
         name: categoryDialog.value.name,
         parent_id: categoryDialog.value.parent_id,
       })
-      ElMessage.success('已更新')
+      ElMessage.success('已保存')
     } else {
       await fileCategoryApi.create({
         project_id: projectId.value!,
@@ -446,9 +446,9 @@ async function deleteTag() {
   if (!tagDialog.value.editing) return
   try {
     await ElMessageBox.confirm(
-      `确认删除标签「${tagDialog.value.editing.name}」？已绑定此标签的文件将自动解除关联。`,
-      '删除标签',
-      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+      `确认删除「${tagDialog.value.editing.name}」？已绑定此标签的文件将自动解除关联`,
+      '提示',
+      { type: 'warning' },
     )
   } catch {
     return
@@ -568,7 +568,7 @@ async function saveRename() {
 
 async function confirmDeleteFile(file: TestFile) {
   try {
-    await ElMessageBox.confirm(`确定删除文件「${file.name}」？引用计数 -1，归零时删除物理文件`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除「${file.name}」？引用计数 -1，归零时删除物理文件`, '提示', { type: 'warning' })
     await fileApi.remove(file.id)
     ElMessage.success('已删除')
     await loadFiles()

@@ -137,7 +137,7 @@ function bindSortable() {
       const items = list.value.map((p, i) => ({ id: p.id, sort_order: i }))
       try {
         await projectApi.reorder(items)
-        ElMessage.success('排序已保存')
+        ElMessage.success('已保存')
         list.value.forEach((p, i) => { p.sort_order = i })
       } catch (e: any) {
         ElMessage.error(e.message || '排序保存失败')
@@ -223,7 +223,7 @@ async function onSwitch(row: Project) {
 
 async function onRemove(row: Project) {
   try {
-    await ElMessageBox.confirm(`确定删除项目「${row.name}」？关联的接口/用例/环境将一并删除，此操作不可恢复。`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除项目「${row.name}」？关联的接口/用例/环境将一并删除，此操作不可恢复`, '提示', { type: 'warning' })
   } catch {
     return
   }

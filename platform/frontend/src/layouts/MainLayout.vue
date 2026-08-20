@@ -617,7 +617,7 @@ async function onAvatarFileChange(e: Event) {
     const dataUrl = await compressImage(file)
     await authApi.updateAvatar(dataUrl)
     currentAvatar.value = dataUrl
-    ElMessage.success('头像已更新')
+    ElMessage.success('已更新')
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.detail || err?.message || '头像上传失败')
   } finally {

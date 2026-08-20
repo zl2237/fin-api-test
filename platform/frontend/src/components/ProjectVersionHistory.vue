@@ -260,9 +260,9 @@ async function onCreate() {
 async function onRollback(row: ProjectVersionListItem) {
   try {
     await ElMessageBox.confirm(
-      `确定将项目回滚到 v${row.version_no}（${row.name}）？\n\n此操作会删除当前所有接口和用例，用快照数据重建。回滚前会自动保存一个"回滚前快照"以确保可恢复。`,
-      '回滚确认',
-      { type: 'warning', confirmButtonText: '确认回滚', cancelButtonText: '取消' }
+      `确认回滚到版本「v${row.version_no}（${row.name}）」？\n\n此操作会删除当前所有接口和用例，用快照数据重建。回滚前会自动保存一个「回滚前快照」以确保可恢复`,
+      '提示',
+      { type: 'warning', confirmButtonText: '回滚', cancelButtonText: '取消' }
     )
   } catch {
     return
@@ -281,9 +281,9 @@ async function onRollback(row: ProjectVersionListItem) {
 async function onDelete(row: ProjectVersionListItem) {
   try {
     await ElMessageBox.confirm(
-      `确定删除版本 v${row.version_no}（${row.name}）？此操作不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+      `确认删除版本「v${row.version_no}（${row.name}）」？此操作不可恢复`,
+      '提示',
+      { type: 'warning' }
     )
   } catch {
     return

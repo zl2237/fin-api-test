@@ -181,7 +181,7 @@ async function onSave() {
 
 async function onRemove(row: FieldDictionary) {
   try {
-    await ElMessageBox.confirm(`确认删除字段「${row.key}」的字典映射？`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除字段「${row.key}」的字典映射？`, '提示', { type: 'warning' })
   } catch {
     return
   }
