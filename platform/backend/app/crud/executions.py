@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session
 from .. import models
 
 
-def create_execution(db: Session, case_id: int, env_id: int, user_id: int) -> models.ExecutionRecord:
+def create_execution(db: Session, case_id: int, env_id: int, user_id: int,
+                     trigger_type: str = "manual") -> models.ExecutionRecord:
     """创建 running 状态的执行记录（触发执行前先落库，前端立即可轮询）"""
     record = models.ExecutionRecord(
         case_id=case_id, env_id=env_id, status="running", created_by=user_id,
+        trigger_type=trigger_type,
     )
     db.add(record)
     db.commit()

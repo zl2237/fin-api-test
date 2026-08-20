@@ -18,7 +18,7 @@ from app.schemas import UserOut, UserInfoUpdate
 from app.routers.users import update_user_info
 
 
-def _make_user(uid=1, username="admin", name="管理员", role="admin", phone=None, email=None):
+def _make_user(uid=1, username="admin", name="管理员", role="admin", phone=None, email=None, department=None):
     return SimpleNamespace(
         id=uid,
         username=username,
@@ -26,6 +26,7 @@ def _make_user(uid=1, username="admin", name="管理员", role="admin", phone=No
         role=role,
         phone=phone,
         email=email,
+        department=department,
         created_by=None,
         updated_by=None,
     )
