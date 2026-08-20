@@ -48,10 +48,6 @@
         class="nav-menu"
         :collapse="collapsed"
       >
-        <el-menu-item index="/projects">
-          <el-icon><Folder /></el-icon>
-          <template #title><span>项目管理</span></template>
-        </el-menu-item>
         <el-menu-item index="/envs">
           <el-icon><Setting /></el-icon>
           <template #title><span>环境配置</span></template>
@@ -140,8 +136,9 @@
               :value="p.id"
             />
           </el-select>
-          <el-button v-if="!store.projects.length" link type="primary" @click="router.push('/projects')">
-            + 去创建
+          <!-- 项目管理入口：低频配置不占侧栏，归宿是项目选择器旁（规范 interaction-guidelines §1） -->
+          <el-button text title="项目管理" @click="router.push('/projects')">
+            <el-icon><Folder /></el-icon>管理
           </el-button>
           <el-button
             v-if="store.currentProjectId"
@@ -464,9 +461,9 @@ const tabStore = useTabStore()
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
 
-// 侧边菜单项（与模板 el-menu-item index 一一对应）
+// 侧边菜单项（与模板 el-menu-item index 一一对应；项目管理为低频配置，入口在顶栏项目选择器旁）
 const MENU_PATHS = [
-  '/projects', '/envs', '/apis', '/cases', '/executions',
+  '/envs', '/apis', '/cases', '/executions',
   '/dictionary', '/files', '/users', '/operation-logs',
 ]
 // 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失

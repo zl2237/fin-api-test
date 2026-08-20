@@ -42,7 +42,7 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openRoleDialog(row)">编辑</el-button>
+            <el-button link type="primary" size="small" @click="openEditDrawer(row)">编辑</el-button>
             <el-button link type="warning" size="small" @click="openPasswordDialog(row)">重置密码</el-button>
             <el-button link type="danger" size="small" @click="onDelete(row)" :disabled="row.id === store.user?.id">删除</el-button>
           </template>
@@ -86,8 +86,8 @@
       </template>
     </el-dialog>
 
-    <!-- 编辑用户对话框 -->
-    <el-dialog v-model="roleVisible" title="编辑用户" width="440px" align-center>
+    <!-- 编辑用户抽屉：5 字段超弹窗边界，升格为抽屉（规范 §2） -->
+    <el-drawer v-model="roleVisible" title="编辑用户" size="440px" :close-on-click-modal="false">
       <el-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-width="80px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="roleForm.username" placeholder="登录用用户名" maxlength="50" />
@@ -113,7 +113,7 @@
         <el-button @click="roleVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="onRoleUpdate">确定</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 重置密码对话框 -->
     <el-dialog v-model="passwordVisible" title="重置密码" width="360px" align-center>
@@ -280,7 +280,7 @@ async function onCreate() {
   })
 }
 
-function openRoleDialog(row: User) {
+function openEditDrawer(row: User) {
   roleTarget.value = row
   roleForm.username = row.username
   roleForm.name = row.name || ''
@@ -392,7 +392,7 @@ onMounted(load)
   justify-content: flex-end;
   margin-top: 12px;
 }
-/* 编辑弹窗底部提示：用户名变更影响登录 */
+/* 编辑抽屉底部提示：用户名变更影响登录 */
 .edit-tip {
   margin-top: 4px;
   padding: 8px 12px;
