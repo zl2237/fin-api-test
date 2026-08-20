@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <!-- 搜索过滤栏：左主筛选 / 右筛选+查询+操作 -->
+    <!-- 搜索过滤栏：左主筛选 / 右筛选+查询+操作（≥3 条件组合查询：显式查询按钮触发，规范 §3） -->
     <div class="page-head">
       <div class="head-left">
         <el-select
@@ -9,7 +9,6 @@
           placeholder="项目"
           clearable
           filterable
-          @change="onFilterChange"
         >
           <el-option v-for="p in store.projects" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
@@ -21,7 +20,6 @@
           placeholder="执行人"
           clearable
           filterable
-          @change="onFilterChange"
         >
           <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
         </el-select>
@@ -30,10 +28,10 @@
           style="width: 140px"
           placeholder="用例ID"
           clearable
-          @input="onSearchInput"
-          @clear="onSearchInput"
+          @keyup.enter="onQuery"
+          @clear="onQuery"
         />
-        <el-select v-model="filterStatus" style="width: 140px" placeholder="状态" clearable @change="onFilterChange">
+        <el-select v-model="filterStatus" style="width: 140px" placeholder="状态" clearable>
           <el-option label="通过" value="success" />
           <el-option label="失败" value="failed" />
           <el-option label="执行中" value="running" />
@@ -47,8 +45,8 @@
           format="YYYY-MM-DD HH:mm"
           value-format="YYYY-MM-DD HH:mm:ss"
           style="width: 360px"
-          @change="onFilterChange"
         />
+        <el-button type="primary" @click="onQuery">查询</el-button>
         <el-button @click="resetFilter">重置</el-button>
         <span class="filter-count">
           共 {{ filteredList.length }} 条<template v-if="filteredList.length >= 200">（仅显示最近 200 条）</template>
@@ -136,14 +134,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { debounce } from '@/utils/ui'
 import { formatTime } from '@/utils/format'
 
 const route = useRoute()
@@ -161,7 +158,7 @@ const cleanupLoading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 
-// 过滤条件：项目/执行人/用例ID 走后端，状态/时间范围本地兜底
+// 过滤条件输入（草稿）：项目/执行人/用例ID 走后端，状态/时间范围本地兜底
 // 项目默认锁定当前项目，实现与环境/接口/用例一致的数据隔离
 const filterProjectId = ref<number | null>(currentProjectId.value)
 const filterExecutor = ref<number | null>(null)
@@ -169,13 +166,23 @@ const filterCaseId = ref('')
 const filterStatus = ref('')
 const filterRange = ref<[string, string] | null>(null)
 
+// 生效条件快照：仅「查询/重置」点击时固化，load/轮询/本地过滤统一读取
+// 避免「改了输入没点查询，列表却悄悄变化」的所见非所查问题
+const applied = reactive({
+  projectId: currentProjectId.value as number | null,
+  executor: null as number | null,
+  caseId: '',
+  status: '',
+  range: null as [string, string] | null,
+})
+
 const filteredList = computed(() => {
   let r = list.value
-  if (filterStatus.value) {
-    r = r.filter(e => e.status === filterStatus.value)
+  if (applied.status) {
+    r = r.filter(e => e.status === applied.status)
   }
-  if (filterRange.value && filterRange.value.length === 2) {
-    const [start, end] = filterRange.value
+  if (applied.range && applied.range.length === 2) {
+    const [start, end] = applied.range
     r = r.filter(e => {
       const t = e.started_at ?? ''
       return t >= start && t <= end.replace('00:00:00', '23:59:59')
@@ -189,23 +196,25 @@ const pagedList = computed(() => {
   return filteredList.value.slice(start, start + pageSize.value)
 })
 
+// 显式查询：输入区条件快照到 applied 后统一生效（回第 1 页）
+function onQuery() {
+  applied.projectId = filterProjectId.value
+  applied.executor = filterExecutor.value
+  applied.caseId = filterCaseId.value.trim()
+  applied.status = filterStatus.value
+  applied.range = filterRange.value
+  page.value = 1
+  load()
+}
+
 function resetFilter() {
   filterProjectId.value = null
   filterExecutor.value = null
   filterCaseId.value = ''
   filterStatus.value = ''
   filterRange.value = null
-  page.value = 1
-  load()
+  onQuery()
 }
-
-function onFilterChange() {
-  page.value = 1
-  load()
-}
-
-// 用例ID 搜索输入：回第 1 页 + 300ms 防抖（避免每敲一键发一次请求）
-const onSearchInput = debounce(onFilterChange, 300)
 
 function statusType(s: string) {
   return s === 'success' ? 'success' : s === 'running' ? 'warning' : 'danger'
@@ -222,12 +231,12 @@ function startAutoRefresh() {
   if (refreshTimer) return
   refreshTimer = setInterval(async () => {
     try {
-      const projectId = filterProjectId.value ?? currentProjectId.value
+      const projectId = applied.projectId ?? currentProjectId.value
       if (!projectId) return
-      const caseId = route.query.case_id ? Number(route.query.case_id) : (filterCaseId.value.trim() ? Number(filterCaseId.value) : undefined)
+      const caseId = applied.caseId ? Number(applied.caseId) : undefined
       const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
       if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
-      if (filterExecutor.value) params.created_by = filterExecutor.value
+      if (applied.executor) params.created_by = applied.executor
       list.value = await execApi.list(params)
       // 没有 running 记录了，停止轮询
       if (!list.value.some(e => e.status === 'running')) {
@@ -247,19 +256,19 @@ function stopAutoRefresh() {
 }
 
 async function load() {
-  // 项目隔离：优先用筛选框选中的项目，未选则回退到当前项目
-  const projectId = filterProjectId.value ?? currentProjectId.value
+  // 项目隔离：优先用生效条件中的项目，未选则回退到当前项目
+  const projectId = applied.projectId ?? currentProjectId.value
   if (!projectId) {
     list.value = []
     return
   }
   loading.value = true
   try {
-    // 后端过滤：case_id（URL 或输入框）、project_id、created_by（执行人）
-    const caseId = route.query.case_id ? Number(route.query.case_id) : (filterCaseId.value.trim() ? Number(filterCaseId.value) : undefined)
+    // 后端过滤：case_id、project_id、created_by（执行人），均取生效条件快照
+    const caseId = applied.caseId ? Number(applied.caseId) : undefined
     const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
     if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
-    if (filterExecutor.value) params.created_by = filterExecutor.value
+    if (applied.executor) params.created_by = applied.executor
     list.value = await execApi.list(params)
     // 存在执行中的记录则启动轮询，否则确保停止
     if (list.value.some(e => e.status === 'running')) {
@@ -318,14 +327,15 @@ onMounted(() => {
     filterCaseId.value = String(qCaseId)
     router.replace({ query: { ...route.query, case_id: undefined } })
   }
-  load()
+  onQuery()
   loadUsers()
 })
 
-// 切换项目时：同步筛选框并重新加载，实现项目级数据隔离
+// 切换项目（顶栏全局上下文）时：同步草稿与生效条件并重新加载，实现项目级数据隔离
 watch(currentProjectId, (newId) => {
   if (newId) {
     filterProjectId.value = newId
+    applied.projectId = newId
     page.value = 1
     load()
   }
