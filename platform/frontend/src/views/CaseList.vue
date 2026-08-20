@@ -40,36 +40,116 @@
       </div>
     </div>
 
-    <!-- 页面级加载遮罩：与 ApiManage 同范式（原缺失，请求期间无任何反馈） -->
-    <div v-loading="loading" class="group-list">
-      <div
-        v-for="row in visibleGroupRows"
-        :key="row.key"
-        class="group-card"
-      >
+    <!-- 左分组导航 + 右组内列表（master-detail）；页面级加载遮罩 -->
+    <div v-loading="loading" class="group-layout">
+      <aside class="group-side">
         <div
-          class="group-header"
-          :style="{ paddingLeft: 14 + row.depth * 22 + 'px' }"
-          @click="onToggleGroup(row)"
+          class="side-node"
+          :class="{ on: selectedRowKey === 'all' }"
+          @click="selectedRowKey = 'all'"
+        >
+          <el-icon class="group-icon"><Folder /></el-icon>
+          <span class="side-name">全部用例</span>
+          <span class="side-cnt">{{ filteredList.length }}</span>
+        </div>
+        <div
+          v-for="row in visibleGroupRows"
+          :key="row.key"
+          class="side-node"
+          :class="{ on: selectedRowKey === row.key }"
+          :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
+          @click="selectedRowKey = row.key"
         >
           <el-icon
             v-if="row.expandable"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
+            @click.stop="onToggleGroup(row)"
           ><CaretRight /></el-icon>
           <span v-else class="expand-spacer" />
-          <el-icon class="group-icon"><Folder /></el-icon>
-          <span class="group-name">{{ row.name }}</span>
-          <span class="group-count">{{ row.isUngrouped ? casesOf(null).length : countCasesWithDescendants(row.groupId!) }}</span>
+          <span class="side-name">{{ row.name }}</span>
+          <span class="side-cnt">{{ row.isUngrouped ? casesOf(null).length : countCasesWithDescendants(row.groupId!) }}</span>
         </div>
-        <div v-show="(row.isUngrouped || isGroupExpanded(row.groupId!)) && casesOf(row.groupId).length > 0" class="group-body">
+        <div class="side-foot">
+          <el-button size="small" @click="showGroupDialog = true">分组管理</el-button>
+        </div>
+      </aside>
+
+      <div class="group-main">
+        <EmptyState v-if="!loading && !list.length" description="暂无用例">
+          <div class="empty-actions">
+            <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
+            <el-button text @click="router.push('/apis')">先去管理接口</el-button>
+          </div>
+        </EmptyState>
+
+        <!-- 全部用例视图（跨分组平铺，无拖拽把手：跨组顺序无持久化语义） -->
+        <template v-else-if="selectedRowKey === 'all'">
+          <div class="main-head">
+            <span class="main-title">全部用例</span>
+            <span class="group-count">{{ filteredList.length }}</span>
+          </div>
           <el-table
-            :ref="(el: any) => setTableRef(row.key, el)"
-            :data="pagedDataMap[String(row.key)]"
+            :data="allPaged"
             size="small"
             stripe
             row-key="id"
-            @selection-change="(sel: any[]) => onSelectionChange(row.key, sel)"
+            @selection-change="(sel: any[]) => onSelectionChange('all', sel)"
+          >
+            <el-table-column type="selection" width="42" />
+            <el-table-column prop="id" label="ID" width="70" />
+            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip />
+            <el-table-column label="节点数" width="90">
+              <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
+            </el-table-column>
+            <el-table-column prop="updated_at" label="更新时间" min-width="170" show-overflow-tooltip />
+            <el-table-column label="创建人" width="100" align="center">
+              <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="更新人" width="100" align="center">
+              <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="320" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
+                <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
+                  <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
+                </el-tooltip>
+                <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
+                <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
+                <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="pagination-wrap">
+            <el-pagination
+              small
+              background
+              :current-page="allPage"
+              :page-size="pageSize"
+              :total="filteredList.length"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next"
+              @current-change="(p: number) => onPageChange('all', p)"
+              @size-change="onPageSizeChange"
+            />
+          </div>
+        </template>
+
+        <!-- 选中分组视图：单表 + 组内分页/勾选/拖拽（沿用 composable 按 key 驱动） -->
+        <template v-else-if="selectedRow">
+          <div class="main-head">
+            <span class="main-title">{{ selectedRow.name }}</span>
+            <span class="group-count">{{ selectedRow.isUngrouped ? casesOf(null).length : countCasesWithDescendants(selectedRow.groupId!) }}</span>
+          </div>
+          <el-table
+            v-if="casesOf(selectedRow!.groupId).length"
+            :ref="(el: any) => setTableRef(selectedRow!.key, el)"
+            :data="pagedDataMap[String(selectedRow!.key)]"
+            size="small"
+            stripe
+            row-key="id"
+            @selection-change="(sel: any[]) => onSelectionChange(selectedRow!.key, sel)"
           >
             <el-table-column type="selection" width="42" :reserve-selection="true" />
             <el-table-column width="36" align="center">
@@ -101,27 +181,22 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="pagination-wrap">
+          <el-empty v-else-if="!loading" :image-size="80" description="该分组暂无用例" />
+          <div v-if="casesOf(selectedRow!.groupId).length" class="pagination-wrap">
             <el-pagination
               small
               background
-              :current-page="pageMap[String(row.key)] || 1"
+              :current-page="pageMap[String(selectedRow!.key)] || 1"
               :page-size="pageSize"
-              :total="casesOf(row.groupId).length"
+              :total="casesOf(selectedRow!.groupId).length"
               :page-sizes="[10, 20, 50, 100]"
               layout="total, sizes, prev, pager, next"
-              @current-change="(p: number) => onPageChange(row.key, p)"
+              @current-change="(p: number) => onPageChange(selectedRow!.key, p)"
               @size-change="onPageSizeChange"
             />
           </div>
-        </div>
+        </template>
       </div>
-      <EmptyState v-if="!loading && !list.length" description="暂无用例">
-        <div class="empty-actions">
-          <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
-          <el-button text @click="router.push('/apis')">先去管理接口</el-button>
-        </div>
-      </EmptyState>
     </div>
 
     <!-- 新建用例弹窗 -->
@@ -284,6 +359,22 @@ const {
 
 // 搜索条件变化即回第 1 页，避免「第 3 页 + 结果不足一页」的空白死局
 watch(keyword, () => resetPages())
+
+// ===== 左分组导航选中态（master-detail）=====
+const selectedRowKey = ref<string | number>('all')
+const selectedRow = computed(() => visibleGroupRows.value.find(r => r.key === selectedRowKey.value))
+// 分组重载/删除后选中项可能消失，回退到「全部」
+watch(visibleGroupRows, (rows) => {
+  if (selectedRowKey.value !== 'all' && !rows.some(r => r.key === selectedRowKey.value)) {
+    selectedRowKey.value = 'all'
+  }
+})
+// 「全部」视图分页：复用 composable 的 pageMap/pageSize（键 'all' 不与分组键冲突）
+const allPage = computed(() => pageMap.value['all'] || 1)
+const allPaged = computed(() => {
+  const start = (allPage.value - 1) * pageSize.value
+  return filteredList.value.slice(start, start + pageSize.value)
+})
 
 // el-tree / el-tree-select 公共字段映射
 const treeProps = { label: 'label', children: 'children' }
@@ -720,36 +811,80 @@ function onGlobalKey(e: KeyboardEvent) {
   display: flex;
   gap: 8px;
 }
-.group-list {
+/* 左分组导航 + 右组内列表（master-detail） */
+.group-layout {
   flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.group-side {
+  width: 220px;
+  flex-shrink: 0;
   overflow: auto;
-  padding: 16px 20px;
-}
-/* 分组卡片（多级树形） */
-.group-card {
-  margin-bottom: 12px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-lg);
-  overflow: hidden;
+  padding: 12px 8px;
   background: var(--app-card);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  border-right: 1px solid var(--app-border);
+  display: flex;
+  flex-direction: column;
 }
-.group-card:hover {
-  border-color: var(--app-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-.group-header {
+.side-node {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 48px;
+  gap: 6px;
+  padding: 0 10px;
+  height: 32px;
+  border-radius: var(--app-radius-sm);
   cursor: pointer;
   user-select: none;
-  font-size: 14px;
-  border-bottom: 1px solid var(--app-border);
+  font-size: 13px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
 }
-.group-header:hover {
-  background: var(--app-hover, rgba(0, 0, 0, 0.02));
+.side-node:hover {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+.side-node.on {
+  background: var(--app-active);
+  color: var(--app-primary);
+  font-weight: 500;
+}
+.side-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.side-cnt {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-faint);
+}
+.side-node.on .side-cnt {
+  color: var(--app-primary);
+}
+.side-foot {
+  margin-top: auto;
+  padding: 10px 6px 2px;
+  border-top: 1px solid var(--app-border);
+}
+.group-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.main-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.main-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text);
 }
 .expand-icon {
   font-size: 14px;
@@ -766,12 +901,6 @@ function onGlobalKey(e: KeyboardEvent) {
 .group-icon {
   font-size: 16px;
   color: var(--app-primary);
-}
-.group-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--app-text);
-  flex: 1;
 }
 .group-count {
   background: var(--app-primary);
