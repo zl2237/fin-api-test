@@ -12,6 +12,7 @@ from jsonpath_ng.exceptions import JsonPathParserError
 
 from .. import path_setup  # noqa: F401  确保 utils 可导入
 from utils.http_client import HttpClient
+from .token_cache import EnvTokenCache
 
 
 def _extract_by_jsonpath(data: Any, path: str) -> Any:
@@ -39,6 +40,11 @@ def login(client: HttpClient, env) -> None:
     - 登录时带占位鉴权头跳过验证码校验，成功后用真实 token 覆盖
     - 首次登录失败抛 RuntimeError（上层统一捕获记为执行失败）
     - 注册 401 自动重登回调：回调内失败返回 None，不抛出以免污染调用方控制流
+
+    token 共享模式（login_config.token_share_mode，默认 shared）：
+    - shared：环境级共享 token（EnvTokenCache）。同环境并行执行复用一次登录，
+      401 时条件重登（已被他人刷新则直接复用），消除单会话系统下的乒乓互踢
+    - isolated：每执行独立登录（原行为）。多会话系统用，保留每执行独立 session
     """
     login_cfg: Dict[str, Any] = env.login_config or {}
     login_path = login_cfg.get("login_path", "/api/home/login/userLogin")
@@ -48,6 +54,8 @@ def login(client: HttpClient, env) -> None:
     # 鉴权头值模板：支持 ${token} 和 ${timestamp} 占位符
     # 默认 ${token}（直接注入）；可配为 Bearer ${token}、${token}_${timestamp} 等
     auth_header_value_template = login_cfg.get("auth_header_value_template") or "${token}"
+    # token 共享模式：shared 默认（单会话系统防乒乓），isolated 保留独立登录
+    share_mode = login_cfg.get("token_share_mode", "shared")
     if not login_body:
         return
 
@@ -61,23 +69,61 @@ def login(client: HttpClient, env) -> None:
         # 登录时带任意 Authorization 头跳过验证码校验，登录成功后会被真实 token 覆盖
         client.set_header(auth_header_name, "skip-captcha-placeholder")
         resp = client.post(login_path, json=login_body)
-        token = _extract_by_jsonpath(resp, token_jsonpath)
+        return _extract_by_jsonpath(resp, token_jsonpath)
+
+    def _apply_token(token) -> None:
         if token:
             client.set_header(auth_header_name, _build_header_value(token))
-        return token
 
-    # 首次登录失败时给出清晰错误，避免 500；后续 401 重登失败由回调吞掉
-    try:
-        _do_login()
-    except Exception as e:
-        # 包装所有登录异常为 RuntimeError，给上层统一捕获并记为执行失败
-        raise RuntimeError(f"登录失败：{e}") from e
+    # 跟踪当前使用的裸 token（refresh 时识别 stale；嵌套函数写回需容器）
+    current = {"token": None}
+
+    if share_mode == "isolated":
+        # 原行为：独立登录 + 独立刷新，token 不进共享缓存
+        try:
+            current["token"] = _do_login()
+            _apply_token(current["token"])
+        except Exception as e:
+            raise RuntimeError(f"登录失败：{e}") from e
+
+        def refresh():
+            try:
+                current["token"] = _do_login()
+                _apply_token(current["token"])
+                return current["token"]
+            except Exception as e:
+                print(f"[token刷新] 重新登录失败（忽略）: {e}")
+                return None
+
+        client.set_token_refresh_callback(refresh)
+        return
+
+    # ---- shared 模式：环境级共享 token ----
+    cached = EnvTokenCache.get(env.id)
+    if cached:
+        # 其他执行已登录过：直接复用，零登录请求
+        current["token"] = cached
+        _apply_token(cached)
+    else:
+        # 首个执行：加锁登录一次入缓存；并发到达者等待后直接复用结果
+        try:
+            token = EnvTokenCache.login_shared(env.id, _do_login)
+        except Exception as e:
+            raise RuntimeError(f"登录失败：{e}") from e
+        current["token"] = token
+        _apply_token(token)
 
     def refresh():
-        # 401 自动重登回调：失败时返回 None 触发原请求按未鉴权处理，
-        # 不抛出以免污染调用方控制流；记录日志便于排查
+        # 401 条件重登：缓存 token 已被其他执行刷新则直接复用新值（不登录），
+        # 仅当缓存仍是自己失效的那个 token 时才真正重登，消除乒乓互踢
         try:
-            return _do_login()
+            stale = current["token"]
+            if stale is None:
+                return None
+            token = EnvTokenCache.refresh_shared(env.id, stale, _do_login)
+            current["token"] = token
+            _apply_token(token)
+            return token
         except Exception as e:
             print(f"[token刷新] 重新登录失败（忽略）: {e}")
             return None

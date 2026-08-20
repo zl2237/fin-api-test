@@ -14,6 +14,15 @@ from app.services.runtime_service import (
     build_db_client,
     _extract_by_jsonpath,
 )
+from app.services.token_cache import EnvTokenCache
+
+
+@pytest.fixture(autouse=True)
+def _reset_token_cache():
+    """每个用例前清空共享 token 缓存，避免 shared 模式跨用例污染。"""
+    EnvTokenCache._tokens.clear()
+    yield
+    EnvTokenCache._tokens.clear()
 
 
 class FakeClient:
@@ -41,8 +50,9 @@ class FakeClient:
         self.refresh_callback = cb
 
 
-def _env(login_config=None, common_headers=None, base_url="http://test", db_config=None):
+def _env(login_config=None, common_headers=None, base_url="http://test", db_config=None, env_id=1):
     return SimpleNamespace(
+        id=env_id,
         login_config=login_config if login_config is not None else {},
         common_headers=common_headers,
         base_url=base_url,
@@ -196,6 +206,57 @@ class TestLogin:
         assert client.headers["Authorization"] == "skip-captcha-placeholder"
         # 仍注册了刷新回调
         assert client.refresh_callback is not None
+
+
+class TestTokenShareMode:
+    """shared（默认）与 isolated 两种 token 共享模式的登录编排。"""
+
+    def _login_cfg(self, **extra):
+        cfg = {"login_body": {"u": 1}, "token_jsonpath": "$.token"}
+        cfg.update(extra)
+        return cfg
+
+    def test_shared_second_login_reuses_cache(self):
+        # 同环境第二次登录：直接复用缓存 token，不发登录请求
+        env = _env(login_config=self._login_cfg())
+        login(FakeClient(post_resp={"token": "T1"}), env)  # 首登入缓存
+        client2 = FakeClient(post_resp={"token": "SHOULD_NOT_BE_USED"})
+        login(client2, env)
+        assert client2.post_calls == []  # 零登录请求
+        assert client2.headers["Authorization"] == "T1"
+
+    def test_shared_different_env_logs_independently(self):
+        # 不同环境各自缓存，互不影响
+        env_a = _env(login_config=self._login_cfg(), env_id=1)
+        env_b = _env(login_config=self._login_cfg(), env_id=2)
+        login(FakeClient(post_resp={"token": "A"}), env_a)
+        client_b = FakeClient(post_resp={"token": "B"})
+        login(client_b, env_b)
+        assert client_b.post_calls == [("/api/home/login/userLogin", {"u": 1})]
+        assert client_b.headers["Authorization"] == "B"
+
+    def test_shared_refresh_conditional_relogin(self):
+        # 401 时缓存已被他人刷新 → 直接复用新 token，不再登录
+        env = _env(login_config=self._login_cfg())
+        client = FakeClient(post_resp={"token": "T1"})
+        login(client, env)
+        # 另一个执行刷新了缓存
+        EnvTokenCache._tokens[1] = "T2"
+        client._post_resp = {"token": "T3"}
+        result = client.refresh_callback()
+        assert result == "T2"  # 复用他人刷新的，不是自己重登的 T3
+        assert len(client.post_calls) == 1  # 没有第二次登录
+        assert client.headers["Authorization"] == "T2"
+
+    def test_isolated_mode_bypasses_cache(self):
+        # isolated：每次登录独立，不读不写共享缓存
+        env = _env(login_config=self._login_cfg(token_share_mode="isolated"))
+        login(FakeClient(post_resp={"token": "T1"}), env)
+        assert EnvTokenCache.get(1) is None  # 未写缓存
+        client2 = FakeClient(post_resp={"token": "T2"})
+        login(client2, env)
+        assert len(client2.post_calls) == 1  # 自己登录了
+        assert client2.headers["Authorization"] == "T2"
 
 
 class TestBuildDbClient:

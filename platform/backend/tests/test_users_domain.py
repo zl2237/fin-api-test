@@ -58,7 +58,7 @@ def _admin():
 def _make_user(uid=1, username="u1", role="member"):
     return SimpleNamespace(
         id=uid, username=username, name=username, role=role,
-        phone=None, email=None, created_by=None, updated_by=None,
+        phone=None, email=None, department=None, created_by=None, updated_by=None,
     )
 
 
@@ -98,7 +98,7 @@ class TestUpdateUserInfo:
     def test_success_applies_fields_and_returns_changes(self):
         user = _make_user(uid=2, username="old", role="member")
         db = FakeDb(first_results=[None, None, None], admin_count=2)
-        req = SimpleNamespace(username="new", name="新名", phone="13800138000", email="a@b.com", role="member")
+        req = SimpleNamespace(username="new", name="新名", phone="13800138000", email="a@b.com", department=None, role="member")
         users_domain.update_user_info(db, user, req, operator=_admin())
         assert user.username == "new"
         assert user.phone == "13800138000"

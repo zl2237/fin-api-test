@@ -218,6 +218,7 @@ class ExecutionRecord(Base):
     case_id = Column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
     env_id = Column(Integer, ForeignKey("environments.id"), comment="执行环境ID")
     status = Column(String(20), default="running", comment="执行状态：running 进行中 / success 成功 / failed 失败")
+    trigger_type = Column(String(20), default="manual", comment="触发方式：manual 手动 / schedule 定时任务")
     started_at = Column(DateTime, default=datetime.now, comment="开始执行时间")
     ended_at = Column(DateTime, comment="结束时间")
     summary = Column(JSON, default=dict, comment="执行摘要：{total 总数, passed 通过, failed 失败}")
@@ -394,3 +395,25 @@ class FileTagRelation(Base):
 
     file = relationship("TestFile", back_populates="tag_links")
     tag = relationship("FileTag")
+
+
+class TestSchedule(Base):
+    """用例定时任务：interval 间隔分钟 / daily 每日固定时刻，两档简化调度（不暴露原生 cron）"""
+    __tablename__ = "test_schedules"
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True, comment="所属用例ID")
+    env_id = Column(Integer, ForeignKey("environments.id"), nullable=False, comment="执行环境ID")
+    schedule_type = Column(String(20), nullable=False, comment="调度类型：interval 间隔分钟 / daily 每日固定时刻")
+    interval_minutes = Column(Integer, comment="interval 类型：间隔分钟数（≥1）")
+    daily_time = Column(String(5), comment="daily 类型：每日执行时刻 HH:MM（24小时制）")
+    enabled = Column(Boolean, default=True, comment="是否启用")
+    last_run_at = Column(DateTime, comment="最近一次实际触发时间")
+    next_run_at = Column(DateTime, comment="下次预计触发时间（调度器计算，冗余展示用）")
+    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+
+    case = relationship("TestCase")
+    env = relationship("Environment")

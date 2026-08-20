@@ -539,12 +539,51 @@ class ExecutionRecordOut(ORMBase):
     project_id: Optional[int] = None
     project_name: Optional[str] = None
     status: str
+    trigger_type: str = "manual"
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     summary: Dict[str, Any] = {}
     steps: List[StepRecordOut] = []
     created_by: Optional[int] = None
     created_by_name: Optional[str] = None
+
+
+# ============ TestSchedule 定时任务 ============
+class TestScheduleCreate(BaseModel):
+    case_id: int
+    env_id: int
+    schedule_type: str  # interval / daily
+    interval_minutes: Optional[int] = None
+    daily_time: Optional[str] = None  # HH:MM
+    enabled: bool = True
+
+
+class TestScheduleUpdate(BaseModel):
+    env_id: Optional[int] = None
+    schedule_type: Optional[str] = None
+    interval_minutes: Optional[int] = None
+    daily_time: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class TestScheduleOut(ORMBase):
+    id: int
+    case_id: int
+    env_id: int
+    case_name: Optional[str] = None
+    env_name: Optional[str] = None
+    schedule_type: str
+    interval_minutes: Optional[int] = None
+    daily_time: Optional[str] = None
+    enabled: bool
+    last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_by: Optional[int] = None
+    updated_by_name: Optional[str] = None
 
 
 # ============ FieldDictionary 字段字典 ============

@@ -38,6 +38,9 @@ def update(env_id: int, data: schemas.EnvironmentUpdate, db: Session = Depends(g
     if not obj:
         raise HTTPException(404, "环境不存在")
     obj = crud.update_environment(db, obj, data, user.id)
+    # 登录配置可能变更：失效共享 token 缓存，下次执行重新登录
+    from ..services.token_cache import EnvTokenCache
+    EnvTokenCache.invalidate(env_id)
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "environment", obj.id, obj.name)
     return obj
@@ -48,6 +51,13 @@ def delete(env_id: int, db: Session = Depends(get_db), user: models.User = Depen
     obj = crud.get_environment(db, env_id)
     if not obj:
         raise HTTPException(404, "环境不存在")
+    # 清理共享 token 缓存与该环境的定时任务（先移 job——remove_by_env 需查业务行取 id，再删业务行）
+    from ..services.token_cache import EnvTokenCache
+    from ..services.scheduler import scheduler_service
+    EnvTokenCache.invalidate(env_id)
+    scheduler_service.remove_by_env(env_id)
+    db.query(models.TestSchedule).filter(models.TestSchedule.env_id == env_id).delete()
+    db.commit()
     crud.delete_environment(db, obj)
     crud.log_operation(db, user, "delete", "environment", obj.id, obj.name)
     return {"message": "已删除"}

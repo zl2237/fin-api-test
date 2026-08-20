@@ -85,6 +85,12 @@ def delete(case_id: int, db: Session = Depends(get_db), user: models.User = Depe
     obj = crud.get_testcase(db, case_id)
     if not obj:
         raise HTTPException(404, "用例不存在")
+    # 用例删除连带清理其定时任务（业务行 + 调度器 job），避免孤儿任务空转
+    # 先移除 job（remove_by_case 需查业务行取 id），再删业务行
+    from ..services.scheduler import scheduler_service
+    scheduler_service.remove_by_case(case_id)
+    db.query(models.TestSchedule).filter(models.TestSchedule.case_id == case_id).delete()
+    db.commit()
     crud.delete_testcase(db, obj)
     crud.log_operation(db, user, "delete", "testcase", obj.id, obj.name)
     return {"message": "已删除"}
