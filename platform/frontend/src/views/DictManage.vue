@@ -51,8 +51,10 @@
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
           </el-table-column>
-          <el-table-column label="更新时间" min-width="170" show-overflow-tooltip>
-            <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
+          <el-table-column label="更新时间" width="120">
+            <template #default="{ row }">
+              <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+            </template>
           </el-table-column>
           <el-table-column label="操作" width="130" fixed="right">
             <template #default="{ row }">
@@ -131,7 +133,7 @@ import { Search } from '@element-plus/icons-vue'
 import { dictApi, userApi, type FieldDictionary, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { debounce } from '@/utils/ui'
-import { formatTime } from '@/utils/format'
+import { formatTime, formatRelativeTime } from '@/utils/format'
 
 const store = useAppStore()
 const list = ref<FieldDictionary[]>([])

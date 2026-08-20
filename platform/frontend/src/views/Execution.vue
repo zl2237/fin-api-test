@@ -56,12 +56,17 @@
     </div>
 
     <el-card shadow="never" class="card">
-      <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
+      <div v-if="loadError" class="app-load-error">
+        <el-icon><WarningFilled /></el-icon>
+        <span>{{ loadError }}</span>
+        <el-button size="small" @click="load">重试</el-button>
+      </div>
+      <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
       <el-table v-else :data="pagedList" stripe size="small" row-key="id">
         <template #empty>
-          <el-empty :image-size="80" description="暂无执行记录">
+          <EmptyState description="暂无执行记录" :image-size="80">
             <el-button type="primary" @click="router.push('/cases')">前往用例列表执行用例</el-button>
-          </el-empty>
+          </EmptyState>
         </template>
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column label="项目" min-width="120" show-overflow-tooltip>
@@ -86,11 +91,15 @@
             {{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column label="开始时间" min-width="170" show-overflow-tooltip>
-          <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
+        <el-table-column label="开始时间" width="120">
+          <template #default="{ row }">
+            <span :title="formatTime(row.started_at)">{{ formatRelativeTime(row.started_at) }}</span>
+          </template>
         </el-table-column>
-        <el-table-column label="结束时间" min-width="170" show-overflow-tooltip>
-          <template #default="{ row }">{{ formatTime(row.ended_at) }}</template>
+        <el-table-column label="结束时间" width="120">
+          <template #default="{ row }">
+            <span :title="formatTime(row.ended_at)">{{ formatRelativeTime(row.ended_at) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="执行人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
@@ -137,11 +146,12 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, WarningFilled } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { formatTime } from '@/utils/format'
+import { formatTime, formatRelativeTime } from '@/utils/format'
+import EmptyState from '@/components/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -149,6 +159,7 @@ const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
 const list = ref<ExecutionRecord[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const users = ref<SimpleUser[]>([])
 
 // 清理旧记录
@@ -204,7 +215,38 @@ function onQuery() {
   applied.status = filterStatus.value
   applied.range = filterRange.value
   page.value = 1
+  syncQueryToUrl()
   load()
+}
+
+// 筛选状态同步 URL（GitHub 惯例）：刷新不丢条件、可直接分享「失败记录」链接
+function syncQueryToUrl() {
+  const q: Record<string, string> = {}
+  if (applied.projectId) q.project_id = String(applied.projectId)
+  if (applied.executor) q.executor = String(applied.executor)
+  if (applied.caseId) q.case_id = applied.caseId
+  if (applied.status) q.status = applied.status
+  if (applied.range && applied.range.length === 2) {
+    q.start = applied.range[0]
+    q.end = applied.range[1]
+  }
+  router.replace({ query: q })
+}
+
+// 从 URL 恢复筛选（草稿回填后走统一 onQuery 生效）
+function restoreFromQuery() {
+  const q = route.query
+  if (q.project_id) {
+    const n = Number(q.project_id)
+    if (!Number.isNaN(n)) filterProjectId.value = n
+  }
+  if (q.executor) {
+    const n = Number(q.executor)
+    if (!Number.isNaN(n)) filterExecutor.value = n
+  }
+  if (q.case_id) filterCaseId.value = String(q.case_id)
+  if (q.status) filterStatus.value = String(q.status)
+  if (q.start && q.end) filterRange.value = [String(q.start), String(q.end)]
 }
 
 function resetFilter() {
@@ -263,6 +305,7 @@ async function load() {
     return
   }
   loading.value = true
+  loadError.value = ''
   try {
     // 后端过滤：case_id、project_id、created_by（执行人），均取生效条件快照
     const caseId = applied.caseId ? Number(applied.caseId) : undefined
@@ -277,7 +320,8 @@ async function load() {
       stopAutoRefresh()
     }
   } catch (e: any) {
-    ElMessage.error(e.message)
+    // 页面级失败：内联错误块 + 重试，不用 toast 一闪而过
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }
@@ -320,13 +364,8 @@ async function onCleanup() {
 }
 
 onMounted(() => {
-  // URL 携带的过滤条件（如报告页跳转 ?case_id=xx）回填到输入框并清掉 query：
-  // 隐藏过滤会让「条数莫名变少」且无法清除，回填后过滤状态可见可改
-  const qCaseId = route.query.case_id ? Number(route.query.case_id) : null
-  if (qCaseId) {
-    filterCaseId.value = String(qCaseId)
-    router.replace({ query: { ...route.query, case_id: undefined } })
-  }
+  // URL 携带筛选条件时回填（含报告页跳转 ?case_id=xx）：条件可见可改，且刷新不丢
+  restoreFromQuery()
   onQuery()
   loadUsers()
 })
@@ -337,6 +376,7 @@ watch(currentProjectId, (newId) => {
     filterProjectId.value = newId
     applied.projectId = newId
     page.value = 1
+    syncQueryToUrl()
     load()
   }
 })

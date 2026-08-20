@@ -122,8 +122,10 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_by_name" label="上传人" width="100" />
-        <el-table-column prop="created_at" label="上传时间" width="170">
-          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        <el-table-column prop="created_at" label="上传时间" width="120">
+          <template #default="{ row }">
+            <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
@@ -243,7 +245,7 @@ import { useAppStore } from '@/stores'
 import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
 import { fileApi, fileCategoryApi, fileTagApi, type TestFile, type FileCategory, type FileTag } from '@/api'
 import { debounce } from '@/utils/ui'
-import { formatTime } from '@/utils/format'
+import { formatTime, formatRelativeTime } from '@/utils/format'
 
 const store = useAppStore()
 const projectId = computed(() => store.currentProjectId)
