@@ -62,7 +62,7 @@
           @click="selectedRowKey = row.key"
         >
           <el-icon
-            v-if="row.expandable"
+            v-if="hasChildGroups(row.groupId)"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
             @click.stop="onToggleGroup(row)"
@@ -534,6 +534,11 @@ watch(keyword, () => resetPages())
 // ===== 左分组导航选中态（master-detail）=====
 const selectedRowKey = ref<string | number>('all')
 const selectedRow = computed(() => visibleGroupRows.value.find(r => r.key === selectedRowKey.value))
+// 左栏 caret 仅在「有子分组」时显示（composable 的 expandable 含"组内有数据"的旧手风琴语义，叶子分组展开无意义）
+function hasChildGroups(groupId: number | null): boolean {
+  if (groupId == null) return false
+  return groups.value.some(g => g.parent_id === groupId)
+}
 // 分组重载/删除后选中项可能消失，回退到「全部」
 watch(visibleGroupRows, (rows) => {
   if (selectedRowKey.value !== 'all' && !rows.some(r => r.key === selectedRowKey.value)) {
