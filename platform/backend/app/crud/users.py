@@ -108,6 +108,10 @@ def update_user_info(db: Session, user: models.User, data, operator: models.User
     if user.email != new_email:
         user.email = new_email
         changes.append(f"邮箱 -> {new_email or '空'}")
+    new_department = (data.department or "").strip() or None
+    if user.department != new_department:
+        user.department = new_department
+        changes.append(f"部门 -> {new_department or '空'}")
     if user.role != data.role:
         user.role = data.role
         changes.append(f"角色 -> {data.role}")

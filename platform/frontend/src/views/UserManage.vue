@@ -6,6 +6,10 @@
         <el-button type="primary" @click="openCreate">+ 新建用户</el-button>
       </div>
       <div class="head-right">
+        <!-- 部门筛选：选项从已有用户的部门动态提取（本地过滤，即时生效） -->
+        <el-select v-model="filterDepartment" placeholder="部门" clearable filterable style="width: 140px" @change="filterLocal">
+          <el-option v-for="d in departments" :key="d" :label="d" :value="d" />
+        </el-select>
         <el-select v-model="filterCreator" placeholder="创建人" clearable filterable style="width: 140px" @change="filterLocal">
           <el-option v-for="u in allUsers" :key="u.id" :label="u.name || u.username" :value="u.id" />
         </el-select>
@@ -20,7 +24,10 @@
       <el-table v-else :data="pagedList" stripe empty-text="暂无用户">
         <el-table-column prop="id" label="ID" width="60" align="center" />
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="name" label="显示名" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="name" label="显示名" min-width="110" show-overflow-tooltip />
+        <el-table-column label="部门" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.department || '—' }}</template>
+        </el-table-column>
         <el-table-column label="手机号" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.phone || '—' }}</template>
         </el-table-column>
@@ -73,6 +80,11 @@
         <el-form-item label="密码" prop="password">
           <el-input v-model="createForm.password" type="password" show-password placeholder="至少8位，含字母和数字" />
         </el-form-item>
+        <el-form-item label="部门" prop="department">
+          <el-select v-model="createForm.department" placeholder="选填，可直接输入" filterable allow-create clearable style="width: 100%">
+            <el-option v-for="d in departments" :key="d" :label="d" :value="d" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="角色" prop="role">
           <el-radio-group v-model="createForm.role">
             <el-radio value="member">普通成员</el-radio>
@@ -86,7 +98,7 @@
       </template>
     </el-dialog>
 
-    <!-- 编辑用户抽屉：5 字段超弹窗边界，升格为抽屉（规范 §2） -->
+    <!-- 编辑用户抽屉：6 字段超弹窗边界，升格为抽屉（规范 §2） -->
     <el-drawer v-model="roleVisible" title="编辑用户" size="440px" :close-on-click-modal="false">
       <el-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-width="80px">
         <el-form-item label="用户名" prop="username">
@@ -100,6 +112,11 @@
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="roleForm.email" placeholder="选填，全局唯一" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="部门" prop="department">
+          <el-select v-model="roleForm.department" placeholder="选填，可直接输入" filterable allow-create clearable style="width: 100%">
+            <el-option v-for="d in departments" :key="d" :label="d" :value="d" />
+          </el-select>
         </el-form-item>
         <el-form-item label="角色" prop="role">
           <el-radio-group v-model="roleForm.role">
@@ -147,12 +164,18 @@ const loading = ref(false)
 const submitLoading = ref(false)
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
+const filterDepartment = ref<string | null>(null)
+// 部门选项：从已有用户动态提取（自由文本字段，不建独立字典）
+const departments = computed(() =>
+  Array.from(new Set(allUsers.value.map(u => (u.department || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+)
 const page = ref(1)
 const pageSize = ref(10)
 const users = computed(() => {
   let r = allUsers.value
   if (filterCreator.value) r = r.filter(u => u.created_by === filterCreator.value)
   if (filterUpdater.value) r = r.filter(u => u.updated_by === filterUpdater.value)
+  if (filterDepartment.value) r = r.filter(u => (u.department || '').trim() === filterDepartment.value)
   return r
 })
 const pagedList = computed(() => {
@@ -167,7 +190,7 @@ function filterLocal() {
 // 新增
 const createVisible = ref(false)
 const createFormRef = ref<FormInstance>()
-const createForm = reactive({ username: '', name: '', password: '', role: 'member' })
+const createForm = reactive({ username: '', name: '', password: '', role: 'member', department: '' })
 const createRules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [
@@ -188,7 +211,7 @@ const createRules: FormRules = {
 const roleVisible = ref(false)
 const roleTarget = ref<User | null>(null)
 const roleFormRef = ref<FormInstance>()
-const roleForm = reactive({ username: '', name: '', phone: '', email: '', role: 'member' })
+const roleForm = reactive({ username: '', name: '', phone: '', email: '', department: '', role: 'member' })
 const roleRules: FormRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -286,6 +309,7 @@ function openEditDrawer(row: User) {
   roleForm.name = row.name || ''
   roleForm.phone = row.phone || ''
   roleForm.email = row.email || ''
+  roleForm.department = row.department || ''
   roleForm.role = row.role
   roleFormRef.value?.clearValidate()
   roleVisible.value = true
@@ -302,6 +326,7 @@ async function onRoleUpdate() {
         name: roleForm.name.trim() || null,
         phone: roleForm.phone.trim() || null,
         email: roleForm.email.trim() || null,
+        department: (roleForm.department || '').trim() || null,
         role: roleForm.role,
       })
       ElMessage.success('已保存')
