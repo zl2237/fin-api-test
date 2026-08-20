@@ -76,7 +76,7 @@
     </div>
 
     <!-- 新建/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑项目' : '新建项目'" width="480px" align-center>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑项目' : '新建项目'" width="420px" align-center :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
         <el-form-item label="项目名称">
           <el-input v-model="form.name" placeholder="如：fin-order 测试" />
@@ -261,10 +261,19 @@ onMounted(() => {
   background: var(--app-bg);
 }
 .page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 12px 20px;
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
+}
+.head-left,
+.head-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .table-wrap {
   flex: 1;

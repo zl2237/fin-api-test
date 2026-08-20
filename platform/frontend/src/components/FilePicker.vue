@@ -3,6 +3,7 @@
     v-model="visible"
     title="选择文件"
     width="780px"
+    align-center
     append-to-body
     destroy-on-close
     class="file-picker-dialog"
@@ -15,9 +16,9 @@
         placeholder="按名称搜索"
         clearable
         size="default"
-        style="width: 260px"
-        @keyup.enter="loadFiles"
-        @clear="loadFiles"
+        style="width: 240px"
+        @input="onKeywordInput"
+        @clear="onKeywordInput"
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
@@ -131,6 +132,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { fileApi, fileCategoryApi, fileTagApi, type TestFile, type FileCategory, type FileTag } from '@/api'
+import { debounce } from '@/utils/ui'
 
 const props = defineProps<{
   modelValue: boolean
@@ -184,6 +186,11 @@ async function loadFiles() {
     loading.value = false
   }
 }
+
+// 搜索输入：300ms 防抖统一搜索范式（与 DictManage/FileCenter 一致，替代原「回车/清空才触发」）
+const onKeywordInput = debounce(() => {
+  loadFiles()
+}, 300)
 
 async function loadCategories() {
   if (!projectId.value) return

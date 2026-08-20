@@ -1,24 +1,47 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <el-button type="primary" @click="openCreate">+ 新增字典</el-button>
-      <el-button type="success" @click="openBatch">批量导入</el-button>
-      <span style="flex: 1" />
-      <el-input
-        v-model="keyword"
-        style="width: 240px"
-        placeholder="搜索字段名 / 中文名"
-        clearable
-        @input="onSearchInput"
-        @clear="onSearchInput"
-      >
-        <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
+      <div class="head-left">
+        <el-button type="primary" @click="openCreate">+ 新增字典</el-button>
+        <el-button type="success" @click="openBatch">批量导入</el-button>
+      </div>
+      <div class="head-right">
+        <el-select
+          v-model="filterCreator"
+          style="width: 140px"
+          placeholder="创建人"
+          clearable
+          filterable
+          @change="page = 1"
+        >
+          <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+        <el-select
+          v-model="filterUpdater"
+          style="width: 140px"
+          placeholder="更新人"
+          clearable
+          filterable
+          @change="page = 1"
+        >
+          <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+        <el-input
+          v-model="keyword"
+          style="width: 240px"
+          placeholder="搜索字段名 / 中文名"
+          clearable
+          @input="onSearchInput"
+          @clear="onSearchInput"
+        >
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+      </div>
     </div>
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else :data="pagedList" stripe>
+        <el-table v-else :data="pagedList" stripe size="small" row-key="id">
           <el-table-column prop="id" label="ID" width="70" />
           <el-table-column prop="key" label="字段名（英文）" min-width="200" show-overflow-tooltip />
           <el-table-column prop="label" label="中文名" min-width="180" show-overflow-tooltip />
@@ -28,7 +51,9 @@
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
           </el-table-column>
-          <el-table-column prop="updated_at" label="更新时间" min-width="170" show-overflow-tooltip />
+          <el-table-column label="更新时间" min-width="170" show-overflow-tooltip>
+            <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="130" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
@@ -40,9 +65,10 @@
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"
-            :total="list.length"
+            :total="filteredList.length"
             :page-sizes="[10, 20, 50, 100]"
             layout="total, sizes, prev, pager, next"
+            small
             background
           />
         </div>
@@ -50,7 +76,7 @@
     </div>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑字典' : '新增字典'" width="460px" align-center>
+    <el-dialog v-model="dialogVisible" :title="editing ? '编辑字典' : '新增字典'" width="420px" align-center :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
         <el-form-item label="字段名" required>
           <el-input v-model="form.key" placeholder="如 order_id / bl_no" />
@@ -66,7 +92,7 @@
     </el-dialog>
 
     <!-- 批量导入弹窗 -->
-    <el-dialog v-model="batchVisible" title="批量导入字典" width="600px" align-center>
+    <el-dialog v-model="batchVisible" title="批量导入字典" width="620px" align-center :close-on-click-modal="false">
       <el-alert type="info" :closable="false" style="margin-bottom: 12px">
         <div class="batch-guide">
           <div class="guide-title">导入格式说明</div>
@@ -102,20 +128,32 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
-import { dictApi, type FieldDictionary } from '@/api'
+import { dictApi, userApi, type FieldDictionary, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { debounce } from '@/utils/ui'
+import { formatTime } from '@/utils/format'
 
 const store = useAppStore()
 const list = ref<FieldDictionary[]>([])
+const users = ref<SimpleUser[]>([])
 const loading = ref(false)
 const keyword = ref('')
+const filterCreator = ref<number | null>(null)
+const filterUpdater = ref<number | null>(null)
 const page = ref(1)
 const pageSize = ref(10)
 
+// 客户端全量列表：创建人/更新人直接本地过滤（服务端 list 仅支持 keyword）
+const filteredList = computed(() => {
+  return list.value.filter(d =>
+    (filterCreator.value == null || d.created_by === filterCreator.value) &&
+    (filterUpdater.value == null || d.updated_by === filterUpdater.value),
+  )
+})
+
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
+  return filteredList.value.slice(start, start + pageSize.value)
 })
 
 async function load() {
@@ -135,6 +173,14 @@ const onSearchInput = debounce(() => {
   page.value = 1
   load()
 }, 300)
+
+async function loadUsers() {
+  try {
+    users.value = await userApi.simple()
+  } catch {
+    users.value = []
+  }
+}
 
 // ===== 新增/编辑 =====
 const dialogVisible = ref(false)
@@ -249,13 +295,16 @@ async function onBatchSave() {
 
 onMounted(() => {
   load()
+  loadUsers()
 })
 
-// 切换项目时重新加载，确保字典数据按项目隔离
+// 切换项目时重新加载，确保字典数据按项目隔离（筛选与页码同步重置，避免携带旧项目条件）
 watch(() => store.currentProjectId, (n, old) => {
   if (n !== old) {
     page.value = 1
     keyword.value = ''
+    filterCreator.value = null
+    filterUpdater.value = null
     load()
   }
 })
@@ -269,9 +318,18 @@ watch(() => store.currentProjectId, (n, old) => {
 }
 .page-head {
   display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: 0 0 16px;
   flex-shrink: 0;
+}
+.head-left {
+  display: flex;
+  gap: 8px;
+}
+.head-right {
+  display: flex;
+  gap: 8px;
 }
 .table-wrap {
   flex: 1;
@@ -285,7 +343,7 @@ watch(() => store.currentProjectId, (n, old) => {
   padding: 20px;
 }
 .pagination-wrap {
-  margin-top: 16px;
+  margin-top: 12px;
   display: flex;
   justify-content: flex-end;
 }
