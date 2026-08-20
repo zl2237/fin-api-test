@@ -24,14 +24,20 @@
       </el-select>
     </div>
     <div class="table-wrap">
-      <!-- 空态：EmptyState 承担全部引导（表格/分页不再渲染，避免同屏双空态） -->
-      <el-card v-if="!loading && !list.length" shadow="never" class="card empty-card">
+      <!-- 空态：EmptyState 承担全部引导（表格/分页不再渲染，避免同屏双空态）；加载失败时优先展示错误块 -->
+      <el-card v-if="!loading && !loadError && !list.length" shadow="never" class="card empty-card">
         <EmptyState description="暂无项目">
           <el-button type="primary" @click="openCreate">创建第一个项目</el-button>
         </EmptyState>
       </el-card>
       <el-card v-else shadow="never" class="card">
-        <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
+        <!-- 页面级加载失败：内联错误块 + 重试 -->
+        <div v-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="load">重试</el-button>
+        </div>
+        <el-skeleton v-else-if="loading" :rows="5" animated class="skeleton-wrap" />
         <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id">
           <el-table-column width="36" align="center">
             <template #default>
@@ -52,7 +58,11 @@
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" min-width="170" show-overflow-tooltip />
+          <el-table-column label="创建时间" width="120">
+            <template #default="{ row }">
+              <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="onSwitch(row)">切换为当前</el-button>
@@ -97,14 +107,16 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank } from '@element-plus/icons-vue'
+import { Rank, WarningFilled } from '@element-plus/icons-vue'
 import { projectApi, userApi, type Project, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import { formatTime, formatRelativeTime } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
 const list = ref<Project[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const users = ref<SimpleUser[]>([])
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
@@ -163,11 +175,13 @@ const form = ref<{ id?: number; name: string; description: string }>({ name: '',
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     list.value = await projectApi.list({ created_by: filterCreator.value ?? undefined, updated_by: filterUpdater.value ?? undefined })
     page.value = 1
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    // 页面级失败：内联错误块 + 重试
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }
