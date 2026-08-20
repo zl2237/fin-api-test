@@ -868,8 +868,7 @@ onMounted(async () => {
   margin-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
-/* 开发者头像：圆形 + 悬浮放大并缓慢旋转一圈 */
-/* 头像涟漪特效：外层容器负责持续扩散的波纹（双圈错峰），不影响头像本身的悬浮旋转 */
+/* 头像定位容器（原持续涟漪装饰已删：动效只留功能反馈） */
 .avatar-ripple {
   position: relative;
   width: 36px;
@@ -894,37 +893,6 @@ onMounted(async () => {
 @keyframes avatar-uploading-blink {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
-}
-.avatar-ripple::before,
-.avatar-ripple::after {
-  content: '';
-  position: absolute;
-  inset: -2px; /* 覆盖头像 2px 描边 */
-  border-radius: 50%;
-  /* 涟漪衬在侧边栏蓝色渐变上，必须用亮色变体（primary 本色 #0071e3 偏深，与渐变对比不足会看不见） */
-  border: 2px solid color-mix(in srgb, var(--app-primary-light) 55%, transparent);
-  animation: avatar-ripple 2.4s ease-out infinite;
-  pointer-events: none; /* 波纹不拦截头像的悬浮/点击 */
-}
-.avatar-ripple::after {
-  animation-delay: 1.2s; /* 第二圈错峰，形成持续涟漪 */
-}
-@keyframes avatar-ripple {
-  0% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.9);
-    opacity: 0;
-  }
-}
-/* 用户偏好减少动画时关闭涟漪 */
-@media (prefers-reduced-motion: reduce) {
-  .avatar-ripple::before,
-  .avatar-ripple::after {
-    animation: none;
-  }
 }
 .dev-avatar {
   width: 36px;

@@ -21,7 +21,7 @@
 
     <el-card shadow="never" class="table-card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe empty-text="暂无用户">
+      <el-table v-else :data="pagedList" stripe size="small" empty-text="暂无用户">
         <el-table-column prop="id" label="ID" width="60" align="center" />
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="显示名" min-width="110" show-overflow-tooltip />

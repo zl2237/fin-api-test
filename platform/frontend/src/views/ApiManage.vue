@@ -5,10 +5,6 @@
       <div class="head-left">
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
         <el-button @click="showImportDialog = true">导入接口</el-button>
-        <el-button
-          :disabled="selectedApiIds.length === 0"
-          @click="onBatchMove"
-        >批量移动到{{ selectedApiIds.length ? `（已选 ${selectedApiIds.length}）` : '' }}</el-button>
       </div>
       <div class="head-right">
         <el-select
@@ -41,6 +37,15 @@
         </el-input>
       </div>
     </div>
+
+    <!-- 批量操作条：仅在有选中时浮现（GitHub 惯例），未选中不占空间 -->
+    <Transition name="bulk-bar">
+      <div v-if="selectedApiIds.length" class="bulk-bar">
+        <span class="bulk-count">已选 {{ selectedApiIds.length }} 项</span>
+        <el-button size="small" @click="onBatchMove">移动到分组</el-button>
+        <el-button size="small" text @click="clearAllTables()">取消选择</el-button>
+      </div>
+    </Transition>
 
     <!-- 左分组导航 + 右组内列表（master-detail）；页面级单一加载遮罩 -->
     <div v-loading="loading" class="group-layout">
@@ -1024,6 +1029,29 @@ watch(currentProjectId, () => {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
+}
+/* 批量操作条：选中即浮现（高度过渡避免布局跳变） */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  background: color-mix(in srgb, var(--app-primary) 7%, var(--app-card));
+  border-bottom: 1px solid color-mix(in srgb, var(--app-primary) 22%, var(--app-border));
+}
+.bulk-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary);
+}
+.bulk-bar-enter-active,
+.bulk-bar-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.bulk-bar-enter-from,
+.bulk-bar-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 .head-left {
   display: flex;

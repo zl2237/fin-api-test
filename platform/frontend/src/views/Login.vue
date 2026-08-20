@@ -1,31 +1,7 @@
 <template>
-  <div class="login-page" @mousemove="onMouseMove">
-    <!-- 左侧品牌展示区 -->
+  <div class="login-page">
+    <!-- 左侧品牌展示区：静态 DAG 品牌图（产品视觉识别符，不做任何动画） -->
     <aside class="brand-panel">
-      <!-- 浮动 DAG 节点装饰（鼠标视差跟随）-->
-      <div class="deco-layer" :style="parallaxStyle">
-        <svg class="deco-svg" viewBox="0 0 600 700" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <defs>
-            <linearGradient id="decoNodeGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
-              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.5" />
-            </linearGradient>
-          </defs>
-          <!-- 连线 -->
-          <path d="M120 180 L300 320 M300 320 L500 220 M300 320 L200 520 M300 320 L460 500" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 8" />
-          <!-- 节点：不同大小 + 不同动画延迟 -->
-          <circle cx="120" cy="180" r="14" fill="url(#decoNodeGrad)" class="deco-node deco-node-1" />
-          <circle cx="300" cy="320" r="20" fill="url(#decoNodeGrad)" class="deco-node deco-node-2" />
-          <circle cx="500" cy="220" r="12" fill="url(#decoNodeGrad)" class="deco-node deco-node-3" />
-          <circle cx="200" cy="520" r="10" fill="url(#decoNodeGrad)" class="deco-node deco-node-4" />
-          <circle cx="460" cy="500" r="16" fill="url(#decoNodeGrad)" class="deco-node deco-node-5" />
-          <!-- 小光点 -->
-          <circle cx="80" cy="400" r="4" fill="rgba(255,255,255,0.6)" class="deco-node deco-node-6" />
-          <circle cx="540" cy="380" r="5" fill="rgba(255,255,255,0.5)" class="deco-node deco-node-7" />
-        </svg>
-      </div>
-
-      <!-- 品牌内容 -->
       <div class="brand-content">
         <div class="brand-logo-row">
           <svg viewBox="0 0 32 32" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -54,36 +30,60 @@
         <h1 class="brand-title">接口自动化测试平台</h1>
         <p class="brand-slogan">DAG 可视化编排 · 17 种断言 · 一键执行报告</p>
 
-        <!-- 核心能力卡片 -->
-        <div class="feature-list">
-          <div class="feature-item">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M5 4h14v16H5z M9 8h6 M9 12h6 M9 16h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <div class="feature-text">
-              <div class="feature-name">用例管理</div>
-              <div class="feature-desc">分组编排 · 拖拽排序 · 批量执行</div>
-            </div>
-          </div>
-          <div class="feature-item">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M8 12l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <div class="feature-text">
-              <div class="feature-name">智能断言</div>
-              <div class="feature-desc">JSONPath · 状态码 · DB 交叉校验</div>
-            </div>
-          </div>
-          <div class="feature-item">
-            <div class="feature-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 17V7l8-4 8 4v10l-8 4z M4 7l8 4 8-4 M12 11v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <div class="feature-text">
-              <div class="feature-name">报告导出</div>
-              <div class="feature-desc">耗时趋势 · HTML 导出 · 重新执行</div>
-            </div>
-          </div>
-        </div>
+        <!-- 静态 DAG 品牌大图：本产品视觉识别符（画布同构，无动画） -->
+        <svg class="brand-dag" viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img"
+             aria-label="用例编排 DAG 示意：三个接口节点汇聚到断言节点，其中一条链路校验失败">
+          <defs>
+            <marker id="dagArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <polygon points="0 0, 10 5, 0 10" fill="rgba(255,255,255,0.55)" />
+            </marker>
+          </defs>
+          <!-- 连线：两条成功链路（实线）+ 一条失败链路（虚线红） -->
+          <path d="M110 70 C 170 70, 190 128, 250 138" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" marker-end="url(#dagArrow)" />
+          <path d="M110 150 C 170 150, 190 148, 250 148" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" marker-end="url(#dagArrow)" />
+          <path d="M110 230 C 170 230, 190 168, 250 158" stroke="rgba(255,120,110,0.75)" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#dagArrow)" />
+          <path d="M330 148 C 370 148, 380 70, 425 66" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" marker-end="url(#dagArrow)" />
+          <path d="M330 148 C 370 148, 380 226, 425 230" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" marker-end="url(#dagArrow)" />
+          <!-- 上游接口节点 -->
+          <g>
+            <rect x="28" y="46" width="82" height="48" rx="10" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
+            <text x="69" y="67" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">POST</text>
+            <text x="69" y="83" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/login</text>
+          </g>
+          <g>
+            <rect x="28" y="126" width="82" height="48" rx="10" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
+            <text x="69" y="147" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">POST</text>
+            <text x="69" y="163" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/orders</text>
+          </g>
+          <!-- 失败链路节点 -->
+          <g>
+            <rect x="28" y="206" width="82" height="48" rx="10" fill="rgba(255,120,110,0.12)" stroke="rgba(255,120,110,0.8)" stroke-width="1.2" />
+            <text x="69" y="227" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">GET</text>
+            <text x="69" y="243" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/refund</text>
+          </g>
+          <!-- 汇聚断言节点（产品核心：17 种校验） -->
+          <g>
+            <rect x="250" y="118" width="80" height="60" rx="10" fill="rgba(255,255,255,0.16)" stroke="#fff" stroke-width="1.3" />
+            <path d="M272 148 l7 8 l14 -16" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+            <text x="290" y="171" text-anchor="middle" fill="rgba(255,255,255,0.6)" font-size="9">17 断言</text>
+          </g>
+          <!-- 下游结果节点 -->
+          <g>
+            <rect x="425" y="42" width="34" height="44" rx="9" fill="rgba(110,220,150,0.16)" stroke="rgba(110,220,150,0.85)" stroke-width="1.2" />
+            <path d="M435 60 l5 6 l10 -12" stroke="rgba(110,220,150,1)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          </g>
+          <g>
+            <rect x="425" y="208" width="34" height="44" rx="9" fill="rgba(255,120,110,0.14)" stroke="rgba(255,120,110,0.85)" stroke-width="1.2" />
+            <path d="M434 224 l12 12 M446 224 l-12 12" stroke="rgba(255,120,110,1)" stroke-width="2" stroke-linecap="round" />
+          </g>
+        </svg>
+
+        <!-- 三行直陈能力（无卡片无图标框，工具感文案） -->
+        <ul class="brand-points">
+          <li>画布拖拽编排接口流程，双击节点配断言</li>
+          <li>JSONPath / 状态码 / 数据库交叉校验，17 种断言</li>
+          <li>cURL 粘贴、HAR 抓包、Swagger 文档批量导入</li>
+        </ul>
       </div>
 
       <!-- 底部版权 -->
@@ -144,6 +144,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
+// computed 仅用于注册密码实时合规提示；品牌区已静态化，无交互状态
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
@@ -189,22 +190,6 @@ const rules: FormRules = {
 watch(activeTab, () => {
   formRef.value?.clearValidate()
 })
-
-// ===== 鼠标视差：左侧装饰节点跟随鼠标轻微移动 =====
-const mouseX = ref(0)
-const mouseY = ref(0)
-const parallaxStyle = computed(() => ({
-  transform: `translate(${mouseX.value * 12}px, ${mouseY.value * 12}px)`,
-}))
-// 尊重系统减少动效偏好：停用视差监听（原 CSS 只关 transition，JS 仍每帧改写 transform 生硬跳变）
-const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-function onMouseMove(e: MouseEvent) {
-  if (reduceMotion) return
-  // 归一化到 -1 ~ 1
-  mouseX.value = (e.clientX / window.innerWidth - 0.5) * 2
-  mouseY.value = (e.clientY / window.innerHeight - 0.5) * 2
-}
 
 async function onSubmit() {
   if (!formRef.value || loading.value) return
@@ -276,41 +261,12 @@ async function onSubmit() {
   pointer-events: none;
 }
 
-/* 浮动 DAG 节点装饰层 */
-.deco-layer {
-  position: absolute;
-  inset: 0;
-  transition: transform 0.3s ease-out;
-  pointer-events: none;
-}
-.deco-svg {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-/* 节点持续浮动动画，不同延迟错开 */
-.deco-node {
-  transform-origin: center;
-  animation: deco-float 6s ease-in-out infinite;
-}
-.deco-node-1 { animation-delay: 0s; }
-.deco-node-2 { animation-delay: 0.8s; }
-.deco-node-3 { animation-delay: 1.6s; }
-.deco-node-4 { animation-delay: 2.4s; }
-.deco-node-5 { animation-delay: 3.2s; }
-.deco-node-6 { animation-delay: 1.2s; }
-.deco-node-7 { animation-delay: 2s; }
-@keyframes deco-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-12px); }
-}
-
 /* 品牌内容 */
 .brand-content {
   position: relative;
   z-index: 2;
   color: #fff;
-  max-width: 420px;
+  max-width: 460px;
 }
 .brand-logo-row {
   display: flex;
@@ -333,66 +289,44 @@ async function onSubmit() {
 .brand-slogan {
   font-size: 15px;
   opacity: 0.85;
-  margin: 0 0 48px;
+  margin: 0 0 40px;
   line-height: 1.6;
 }
 
-/* 核心能力卡片 */
-.feature-list {
+/* 静态 DAG 品牌大图：产品视觉识别符，纯静态（无动画无交互） */
+.brand-dag {
+  display: block;
+  width: 100%;
+  max-width: 440px;
+  height: auto;
+  margin-bottom: 36px;
+}
+
+/* 三行直陈能力：无卡片无图标框，工具感文案 */
+.brand-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
-.feature-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px 18px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  backdrop-filter: blur(8px);
-  transition: transform 0.25s ease, background 0.25s ease;
-  /* 错峰入场：三卡依次淡入上移 */
-  animation: feature-in 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+.brand-points li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.85;
 }
-.feature-item:nth-child(1) { animation-delay: 0.15s; }
-.feature-item:nth-child(2) { animation-delay: 0.3s; }
-.feature-item:nth-child(3) { animation-delay: 0.45s; }
-@keyframes feature-in {
-  from {
-    opacity: 0;
-    transform: translateX(-14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-.feature-item:hover {
-  transform: translateX(6px);
-  background: rgba(255, 255, 255, 0.16);
-}
-.feature-icon {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-}
-.feature-name {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.feature-desc {
-  font-size: 13px;
-  opacity: 0.8;
-  line-height: 1.4;
+.brand-points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.45);
 }
 
 .brand-footer {
@@ -417,23 +351,12 @@ async function onSubmit() {
 .form-card {
   width: 100%;
   max-width: 360px;
-  /* 容器感：卡片底色 + 细边框 + 柔和阴影 + 内边距 */
+  /* 容器感：卡片底色 + 细边框 + 柔和阴影 + 内边距（无入场动画：登录是工具页） */
   padding: 32px 28px;
   background: var(--app-card);
   border: 1px solid var(--app-border);
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(15, 30, 60, 0.08), 0 1px 3px rgba(15, 30, 60, 0.04);
-  animation: card-enter 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-@keyframes card-enter {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 .card-header {
   margin-bottom: 28px;
@@ -522,15 +445,4 @@ async function onSubmit() {
   }
 }
 
-/* 尊重减少动态效果偏好 */
-@media (prefers-reduced-motion: reduce) {
-  .deco-node,
-  .form-card,
-  .feature-item {
-    animation: none;
-  }
-  .deco-layer {
-    transition: none;
-  }
-}
 </style>
