@@ -57,13 +57,12 @@
           class="side-node"
           :class="{ on: selectedRowKey === row.key }"
           :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
-          @click="selectedRowKey = row.key"
+          @click="onSideNodeClick(row)"
         >
           <el-icon
             v-if="hasChildGroups(row.groupId)"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
-            @click.stop="onToggleGroup(row)"
           ><CaretRight /></el-icon>
           <span v-else class="expand-spacer" />
           <span class="side-name">{{ row.name }}</span>
@@ -366,6 +365,11 @@ const selectedRow = computed(() => visibleGroupRows.value.find(r => r.key === se
 function hasChildGroups(groupId: number | null): boolean {
   if (groupId == null) return false
   return groups.value.some(g => g.parent_id === groupId)
+}
+// 单击整行：父节点（有子分组）= 切换展开/折叠（树导航语义，与 caret 一致）；叶子 = 选中该组
+function onSideNodeClick(row: { key: string | number; groupId: number | null; isUngrouped?: boolean }) {
+  if (hasChildGroups(row.groupId)) onToggleGroup(row as any)
+  else selectedRowKey.value = row.key
 }
 // 分组重载/删除后选中项可能消失，回退到「全部」
 watch(visibleGroupRows, (rows) => {
