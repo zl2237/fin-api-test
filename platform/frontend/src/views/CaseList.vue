@@ -3,7 +3,6 @@
     <div class="page-head">
       <div class="head-left">
         <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
-        <el-button @click="showGroupDialog = true">分组管理</el-button>
         <el-button
           :disabled="selectedCaseIds.length === 0"
           @click="onBatchMove"

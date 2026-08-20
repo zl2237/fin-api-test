@@ -5,7 +5,6 @@
       <div class="toolbar-left">
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
         <el-button @click="showImportDialog = true">导入接口</el-button>
-        <el-button @click="showGroupDialog = true">分组管理</el-button>
         <el-button
           :disabled="selectedApiIds.length === 0"
           @click="onBatchMove"
