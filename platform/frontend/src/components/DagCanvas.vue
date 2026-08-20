@@ -494,24 +494,24 @@ watch(
 }
 /* hover 反馈：预判可点击（双击开配置），cursor 提示交互 */
 .dag-node:hover {
-  border-color: color-mix(in srgb, var(--el-color-primary) 55%, var(--app-border));
+  border-color: color-mix(in srgb, var(--app-primary) 55%, var(--app-border));
   box-shadow: var(--app-shadow);
   cursor: pointer;
 }
 .dag-node.selected {
-  border-color: var(--el-color-primary);
+  border-color: var(--app-primary);
   box-shadow: var(--app-glow-primary);
 }
 .dag-node.is-new {
-  border-color: var(--app-success, #67c23a);
+  border-color: var(--app-success);
   animation: dag-node-highlight 1.2s ease-in-out 3;
 }
 @keyframes dag-node-highlight {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(103, 194, 58, 0.45), var(--app-shadow-sm);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-success) 45%, transparent), var(--app-shadow-sm);
   }
   50% {
-    box-shadow: 0 0 0 10px rgba(103, 194, 58, 0.1), var(--app-shadow-sm);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--app-success) 10%, transparent), var(--app-shadow-sm);
   }
 }
 .dag-node.link-source {
@@ -519,7 +519,7 @@ watch(
   box-shadow: var(--app-glow-success);
 }
 .dag-node.link-target {
-  border-color: var(--el-color-primary);
+  border-color: var(--app-primary);
   box-shadow: var(--app-glow-primary);
 }
 .dag-node-title {
@@ -539,7 +539,7 @@ watch(
 :deep(.dag-handle) {
   width: 12px;
   height: 12px;
-  background: var(--el-color-primary);
+  background: var(--app-primary);
   border: 2px solid var(--app-card-solid);
   box-shadow: 0 0 0 1px var(--app-border);
   opacity: 0.8;
@@ -566,21 +566,21 @@ watch(
 
 /* ===== 暗色主题下 Vue Flow 官方控件的适配（默认亮色，暗画布上刺眼） ===== */
 html.dark :deep(.vue-flow__controls) {
-  background: var(--app-card, #1e2330);
-  border: 1px solid var(--app-border, #3a4050);
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
   box-shadow: none;
 }
 html.dark :deep(.vue-flow__controls-button) {
   background: transparent;
-  border-bottom: 1px solid var(--app-border, #3a4050);
-  fill: var(--app-text-muted, #98989d);
+  border-bottom: 1px solid var(--app-border);
+  fill: var(--app-text-muted);
 }
 html.dark :deep(.vue-flow__controls-button:hover) {
   background: var(--app-hover, rgba(255, 255, 255, 0.06));
 }
 html.dark :deep(.vue-flow__minimap) {
-  background: var(--app-card, #1e2330);
-  border: 1px solid var(--app-border, #3a4050);
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
 }
 html.dark :deep(.vue-flow__minimap-svg) {
   fill: var(--app-hover, rgba(255, 255, 255, 0.06));

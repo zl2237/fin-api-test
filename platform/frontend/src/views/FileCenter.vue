@@ -624,10 +624,10 @@ function fileIcon(contentType: string) {
 }
 
 function fileIconColor(contentType: string): string {
-  if (contentType.startsWith('image/')) return '#67c23a'
-  if (contentType === 'application/pdf') return '#f56c6c'
-  if (contentType.startsWith('video/')) return '#e6a23c'
-  return '#909399'
+  if (contentType.startsWith('image/')) return 'var(--app-success)'
+  if (contentType === 'application/pdf') return 'var(--app-danger)'
+  if (contentType.startsWith('video/')) return 'var(--app-warn-text)'
+  return 'var(--app-text-muted)'
 }
 
 // ===== 监听项目变化 =====
@@ -655,7 +655,7 @@ onMounted(() => {
 .file-sidebar {
   width: 220px;
   flex-shrink: 0;
-  background: var(--el-bg-color);
+  background: var(--app-card);
   border-radius: 8px;
   padding: 12px;
   overflow-y: auto;
@@ -714,7 +714,7 @@ onMounted(() => {
   color: var(--app-text-muted);
 }
 .tree-node-actions .el-icon:hover {
-  color: var(--el-color-primary);
+  color: var(--app-primary);
 }
 .quick-filter {
   display: flex;
@@ -727,11 +727,11 @@ onMounted(() => {
   color: var(--app-text);
 }
 .quick-filter:hover {
-  background: var(--el-fill-color-light);
+  background: var(--app-hover);
 }
 .quick-filter.active {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
+  background: var(--app-active);
+  color: var(--app-primary);
 }
 .quick-filter .count {
   margin-left: auto;
@@ -751,10 +751,10 @@ onMounted(() => {
   border-radius: 12px;
   font-size: 12px;
   cursor: pointer;
-  border: 1px solid var(--el-border-color);
+  border: 1px solid var(--app-border);
   color: var(--app-text);
-  /* 未选中：白色底，与选中态（标签色）明确区分 */
-  background: var(--el-bg-color);
+  /* 未选中：卡色底，与选中态（标签色）明确区分 */
+  background: var(--app-card);
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .tag-chip.active {
@@ -777,7 +777,7 @@ onMounted(() => {
 .file-main {
   flex: 1;
   min-width: 0;
-  background: var(--el-bg-color);
+  background: var(--app-card);
   border-radius: 8px;
   padding: 16px;
   display: flex;

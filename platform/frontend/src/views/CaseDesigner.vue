@@ -36,7 +36,7 @@
               :class="{ expanded: isGroupExpanded(row.groupId!) }"
             ><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
-            <el-icon class="group-icon"><Files /></el-icon>
+            <el-icon class="group-icon"><Folder /></el-icon>
             <span class="group-name">{{ row.name }}</span>
             <span class="group-count">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
           </div>
@@ -127,7 +127,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Connection, Files, CaretRight, Search } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection, Folder, CaretRight, Search } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
@@ -628,7 +628,7 @@ watch(() => store.currentProjectId, async () => {
 }
 .api-item:hover {
   background: var(--app-chip-bg);
-  border-left-color: var(--el-color-primary);
+  border-left-color: var(--app-primary);
 }
 .api-item-name {
   font-size: 13px;

@@ -343,7 +343,7 @@ html.dark .el-table__header-wrapper th.el-table__cell {
   right: 0;
   bottom: -1px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.4) 30%, rgba(43, 127, 214, 0.4) 70%, transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-primary-light) 40%, transparent) 30%, color-mix(in srgb, var(--app-primary) 40%, transparent) 70%, transparent);
   pointer-events: none;
 }
 .el-dialog__title {
@@ -365,5 +365,5 @@ html.dark .el-table__header-wrapper th.el-table__cell {
 }
 /* 暗色模式适配 */
 html.dark .el-dialog__header::after {
-  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, 0.5) 30%, rgba(43, 127, 214, 0.5) 70%, transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-primary-light) 50%, transparent) 30%, color-mix(in srgb, var(--app-primary) 50%, transparent) 70%, transparent);
 }

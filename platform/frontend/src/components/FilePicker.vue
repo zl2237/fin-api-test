@@ -263,10 +263,10 @@ function fileIcon(contentType: string) {
 }
 
 function fileIconColor(contentType: string): string {
-  if (contentType.startsWith('image/')) return '#67c23a'
-  if (contentType === 'application/pdf') return '#f56c6c'
-  if (contentType.startsWith('video/')) return '#e6a23c'
-  return '#909399'
+  if (contentType.startsWith('image/')) return 'var(--app-success)'
+  if (contentType === 'application/pdf') return 'var(--app-danger)'
+  if (contentType.startsWith('video/')) return 'var(--app-warn-text)'
+  return 'var(--app-text-muted)'
 }
 
 // 简化过长的 MIME 类型显示：如 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet → xlsx

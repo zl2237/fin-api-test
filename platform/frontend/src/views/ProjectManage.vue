@@ -292,7 +292,7 @@ onMounted(() => {
 }
 .drag-handle {
   cursor: grab;
-  color: var(--el-text-color-placeholder);
+  color: var(--app-text-faint);
 }
 .drag-handle:active {
   cursor: grabbing;

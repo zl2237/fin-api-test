@@ -210,7 +210,7 @@ async function onSubmit() {
   position: relative;
   flex: 1;
   min-width: 0;
-  background: linear-gradient(135deg, #1a2b4a 0%, #2b7fd6 60%, #409eff 100%);
+  background: linear-gradient(135deg, #1a2b4a 0%, color-mix(in srgb, var(--app-primary) 45%, #1a2b4a) 60%, var(--app-primary) 100%);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -234,7 +234,7 @@ async function onSubmit() {
   left: -10%;
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(103, 194, 58, 0.1) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--app-success) 10%, transparent) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -376,8 +376,8 @@ async function onSubmit() {
   max-width: 360px;
   /* 容器感：卡片底色 + 细边框 + 柔和阴影 + 内边距（与登录页一致） */
   padding: 32px 28px;
-  background: var(--app-card, #fff);
-  border: 1px solid var(--app-border, #e4e7ed);
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(15, 30, 60, 0.08), 0 1px 3px rgba(15, 30, 60, 0.04);
   animation: card-enter 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);

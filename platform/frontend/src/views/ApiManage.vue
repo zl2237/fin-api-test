@@ -50,7 +50,7 @@
           :class="{ on: selectedRowKey === 'all' }"
           @click="selectedRowKey = 'all'"
         >
-          <el-icon class="group-icon"><Files /></el-icon>
+          <el-icon class="group-icon"><Folder /></el-icon>
           <span class="side-name">全部接口</span>
           <span class="side-cnt">{{ filteredApis.length }}</span>
         </div>
@@ -479,7 +479,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { Rank, Upload, Files, Search, CaretRight } from '@element-plus/icons-vue'
+import { Rank, Upload, Folder, Search, CaretRight } from '@element-plus/icons-vue'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 const store = useAppStore()

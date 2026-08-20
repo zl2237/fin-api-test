@@ -69,7 +69,7 @@
           <template #title><span>执行记录</span></template>
         </el-menu-item>
         <el-menu-item index="/dictionary">
-          <el-icon><DataLine /></el-icon>
+          <el-icon><Collection /></el-icon>
           <template #title><span>字段字典</span></template>
         </el-menu-item>
         <el-menu-item index="/files">
@@ -449,7 +449,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -830,7 +830,7 @@ onMounted(async () => {
 .sidebar {
   position: relative;
   /* 品牌渐变背景：与登录页保持视觉延续 */
-  background: linear-gradient(180deg, #1a2b4a 0%, #234e80 50%, #2b7fd6 100%);
+  background: linear-gradient(180deg, #1a2b4a 0%, color-mix(in srgb, var(--app-primary) 35%, #1a2b4a) 50%, color-mix(in srgb, var(--app-primary) 65%, #1a2b4a) 100%);
   border-right: none;
   padding: 16px 12px;
   transition: width 0.25s ease;
@@ -1120,7 +1120,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   height: 38px;
-  background: var(--app-sidebar, #f5f7fa);
+  background: var(--app-sidebar);
   border-bottom: 1px solid var(--app-border);
   padding: 0 8px;
   flex-shrink: 0;
@@ -1148,7 +1148,7 @@ onMounted(async () => {
   padding: 0 10px;
   border-radius: 6px;
   font-size: 13px;
-  color: var(--app-text-secondary, #606266);
+  color: var(--app-text-muted);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -1184,15 +1184,15 @@ onMounted(async () => {
   z-index: 3000;
   min-width: 120px;
   padding: 4px;
-  background: var(--app-card, #fff);
-  border: 1px solid var(--app-border, #dcdfe6);
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
 }
 .tab-ctxmenu .ctx-item {
   padding: 6px 12px;
   font-size: 13px;
-  color: var(--app-text, #303133);
+  color: var(--app-text);
   border-radius: 5px;
   cursor: pointer;
 }
@@ -1320,7 +1320,7 @@ onMounted(async () => {
   word-break: break-all;
 }
 .corecap-result {
-  color: var(--app-success, #34c759);
+  color: var(--app-success);
   font-weight: 500;
 }
 
