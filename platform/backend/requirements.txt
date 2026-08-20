@@ -5,6 +5,8 @@ alembic>=1.13.0
 pydantic>=2.11.3
 jsonpath-ng==1.6.1
 python-multipart>=0.0.18
+# 定时任务调度（in-process，单 worker 部署）；缺失时定时功能优雅降级关闭
+APScheduler>=3.10,<4
 # 复用现有项目的能力（requests/pymysql/pyyaml 已在根 requirements.txt）
 requests>=2.33.0
 pymysql>=1.1.1

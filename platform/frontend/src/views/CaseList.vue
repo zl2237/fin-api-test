@@ -105,7 +105,13 @@
           >
             <el-table-column type="selection" width="42" />
             <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
+                  <el-icon class="schedule-mark"><Timer /></el-icon>
+                </el-tooltip>{{ row.name }}
+              </template>
+            </el-table-column>
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
@@ -120,13 +126,14 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
                 <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
+                <el-button link type="primary" size="small" @click="openSchedule(row)">定时</el-button>
                 <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
                 <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
               </template>
@@ -169,7 +176,13 @@
               </template>
             </el-table-column>
             <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
+                  <el-icon class="schedule-mark"><Timer /></el-icon>
+                </el-tooltip>{{ row.name }}
+              </template>
+            </el-table-column>
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
@@ -184,13 +197,14 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
                 <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
+                <el-button link type="primary" size="small" @click="openSchedule(row)">定时</el-button>
                 <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
                 <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
               </template>
@@ -311,6 +325,81 @@
         <el-button type="primary" :loading="batchMoveLoading" @click="confirmBatchMove">确定移动</el-button>
       </template>
     </el-dialog>
+
+    <!-- 定时任务弹窗（用例行内联入口）：该用例的定时配置列表 + 增改表单（≤4 字段 → el-dialog） -->
+    <el-dialog
+      v-model="scheduleVisible"
+      :title="`定时任务 · ${scheduleCase?.name || ''}`"
+      width="560px"
+      align-center
+      :close-on-click-modal="false"
+    >
+      <!-- 已配置的定时任务列表 -->
+      <div v-if="caseSchedules.length" class="schedule-list">
+        <div v-for="s in caseSchedules" :key="s.id" class="schedule-row">
+          <div class="schedule-info">
+            <span class="schedule-desc">{{ describeSchedule(s) }}</span>
+            <span class="schedule-env">{{ s.env_name || `环境#${s.env_id}` }}</span>
+            <span
+              class="schedule-next"
+              :title="s.next_run_at ? formatTime(s.next_run_at) : ''"
+            >{{ s.next_run_at ? `下次 ${formatRelativeTime(s.next_run_at)}` : '未排期' }}</span>
+          </div>
+          <div class="schedule-ops">
+            <el-tooltip :content="s.enabled ? '停用定时' : '启用定时'" placement="top">
+              <el-switch :model-value="s.enabled" size="small" @change="onToggleSchedule(s)" />
+            </el-tooltip>
+            <el-button link type="success" size="small" @click="onRunSchedule(s)">执行</el-button>
+            <el-button link type="primary" size="small" @click="onEditSchedule(s)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="onRemoveSchedule(s)">删除</el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-divider v-if="caseSchedules.length && scheduleFormVisible" />
+
+      <!-- 新增/编辑表单：无定时任务时直接展示，有时通过按钮展开 -->
+      <div v-if="scheduleFormVisible">
+        <el-form :model="scheduleForm" label-width="80px">
+          <el-form-item label="环境" required>
+            <el-select v-model="scheduleForm.env_id" placeholder="选择执行环境" style="width: 100%">
+              <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="调度类型" required>
+            <el-radio-group v-model="scheduleForm.schedule_type">
+              <el-radio value="interval">间隔执行</el-radio>
+              <el-radio value="daily">每日定时</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="scheduleForm.schedule_type === 'interval'" label="间隔分钟" required>
+            <el-input-number v-model="scheduleForm.interval_minutes" :min="1" :max="525600" style="width: 180px" />
+          </el-form-item>
+          <el-form-item v-else label="每日时刻" required>
+            <el-time-picker
+              v-model="scheduleForm.daily_time"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="如 08:30"
+              style="width: 180px"
+            />
+          </el-form-item>
+        </el-form>
+        <div class="schedule-form-foot">
+          <el-button size="small" @click="scheduleFormVisible = false">取消</el-button>
+          <el-button type="primary" size="small" :loading="scheduleSaving" @click="onSaveSchedule">
+            {{ scheduleEditingId ? '保存修改' : '添加定时' }}
+          </el-button>
+        </div>
+      </div>
+      <div v-else class="schedule-add-entry">
+        <el-button size="small" @click="openScheduleForm()">+ 新增定时</el-button>
+      </div>
+
+      <template #footer>
+        <el-button @click="scheduleVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -319,8 +408,8 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'v
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, Folder, CaretRight, Search, WarningFilled } from '@element-plus/icons-vue'
-import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
+import { Rank, Folder, CaretRight, Search, WarningFilled, Timer } from '@element-plus/icons-vue'
+import { caseApi, caseGroupApi, execApi, userApi, scheduleApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
@@ -737,6 +826,152 @@ async function onRemove(row: TestCase) {
   }
 }
 
+// ===== 定时任务（用例行内联入口：弹窗配置 + 列表图标标识）=====
+const schedules = ref<TestSchedule[]>([])
+const scheduleVisible = ref(false)
+const scheduleCase = ref<TestCase | null>(null)
+const scheduleFormVisible = ref(false)
+const scheduleEditingId = ref<number | null>(null)
+const scheduleSaving = ref(false)
+const scheduleForm = ref<{
+  env_id: number | null
+  schedule_type: 'interval' | 'daily'
+  interval_minutes: number | null
+  daily_time: string | null
+}>({ env_id: null, schedule_type: 'interval', interval_minutes: 30, daily_time: '08:00' })
+
+// 当前弹窗用例的定时任务（列表 + 表单共用的单一数据源）
+const caseSchedules = computed(() =>
+  scheduleCase.value ? schedules.value.filter(s => s.case_id === scheduleCase.value!.id) : [],
+)
+
+// 用例名称列的图标标识：存在启用中的定时任务才显示
+function hasEnabledSchedule(caseId: number): boolean {
+  return schedules.value.some(s => s.case_id === caseId && s.enabled)
+}
+
+// 定时配置的人话描述：interval → 每 N 分钟；daily → 每日 HH:MM
+function describeSchedule(s: TestSchedule): string {
+  if (s.schedule_type === 'interval') return `每 ${s.interval_minutes ?? '?'} 分钟`
+  return `每日 ${s.daily_time ?? '?'}`
+}
+
+async function loadSchedules() {
+  if (!store.currentProjectId) return
+  try {
+    schedules.value = await scheduleApi.list({ project_id: store.currentProjectId })
+  } catch {
+    schedules.value = []  // 定时列表失败不阻塞页面主体
+  }
+}
+
+function openSchedule(row: TestCase) {
+  scheduleCase.value = row
+  scheduleVisible.value = true
+  // 已有配置则先看列表，无配置直接进新增表单
+  const existing = schedules.value.filter(s => s.case_id === row.id)
+  if (existing.length) {
+    scheduleFormVisible.value = false
+  } else {
+    openScheduleForm()
+  }
+}
+
+function openScheduleForm() {
+  scheduleEditingId.value = null
+  scheduleForm.value = {
+    env_id: store.currentEnvId ?? store.environments[0]?.id ?? null,
+    schedule_type: 'interval',
+    interval_minutes: 30,
+    daily_time: '08:00',
+  }
+  scheduleFormVisible.value = true
+}
+
+function onEditSchedule(s: TestSchedule) {
+  scheduleEditingId.value = s.id
+  scheduleForm.value = {
+    env_id: s.env_id,
+    schedule_type: s.schedule_type,
+    interval_minutes: s.interval_minutes ?? 30,
+    daily_time: s.daily_time ?? '08:00',
+  }
+  scheduleFormVisible.value = true
+}
+
+async function onSaveSchedule() {
+  if (!scheduleCase.value) return
+  const f = scheduleForm.value
+  if (!f.env_id) return ElMessage.warning('请选择执行环境')
+  if (f.schedule_type === 'interval' && (!f.interval_minutes || f.interval_minutes < 1)) {
+    return ElMessage.warning('间隔分钟数需 ≥ 1')
+  }
+  if (f.schedule_type === 'daily' && !f.daily_time) return ElMessage.warning('请选择每日执行时刻')
+  scheduleSaving.value = true
+  try {
+    if (scheduleEditingId.value) {
+      await scheduleApi.update(scheduleEditingId.value, {
+        env_id: f.env_id,
+        schedule_type: f.schedule_type,
+        interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : null,
+        daily_time: f.schedule_type === 'daily' ? f.daily_time : null,
+      })
+      ElMessage.success('已保存')
+    } else {
+      await scheduleApi.create({
+        case_id: scheduleCase.value.id,
+        env_id: f.env_id,
+        schedule_type: f.schedule_type,
+        interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : undefined,
+        daily_time: f.schedule_type === 'daily' ? f.daily_time : undefined,
+        enabled: true,
+      })
+      ElMessage.success('已添加定时任务')
+    }
+    scheduleFormVisible.value = false
+    await loadSchedules()
+  } catch (e: any) {
+    ElMessage.error(e.message || '保存失败')
+  } finally {
+    scheduleSaving.value = false
+  }
+}
+
+async function onToggleSchedule(s: TestSchedule) {
+  try {
+    await scheduleApi.update(s.id, { enabled: !s.enabled })
+    s.enabled = !s.enabled
+    await loadSchedules()
+  } catch (e: any) {
+    ElMessage.error(e.message || '操作失败')
+  }
+}
+
+async function onRunSchedule(s: TestSchedule) {
+  try {
+    await scheduleApi.run(s.id)
+    ElMessage.success('已触发执行，结果可在执行记录查看')
+    await loadSchedules()
+  } catch (e: any) {
+    ElMessage.error(e.message || '触发失败')
+  }
+}
+
+async function onRemoveSchedule(s: TestSchedule) {
+  try {
+    await ElMessageBox.confirm(`确认删除定时任务「${describeSchedule(s)}」？`, '提示', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await scheduleApi.remove(s.id)
+    ElMessage.success('已删除')
+    await loadSchedules()
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除失败')
+  }
+}
+
 async function onAddGroup() {
   if (!newGroupName.value.trim()) return
   try {
@@ -791,11 +1026,13 @@ watch(() => store.currentProjectId, () => {
   resetPages()
   load()
   loadGroups()
+  loadSchedules()
 })
 onMounted(() => {
   load()
   loadGroups()
   loadUsers()
+  loadSchedules()
   window.addEventListener('keydown', onGlobalKey)
 })
 onUnmounted(() => {
@@ -1011,6 +1248,63 @@ function onGlobalKey(e: KeyboardEvent) {
   color: var(--app-text-muted);
   margin: 12px 0 8px;
   flex-shrink: 0;
+}
+/* ===== 定时任务：列表图标标识 + 弹窗 ===== */
+.schedule-mark {
+  color: var(--el-color-warning);
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.schedule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+}
+.schedule-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+}
+.schedule-desc {
+  font-weight: 500;
+  color: var(--app-text);
+  white-space: nowrap;
+}
+.schedule-env {
+  color: var(--app-text-muted);
+  white-space: nowrap;
+}
+.schedule-next {
+  color: var(--app-text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.schedule-ops {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.schedule-form-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.schedule-add-entry {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
 }
 </style>
 <!-- group-manage-dialog 全局样式已收敛至 style.css（原与 ApiManage 逐字符重复，两处漂移风险） -->
