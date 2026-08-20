@@ -25,8 +25,19 @@
     </div>
     <div class="table-wrap">
       <el-card shadow="never" class="card">
-        <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id" empty-text="暂无环境">
+        <!-- 页面级加载失败：内联错误块 + 重试 -->
+        <div v-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="load">重试</el-button>
+        </div>
+        <el-skeleton v-else-if="loading" :rows="5" animated class="skeleton-wrap" />
+        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id">
+          <template #empty>
+            <EmptyState description="暂无环境" :image-size="80">
+              <el-button type="primary" @click="onCreate">+ 新建环境</el-button>
+            </EmptyState>
+          </template>
           <el-table-column width="36" align="center">
             <template #default>
               <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
@@ -96,9 +107,10 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank } from '@element-plus/icons-vue'
+import { Rank, WarningFilled } from '@element-plus/icons-vue'
 import { envApi, userApi, type Environment, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
 const router = useRouter()
@@ -107,6 +119,7 @@ const users = ref<SimpleUser[]>([])
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
 const loading = ref(false)
+const loadError = ref('')
 const page = ref(1)
 const pageSize = ref(10)
 const pagedList = computed(() => {
@@ -185,11 +198,13 @@ function loginTag(cfg: any): { type: 'success' | 'warning' | 'info'; text: strin
 async function load() {
   if (!store.currentProjectId) return
   loading.value = true
+  loadError.value = ''
   try {
     list.value = await envApi.list(store.currentProjectId, filterCreator.value ?? undefined, filterUpdater.value ?? undefined)
     page.value = 1
   } catch (e: any) {
-    ElMessage.error(e.message)
+    // 页面级失败：内联错误块 + 重试
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }

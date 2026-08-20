@@ -13,6 +13,12 @@
         <el-icon class="is-loading"><Loading /></el-icon>
       </template>
     </el-alert>
+    <!-- 页面级加载失败：内联错误块 + 重试（详情页失败后不能只剩空壳） -->
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="load()">重试</el-button>
+    </div>
     <!-- 顶部：摘要 + 趋势图 横向并排，节省垂直空间 -->
     <div class="top-row">
       <el-card shadow="never" class="summary-card">
@@ -319,7 +325,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Loading, Search, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Loading, Search, CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
@@ -331,6 +337,7 @@ const route = useRoute()
 const router = useRouter()
 const record = ref<ExecutionRecord | null>(null)
 const loading = ref(false)
+const loadError = ref('')
 const currentStepId = ref<number | null>(null)
 const activeTab = ref('request')
 const rerunning = ref(false)
@@ -653,7 +660,10 @@ function schedulePollIfRunning() {
 async function load(silent = false) {
   const id = Number(route.params.id)
   if (!id) return
-  if (!silent) loading.value = true
+  if (!silent) {
+    loading.value = true
+    loadError.value = ''
+  }
   try {
     record.value = await execApi.report(id)
     if (steps.value.length && currentStepId.value == null) {
@@ -663,7 +673,8 @@ async function load(silent = false) {
     }
     schedulePollIfRunning()
   } catch (e: any) {
-    ElMessage.error(e.message)
+    // 静默轮询失败不清已有数据、不打错误块（瞬时网络抖动）；首次加载失败才展示错误块 + 重试
+    if (!silent) loadError.value = e?.message || '加载失败'
   } finally {
     if (!silent) loading.value = false
   }

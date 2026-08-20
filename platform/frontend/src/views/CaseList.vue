@@ -76,7 +76,14 @@
       </aside>
 
       <div class="group-main">
-        <EmptyState v-if="!loading && !list.length" description="暂无用例">
+        <!-- 页面级加载失败：内联错误块 + 重试（不用 toast 一闪而过） -->
+        <div v-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="load">重试</el-button>
+        </div>
+
+        <EmptyState v-else-if="!loading && !list.length" description="暂无用例">
           <div class="empty-actions">
             <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
             <el-button text @click="router.push('/apis')">先去管理接口</el-button>
@@ -102,7 +109,11 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column prop="updated_at" label="更新时间" min-width="170" show-overflow-tooltip />
+            <el-table-column label="更新时间" width="120">
+              <template #default="{ row }">
+                <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="创建人" width="100" align="center">
               <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
             </el-table-column>
@@ -162,7 +173,11 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column prop="updated_at" label="更新时间" min-width="170" show-overflow-tooltip />
+            <el-table-column label="更新时间" width="120">
+              <template #default="{ row }">
+                <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="创建人" width="100" align="center">
               <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
             </el-table-column>
@@ -304,9 +319,10 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'v
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, Folder, CaretRight, Search } from '@element-plus/icons-vue'
+import { Rank, Folder, CaretRight, Search, WarningFilled } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
@@ -320,6 +336,7 @@ const router = useRouter()
 // 追踪所有执行轮询定时器，组件卸载时统一清理，避免切页后继续请求已失效的执行记录
 const pollTimers: ReturnType<typeof setTimeout>[] = []
 const list = ref<TestCase[]>([])
+const loadError = ref('')
 const groups = ref<CaseGroup[]>([])
 const users = ref<SimpleUser[]>([])
 const filterCreator = ref<number | null>(null)
@@ -502,10 +519,12 @@ async function confirmBatchMove() {
 async function load() {
   if (!store.currentProjectId) return
   loading.value = true
+  loadError.value = ''
   try {
     list.value = await caseApi.list(store.currentProjectId, filterCreator.value ?? undefined, filterUpdater.value ?? undefined)
   } catch (e: any) {
-    ElMessage.error(e.message)
+    // 页面级失败：内联错误块 + 重试
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }

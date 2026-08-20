@@ -20,8 +20,19 @@
     </div>
 
     <el-card shadow="never" class="table-card">
-      <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe size="small" empty-text="暂无用户">
+      <!-- 页面级加载失败：内联错误块 + 重试 -->
+      <div v-if="loadError" class="app-load-error">
+        <el-icon><WarningFilled /></el-icon>
+        <span>{{ loadError }}</span>
+        <el-button size="small" @click="load">重试</el-button>
+      </div>
+      <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
+      <el-table v-else :data="pagedList" stripe size="small">
+        <template #empty>
+          <EmptyState description="暂无用户" :image-size="80">
+            <el-button type="primary" @click="openCreate">+ 新建用户</el-button>
+          </EmptyState>
+        </template>
         <el-table-column prop="id" label="ID" width="60" align="center" />
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="显示名" min-width="110" show-overflow-tooltip />
@@ -40,7 +51,11 @@
             <el-tag v-else type="info" effect="plain" round size="small">普通成员</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" min-width="170" show-overflow-tooltip />
+        <el-table-column label="创建时间" width="120">
+          <template #default="{ row }">
+            <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="创建人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
         </el-table-column>
@@ -152,15 +167,19 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { WarningFilled } from '@element-plus/icons-vue'
 import { userApi, type User } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
+import { formatTime, formatRelativeTime } from '@/utils/format'
+import EmptyState from '@/components/EmptyState.vue'
 
 const router = useRouter()
 const store = useAppStore()
 const tabStore = useTabStore()
 const allUsers = ref<User[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const submitLoading = ref(false)
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
@@ -262,11 +281,13 @@ const passwordRules: FormRules = {
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     allUsers.value = await userApi.list()
     page.value = 1
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    // 页面级失败：内联错误块 + 重试
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }
