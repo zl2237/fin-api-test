@@ -161,6 +161,20 @@ export interface ExecutionRecord {
   started_at?: string; ended_at?: string; summary: Record<string, any>
   steps: StepRecord[]
   created_by?: number | null; created_by_name?: string | null
+  trigger_type?: string
+}
+
+export interface TestSchedule {
+  id: number; case_id: number; env_id: number
+  case_name?: string | null; env_name?: string | null
+  schedule_type: 'interval' | 'daily'
+  interval_minutes?: number | null
+  daily_time?: string | null
+  enabled: boolean
+  last_run_at?: string | null; next_run_at?: string | null
+  created_at?: string | null; updated_at?: string | null
+  created_by?: number | null; created_by_name?: string | null
+  updated_by?: number | null; updated_by_name?: string | null
 }
 
 export interface ProjectVersionListItem {
@@ -350,6 +364,27 @@ export const caseApi = {
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`, { case_id: caseId, env_id: envId }).then((r) => r.data),
   batchExecute: (caseIds: number[], envId: number) =>
     http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId }).then((r) => r.data),
+}
+
+// ============ TestSchedule 定时任务 ============
+export interface SchedulePayload {
+  case_id?: number
+  env_id?: number
+  schedule_type?: 'interval' | 'daily'
+  interval_minutes?: number | null
+  daily_time?: string | null
+  enabled?: boolean
+}
+
+export const scheduleApi = {
+  list: (params?: { project_id?: number; case_id?: number }) =>
+    http.get<TestSchedule[]>('/schedules', { params }).then((r) => r.data),
+  create: (data: Required<Pick<SchedulePayload, 'case_id' | 'env_id' | 'schedule_type'>> & SchedulePayload) =>
+    http.post<TestSchedule>('/schedules', data).then((r) => r.data),
+  update: (id: number, data: SchedulePayload) =>
+    http.put<TestSchedule>(`/schedules/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/schedules/${id}`),
+  run: (id: number) => http.post<{ message: string }>(`/schedules/${id}/run`).then((r) => r.data),
 }
 
 // ============ ProjectVersion 项目版本 ============

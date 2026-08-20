@@ -21,9 +21,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db, SessionLocal
-from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs, field_dictionaries, versions, files
+from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs, field_dictionaries, versions, files, schedules
 from . import models, auth as auth_module
 from .json_safe import BigintSafeJSONResponse
+from .services.scheduler import scheduler_service
 
 app = FastAPI(
     title="fin-api-test 平台",
@@ -67,6 +68,13 @@ def on_startup():
     init_db()
     _ensure_default_admin()
     _cleanup_old_executions()
+    # 定时任务调度器：未安装 APScheduler 时优雅降级（available=False，功能关闭不报错）
+    scheduler_service.start()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    scheduler_service.shutdown()
 
 
 def _cleanup_old_executions(days: int = 30):
@@ -123,6 +131,7 @@ app.include_router(apis.router)
 app.include_router(apis.group_router)
 app.include_router(testcases.router)
 app.include_router(testcases.group_router)
+app.include_router(schedules.router)
 app.include_router(versions.router)
 app.include_router(executions.router)
 app.include_router(reports.router)
