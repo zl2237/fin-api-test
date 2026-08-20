@@ -443,7 +443,7 @@ function setTableRef(groupId: string | number, el: any) {
 async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
   try {
     const applied = await applyPageDragReorder(groupId, oldIndex, newIndex, (items) => caseApi.reorder(items))
-    if (applied) ElMessage.success('排序已保存')
+    if (applied) ElMessage.success('已保存')
   } catch (e: any) {
     ElMessage.error(e.message || '排序保存失败')
     await load()
@@ -456,7 +456,7 @@ async function onTreeNodeDrop() {
   const updates = collectTreeUpdates(groupTreeNodes.value)
   try {
     await Promise.all(updates.map(it => caseGroupApi.update(it.id, { parent_id: it.parent_id, sort_order: it.sort_order })))
-    ElMessage.success('分组层级与顺序已保存')
+    ElMessage.success('已保存')
     await loadGroups()
   } catch (e: any) {
     ElMessage.error(e.message || '分组排序保存失败')
@@ -611,8 +611,8 @@ async function onBatchRun() {
   try {
     await ElMessageBox.confirm(
       `将串行执行 ${selectedCaseIds.value.length} 个用例，可能需要较长时间。现在开始？`,
-      '批量执行确认',
-      { type: 'warning', confirmButtonText: '开始执行', cancelButtonText: '取消' },
+      '提示',
+      { type: 'warning' },
     )
   } catch {
     return
@@ -703,7 +703,7 @@ async function onCopy(row: TestCase) {
 async function onRemove(row: TestCase) {
   // 对齐 ApiManage 的删除交互：取消静默（不产生 unhandled rejection），失败有提示
   try {
-    await ElMessageBox.confirm(`确定删除用例「${row.name}」？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除用例「${row.name}」？`, '提示', { type: 'warning' })
   } catch {
     return
   }
@@ -749,7 +749,7 @@ async function onRenameGroup(data: GroupTreeNode) {
 async function onDeleteGroup(data: GroupTreeNode) {
   try {
     await ElMessageBox.confirm(
-      `确认删除分组「${data.label}」？\n注意：含子分组或用例时将阻止删除，请先处理。`,
+      `确认删除分组「${data.label}」？\n注意：含子分组或用例时将阻止删除，请先处理`,
       '提示',
       { type: 'warning' },
     )

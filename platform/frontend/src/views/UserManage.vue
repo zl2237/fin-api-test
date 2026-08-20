@@ -15,7 +15,7 @@
 
     <el-card shadow="never" class="table-card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe empty-text="暂无用户，点击「新建用户」开始添加">
+      <el-table v-else :data="pagedList" stripe empty-text="暂无用户">
         <el-table-column prop="id" label="ID" width="60" align="center" />
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="显示名" min-width="120" show-overflow-tooltip />
@@ -333,7 +333,7 @@ async function onPasswordReset() {
     submitLoading.value = true
     try {
       await userApi.resetPassword(passwordTarget.value!.id, passwordForm.password)
-      ElMessage.success('密码已重置')
+      ElMessage.success('已重置')
       passwordVisible.value = false
     } catch (e: any) {
       ElMessage.error(e.message || '重置失败')

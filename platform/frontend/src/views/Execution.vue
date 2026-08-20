@@ -277,8 +277,8 @@ function openCleanup() {
 async function onCleanup() {
   try {
     await ElMessageBox.confirm(
-      `确认删除 ${cleanupDays.value} 天前的所有执行记录？此操作不可恢复。`,
-      '清理确认',
+      `确认删除 ${cleanupDays.value} 天前的所有执行记录？此操作不可恢复`,
+      '提示',
       { type: 'warning' },
     )
   } catch {

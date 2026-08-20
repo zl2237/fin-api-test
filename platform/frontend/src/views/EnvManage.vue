@@ -26,7 +26,7 @@
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe row-key="id" empty-text="暂无环境，点击左上角「新建环境」开始配置">
+        <el-table v-else ref="tableRef" :data="pagedList" stripe row-key="id" empty-text="暂无环境">
           <el-table-column width="36" align="center">
             <template #default>
               <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
@@ -136,7 +136,7 @@ function bindSortable() {
       const items = list.value.map((e, i) => ({ id: e.id, sort_order: i }))
       try {
         await envApi.reorder(items)
-        ElMessage.success('排序已保存')
+        ElMessage.success('已保存')
         list.value.forEach((e, i) => { e.sort_order = i })
       } catch (e: any) {
         ElMessage.error(e.message || '排序保存失败')
@@ -224,7 +224,7 @@ async function onCopy(row: Environment) {
 
 async function onRemove(row: Environment) {
   try {
-    await ElMessageBox.confirm(`确定删除环境「${row.name}」？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除环境「${row.name}」？`, '提示', { type: 'warning' })
     await envApi.remove(row.id)
     ElMessage.success('已删除')
     load()
