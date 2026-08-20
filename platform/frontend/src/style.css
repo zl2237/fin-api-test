@@ -283,6 +283,22 @@ html.dark .el-table__header-wrapper th.el-table__cell {
   background: color-mix(in srgb, var(--app-primary) 8%, transparent) !important;
 }
 
+/* ===== 页面级加载失败：内联错误块 + 重试（成熟约定：不用 toast 一闪而过） ===== */
+.app-load-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-danger-bg);
+  color: var(--app-danger-text);
+  font-size: 13px;
+}
+.app-load-error .el-button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 /* ===== 分组管理弹窗（el-dialog teleport 到 body，scoped 无法命中，原 ApiManage/CaseList 两份重复定义） ===== */
 .group-manage-dialog.el-dialog {
   margin-top: 0 !important;

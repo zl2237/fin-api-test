@@ -3,4 +3,31 @@ export function formatTime(v?: string | null): string {
   if (!v) return '—'
   return v.replace('T', ' ').slice(0, 19)
 }
-export default { formatTime }
+
+/**
+ * ISO 时间串 → 相对时间（'刚刚' / '3 分钟前' / '2 小时前' / '昨天 14:20' / '3 天前' / '03-12'）。
+ * GitHub 风格列表时间：一眼看出「多久前」，绝对时间由调用方放 title/tooltip。
+ * 超过 180 天的旧记录直接返回日期，避免「243 天前」这类无意义表达。
+ */
+export function formatRelativeTime(v?: string | null): string {
+  if (!v) return '—'
+  const t = new Date(v).getTime()
+  if (Number.isNaN(t)) return formatTime(v)
+  const diff = Date.now() - t
+  const min = 60_000, hour = 60 * min, day = 24 * hour
+  if (diff < min) return '刚刚'
+  if (diff < hour) return `${Math.floor(diff / min)} 分钟前`
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
+  if (diff < 2 * day) {
+    const h = new Date(v)
+    const hm = `${String(h.getHours()).padStart(2, '0')}:${String(h.getMinutes()).padStart(2, '0')}`
+    return `昨天 ${hm}`
+  }
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`
+  if (diff < 180 * day) {
+    const d = new Date(v)
+    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  return formatTime(v).slice(0, 10)
+}
+export default { formatTime, formatRelativeTime }

@@ -1,208 +1,295 @@
 <template>
   <div class="home-page">
-    <!-- ===== 项目横幅：DAG 节点主题插画 + 定位语 + 行动按钮 ===== -->
-    <section class="hero">
-      <div class="hero-text">
-        <h1 class="hero-title">Fin API Test Platform</h1>
-        <p class="hero-slogan">把接口测试从「一段代码」变成「一张看得懂的流程图」</p>
-        <p class="hero-sub">
-          像拼积木一样组合接口：点一点配好请求，拖一拖连出先后顺序，一键运行、自动出报告。
-          测通了留档复用，测挂了三秒定位到哪一步、哪个字段出了问题。
-        </p>
-        <div class="hero-actions">
-          <el-button type="primary" size="large" @click="router.push('/apis')">去管理接口</el-button>
-          <el-button size="large" @click="router.push('/cases')">去编排用例</el-button>
+    <!-- 无项目：引导创建（首登主路径） -->
+    <el-card v-if="!store.currentProjectId" shadow="never" class="card empty-project">
+      <EmptyState description="还没有项目。创建一个项目，把要测的接口和用例装进来" :image-size="110">
+        <el-button type="primary" @click="router.push('/projects')">创建项目</el-button>
+        <el-button @click="openGuide">先看上手指南</el-button>
+      </EmptyState>
+    </el-card>
+
+    <template v-else>
+      <!-- ===== 欢迎条：问候 + 当前上下文 + 上次执行 + 主操作 ===== -->
+      <section class="welcome">
+        <div class="welcome-text">
+          <h1 class="welcome-title">{{ greeting }}，{{ displayName }}<span class="welcome-project"> · {{ currentProjectName }}</span></h1>
+          <p v-if="lastExec" class="welcome-sub">
+            上次执行：{{ formatRelativeTime(lastExec.started_at) }} · {{ lastExec.case_name || `#${lastExec.case_id}` }}
+            <span :class="['last-status', `is-${lastExec.status}`]">{{ statusText(lastExec.status) }}</span>
+            <span v-if="lastExec.summary?.total">（{{ lastExec.summary.passed ?? 0 }}/{{ lastExec.summary.total }} 步通过）</span>
+          </p>
+          <p v-else class="welcome-sub">当前项目还没有执行记录</p>
+        </div>
+        <!-- 品牌 DAG 插画缩小版（与 favicon/登录页同视觉语言） -->
+        <svg class="welcome-art" viewBox="0 0 150 100" fill="none" aria-hidden="true">
+          <path d="M30 26 C 48 26, 44 50, 62 50" class="dag-edge" />
+          <path d="M30 74 C 48 74, 44 50, 62 50" class="dag-edge" />
+          <path d="M96 50 C 110 50, 106 26, 124 26" class="dag-edge" />
+          <rect x="6" y="12" width="34" height="28" rx="7" class="dag-node" />
+          <rect x="6" y="60" width="34" height="28" rx="7" class="dag-node" />
+          <rect x="62" y="36" width="36" height="28" rx="7" class="dag-node dag-node-main" />
+          <rect x="120" y="12" width="22" height="28" rx="7" class="dag-badge" />
+          <path d="M126 24 l3.5 4.5 l6 -7.5" class="dag-check" />
+        </svg>
+      </section>
+
+      <!-- ===== 统计行：当前项目概览（点击直达对应页面） ===== -->
+      <section class="stats">
+        <div class="stat" @click="router.push('/apis')">
+          <b>{{ loading ? '…' : apiCount }}</b>
+          <span>接口</span>
+        </div>
+        <div class="stat" @click="router.push('/cases')">
+          <b>{{ loading ? '…' : caseCount }}</b>
+          <span>用例</span>
+        </div>
+        <div class="stat" @click="router.push('/executions')">
+          <b>{{ loading ? '…' : weekStats.count }}</b>
+          <span>7 天执行</span>
+        </div>
+        <div class="stat" @click="router.push('/executions')">
+          <b :class="{ 'is-pass': (weekStats.rate ?? 0) >= 90 }">{{ loading ? '…' : (weekStats.rate === null ? '—' : weekStats.rate + '%') }}</b>
+          <span>7 天通过率</span>
+        </div>
+      </section>
+
+      <!-- ===== 主区：最近执行 + 快速执行/指南 ===== -->
+      <div class="workbench">
+        <!-- 最近执行 -->
+        <section class="panel">
+          <header class="panel-head">
+            <h3>最近执行</h3>
+            <div class="panel-tools">
+              <el-button text size="small" :title="'刷新'" @click="loadHome">
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+              <el-button text type="primary" size="small" @click="router.push('/executions')">
+                全部记录<el-icon class="go-icon"><ArrowRight /></el-icon>
+              </el-button>
+            </div>
+          </header>
+
+          <!-- 加载失败：内联错误块 + 重试（全局 .app-load-error） -->
+          <div v-if="loadError" class="app-load-error">
+            <el-icon><WarningFilled /></el-icon>
+            <span>{{ loadError }}</span>
+            <el-button size="small" @click="loadHome">重试</el-button>
+          </div>
+
+          <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
+
+          <EmptyState
+            v-else-if="!recentExecs.length"
+            description="当前项目还没有执行记录"
+            :image-size="80"
+          >
+            <el-button type="primary" @click="router.push('/cases')">去执行用例</el-button>
+          </EmptyState>
+
+          <ul v-else class="exec-list">
+            <li
+              v-for="r in recentExecs"
+              :key="r.id"
+              class="exec-row"
+              @click="router.push(`/reports/${r.id}`)"
+            >
+              <span :class="['exec-dot', `is-${r.status}`]">
+                <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
+              </span>
+              <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
+              <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
+              <span class="exec-summary" :class="`is-${r.status}`">
+                {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
+              </span>
+              <span class="exec-time" :title="formatTime(r.started_at)">{{ formatRelativeTime(r.started_at) }}</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- 右栏：快速执行 + 指南入口 -->
+        <div class="side-col">
+          <section class="panel">
+            <header class="panel-head">
+              <h3>快速执行</h3>
+              <el-button text type="primary" size="small" @click="router.push('/cases')">全部用例</el-button>
+            </header>
+            <div v-if="!recentCases.length" class="quick-empty">还没有用例，去 <el-button text type="primary" size="small" @click="router.push('/cases')">创建第一个</el-button></div>
+            <ul v-else class="quick-list">
+              <li v-for="c in recentCases" :key="c.id" class="quick-row">
+                <span class="quick-name" :title="c.name">{{ c.name }}</span>
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  :loading="runningId === c.id"
+                  :disabled="runningId !== null && runningId !== c.id"
+                  @click="runCase(c)"
+                >
+                  <el-icon v-if="runningId !== c.id"><VideoPlay /></el-icon>运行
+                </el-button>
+              </li>
+            </ul>
+          </section>
+
+          <section class="panel guide-panel">
+            <header class="panel-head"><h3>上手指南</h3></header>
+            <div class="guide-links">
+              <el-button text type="primary" @click="openGuide">五步上手流程</el-button>
+              <el-button text type="primary" @click="store.openCoreCapability('expression')">表达式语法</el-button>
+              <el-button text type="primary" @click="store.openCoreCapability('assertion')">17 种断言</el-button>
+            </div>
+            <div class="guide-kbd">
+              <span><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> 全局搜索</span>
+              <span><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 执行选中用例</span>
+            </div>
+          </section>
         </div>
       </div>
-      <!-- 纯 SVG 插画：三节点 DAG + 断言对勾，与 favicon/banner 同一视觉语言，暗色自动适配 -->
-      <svg class="hero-art" viewBox="0 0 260 190" fill="none" aria-hidden="true">
-        <defs>
-          <marker id="home-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" class="hero-edge-head" />
-          </marker>
-        </defs>
-        <!-- 连线 -->
-        <path d="M62 55 C 92 55, 88 95, 118 95" class="hero-edge" marker-end="url(#home-arrow)" />
-        <path d="M62 135 C 92 135, 88 95, 118 95" class="hero-edge" marker-end="url(#home-arrow)" />
-        <path d="M178 95 C 205 95, 200 55, 228 55" class="hero-edge" marker-end="url(#home-arrow)" />
-        <!-- 节点1：登录 -->
-        <g>
-          <rect x="10" y="32" width="52" height="46" rx="10" class="hero-node" />
-          <text x="36" y="59" text-anchor="middle" class="hero-node-text">登录</text>
-        </g>
-        <!-- 节点2：下单 -->
-        <g>
-          <rect x="10" y="112" width="52" height="46" rx="10" class="hero-node" />
-          <text x="36" y="139" text-anchor="middle" class="hero-node-text">下单</text>
-        </g>
-        <!-- 节点3：查询订单 -->
-        <g>
-          <rect x="118" y="72" width="60" height="46" rx="10" class="hero-node hero-node-main" />
-          <text x="148" y="99" text-anchor="middle" class="hero-node-text">查订单</text>
-        </g>
-        <!-- 结果徽章：断言通过 -->
-        <g>
-          <rect x="228" y="32" width="24" height="46" rx="8" class="hero-badge" />
-          <path d="M236 51 l4.5 5.5 l7.5 -9" class="hero-check" />
-        </g>
-      </svg>
-    </section>
+    </template>
 
-    <!-- ===== 这是什么：三张白话卡片 ===== -->
-    <section class="about">
-      <h2 class="section-title">这个平台帮你做什么</h2>
-      <div class="about-grid">
-        <div class="about-card">
-          <svg viewBox="0 0 48 48" class="about-icon" aria-hidden="true">
-            <rect x="6" y="8" width="36" height="30" rx="6" class="svg-stroke" />
-            <path d="M14 20 h20 M14 27 h12" class="svg-stroke svg-thin" />
-            <circle cx="32" cy="27" r="5" class="svg-fill-soft" />
-            <path d="M29.5 27 l1.8 2 l3 -3.6" class="svg-check" />
-          </svg>
-          <h3>不用写代码就能测接口</h3>
-          <p>每个接口要传什么参数、返回值对不对，都在表格里点选填写。常用数据（随机数、日期、单号）系统帮你生成。</p>
-        </div>
-        <div class="about-card">
-          <svg viewBox="0 0 48 48" class="about-icon" aria-hidden="true">
-            <rect x="5" y="6" width="16" height="13" rx="5" class="svg-stroke" />
-            <rect x="5" y="29" width="16" height="13" rx="5" class="svg-stroke" />
-            <rect x="30" y="17" width="13" height="13" rx="5" class="svg-stroke svg-accent" />
-            <path d="M21 12.5 C 26 12.5, 24 23.5, 30 23.5" class="svg-edge" />
-            <path d="M21 35.5 C 26 35.5, 24 23.5, 30 23.5" class="svg-edge" />
-          </svg>
-          <h3>多个接口连成一条业务链</h3>
-          <p>真实的业务不止一步：登录 → 下单 → 查订单。在画布上把接口连起来，上一步的结果（订单号、token）下一步直接引用。</p>
-        </div>
-        <div class="about-card">
-          <svg viewBox="0 0 48 48" class="about-icon" aria-hidden="true">
-            <path d="M8 34 L18 22 L26 28 L40 12" class="svg-stroke" />
-            <path d="M40 12 h-9 M40 12 v9" class="svg-stroke svg-thin" />
-            <circle cx="18" cy="22" r="3" class="svg-fill" />
-            <circle cx="26" cy="28" r="3" class="svg-fill" />
-          </svg>
-          <h3>跑完就有结果报告</h3>
-          <p>每一步的请求、返回、校验结果全部留档。哪一步红了一眼看到，耗时长不长一目了然，还能导出报告发给同事。</p>
-        </div>
+    <!-- ===== 上手指南抽屉（原落地页内容收纳于此；首登自动展示一次） ===== -->
+    <el-drawer v-model="guideVisible" title="上手指南" size="480px" :close-on-click-modal="false">
+      <div class="guide-body">
+        <h4 class="guide-section">五步跑通第一个测试</h4>
+        <ol class="guide-steps">
+          <li v-for="(s, i) in guideSteps" :key="s.title">
+            <span class="g-num">{{ i + 1 }}</span>
+            <div class="g-text">
+              <b>{{ s.title }}</b>
+              <p>{{ s.desc }}</p>
+            </div>
+            <el-button text type="primary" size="small" @click="router.push(s.to); guideVisible = false">{{ s.go }}</el-button>
+          </li>
+        </ol>
+
+        <h4 class="guide-section">核心能力</h4>
+        <ul class="guide-caps">
+          <li v-for="cap in guideCaps" :key="cap.title" :class="{ clickable: !!cap.tab }" @click="cap.tab && store.openCoreCapability(cap.tab)">
+            <b>{{ cap.title }}</b>
+            <p>{{ cap.desc }}</p>
+          </li>
+        </ul>
       </div>
-    </section>
-
-    <!-- ===== 五步上手：白话流程 + 直达入口 ===== -->
-    <section class="steps">
-      <h2 class="section-title">五步跑通你的第一个测试</h2>
-      <div class="steps-grid">
-        <div v-for="(s, i) in steps" :key="s.title" class="step-card">
-          <div class="step-head">
-            <span class="step-num">{{ i + 1 }}</span>
-            <h3>{{ s.title }}</h3>
-          </div>
-          <p class="step-desc">{{ s.desc }}</p>
-          <el-button text type="primary" class="step-go" @click="router.push(s.to)">
-            {{ s.go }}<el-icon class="step-go-icon"><ArrowRight /></el-icon>
-          </el-button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== 功能导航：核心四区 ===== -->
-    <section class="nav">
-      <h2 class="section-title">常用的四个地方</h2>
-      <div class="nav-grid">
-        <div v-for="n in navs" :key="n.title" class="nav-card" @click="router.push(n.to)">
-          <el-icon class="nav-icon"><component :is="n.icon" /></el-icon>
-          <div class="nav-body">
-            <h3>{{ n.title }}<el-icon class="nav-arrow"><ArrowRight /></el-icon></h3>
-            <p>{{ n.desc }}</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== 核心能力（承接原使用说明弹窗；可点卡片打开详情） ===== -->
-    <section class="caps">
-      <h2 class="section-title">还有这些好用的能力<span class="section-sub">点击带箭头的卡片看详细用法</span></h2>
-      <div class="caps-grid">
-        <div class="cap-card" @click="store.openCoreCapability('expression')">
-          <el-icon class="cap-icon"><DataLine /></el-icon>
-          <div class="cap-body">
-            <h3>数据自动生成<el-icon class="cap-arrow"><ArrowRight /></el-icon></h3>
-            <p>随机手机号、日期加减、唯一单号……写一次 <code>${uuid()}</code> 到处复用，不用再手编测试数据</p>
-          </div>
-        </div>
-        <div class="cap-card" @click="store.openCoreCapability('assertion')">
-          <el-icon class="cap-icon"><Checked /></el-icon>
-          <div class="cap-body">
-            <h3>17 种结果校验<el-icon class="cap-arrow"><ArrowRight /></el-icon></h3>
-            <p>「金额应该等于 100」「数据库里已经有这条记录」这类检查点，勾选规则即可，支持失败重试</p>
-          </div>
-        </div>
-        <div class="cap-card">
-          <el-icon class="cap-icon"><Upload /></el-icon>
-          <div class="cap-body">
-            <h3>接口一键搬进来</h3>
-            <p>从浏览器复制一条 cURL 命令粘贴即用；也支持上传抓包文件（HAR）或粘贴 Swagger 文档批量导入</p>
-          </div>
-        </div>
-        <div class="cap-card">
-          <el-icon class="cap-icon"><Connection /></el-icon>
-          <div class="cap-body">
-            <h3>数据库直接查</h3>
-            <p>测试时顺手查库对账：接口说下单成功？SQL 一查便知，不用再开数据库客户端</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== 快捷键条 ===== -->
-    <section class="kbd-bar">
-      <span class="kbd-item"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> 任意页面一秒直达</span>
-      <span class="kbd-item"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 在用例列表快速执行选中的用例</span>
-    </section>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Connection, Upload, DataLine, Checked, Folder, Share, Histogram, Setting } from '@element-plus/icons-vue'
+import { ArrowRight, Refresh, VideoPlay, Loading, WarningFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores'
+import { apiApi, caseApi, execApi } from '@/api'
+import type { ExecutionRecord, TestCase } from '@/api'
+import { formatTime, formatRelativeTime } from '@/utils/format'
+import EmptyState from '@/components/EmptyState.vue'
 
 const router = useRouter()
 const store = useAppStore()
 
-// 五步流程：白话文案（承接原「使用说明」弹窗并去术语化），每步带直达入口
-const steps = [
-  {
-    title: '建一个项目',
-    desc: '项目就像一个文件夹，把某个系统的接口和用例装在一起。第一次使用先建一个，之后在右上角随时切换。',
-    go: '去建项目', to: '/projects',
-  },
-  {
-    title: '填好测试地址',
-    desc: '告诉平台被测系统在哪：网址、登录账号、数据库连接。填完点「测试连接」马上验证填得对不对。',
-    go: '去配环境', to: '/envs',
-  },
-  {
-    title: '把接口录进来',
-    desc: '手动新建，或直接粘贴一条 cURL 命令自动识别。每个接口的参数像填表格一样配好就行。',
-    go: '去录接口', to: '/apis',
-  },
-  {
-    title: '拼出测试流程',
-    desc: '在画布上把接口连成一条线：先登录、再下单、后查单。想检查什么结果，双击节点加一条校验。',
-    go: '去拼流程', to: '/cases',
-  },
-  {
-    title: '一键运行看报告',
-    desc: '选好环境点「执行」，每一步做什么、返回什么、哪步失败全部展示。失败会直接标红告诉你原因。',
-    go: '看执行记录', to: '/executions',
-  },
+// ===== 数据 =====
+const loading = ref(false)
+const loadError = ref('')
+const apiCount = ref(0)
+const caseCount = ref(0)
+const recentCases = ref<TestCase[]>([])
+const recentExecs = ref<ExecutionRecord[]>([])
+
+const displayName = computed(() => store.user?.name || store.user?.username || '用户')
+const currentProjectName = computed(() => store.projects.find(p => p.id === store.currentProjectId)?.name || '当前项目')
+const lastExec = computed(() => recentExecs.value[0])
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6) return '夜深了'
+  if (h < 12) return '早上好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+})
+
+// 7 天执行量与通过率（口径与执行记录页一致：最近 200 条本地过滤）
+const weekStats = computed(() => {
+  const now = Date.now()
+  const week = recentExecs.value.filter(r => r.started_at && now - new Date(r.started_at).getTime() < 7 * 864e5)
+  const done = week.filter(r => r.status === 'success' || r.status === 'failed')
+  const passed = week.filter(r => r.status === 'success').length
+  return {
+    count: week.length,
+    rate: done.length ? Math.round((passed / done.length) * 1000) / 10 : null,
+  }
+})
+
+function statusText(s: string) {
+  return s === 'success' ? '通过' : s === 'failed' ? '失败' : '运行中'
+}
+
+async function loadHome() {
+  if (!store.currentProjectId) return
+  loading.value = true
+  loadError.value = ''
+  try {
+    const [apis, cases, execs] = await Promise.all([
+      apiApi.list(store.currentProjectId),
+      caseApi.list(store.currentProjectId),
+      execApi.list({ project_id: store.currentProjectId, limit: 200 }),
+    ])
+    apiCount.value = apis.length
+    caseCount.value = cases.length
+    recentCases.value = cases.slice(0, 3)
+    recentExecs.value = execs.slice(0, 8)
+  } catch (e: any) {
+    loadError.value = e?.message || '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+// 项目切换即刷新工作台（immediate 兜底首次挂载时序）
+watch(() => store.currentProjectId, () => { loadHome() }, { immediate: true })
+
+// ===== 快速执行 =====
+const runningId = ref<number | null>(null)
+async function runCase(c: TestCase) {
+  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
+  runningId.value = c.id
+  try {
+    const rec = await caseApi.execute(c.id, store.currentEnvId)
+    ElMessage.success('已开始执行，正在跳转报告')
+    router.push(`/reports/${rec.id}`)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '执行失败')
+  } finally {
+    runningId.value = null
+  }
+}
+
+// ===== 上手指南（原落地页内容收纳；首登展示一次） =====
+const guideVisible = ref(false)
+const GUIDE_SEEN_KEY = 'fin_home_guide_seen'
+function openGuide() {
+  guideVisible.value = true
+}
+onMounted(() => {
+  if (!localStorage.getItem(GUIDE_SEEN_KEY)) {
+    guideVisible.value = true
+    localStorage.setItem(GUIDE_SEEN_KEY, '1')
+  }
+})
+
+const guideSteps = [
+  { title: '建一个项目', desc: '项目把一个系统的接口和用例装在一起，右上角随时切换', go: '去创建', to: '/projects' },
+  { title: '配置环境', desc: '被测系统地址、登录账号、数据库连接，可即时测试连通性', go: '去配置', to: '/envs' },
+  { title: '录入接口', desc: '手动新建或粘贴 cURL 自动识别，参数像填表格一样配置', go: '去录入', to: '/apis' },
+  { title: '编排用例', desc: '画布上把接口连成流程，双击节点添加断言', go: '去编排', to: '/cases' },
+  { title: '执行看报告', desc: '选环境点执行，每一步请求与校验结果全留档', go: '去看', to: '/executions' },
 ]
 
-// 核心四区导航（次要入口：字典/文件/用户/日志见侧边栏）
-const navs = [
-  { title: '接口管理', desc: '录入和维护要测的接口、参数', to: '/apis', icon: Folder },
-  { title: '用例编排', desc: '把接口连成流程、加校验规则', to: '/cases', icon: Share },
-  { title: '执行记录', desc: '历次运行结果与报告', to: '/executions', icon: Histogram },
-  { title: '环境配置', desc: '测试地址、账号、数据库', to: '/envs', icon: Setting },
+const guideCaps = [
+  { title: '数据自动生成', desc: '随机手机号、日期加减、唯一单号，写一次 ${uuid()} 到处复用', tab: 'expression' as const },
+  { title: '17 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验，支持失败重试', tab: 'assertion' as const },
+  { title: '批量导入接口', desc: 'cURL 粘贴即用，HAR 抓包文件、Swagger 文档批量导入', tab: null },
+  { title: '数据库直查对账', desc: '测试时顺手执行 SQL 对账，不用开数据库客户端', tab: null },
 ]
 </script>
 
@@ -213,326 +300,205 @@ const navs = [
   padding: 20px 24px 40px;
   display: flex;
   flex-direction: column;
-  gap: 36px;
+  gap: 14px;
 }
+.empty-project { border-radius: var(--app-radius-lg); }
 
-/* ===== 横幅 ===== */
-.hero {
+/* ===== 欢迎条 ===== */
+.welcome {
   display: flex;
   align-items: center;
-  gap: 32px;
-  padding: 36px 40px;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 28px;
   border-radius: var(--app-radius-lg);
   background: linear-gradient(135deg, color-mix(in srgb, var(--app-primary) 10%, var(--app-card-solid)) 0%, var(--app-card-solid) 60%);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-sm);
+  min-height: 96px;
+}
+.welcome-text { min-width: 0; }
+.welcome-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--app-text);
+  margin: 0 0 8px;
   overflow: hidden;
-  position: relative;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.hero-text { flex: 1.2; min-width: 0; }
-.hero-title {
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--app-text);
-  margin: 0 0 6px;
-  letter-spacing: 0.3px;
-}
-.hero-slogan {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--app-primary);
-  margin: 0 0 10px;
-}
-.hero-sub {
-  font-size: 13.5px;
-  line-height: 1.8;
-  color: var(--app-text-muted);
-  margin: 0 0 18px;
-  max-width: 560px;
-}
-.hero-actions { display: flex; gap: 12px; }
-
-/* 横幅 SVG 插画 */
-.hero-art {
-  flex: 0 0 300px;
-  width: 300px;
-  height: auto;
-}
-.hero-node {
-  fill: color-mix(in srgb, var(--app-primary) 8%, var(--app-card-solid));
-  stroke: var(--app-primary);
-  stroke-width: 1.5;
-}
-.hero-node-main {
-  fill: color-mix(in srgb, var(--app-primary) 16%, var(--app-card-solid));
-}
-.hero-node-text {
-  font-size: 11px;
-  fill: var(--app-text);
-}
-.hero-edge {
-  stroke: var(--app-primary);
-  stroke-width: 1.6;
-  stroke-dasharray: 5 4;
-  opacity: 0.65;
-}
-.hero-edge-head { fill: var(--app-primary); }
-.hero-badge {
-  fill: var(--app-success);
-  opacity: 0.18;
-}
-.hero-check {
-  stroke: var(--app-success);
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
-}
-
-/* ===== 通用节标题 ===== */
-.section-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--app-text);
-  margin: 0 0 16px;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.section-sub {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--app-text-muted);
-}
-
-/* ===== 这是什么 ===== */
-.about-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-}
-.about-card {
-  background: var(--app-card-solid);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.about-card:hover {
-  border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border));
-  box-shadow: var(--app-shadow);
-}
-.about-icon {
-  width: 44px;
-  height: 44px;
-  margin-bottom: 4px;
-}
-.about-card h3 {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin: 0;
-}
-.about-card p {
-  font-size: 12.5px;
-  line-height: 1.7;
+.welcome-project { font-size: 15px; font-weight: 500; color: var(--app-text-muted); }
+.welcome-sub {
+  font-size: 13px;
   color: var(--app-text-muted);
   margin: 0;
-}
-
-/* 共用 SVG 线条色（暗色自动跟随变量） */
-.svg-stroke { stroke: var(--app-primary); stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.svg-thin { stroke-width: 1.8; opacity: 0.55; }
-.svg-accent { stroke: var(--app-success); }
-.svg-edge { stroke: var(--app-primary); stroke-width: 1.8; fill: none; stroke-dasharray: 4 3; opacity: 0.65; }
-.svg-fill { fill: var(--app-primary); }
-.svg-fill-soft { fill: color-mix(in srgb, var(--app-success) 18%, transparent); }
-.svg-check { stroke: var(--app-success); stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-
-/* ===== 五步 ===== */
-.steps-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
-}
-.step-card {
-  background: var(--app-card-solid);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  padding: 16px 14px;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.step-card:hover {
-  border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border));
-  box-shadow: var(--app-shadow);
-}
-/* 步骤间衔接箭头（最后一步不加） */
-.step-card:not(:last-child)::after {
-  content: '›';
-  position: absolute;
-  right: -11px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 18px;
-  color: var(--app-text-muted);
-  z-index: 1;
-}
-.step-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-.step-num {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
-  color: var(--app-primary);
-  font-size: 13px;
+.last-status { font-weight: 600; }
+.last-status.is-success { color: var(--app-success-text); }
+.last-status.is-failed { color: var(--app-danger-text); }
+.last-status.is-running { color: var(--app-warn-text); }
+
+.welcome-art { flex-shrink: 0; width: 150px; height: 100px; }
+.dag-node {
+  fill: color-mix(in srgb, var(--app-primary) 8%, var(--app-card-solid));
+  stroke: var(--app-primary);
+  stroke-width: 1.4;
+}
+.dag-node-main { fill: color-mix(in srgb, var(--app-primary) 16%, var(--app-card-solid)); }
+.dag-edge {
+  stroke: var(--app-primary);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  opacity: 0.6;
+  fill: none;
+}
+.dag-badge { fill: var(--app-success); opacity: 0.18; }
+.dag-check { stroke: var(--app-success); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
+/* ===== 统计行 ===== */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.stat {
+  background: var(--app-card-solid);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  padding: 14px 18px;
+  height: 76px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.stat:hover { border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border)); }
+.stat b {
+  font-size: 22px;
   font-weight: 700;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.stat b.is-pass { color: var(--app-success-text); }
+.stat span { font-size: 12px; color: var(--app-text-muted); }
+
+/* ===== 主区两栏 ===== */
+.workbench {
+  display: grid;
+  grid-template-columns: 1.65fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.panel {
+  background: var(--app-card-solid);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  padding: 14px 16px;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  min-height: 28px;
+}
+.panel-head h3 { font-size: 14px; font-weight: 600; color: var(--app-text); margin: 0; }
+.panel-tools { display: flex; align-items: center; gap: 2px; }
+.go-icon { margin-left: 2px; }
+
+/* 最近执行列表：固定行高，状态点 + 摘要 + 相对时间 */
+.exec-list { list-style: none; margin: 0; padding: 0; }
+.exec-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: var(--app-radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+}
+.exec-row:hover { background: var(--app-hover); }
+.exec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
-.step-card h3 {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin: 0;
-}
-.step-desc {
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--app-text-muted);
-  margin: 0;
+.exec-dot.is-success { background: var(--app-success); }
+.exec-dot.is-failed { background: var(--app-danger); }
+.exec-dot.is-running { background: transparent; }
+.exec-dot.is-running .el-icon { font-size: 13px; color: var(--app-warn-text); }
+.exec-name {
   flex: 1;
-}
-.step-go { padding: 4px 0; align-self: flex-start; }
-.step-go-icon { margin-left: 2px; }
-
-/* ===== 功能导航 ===== */
-.nav-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-}
-.nav-card {
-  background: var(--app-card-solid);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  padding: 20px;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-}
-.nav-card:hover {
-  border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border));
-  box-shadow: var(--app-shadow);
-  transform: translateY(-2px);
-}
-.nav-icon {
-  font-size: 26px;
-  color: var(--app-primary);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.nav-body { min-width: 0; flex: 1; }
-.nav-card h3 {
-  font-size: 14.5px;
-  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--app-text);
-  margin: 0 0 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
-.nav-arrow {
-  font-size: 14px;
-  color: var(--app-text-muted);
-  opacity: 0;
-  transition: opacity 0.15s, transform 0.15s;
-}
-.nav-card:hover .nav-arrow { opacity: 1; transform: translateX(2px); }
-.nav-card p {
-  font-size: 12.5px;
-  color: var(--app-text-muted);
-  margin: 0;
-  line-height: 1.6;
-}
-
-/* ===== 能力卡 ===== */
-.caps-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-}
-.cap-card {
-  background: var(--app-card-solid);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  padding: 18px 20px;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.cap-card:hover {
-  border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border));
-  box-shadow: var(--app-shadow);
-}
-.cap-icon {
-  font-size: 24px;
-  color: var(--app-primary);
+.exec-env {
   flex-shrink: 0;
-  margin-top: 2px;
-}
-.cap-body { min-width: 0; flex: 1; }
-.cap-card h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin: 0 0 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.cap-arrow { font-size: 14px; color: var(--app-primary); }
-.cap-card p {
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--app-text-muted);
-  margin: 0;
-}
-.cap-card code {
-  font-family: var(--app-font-mono);
-  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
-  border-radius: 4px;
-  padding: 1px 5px;
   font-size: 11.5px;
+  color: var(--app-text-muted);
+  border: 1px solid var(--app-border);
+  border-radius: 5px;
+  padding: 1px 6px;
 }
+.exec-summary { flex-shrink: 0; font-size: 12px; color: var(--app-text-muted); font-variant-numeric: tabular-nums; }
+.exec-summary.is-failed { color: var(--app-danger-text); }
+.exec-summary.is-success { color: var(--app-success-text); }
+.exec-time { flex-shrink: 0; min-width: 64px; text-align: right; font-size: 12px; color: var(--app-text-faint); }
 
-/* ===== 快捷键条 ===== */
-.kbd-bar {
+/* 右栏 */
+.side-col { display: flex; flex-direction: column; gap: 12px; }
+.quick-list { list-style: none; margin: 0; padding: 0; }
+.quick-row {
   display: flex;
-  justify-content: center;
-  gap: 28px;
-  flex-wrap: wrap;
-  padding: 14px 20px;
-  background: var(--app-card-solid);
-  border: 1px dashed var(--app-border);
-  border-radius: var(--app-radius);
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  margin-bottom: 6px;
+  transition: border-color 0.15s;
 }
-.kbd-item { font-size: 12.5px; color: var(--app-text-muted); }
+.quick-row:hover { border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border)); }
+.quick-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--app-text);
+}
+.quick-empty { font-size: 13px; color: var(--app-text-muted); padding: 8px 0; }
+
+/* 指南面板 */
+.guide-links { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.guide-kbd {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--app-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
 kbd {
   font-family: var(--app-font-mono);
   font-size: 11px;
@@ -540,23 +506,54 @@ kbd {
   border: 1px solid var(--app-border);
   border-bottom-width: 2px;
   border-radius: 5px;
-  padding: 1px 6px;
+  padding: 0 5px;
   color: var(--app-text);
 }
 
-/* ===== 窄屏自适应 ===== */
-@media (max-width: 960px) {
-  .hero { flex-direction: column; text-align: center; }
-  .hero-actions { justify-content: center; }
-  .hero-sub { margin-left: auto; margin-right: auto; }
-  .about-grid { grid-template-columns: 1fr; }
-  .steps-grid { grid-template-columns: repeat(2, 1fr); }
-  .step-card:not(:last-child)::after { display: none; }
-  .nav-grid { grid-template-columns: repeat(2, 1fr); }
-  .caps-grid { grid-template-columns: 1fr; }
+/* ===== 指南抽屉 ===== */
+.guide-body { display: flex; flex-direction: column; gap: 6px; }
+.guide-section { font-size: 14px; font-weight: 600; color: var(--app-text); margin: 8px 0 6px; }
+.guide-steps { list-style: none; margin: 0; padding: 0; }
+.guide-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--app-border);
 }
-@media (max-width: 600px) {
-  .steps-grid, .nav-grid { grid-template-columns: 1fr; }
-  .hero-art { flex-basis: auto; width: 240px; }
+.guide-steps li:last-child { border-bottom: none; }
+.g-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.g-text { flex: 1; min-width: 0; }
+.g-text b { font-size: 13px; font-weight: 600; color: var(--app-text); display: block; margin-bottom: 2px; }
+.g-text p { font-size: 12px; line-height: 1.6; color: var(--app-text-muted); margin: 0; }
+.guide-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.guide-caps li {
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  padding: 10px 12px;
+}
+.guide-caps li.clickable { cursor: pointer; transition: border-color 0.15s; }
+.guide-caps li.clickable:hover { border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border)); }
+.guide-caps b { font-size: 13px; font-weight: 600; color: var(--app-text); display: block; margin-bottom: 3px; }
+.guide-caps p { font-size: 12px; line-height: 1.6; color: var(--app-text-muted); margin: 0; }
+
+/* ===== 窄屏 ===== */
+@media (max-width: 960px) {
+  .workbench { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .welcome-art { display: none; }
 }
 </style>

@@ -30,8 +30,16 @@
     </div>
 
     <el-card shadow="never" class="table-card">
-      <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe size="small" row-key="id" empty-text="暂无操作记录">
+      <div v-if="loadError" class="app-load-error">
+        <el-icon><WarningFilled /></el-icon>
+        <span>{{ loadError }}</span>
+        <el-button size="small" @click="load">重试</el-button>
+      </div>
+      <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
+      <el-table v-else :data="pagedList" stripe size="small" row-key="id">
+        <template #empty>
+          <EmptyState description="暂无操作记录" :image-size="80" />
+        </template>
         <el-table-column prop="id" label="ID" width="70" align="center" />
         <el-table-column label="操作人" width="120">
           <template #default="{ row }">{{ row.username || '未知' }}</template>
@@ -54,8 +62,10 @@
             <span v-else class="detail-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作时间" min-width="170" show-overflow-tooltip>
-          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        <el-table-column label="操作时间" width="120">
+          <template #default="{ row }">
+            <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+          </template>
         </el-table-column>
       </el-table>
       <div class="table-tip">仅显示最近 500 条</div>
@@ -94,11 +104,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { WarningFilled } from '@element-plus/icons-vue'
 import { logApi, userApi, type OperationLog, type SimpleUser } from '@/api'
-import { formatTime } from '@/utils/format'
+import { formatTime, formatRelativeTime } from '@/utils/format'
+import EmptyState from '@/components/EmptyState.vue'
 
 const logs = ref<OperationLog[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const users = ref<SimpleUser[]>([])
 const filterAction = ref('')
 const filterTarget = ref('')
@@ -112,6 +125,7 @@ const pagedList = computed(() => {
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const params: { action?: string; target_type?: string; user_id?: number; limit?: number } = { limit: 500 }
     if (filterAction.value) params.action = filterAction.value
@@ -120,7 +134,7 @@ async function load() {
     logs.value = await logApi.list(params)
     page.value = 1
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }

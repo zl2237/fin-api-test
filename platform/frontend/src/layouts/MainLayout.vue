@@ -15,7 +15,7 @@
           <circle cx="160" cy="730" r="5" fill="rgba(255,255,255,0.25)" />
         </svg>
       </div>
-      <!-- 品牌区可点击回首页（首页即门户：介绍+导航+上手流程） -->
+      <!-- 品牌区可点击回首页（首页即工作台：最近执行+统计+快速执行） -->
       <div class="brand brand-link" title="回到首页" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -81,10 +81,10 @@
           <template #title><span>操作日志</span></template>
         </el-menu-item>
       </el-menu>
-      <!-- 侧边栏底部：当前登录用户头像 + 开发者署名（持续涟漪特效，悬浮旋转保留） -->
+      <!-- 侧边栏底部：当前登录用户头像（持续涟漪特效，悬浮旋转保留） -->
       <div class="sidebar-foot">
         <div class="avatar-ripple">
-          <!-- 用户本人头像：tooltip 显示用户名（开发者署名另见 foot-text，不再混在头像上） -->
+          <!-- 用户本人头像：tooltip 显示用户名（开发者署名见登录页页脚） -->
           <img
             v-if="currentAvatar"
             :src="currentAvatar"
@@ -97,7 +97,6 @@
           </div>
           <div v-if="avatarUploading" class="avatar-uploading" title="头像上传中…">…</div>
         </div>
-        <span v-if="!collapsed" class="foot-text">Developed by zhangle</span>
       </div>
     </el-aside>
 
@@ -863,18 +862,11 @@ onMounted(async () => {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 12px 16px 4px;
   margin-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
-}
-.sidebar-foot .foot-text {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.65);
-  letter-spacing: 0.5px;
-  /* 折叠时先淡出再由 v-if 移除，配合宽度过渡避免文字瞬跳 */
-  transition: opacity 0.18s ease;
-  opacity: 1;
 }
 /* 开发者头像：圆形 + 悬浮放大并缓慢旋转一圈 */
 /* 头像涟漪特效：外层容器负责持续扩散的波纹（双圈错峰），不影响头像本身的悬浮旋转 */

@@ -77,7 +77,13 @@
       </aside>
 
       <div class="group-main">
-        <EmptyState v-if="!loading && !apis.length" description="暂无接口">
+        <div v-if="loadError" class="app-load-error" style="margin-bottom: 12px">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="loadApis">重试</el-button>
+        </div>
+
+        <EmptyState v-else-if="!loading && !apis.length" description="暂无接口">
           <div class="empty-actions">
             <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
             <el-button @click="showImportDialog = true">导入接口</el-button>
@@ -479,7 +485,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { Rank, Upload, Folder, Search, CaretRight } from '@element-plus/icons-vue'
+import { Rank, Upload, Folder, Search, CaretRight, WarningFilled } from '@element-plus/icons-vue'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 const store = useAppStore()
@@ -490,6 +496,7 @@ const apis = ref<ApiDef[]>([])
 const groups = ref<ApiGroup[]>([])
 const users = ref<SimpleUser[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
 const keyword = ref('')
@@ -881,8 +888,11 @@ function methodTag(method: string) {
 async function loadApis() {
   if (!currentProjectId.value) return
   loading.value = true
+  loadError.value = ''
   try {
     apis.value = await apiApi.list(currentProjectId.value, filterCreator.value ?? undefined, filterUpdater.value ?? undefined)
+  } catch (e: any) {
+    loadError.value = e?.message || '加载失败'
   } finally {
     loading.value = false
   }
