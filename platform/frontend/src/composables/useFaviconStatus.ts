@@ -13,26 +13,36 @@ type FaviconState = 'default' | 'running' | 'success' | 'failed'
 
 const DEFAULT_HREF = '/favicon.svg'
 
+// favicon 是 data URI，无法引用 CSS 变量：运行时从设计 token 解析实际色值，与主题保持一致
+function resolveToken(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
+
 // SVG 模板：返回 data URI（encodeURIComponent 保证 #、<、> 等字符正确）
 function buildSvg(state: FaviconState): string {
   if (state === 'default') return DEFAULT_HREF
+  const primary = resolveToken('--app-primary', '#0071e3')
+  const success = resolveToken('--app-success', '#34c759')
+  const danger = resolveToken('--app-danger', '#ff3b30')
   const svgs: Record<Exclude<FaviconState, 'default'>, string> = {
     running: `
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="8" fill="#1f2d3d"/>
-  <circle cx="16" cy="16" r="11" fill="none" stroke="#409eff" stroke-width="2.6" stroke-dasharray="22 48" stroke-linecap="round">
+  <circle cx="16" cy="16" r="11" fill="none" stroke="${primary}" stroke-width="2.6" stroke-dasharray="22 48" stroke-linecap="round">
     <animateTransform attributeName="transform" type="rotate" from="0 16 16" to="360 16 16" dur="0.9s" repeatCount="indefinite"/>
   </circle>
-  <circle cx="16" cy="16" r="3" fill="#409eff"/>
+  <circle cx="16" cy="16" r="3" fill="${primary}"/>
 </svg>`,
     success: `
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#67c23a"/>
+  <rect width="32" height="32" rx="8" fill="${success}"/>
   <path d="M9 16.5 L14 21.5 L23 11" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`,
     failed: `
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#f56c6c"/>
+  <rect width="32" height="32" rx="8" fill="${danger}"/>
   <path d="M11 11 L21 21 M21 11 L11 21" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
 </svg>`,
   }

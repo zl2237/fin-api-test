@@ -395,22 +395,22 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
 }
 .pv-hint {
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-muted);
 }
 .pv-ver {
   font-weight: 600;
-  color: var(--app-primary, #409eff);
+  color: var(--app-primary);
 }
 .pv-muted {
-  color: var(--el-text-color-placeholder);
+  color: var(--app-text-faint);
 }
 .pv-diff-tip {
   margin-top: 10px;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-muted);
 }
 .pv-diff-tip b {
-  color: var(--app-primary, #409eff);
+  color: var(--app-primary);
 }
 
 .pv-diff-wrap {
@@ -425,18 +425,18 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
   flex-wrap: wrap;
 }
 .pv-diff-arrow {
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-muted);
 }
 .pv-diff-summary {
   margin-left: auto;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-muted);
 }
 .pv-diff-empty,
 .pv-sub-empty {
   padding: 16px;
   text-align: center;
-  color: var(--el-text-color-secondary);
+  color: var(--app-text-muted);
 }
 .pv-diff-collapse .el-collapse-item__header {
   font-weight: 500;
@@ -455,16 +455,16 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
   font-size: 13px;
 }
 .pv-diff-row.add {
-  background: #f0f9eb;
-  color: #67c23a;
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
 }
 .pv-diff-row.del {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--app-danger-bg);
+  color: var(--app-danger-text);
 }
 .pv-diff-row.mod {
-  background: #fdf6ec;
-  color: #e6a23c;
+  background: var(--app-warn-bg);
+  color: var(--app-warn-text);
 }
 .pv-diff-sign {
   font-weight: 700;
@@ -475,7 +475,7 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
 }
 
 .pv-diff-body {
-  background: var(--el-fill-color-light);
+  background: var(--app-hover);
   border-radius: 6px;
   font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
   font-size: 12px;
@@ -492,19 +492,19 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
   flex: 0 0 22px;
   text-align: center;
   user-select: none;
-  color: var(--el-text-color-placeholder);
+  color: var(--app-text-faint);
 }
 .pv-diff-line.del {
-  background: #fef0f0;
+  background: var(--app-danger-bg);
 }
 .pv-diff-line.del .pv-diff-prefix {
-  color: #f56c6c;
+  color: var(--app-danger-text);
 }
 .pv-diff-line.add {
-  background: #f0f9eb;
+  background: var(--app-success-bg);
 }
 .pv-diff-line.add .pv-diff-prefix {
-  color: #67c23a;
+  color: var(--app-success-text);
 }
 .pv-diff-text {
   flex: 1;

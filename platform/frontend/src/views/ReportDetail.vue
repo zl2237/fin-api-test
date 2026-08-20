@@ -951,7 +951,7 @@ onUnmounted(stopPolling)
 /* ===== 失败摘要卡（与导出报告 fail-card 同构） ===== */
 .fail-summary {
   flex-shrink: 0;
-  border-left: 4px solid var(--app-danger, #f56c6c);
+  border-left: 4px solid var(--app-danger);
 }
 .fail-summary :deep(.el-card__body) {
   padding: 0;
@@ -963,8 +963,8 @@ onUnmounted(stopPolling)
   padding: 10px 18px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--app-danger, #f56c6c);
-  background: color-mix(in srgb, var(--app-danger, #f56c6c) 8%, transparent);
+  color: var(--app-danger);
+  background: color-mix(in srgb, var(--app-danger) 8%, transparent);
 }
 .fail-icon {
   font-size: 15px;
@@ -985,7 +985,7 @@ onUnmounted(stopPolling)
 .fs-idx {
   font-size: 12px;
   font-weight: 700;
-  color: var(--app-danger, #f56c6c);
+  color: var(--app-danger);
   flex-shrink: 0;
 }
 .fs-name {
@@ -1002,7 +1002,7 @@ onUnmounted(stopPolling)
   flex: 1;
   min-width: 200px;
   font-size: 12px;
-  color: var(--app-danger, #f56c6c);
+  color: var(--app-danger);
 }
 .fs-count {
   font-size: 11px;

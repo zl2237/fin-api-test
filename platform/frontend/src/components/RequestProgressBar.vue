@@ -29,8 +29,8 @@ import { progressState } from '@/utils/requestProgress'
 .req-progress-bar {
   position: relative;
   height: 100%;
-  background: linear-gradient(90deg, #409eff, #67c23a);
-  box-shadow: 0 0 8px rgba(64, 158, 255, 0.6);
+  background: linear-gradient(90deg, var(--app-primary), var(--app-success));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--app-primary) 60%, transparent);
   transition: width 0.2s ease;
   border-radius: 0 2px 2px 0;
   overflow: hidden;

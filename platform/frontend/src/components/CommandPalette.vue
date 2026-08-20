@@ -266,7 +266,7 @@ defineExpose({ open, close })
 }
 .cmd-item-icon {
   font-size: 16px;
-  color: var(--el-color-primary);
+  color: var(--app-primary);
   flex-shrink: 0;
 }
 .cmd-item-main {

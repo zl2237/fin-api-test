@@ -278,11 +278,11 @@ const navs = [
 }
 .hero-edge-head { fill: var(--app-primary); }
 .hero-badge {
-  fill: var(--app-success, #67c23a);
+  fill: var(--app-success);
   opacity: 0.18;
 }
 .hero-check {
-  stroke: var(--app-success, #67c23a);
+  stroke: var(--app-success);
   stroke-width: 2.4;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -346,11 +346,11 @@ const navs = [
 /* 共用 SVG 线条色（暗色自动跟随变量） */
 .svg-stroke { stroke: var(--app-primary); stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .svg-thin { stroke-width: 1.8; opacity: 0.55; }
-.svg-accent { stroke: var(--app-success, #67c23a); }
+.svg-accent { stroke: var(--app-success); }
 .svg-edge { stroke: var(--app-primary); stroke-width: 1.8; fill: none; stroke-dasharray: 4 3; opacity: 0.65; }
 .svg-fill { fill: var(--app-primary); }
-.svg-fill-soft { fill: color-mix(in srgb, var(--app-success, #67c23a) 18%, transparent); }
-.svg-check { stroke: var(--app-success, #67c23a); stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.svg-fill-soft { fill: color-mix(in srgb, var(--app-success) 18%, transparent); }
+.svg-check { stroke: var(--app-success); stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ===== 五步 ===== */
 .steps-grid {
