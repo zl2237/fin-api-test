@@ -86,6 +86,14 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="来源" width="90" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.trigger_type === 'schedule'" content="定时任务触发" placement="top">
+              <el-tag type="warning" effect="plain" size="small"><el-icon><Timer /></el-icon>定时</el-tag>
+            </el-tooltip>
+            <span v-else class="trigger-manual">手动</span>
+          </template>
+        </el-table-column>
         <el-table-column label="通过/总数" width="120">
           <template #default="{ row }">
             {{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}
@@ -146,7 +154,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, WarningFilled } from '@element-plus/icons-vue'
+import { Loading, WarningFilled, Timer } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
@@ -427,5 +435,10 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+/* 来源列：手动为常态弱文本，定时用 warning tag 区分（见模板） */
+.trigger-manual {
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 </style>
