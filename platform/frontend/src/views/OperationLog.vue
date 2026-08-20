@@ -1,12 +1,14 @@
 <template>
   <div class="log-manage">
-    <div class="toolbar">
-      <div class="title">操作日志</div>
-      <div class="filters">
+    <div class="page-head">
+      <div class="head-left">
+        <div class="title">操作日志</div>
+      </div>
+      <div class="head-right">
         <el-select v-model="filterUserId" placeholder="操作人" clearable filterable style="width: 140px" @change="load">
           <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
         </el-select>
-        <el-select v-model="filterAction" placeholder="操作类型" clearable style="width: 120px" @change="load">
+        <el-select v-model="filterAction" placeholder="操作类型" clearable style="width: 140px" @change="load">
           <el-option label="新增" value="create" />
           <el-option label="修改" value="update" />
           <el-option label="删除" value="delete" />
@@ -29,7 +31,7 @@
 
     <el-card shadow="never" class="table-card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe empty-text="暂无操作记录">
+      <el-table v-else :data="pagedList" stripe size="small" row-key="id" empty-text="暂无操作记录">
         <el-table-column prop="id" label="ID" width="70" align="center" />
         <el-table-column label="操作人" width="120">
           <template #default="{ row }">{{ row.username || '未知' }}</template>
@@ -52,8 +54,11 @@
             <span v-else class="detail-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="操作时间" min-width="170" show-overflow-tooltip />
+        <el-table-column label="操作时间" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        </el-table-column>
       </el-table>
+      <div class="table-tip">仅显示最近 500 条</div>
       <div class="pagination-wrap">
         <el-pagination
           v-model:current-page="page"
@@ -61,14 +66,14 @@
           :total="logs.length"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next"
-          background
           small
+          background
         />
       </div>
     </el-card>
 
     <!-- 清理旧日志对话框 -->
-    <el-dialog v-model="cleanupVisible" title="清理旧操作日志" width="420px" align-center>
+    <el-dialog v-model="cleanupVisible" title="清理旧操作日志" width="420px" align-center :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px">
         将永久删除指定天数前的操作日志，此操作不可恢复。
       </el-alert>
@@ -90,6 +95,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { logApi, userApi, type OperationLog, type SimpleUser } from '@/api'
+import { formatTime } from '@/utils/format'
 
 const logs = ref<OperationLog[]>([])
 const loading = ref(false)
@@ -205,22 +211,28 @@ onMounted(() => {
 .detail-empty {
   color: var(--app-text-muted);
 }
-.toolbar {
+.page-head {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+.head-left,
+.head-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .title {
   font-size: 17px;
   font-weight: 600;
   color: var(--app-text);
 }
-.filters {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+.table-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 .table-card {
   background: var(--app-card);

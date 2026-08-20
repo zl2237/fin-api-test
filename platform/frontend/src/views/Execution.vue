@@ -1,10 +1,11 @@
 <template>
   <div class="page">
-    <!-- 搜索过滤栏 -->
-    <div class="filter-bar">
+    <!-- 搜索过滤栏：左主筛选 / 右筛选+查询+操作 -->
+    <div class="page-head">
+      <div class="head-left">
         <el-select
           v-model="filterProjectId"
-          style="width: 180px"
+          style="width: 140px"
           placeholder="项目"
           clearable
           filterable
@@ -12,6 +13,8 @@
         >
           <el-option v-for="p in store.projects" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
+      </div>
+      <div class="head-right">
         <el-select
           v-model="filterExecutor"
           style="width: 140px"
@@ -27,8 +30,8 @@
           style="width: 140px"
           placeholder="用例ID"
           clearable
-          @keyup.enter="onFilterChange"
-          @clear="onFilterChange"
+          @input="onSearchInput"
+          @clear="onSearchInput"
         />
         <el-select v-model="filterStatus" style="width: 140px" placeholder="状态" clearable @change="onFilterChange">
           <el-option label="通过" value="success" />
@@ -51,11 +54,12 @@
           共 {{ filteredList.length }} 条<template v-if="filteredList.length >= 200">（仅显示最近 200 条）</template>
         </span>
         <el-button v-if="store.user?.role === 'admin'" type="warning" plain @click="openCleanup">清理旧记录</el-button>
+      </div>
     </div>
 
     <el-card shadow="never" class="card">
       <el-skeleton v-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe>
+      <el-table v-else :data="pagedList" stripe size="small" row-key="id">
         <template #empty>
           <el-empty :image-size="80" description="暂无执行记录">
             <el-button type="primary" @click="router.push('/cases')">前往用例列表执行用例</el-button>
@@ -84,8 +88,12 @@
             {{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column prop="started_at" label="开始时间" min-width="170" show-overflow-tooltip />
-        <el-table-column prop="ended_at" label="结束时间" min-width="170" show-overflow-tooltip />
+        <el-table-column label="开始时间" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
+        </el-table-column>
+        <el-table-column label="结束时间" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatTime(row.ended_at) }}</template>
+        </el-table-column>
         <el-table-column label="执行人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
         </el-table-column>
@@ -102,14 +110,14 @@
           :total="filteredList.length"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next"
-          background
           small
+          background
         />
       </div>
     </el-card>
 
     <!-- 清理旧记录对话框 -->
-    <el-dialog v-model="cleanupVisible" title="清理旧执行记录" width="420px" align-center>
+    <el-dialog v-model="cleanupVisible" title="清理旧执行记录" width="420px" align-center :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 16px">
         将永久删除指定天数前的执行记录（含步骤和断言），此操作不可恢复。
       </el-alert>
@@ -135,6 +143,8 @@ import { Loading } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
+import { debounce } from '@/utils/ui'
+import { formatTime } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -193,6 +203,9 @@ function onFilterChange() {
   page.value = 1
   load()
 }
+
+// 用例ID 搜索输入：回第 1 页 + 300ms 防抖（避免每敲一键发一次请求）
+const onSearchInput = debounce(onFilterChange, 300)
 
 function statusType(s: string) {
   return s === 'success' ? 'success' : s === 'running' ? 'warning' : 'danger'
@@ -337,9 +350,10 @@ onUnmounted(() => {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
 }
-.filter-bar {
+.page-head {
   flex-shrink: 0;
   display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
@@ -347,6 +361,12 @@ onUnmounted(() => {
   background: var(--app-card);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-lg);
+}
+.head-left,
+.head-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .filter-count {
   margin-left: auto;

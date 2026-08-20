@@ -35,7 +35,9 @@
         >
           <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
         </el-select>
-        <el-input v-model="keyword" style="width: 240px" placeholder="搜索用例名称" clearable />
+        <el-input v-model="keyword" style="width: 240px" placeholder="搜索用例名称" clearable>
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
       </div>
     </div>
 
@@ -107,7 +109,7 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="320" fixed="right">
+            <el-table-column label="操作" width="260" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
@@ -167,7 +169,7 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="320" fixed="right">
+            <el-table-column label="操作" width="260" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
@@ -198,7 +200,7 @@
     </div>
 
     <!-- 新建用例弹窗 -->
-    <el-dialog v-model="dialogVisible" title="新建用例" width="480px" align-center>
+    <el-dialog v-model="dialogVisible" title="新建用例" width="420px" align-center :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="创建订单-冒烟" />
@@ -226,7 +228,7 @@
     </el-dialog>
 
     <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序） -->
-    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="620px" align-center class="group-manage-dialog">
+    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="620px" align-center class="group-manage-dialog" :close-on-click-modal="false">
       <div class="group-dialog-body">
         <div class="group-add">
           <el-input
@@ -275,7 +277,7 @@
     </el-dialog>
 
     <!-- 批量移动弹窗 -->
-    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center>
+    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center :close-on-click-modal="false">
       <div style="margin-bottom: 12px; color: var(--app-text-muted);">
         将 {{ selectedCaseIds.length }} 个用例移动到：
       </div>
@@ -302,7 +304,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'v
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, Folder, CaretRight } from '@element-plus/icons-vue'
+import { Rank, Folder, CaretRight, Search } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, type TestCase, type CaseGroup, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
@@ -819,6 +821,11 @@ function onGlobalKey(e: KeyboardEvent) {
   display: flex;
   gap: 8px;
 }
+.head-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 /* 左分组导航 + 右组内列表（master-detail） */
 .group-layout {
   flex: 1;
@@ -960,7 +967,7 @@ function onGlobalKey(e: KeyboardEvent) {
 .pagination-wrap {
   display: flex;
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 .empty-actions {
   display: flex;

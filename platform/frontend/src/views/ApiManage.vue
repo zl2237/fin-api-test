@@ -1,8 +1,8 @@
 <template>
   <div class="api-manage">
     <!-- 顶部工具栏 -->
-    <div class="toolbar">
-      <div class="toolbar-left">
+    <div class="page-head">
+      <div class="head-left">
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
         <el-button @click="showImportDialog = true">导入接口</el-button>
         <el-button
@@ -10,7 +10,7 @@
           @click="onBatchMove"
         >批量移动到{{ selectedApiIds.length ? `（已选 ${selectedApiIds.length}）` : '' }}</el-button>
       </div>
-      <div class="toolbar-right">
+      <div class="head-right">
         <el-select
           v-model="filterCreator"
           style="width: 140px"
@@ -36,7 +36,9 @@
           style="width: 240px"
           placeholder="搜索接口名/编码/路径"
           clearable
-        />
+        >
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
       </div>
     </div>
 
@@ -206,7 +208,7 @@
     </div>
 
     <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序） -->
-    <el-dialog v-model="showGroupDialog" title="接口分组管理" width="620px" align-center class="group-manage-dialog">
+    <el-dialog v-model="showGroupDialog" title="接口分组管理" width="620px" align-center class="group-manage-dialog" :close-on-click-modal="false">
       <div class="group-dialog-body">
         <div class="group-add">
           <el-input
@@ -255,7 +257,7 @@
     </el-dialog>
 
     <!-- 导入接口弹窗（cURL 粘贴 / HAR 上传 / OpenAPI 粘贴） -->
-    <el-dialog v-model="showImportDialog" title="导入接口" width="780px" align-center @close="onImportDialogClose">
+    <el-dialog v-model="showImportDialog" title="导入接口" width="80%" align-center :close-on-click-modal="false" @close="onImportDialogClose">
       <el-tabs v-model="importTab" class="import-tabs">
         <!-- Tab 1: cURL 命令粘贴（默认） -->
         <el-tab-pane label="cURL 命令" name="curl">
@@ -444,7 +446,7 @@
     </el-dialog>
 
     <!-- 批量移动弹窗 -->
-    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center>
+    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center :close-on-click-modal="false">
       <div style="margin-bottom: 12px; color: var(--app-text-muted);">
         将 {{ selectedApiIds.length }} 个接口移动到：
       </div>
@@ -1004,7 +1006,7 @@ watch(currentProjectId, () => {
   height: 100%;
   background: var(--app-bg);
 }
-.toolbar {
+.page-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1013,9 +1015,14 @@ watch(currentProjectId, () => {
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
 }
-.toolbar-left {
+.head-left {
   display: flex;
   gap: 8px;
+}
+.head-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 /* 左分组导航 + 右组内列表（master-detail） */
 .group-layout {
@@ -1158,7 +1165,7 @@ watch(currentProjectId, () => {
 .pagination-wrap {
   display: flex;
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 .import-body {
   padding: 8px 4px;

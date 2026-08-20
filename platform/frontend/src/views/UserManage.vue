@@ -1,15 +1,17 @@
 <template>
   <div class="user-manage">
-    <div class="toolbar">
-      <div class="title">用户管理</div>
-      <div class="filters">
+    <div class="page-head">
+      <div class="head-left">
+        <div class="title">用户管理</div>
+        <el-button type="primary" @click="openCreate">+ 新建用户</el-button>
+      </div>
+      <div class="head-right">
         <el-select v-model="filterCreator" placeholder="创建人" clearable filterable style="width: 140px" @change="filterLocal">
           <el-option v-for="u in allUsers" :key="u.id" :label="u.name || u.username" :value="u.id" />
         </el-select>
         <el-select v-model="filterUpdater" placeholder="更新人" clearable filterable style="width: 140px" @change="filterLocal">
           <el-option v-for="u in allUsers" :key="u.id" :label="u.name || u.username" :value="u.id" />
         </el-select>
-        <el-button type="primary" @click="openCreate">新增用户</el-button>
       </div>
     </div>
 
@@ -60,7 +62,7 @@
     </el-card>
 
     <!-- 新增用户对话框 -->
-    <el-dialog v-model="createVisible" title="新增用户" width="420px" align-center>
+    <el-dialog v-model="createVisible" title="新增用户" width="420px" align-center :close-on-click-modal="false">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="80px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="createForm.username" placeholder="登录用用户名" />
@@ -364,12 +366,13 @@ onMounted(load)
   gap: 12px;
   height: 100%;
 }
-.toolbar {
+.page-head {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
 }
-.filters {
+.head-left,
+.head-right {
   display: flex;
   gap: 8px;
   align-items: center;

@@ -26,7 +26,7 @@
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe row-key="id" empty-text="暂无环境">
+        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id" empty-text="暂无环境">
           <el-table-column width="36" align="center">
             <template #default>
               <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>

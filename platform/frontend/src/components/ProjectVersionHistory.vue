@@ -12,7 +12,7 @@
       <el-button type="primary" @click="onOpenCreate">保存新版本</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="versions" border size="small" max-height="420">
+    <el-table v-loading="loading" :data="versions" border size="small" row-key="id" max-height="420">
       <el-table-column label="版本" width="70">
         <template #default="{ row }">
           <span class="pv-ver">v{{ row.version_no }}</span>
@@ -180,6 +180,7 @@ import {
   type ProjectVersionDiff,
   type CollectionDiff,
 } from '@/api'
+import { formatTime } from '@/utils/format'
 
 const props = defineProps<{ modelValue: boolean; projectId: number | null }>()
 const emit = defineEmits<{
@@ -216,11 +217,6 @@ async function loadVersions() {
   } finally {
     loading.value = false
   }
-}
-
-function formatTime(t?: string) {
-  if (!t) return '—'
-  return t.replace('T', ' ').slice(0, 19)
 }
 
 // ============ 创建快照 ============

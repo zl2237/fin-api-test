@@ -69,8 +69,8 @@
 
     <!-- 右侧：文件列表 -->
     <div class="file-main">
-      <div class="file-toolbar">
-        <div class="toolbar-left">
+      <div class="page-head">
+        <div class="head-left">
           <el-upload
             :show-file-list="false"
             :before-upload="handleUpload"
@@ -89,7 +89,7 @@
             <template #prefix><el-icon><Search /></el-icon></template>
           </el-input>
         </div>
-        <div class="toolbar-right">
+        <div class="head-right">
           <!-- 显示当前过滤结果数（全量计数只在左侧树），避免「筛后 5 行却写共 120 个」的误导 -->
           <span class="muted">共 {{ files.length }} 个文件</span>
         </div>
@@ -147,7 +147,7 @@
     </el-dialog>
 
     <!-- 重命名/改分类/改标签 弹窗 -->
-    <el-dialog v-model="renameVisible" title="编辑文件" width="480px" align-center>
+    <el-dialog v-model="renameVisible" title="编辑文件" width="420px" align-center :close-on-click-modal="false">
       <el-form v-if="editingFile" label-width="80px">
         <el-form-item label="文件名" required>
           <el-input v-model="editingFile.name" />
@@ -176,7 +176,7 @@
     </el-dialog>
 
     <!-- 分类编辑弹窗 -->
-    <el-dialog v-model="categoryDialog.visible" :title="categoryDialog.editing ? '编辑分类' : '新建分类'" width="400px" align-center>
+    <el-dialog v-model="categoryDialog.visible" :title="categoryDialog.editing ? '编辑分类' : '新建分类'" width="420px" align-center :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="categoryDialog.name" placeholder="如 身份证/合同/发票" />
@@ -200,7 +200,7 @@
     </el-dialog>
 
     <!-- 标签编辑弹窗 -->
-    <el-dialog v-model="tagDialog.visible" :title="tagDialog.editing ? '编辑标签' : '新建标签'" width="400px" align-center>
+    <el-dialog v-model="tagDialog.visible" :title="tagDialog.editing ? '编辑标签' : '新建标签'" width="420px" align-center :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="tagDialog.name" placeholder="如 冒烟/回归/生产" />
@@ -245,6 +245,7 @@ import { useAppStore } from '@/stores'
 import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
 import { fileApi, fileCategoryApi, fileTagApi, type TestFile, type FileCategory, type FileTag } from '@/api'
 import { debounce } from '@/utils/ui'
+import { formatTime } from '@/utils/format'
 
 const store = useAppStore()
 const projectId = computed(() => store.currentProjectId)
@@ -585,11 +586,6 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function formatTime(t?: string): string {
-  if (!t) return ''
-  return t.replace('T', ' ').slice(0, 19)
-}
-
 // 简化过长的 MIME 类型显示：如 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet → xlsx
 function formatContentType(ct: string): string {
   if (!ct) return '未知'
@@ -657,7 +653,7 @@ onMounted(() => {
   min-height: 0;
 }
 .file-sidebar {
-  width: 240px;
+  width: 220px;
   flex-shrink: 0;
   background: var(--el-bg-color);
   border-radius: 8px;
@@ -789,14 +785,19 @@ onMounted(() => {
   gap: 12px;
   overflow: auto;
 }
-.file-toolbar {
+.page-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.toolbar-left {
+.head-left {
   display: flex;
   gap: 12px;
+  align-items: center;
+}
+.head-right {
+  display: flex;
+  gap: 8px;
   align-items: center;
 }
 .muted {
