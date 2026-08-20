@@ -1,0 +1,1847 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>fin-api-test · 控制台风格重设计原型 v2</title>
+<style>
+/* ============================================================
+   重设计原型「工程控制台」方向 · 独立预览文件，不依赖项目构建
+   顶部切换 8 屏；右上角切换明暗主题
+   ============================================================ */
+:root {
+  color-scheme: dark;
+  --bg: #0e0f11;
+  --surface: #141619;
+  --raised: #1a1d21;
+  --border: #26292e;
+  --border-strong: #33373d;
+  --text: #e7e9ea;
+  --muted: #9aa0a6;
+  --faint: #5f656c;
+  --accent: #4c8dff;
+  --accent-soft: rgba(76, 141, 255, 0.14);
+  --pass: #3fdd78;
+  --pass-soft: rgba(63, 221, 120, 0.12);
+  --fail: #ff5d5d;
+  --fail-soft: rgba(255, 93, 93, 0.10);
+  --run: #ffb340;
+  --run-soft: rgba(255, 179, 64, 0.12);
+  --skip: #6b7178;
+  --method-get: #7aa2ff;
+  --method-post: #ffb340;
+  --method-put: #b48cff;
+  --method-del: #ff7a90;
+  --sans: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r: 6px;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --raised: #f2f3f5;
+  --border: #e4e6e9;
+  --border-strong: #d2d5d9;
+  --text: #1b1d1f;
+  --muted: #5f656c;
+  --faint: #9aa0a6;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.10);
+  --pass: #149e4c;
+  --pass-soft: rgba(20, 158, 76, 0.10);
+  --fail: #d93036;
+  --fail-soft: rgba(217, 48, 54, 0.08);
+  --run: #b26a00;
+  --run-soft: rgba(178, 106, 0, 0.10);
+  --skip: #8a9098;
+  --method-get: #2563eb;
+  --method-post: #b26a00;
+  --method-put: #7c4dc4;
+  --method-del: #c02a44;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font: 400 13px/1.6 var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+.mono, code, kbd { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ===== 原型切换器（不属于设计本身） ===== */
+.proto-bar {
+  position: sticky; top: 0; z-index: 99;
+  display: flex; align-items: center; gap: 4px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.proto-bar .pb-title {
+  font: 600 12px/1 var(--mono);
+  color: var(--muted);
+  margin-right: 12px;
+  letter-spacing: 0.04em;
+}
+.pb-btn {
+  font: 500 12px/1 var(--sans);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.pb-btn:hover { color: var(--text); background: var(--raised); }
+.pb-btn.on { color: var(--text); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.pb-spacer { flex: 1; }
+.screen { display: none; min-height: calc(100vh - 45px); }
+.screen.on { display: block; }
+.screen-frame { padding: 0; }
+
+/* ===== 通用：状态点 / 徽章 / 表格 ===== */
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.pass { background: var(--pass); box-shadow: 0 0 0 3px var(--pass-soft); }
+.dot.fail { background: var(--fail); box-shadow: 0 0 0 3px var(--fail-soft); }
+.dot.run { background: var(--run); box-shadow: 0 0 0 3px var(--run-soft); animation: pulse 1.2s ease-in-out infinite; }
+.dot.skip { background: var(--skip); }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+.st-badge {
+  font: 500 11px/18px var(--mono);
+  padding: 0 8px; border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+.st-badge.pass { color: var(--pass); background: var(--pass-soft); }
+.st-badge.fail { color: var(--fail); background: var(--fail-soft); }
+.st-badge.run { color: var(--run); background: var(--run-soft); }
+
+.m-badge { font: 600 11px/18px var(--mono); letter-spacing: 0.03em; }
+.m-get { color: var(--method-get); }
+.m-post { color: var(--method-post); }
+.m-put { color: var(--method-put); }
+.m-del { color: var(--method-del); }
+
+table.grid { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.grid th {
+  font: 600 11px/1 var(--sans);
+  color: var(--faint);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+table.grid td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+table.grid tbody tr { cursor: pointer; }
+table.grid tbody tr:hover { background: var(--raised); }
+table.grid tbody tr.sel { background: var(--accent-soft); }
+td.num, th.num { text-align: right; }
+.mut { color: var(--muted); }
+.fnt { color: var(--faint); }
+.path { font-family: var(--mono); font-size: 12px; }
+
+/* 通用按钮 */
+.btn {
+  font: 500 12.5px/1 var(--sans);
+  padding: 7px 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--faint); }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--text); background: var(--raised); }
+
+/* 通用输入 */
+.inp {
+  font: 400 12.5px/1 var(--sans);
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 10px;
+  outline: none;
+  min-width: 200px;
+}
+.inp:focus { border-color: var(--accent); }
+.inp::placeholder { color: var(--faint); }
+
+/* 通用页面骨架：顶工具条 + 内容区 hairline 分区（不再有卡片） */
+.toolrow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.toolrow .title { font: 600 14px/1 var(--sans); margin-right: 4px; }
+.toolrow .grow { flex: 1; }
+.crumb { font: 400 12px/1 var(--sans); color: var(--faint); }
+.crumb b { color: var(--muted); font-weight: 500; }
+
+/* ============================================================
+   屏 1 · 登录（极简：单栏居中，无品牌面板/无装饰）
+   ============================================================ */
+#s-login { display: none; }
+#s-login.on { display: flex; }
+.login-wrap {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 28px;
+  padding: 40px 20px;
+}
+.login-mark {
+  display: flex; align-items: center; gap: 10px;
+  font: 600 15px/1 var(--mono);
+  letter-spacing: 0.02em;
+}
+.login-mark svg { display: block; }
+.login-card {
+  width: 340px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 26px 24px 22px;
+}
+.login-card h1 { font: 600 15px/1.3 var(--sans); margin-bottom: 2px; }
+.login-card .sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+.f-label { display: block; font: 500 11.5px/1 var(--sans); color: var(--muted); margin: 14px 0 6px; }
+.f-label:first-of-type { margin-top: 0; }
+.login-card .inp { width: 100%; min-width: 0; }
+.login-card .btn.primary { width: 100%; margin-top: 20px; padding: 9px 0; font-size: 13px; }
+.login-alt { display: flex; justify-content: space-between; margin-top: 14px; font-size: 12px; }
+.login-alt a { color: var(--muted); text-decoration: none; }
+.login-alt a:hover { color: var(--accent); }
+.login-foot { font: 400 11px/1 var(--mono); color: var(--faint); }
+
+/* ============================================================
+   屏 2 · 工作台（原 Home：删 hero，纯工作信息）
+   ============================================================ */
+.app-shell { display: grid; grid-template-columns: 208px 1fr; min-height: calc(100vh - 45px); }
+.side {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px 8px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.side .brand {
+  display: flex; align-items: center; gap: 8px;
+  font: 600 12.5px/1 var(--mono);
+  padding: 6px 10px 14px;
+  letter-spacing: 0.02em;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  font: 500 12.5px/1 var(--sans);
+  color: var(--muted);
+  padding: 7px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.nav-item:hover { color: var(--text); background: var(--raised); }
+.nav-item.on { color: var(--text); background: var(--accent-soft); }
+.nav-item .cnt { margin-left: auto; font: 500 10.5px/1 var(--mono); color: var(--faint); }
+.nav-sec { font: 600 10.5px/1 var(--sans); color: var(--faint); letter-spacing: 0.08em; padding: 14px 10px 6px; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+.pg-head {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 16px 22px 12px;
+}
+.pg-head h1 { font: 600 16px/1.2 var(--sans); }
+.pg-head .sub { font-size: 12px; color: var(--muted); }
+.pg-head .grow { flex: 1; }
+
+/* KPI 行内条（替代统计卡） */
+.kpis {
+  display: flex; gap: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.kpi {
+  flex: 1;
+  padding: 12px 22px;
+  border-right: 1px solid var(--border);
+}
+.kpi:last-child { border-right: none; }
+.kpi .k-label { font: 500 11px/1 var(--sans); color: var(--faint); margin-bottom: 5px; letter-spacing: 0.04em; }
+.kpi .k-val { font: 600 20px/1 var(--mono); }
+.kpi .k-val .u { font-size: 11px; color: var(--faint); font-weight: 400; margin-left: 3px; }
+.kpi .k-sub { font: 400 11px/1 var(--mono); color: var(--faint); margin-top: 5px; }
+.kpi.alert .k-val { color: var(--fail); }
+
+/* 双栏工作区 */
+.work { display: grid; grid-template-columns: 1.6fr 1fr; gap: 0; flex: 1; min-height: 0; }
+.wcol { border-right: 1px solid var(--border); min-width: 0; }
+.wcol:last-child { border-right: none; }
+.w-sec-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 18px 8px;
+  font: 600 12px/1 var(--sans);
+}
+.w-sec-head .more { margin-left: auto; font: 400 11.5px/1 var(--sans); color: var(--muted); cursor: pointer; }
+.w-sec-head .more:hover { color: var(--accent); }
+.run-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.run-row:hover { background: var(--raised); }
+.run-row .name { font-weight: 500; }
+.run-row .meta { margin-left: auto; display: flex; gap: 12px; font: 400 11px/1 var(--mono); color: var(--faint); }
+.fail-row-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid var(--fail);
+  margin: 6px 0 6px 18px;
+  background: var(--fail-soft);
+  border-radius: 0 5px 5px 0;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.fail-row-item:hover { filter: brightness(1.1); }
+.fail-row-item .f-name { font-weight: 500; }
+.fail-row-item .f-why { font-size: 11.5px; color: var(--fail); }
+.fail-row-item .meta { margin-left: auto; font: 400 11px/1 var(--mono); color: var(--faint); }
+.quick {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 4px 18px 18px;
+}
+.quick .q-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.quick .q-btn:hover { color: var(--text); border-color: var(--accent); border-style: solid; }
+.quick .q-btn kbd {
+  margin-left: auto; font-size: 10px; color: var(--faint);
+  border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px;
+}
+
+/* ============================================================
+   屏 3 · 接口管理（分组树 + 高密度表格）
+   ============================================================ */
+.mgmt { display: grid; grid-template-columns: 216px 1fr; flex: 1; min-height: 0; }
+.tree { border-right: 1px solid var(--border); padding: 10px 8px; overflow: auto; }
+.t-node {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--muted);
+  padding: 5px 8px; border-radius: 5px; cursor: pointer;
+}
+.t-node:hover { color: var(--text); background: var(--raised); }
+.t-node.on { color: var(--text); background: var(--accent-soft); }
+.t-node .cnt { margin-left: auto; font: 500 10.5px/1 var(--mono); color: var(--faint); }
+.t-node.child { padding-left: 24px; }
+.t-caret { font-size: 9px; color: var(--faint); width: 10px; }
+
+/* ============================================================
+   屏 4 · 用例编排（画布框架示意）
+   ============================================================ */
+.designer { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.d-title-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.d-name { font: 600 14px/1 var(--sans); }
+.d-status { font: 400 11px/1 var(--mono); color: var(--faint); }
+.d-body { display: grid; grid-template-columns: 1fr 264px; flex: 1; min-height: 320px; }
+.canvas {
+  position: relative;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-color: var(--bg);
+  overflow: hidden;
+}
+.d-node {
+  position: absolute;
+  min-width: 118px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  padding: 8px 12px 7px;
+  font-size: 12px;
+}
+.d-node .dn-name { font-weight: 600; margin-bottom: 3px; }
+.d-node .dn-api { font: 400 10.5px/1.3 var(--mono); color: var(--faint); }
+.d-node .dn-top { position: absolute; top: -1px; left: 10px; right: 10px; height: 2px; border-radius: 2px 2px 0 0; background: var(--skip); }
+.d-node.ok .dn-top { background: var(--pass); }
+.d-node.bad .dn-top { background: var(--fail); }
+.d-node.sel2 { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.d-edge { position: absolute; pointer-events: none; }
+.d-panel { border-left: 1px solid var(--border); background: var(--surface); overflow: auto; }
+.dp-sec { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.dp-sec h4 { font: 600 11.5px/1 var(--sans); color: var(--muted); letter-spacing: 0.05em; margin-bottom: 10px; }
+.dp-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; font-size: 12px; gap: 10px; }
+.dp-row .lbl { color: var(--muted); }
+.dp-row .val { font-family: var(--mono); font-size: 11.5px; }
+.dp-row .val input[type="number"] {
+  width: 76px; font: inherit; color: var(--text);
+  background: var(--raised); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 6px; outline: none; text-align: right;
+}
+.d-runbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.d-runbar .env {
+  font: 400 12px/1 var(--mono);
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 7px 10px;
+}
+.d-last { font: 400 11.5px/1 var(--mono); color: var(--faint); margin-left: auto; }
+
+/* ============================================================
+   屏 5 · 报告详情（保留骨架，重塑表皮）
+   ============================================================ */
+.rep-banner {
+  display: flex; align-items: center; gap: 18px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.rep-banner .verdict { font: 700 17px/1 var(--mono); letter-spacing: 0.04em; }
+.rep-banner .verdict.fail { color: var(--fail); }
+.rep-banner .verdict.pass { color: var(--pass); }
+.rep-banner .b-item { font: 400 12px/1 var(--sans); color: var(--muted); }
+.rep-banner .b-item b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.rep-banner .grow { flex: 1; }
+.rep-failcard { border-bottom: 1px solid var(--border); background: var(--surface); }
+.rep-failcard .rf-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 22px 7px;
+  font: 600 12px/1 var(--sans);
+  color: var(--fail);
+}
+.rep-body { display: grid; grid-template-columns: 248px 1fr; flex: 1; min-height: 300px; }
+.rep-nav { border-right: 1px solid var(--border); background: var(--surface); overflow: auto; padding: 6px; }
+.rn-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+  padding: 6px 8px; border: none; border-radius: 5px;
+  background: transparent; cursor: pointer;
+  font: 400 12px/1.35 var(--sans); color: var(--muted);
+}
+.rn-item:hover { background: var(--raised); color: var(--text); }
+.rn-item.on { background: var(--accent-soft); color: var(--text); }
+.rn-item .rn-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rn-item .rn-ms { font: 400 10.5px/1 var(--mono); color: var(--faint); }
+.rn-item .rn-fail { color: var(--fail); font-weight: 600; }
+.rn-search { padding: 6px; border-bottom: 1px solid var(--border); }
+.rn-search .inp { min-width: 0; width: 100%; }
+.rn-filter { display: flex; gap: 4px; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+.rn-fbtn {
+  flex: 1; font: 500 11px/1 var(--sans);
+  padding: 5px 0; border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.rn-fbtn.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--text); }
+.rn-fbtn.on[data-f="fail"] { background: var(--fail-soft); border-color: color-mix(in srgb, var(--fail) 40%, transparent); color: var(--fail); }
+
+.rep-detail { min-width: 0; background: var(--bg); overflow: auto; }
+.rd-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px 10px; }
+.rd-head .idx { font: 600 12px/1 var(--mono); color: var(--faint); }
+.rd-head .nm { font: 600 14px/1 var(--sans); }
+.rd-tabs { display: flex; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--border); }
+.rd-tab {
+  font: 500 12.5px/1 var(--sans); color: var(--muted);
+  padding: 8px 12px; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.rd-tab:hover { color: var(--text); }
+.rd-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.rd-tab .cnt { font: 400 10.5px/1 var(--mono); color: var(--faint); margin-left: 3px; }
+.rd-meta { display: flex; flex-wrap: wrap; gap: 4px 22px; padding: 9px 20px; font-size: 11.5px; color: var(--muted); background: var(--surface); border-bottom: 1px solid var(--border); }
+.rd-meta b { font-family: var(--mono); font-weight: 500; color: var(--text); }
+.rd-sec { padding: 6px 20px 0; }
+.rd-sec .sec-t { font: 600 11px/1 var(--sans); color: var(--faint); letter-spacing: 0.06em; padding: 12px 0 6px; }
+.code-blk {
+  font: 400 11.5px/1.65 var(--mono);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--muted);
+}
+.code-blk .k { color: var(--method-get); }
+.code-blk .s { color: var(--pass); }
+.code-blk .n { color: var(--method-post); }
+table.assert { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.assert th { font: 600 11px/1 var(--sans); color: var(--faint); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+table.assert td { padding: 7px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; }
+table.assert tr.rowfail td { background: var(--fail-soft); }
+table.assert .ok-t { color: var(--pass); }
+table.assert .bad-t { color: var(--fail); }
+table.assert .why { color: var(--fail); font-family: var(--sans); }
+
+/* ============================================================
+   屏 6 · 执行记录（列表页范式）
+   ============================================================ */
+.chips { display: flex; gap: 6px; }
+.chip {
+  font: 500 11.5px/1 var(--sans);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  cursor: pointer;
+  background: transparent;
+}
+.chip:hover { color: var(--text); }
+.chip.on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.chip.on[data-c="fail"] { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 45%, transparent); background: var(--fail-soft); }
+
+/* ===== v2.1 追加：品牌登录面板 ===== */
+#s-login.on { display: flex; flex-direction: row; }
+.bp {
+  flex: 1.1;
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 40px 44px;
+}
+.bp::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.5;
+}
+.bp-art { position: absolute; right: -40px; top: 8%; width: 480px; opacity: 0.9; }
+.bp-head, .bp-foot { position: relative; }
+.bp-title { font: 600 26px/1.25 var(--sans); margin-top: 20px; }
+.bp-slogan { font: 400 13px/1.7 var(--sans); color: var(--muted); margin-top: 10px; max-width: 300px; }
+.bp-foot { font: 400 11px/1 var(--mono); color: var(--faint); }
+#s-login.on .login-wrap { flex: 0.9; }
+@media (max-width: 860px) { .bp { display: none; } }
+
+/* ===== v2.1 追加：新手指导（工作台） ===== */
+.ob-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; margin: 0 18px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ob-item .ob-no {
+  width: 18px; height: 18px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 600 10px/1 var(--mono);
+  border: 1px solid var(--border-strong); color: var(--faint);
+  flex-shrink: 0;
+}
+.ob-item.done { color: var(--text); }
+.ob-item.done .ob-no { background: var(--pass-soft); border-color: var(--pass); color: var(--pass); }
+.ob-item.cur { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.ob-item.cur .ob-no { border-color: var(--accent); color: var(--accent); }
+.ob-item .go { margin-left: auto; font-size: 11.5px; color: var(--accent); cursor: pointer; }
+
+/* ===== v2.1 追加：报告耗时条带 ===== */
+.rep-trend {
+  display: flex; align-items: stretch; gap: 0;
+  padding: 12px 22px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.rt-bars { flex: 1; display: flex; align-items: flex-end; gap: 4px; height: 56px; }
+.rt-bar {
+  flex: 1; max-width: 34px;
+  border-radius: 3px 3px 0 0;
+  background: var(--method-get);
+  opacity: 0.75;
+  cursor: pointer;
+  position: relative;
+}
+.rt-bar:hover, .rt-bar.on { opacity: 1; outline: 1px solid var(--text); }
+.rt-bar.fail { background: var(--fail); }
+.rt-bar.skip { background: var(--skip); opacity: 0.4; }
+.rt-info { display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding-left: 18px; border-left: 1px solid var(--border); margin-left: 12px; font: 400 11px/1 var(--mono); color: var(--faint); }
+.rt-info b { color: var(--text); font-weight: 500; }
+
+/* ===== v2.1 追加：角色徽章 ===== */
+.role-badge { font: 600 10.5px/18px var(--mono); padding: 0 7px; border-radius: 4px; letter-spacing: 0.03em; }
+.role-admin { color: var(--method-post); background: var(--run-soft); }
+.role-member { color: var(--muted); background: var(--raised); }
+.act-badge { font: 500 11px/18px var(--mono); color: var(--muted); }
+.act-create { color: var(--pass); }
+.act-delete { color: var(--fail); }
+.act-update { color: var(--method-get); }
+
+/* ===== v2.2 追加：顶栏（多标签 + 主题 + 用户） ===== */
+.tb {
+  display: flex; align-items: center; gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.tb-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 500 12px/1 var(--sans);
+  color: var(--muted);
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tb-tab:hover { color: var(--text); background: var(--raised); }
+.tb-tab.on { color: var(--text); background: var(--accent-soft); }
+.tb-tab .x { font-size: 12px; color: var(--faint); padding: 0 1px; }
+.tb-tab .x:hover { color: var(--fail); }
+.tb-sp { flex: 1; }
+.tb-ico {
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 5px; cursor: pointer;
+  color: var(--muted); font-size: 13px;
+}
+.tb-ico:hover { color: var(--text); background: var(--raised); }
+.tb-user {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 500 12px/1 var(--sans); color: var(--muted);
+  padding: 4px 8px; border-radius: 5px; cursor: pointer;
+}
+.tb-user:hover { background: var(--raised); }
+.tb-ava {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 600 10.5px/1 var(--sans);
+}
+
+/* ===== v2.2 追加：文件中心标签 ===== */
+.file-tag {
+  font: 500 10.5px/16px var(--sans);
+  padding: 0 7px; border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.file-tag.t1 { color: var(--method-get); border-color: color-mix(in srgb, var(--method-get) 35%, transparent); }
+.file-tag.t2 { color: var(--method-post); border-color: color-mix(in srgb, var(--method-post) 35%, transparent); }
+.ftype { font: 600 10.5px/16px var(--mono); padding: 0 6px; border-radius: 4px; background: var(--raised); color: var(--muted); }
+
+/* ===== v2.2 追加：环境配置双栏 ===== */
+.env-list { border-right: 1px solid var(--border); padding: 10px 8px; width: 200px; }
+.env-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 5px;
+  font-size: 12.5px; color: var(--muted); cursor: pointer;
+}
+.env-item:hover { background: var(--raised); color: var(--text); }
+.env-item.on { background: var(--accent-soft); color: var(--text); }
+.env-item .url { font: 400 10px/1 var(--mono); color: var(--faint); margin-left: auto; }
+.env-detail { flex: 1; padding: 18px 24px; overflow: auto; }
+.env-detail h3 { font: 600 14px/1 var(--sans); margin-bottom: 4px; }
+.env-detail .url-line { font: 400 12px/1 var(--mono); color: var(--muted); margin-bottom: 18px; }
+.cfg-sec { border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 14px; }
+.cfg-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  font: 600 12.5px/1 var(--sans);
+}
+.cfg-head .st { margin-left: auto; }
+.cfg-body { padding: 10px 14px; }
+.cfg-row { display: flex; gap: 10px; padding: 5px 0; font-size: 12px; }
+.cfg-row .k { width: 120px; color: var(--muted); flex-shrink: 0; }
+.cfg-row .v { font-family: var(--mono); font-size: 11.5px; }
+
+/* ===== v2.2 追加：接口编辑表单 ===== */
+.ae-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 18px; padding: 18px 22px; align-items: start; }
+.ae-card { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
+.ae-card .cfg-head { background: none; }
+.ae-card .cfg-body { display: flex; flex-direction: column; gap: 4px; }
+.ae-f { display: flex; flex-direction: column; gap: 5px; padding: 6px 0; }
+.ae-f label { font: 500 11.5px/1 var(--sans); color: var(--muted); }
+.ae-f .inp { min-width: 0; width: 100%; }
+.ae-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex-shrink: 0; }
+
+/* ===== v2.3 追加：节点配置抽屉（点画布节点弹出，四 tab） ===== */
+.n-overlay {
+  position: fixed; inset: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  z-index: 50;
+}
+.n-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: min(560px, 90vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  z-index: 51;
+  display: flex; flex-direction: column;
+}
+.n-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.n-head .t { font: 600 14px/1 var(--sans); }
+.n-head .x { margin-left: auto; color: var(--faint); cursor: pointer; font-size: 15px; padding: 4px; }
+.n-head .x:hover { color: var(--fail); }
+.n-tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.n-tab {
+  font: 500 12.5px/1 var(--sans); color: var(--muted);
+  padding: 9px 12px; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.n-tab:hover { color: var(--text); }
+.n-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.n-tab .cnt { font: 400 10.5px/1 var(--mono); color: var(--faint); margin-left: 3px; }
+.n-tab .cnt.bad { color: var(--fail); }
+.n-body { flex: 1; overflow: auto; padding: 14px 18px; }
+.n-sec { margin-bottom: 16px; }
+.n-sec .sec-t { font: 600 11px/1 var(--sans); color: var(--faint); letter-spacing: 0.06em; margin-bottom: 8px; }
+.n-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12.5px; }
+.n-row .lbl { width: 92px; color: var(--muted); flex-shrink: 0; }
+.n-row .inp { flex: 1; min-width: 0; }
+.n-tip {
+  font-size: 11.5px; color: var(--muted); line-height: 1.7;
+  padding: 8px 10px; border-left: 2px solid var(--accent);
+  background: var(--accent-soft); border-radius: 0 5px 5px 0;
+}
+.n-tip code { font-family: var(--mono); color: var(--text); }
+.n-item {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 8px 10px; margin-bottom: 8px; background: var(--bg);
+  font-size: 12px;
+}
+.n-item .drag { color: var(--faint); cursor: grab; }
+.n-item .n-kv { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; }
+.n-item .n-kv .nm { color: var(--text); font-weight: 500; }
+.n-item .n-kv .dt { color: var(--faint); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.n-item .ops { color: var(--faint); }
+.n-item .ops:hover { color: var(--text); }
+.n-add {
+  width: 100%; padding: 8px 0; margin-top: 2px;
+  border: 1px dashed var(--border-strong); border-radius: var(--r);
+  background: none; color: var(--muted); font: 500 12px/1 var(--sans); cursor: pointer;
+}
+.n-add:hover { color: var(--accent); border-color: var(--accent); }
+.n-foot {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 12px 18px; border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.src-badge { font: 500 10px/16px var(--mono); padding: 0 6px; border-radius: 3px; background: var(--raised); color: var(--muted); flex-shrink: 0; }
+.src-badge.db { color: var(--method-post); }
+
+/* ===== 设计规范 ===== */
+.spec-wrap { padding: 24px; display: flex; flex-direction: column; gap: 22px; }
+.spec-sec h3 { font: 600 13px/1 var(--sans); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.sw-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.sw { width: 150px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.sw .sw-c { height: 52px; }
+.sw .sw-t { padding: 8px 10px; font: 400 10.5px/1.5 var(--mono); color: var(--muted); }
+.type-row { display: flex; align-items: baseline; gap: 18px; padding: 6px 0; border-bottom: 1px dashed var(--border); flex-wrap: wrap; }
+.type-row .t-demo { min-width: 280px; }
+.type-row .t-name { font: 400 11px/1 var(--mono); color: var(--faint); }
+</style>
+</head>
+<body>
+
+<!-- ============ 原型切换器 ============ -->
+<div class="proto-bar">
+  <span class="pb-title">redesign·v2</span>
+  <button class="pb-btn on" data-s="s-login">登录</button>
+  <button class="pb-btn" data-s="s-home">工作台</button>
+  <button class="pb-btn" data-s="s-projects">项目管理</button>
+  <button class="pb-btn" data-s="s-apis">接口管理</button>
+  <button class="pb-btn" data-s="s-apiedit">接口编辑</button>
+  <button class="pb-btn" data-s="s-cases">用例列表</button>
+  <button class="pb-btn" data-s="s-designer">用例编排</button>
+  <button class="pb-btn" data-s="s-envs">环境配置</button>
+  <button class="pb-btn" data-s="s-exec">执行记录</button>
+  <button class="pb-btn" data-s="s-report">报告详情</button>
+  <button class="pb-btn" data-s="s-files">文件中心</button>
+  <button class="pb-btn" data-s="s-dict">字段字典</button>
+  <button class="pb-btn" data-s="s-users">用户管理</button>
+  <button class="pb-btn" data-s="s-logs">操作日志</button>
+  <button class="pb-btn" data-s="s-spec">设计规范</button>
+  <span class="pb-spacer"></span>
+  <button class="pb-btn" id="themeToggle">◐ 明/暗</button>
+</div>
+
+<!-- ============ 屏 1 · 登录 ============ -->
+<section class="screen on" id="s-login">
+  <!-- 左侧品牌面板：静态点阵 + DAG 星座（品牌感回归，但无视差/无特性卡） -->
+  <aside class="bp">
+    <svg class="bp-art" viewBox="0 0 480 520" fill="none" aria-hidden="true">
+      <defs><marker id="bpArr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L7 4 L1 7 Z" fill="var(--faint)"/></marker></defs>
+      <g stroke="var(--border-strong)" stroke-width="1.5" fill="none">
+        <path d="M90 110 L200 190" marker-end="url(#bpArr)"/>
+        <path d="M90 270 L200 190" marker-end="url(#bpArr)"/>
+        <path d="M290 190 L380 120" marker-end="url(#bpArr)"/>
+        <path d="M290 190 L380 262" marker-end="url(#bpArr)"/>
+        <path d="M380 262 L340 360" marker-end="url(#bpArr)"/>
+        <path d="M380 120 L440 190" marker-end="url(#bpArr)" stroke-dasharray="4 5"/>
+      </g>
+      <g fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1.5">
+        <circle cx="90" cy="110" r="13"/><circle cx="90" cy="270" r="10"/>
+        <circle cx="200" cy="190" r="18"/>
+        <circle cx="290" cy="190" r="0.5"/>
+        <circle cx="380" cy="120" r="12"/><circle cx="380" cy="262" r="14"/>
+        <circle cx="340" cy="360" r="11"/>
+      </g>
+      <circle cx="200" cy="190" r="18" fill="var(--accent-soft)"/>
+      <circle cx="200" cy="190" r="18" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+      <path d="M336 356 l3.5 4 l7 -8.5" stroke="var(--pass)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="440" cy="190" r="5" fill="var(--pass)"/>
+    </svg>
+    <div class="bp-head">
+      <div class="login-mark">
+        <svg viewBox="0 0 32 32" width="34" height="34" fill="none">
+          <g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g>
+          <g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g>
+          <path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        fin-api-test
+      </div>
+      <h1 class="bp-title">金融接口自动化<br>测试平台</h1>
+      <p class="bp-slogan">DAG 可视化编排 · 17 种断言 · 数据库交叉校验 · 结构化报告</p>
+    </div>
+    <div class="bp-foot">internal · v2.4.0</div>
+  </aside>
+  <div class="login-wrap">
+    <div class="login-card">
+      <h1>登录</h1>
+      <p class="sub">金融接口自动化测试平台</p>
+      <label class="f-label">用户名</label>
+      <input class="inp" type="text" placeholder="username">
+      <label class="f-label">密码</label>
+      <input class="inp" type="password" placeholder="••••••••">
+      <button class="btn primary">登 录</button>
+      <div class="login-alt">
+        <a href="#">申请账号</a>
+        <a href="#">忘记密码？</a>
+      </div>
+    </div>
+    <div class="login-foot">v2.4.0 · internal</div>
+  </div>
+</section>
+
+<!-- ============ 屏 2 · 工作台 ============ -->
+<section class="screen" id="s-home">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+          <g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g>
+          <g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g>
+          <path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        fin-api-test
+      </div>
+      <div class="nav-item on">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理 <span class="cnt">128</span></div>
+      <div class="nav-item">用例列表 <span class="cnt">36</span></div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录 <span class="cnt" style="color:var(--fail)">2</span></div>
+      <div class="nav-sec">支撑</div>
+      <div class="nav-item">字段字典</div>
+      <div class="nav-item">文件中心</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="pg-head">
+        <h1>工作台</h1>
+        <span class="sub">订单系统 · 近 7 天</span>
+        <span class="grow"></span>
+        <span class="crumb"><b>test</b> 环境 · 刚刚同步</span>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="k-label">执行次数</div><div class="k-val">142<u>次</u></div><div class="k-sub">↑ 12% vs 上周</div></div>
+        <div class="kpi"><div class="k-label">通过率</div><div class="k-val">91.5<u>%</u></div><div class="k-sub">130 / 142</div></div>
+        <div class="kpi alert"><div class="k-label">需关注失败</div><div class="k-val">2<u>例</u></div><div class="k-sub">连续失败 ≥ 2 次</div></div>
+        <div class="kpi"><div class="k-label">平均耗时</div><div class="k-val">4.2<u>s</u></div><div class="k-sub">P95 11.8s</div></div>
+      </div>
+      <div class="work">
+        <div class="wcol">
+          <div class="w-sec-head">最近执行 <span class="more">全部 →</span></div>
+          <div class="run-row"><span class="dot pass"></span><span class="name">下单链路冒烟</span><span class="mut">test</span><span class="meta"><span>12 步</span><span>4.1s</span><span>2 分钟前</span></span></div>
+          <div class="run-row"><span class="dot fail"></span><span class="name">退款全流程回归</span><span class="mut">test</span><span class="meta"><span>9/10 步</span><span>6.8s</span><span>26 分钟前</span></span></div>
+          <div class="run-row"><span class="dot pass"></span><span class="name">登录态过期验证</span><span class="mut">test</span><span class="meta"><span>3 步</span><span>0.9s</span><span>1 小时前</span></span></div>
+          <div class="run-row"><span class="dot run"></span><span class="name">账单批量导出</span><span class="mut">staging</span><span class="meta"><span>7/15 步</span><span>—</span><span>进行中</span></span></div>
+          <div class="run-row"><span class="dot pass"></span><span class="name">下单链路冒烟</span><span class="mut">test</span><span class="meta"><span>12 步</span><span>4.0s</span><span>3 小时前</span></span></div>
+          <div class="run-row"><span class="dot skip"></span><span class="name">夜间全量回归</span><span class="mut">staging</span><span class="meta"><span>调度跳过</span><span>—</span><span>昨天 23:00</span></span></div>
+          <div class="w-sec-head" style="margin-top:14px">失败关注</div>
+          <div class="fail-row-item"><span class="f-name">退款全流程回归</span><span class="f-why">#7 查退款单 · 支付金额不符 100≠200</span><span class="meta">连败 3 次</span></div>
+          <div class="fail-row-item"><span class="f-name">对账文件生成</span><span class="f-why">#2 登录 · 401 token 过期</span><span class="meta">连败 2 次</span></div>
+        </div>
+        <div class="wcol">
+          <div class="w-sec-head">快速上手 <span class="more">不再提示</span></div>
+          <div class="ob-item done"><span class="ob-no">✓</span>创建项目「订单系统」</div>
+          <div class="ob-item done"><span class="ob-no">✓</span>导入或新建首批接口</div>
+          <div class="ob-item cur"><span class="ob-no">3</span>编排第一条用例并执行<span class="go">去编排 →</span></div>
+          <div class="ob-item"><span class="ob-no">4</span>查看报告，定位首个断言</div>
+          <div class="w-sec-head" style="margin-top:14px">快捷动作</div>
+          <div class="quick">
+            <div class="q-btn">▶ 执行上次用例 <kbd>⌘ ↵</kbd></div>
+            <div class="q-btn">＋ 新建用例 <kbd>N</kbd></div>
+            <div class="q-btn">＋ 新建项目</div>
+            <div class="q-btn">⇪ 导入接口（cURL / HAR / OpenAPI）</div>
+            <div class="q-btn">⌘ 命令面板 <kbd>⌘ K</kbd></div>
+          </div>
+          <div class="w-sec-head" style="margin-top:14px">项目切换</div>
+          <div class="quick">
+            <div class="q-btn" style="border-style:solid;color:var(--text)">订单系统 <span class="mut" style="margin-left:auto;font-size:11px">128 接口 · 36 用例</span></div>
+            <div class="q-btn">费用报销系统 <span class="mut" style="margin-left:auto;font-size:11px">64 接口 · 12 用例</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 3 · 接口管理 ============ -->
+<section class="screen" id="s-apis">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item on">接口管理 <span class="cnt">128</span></div>
+      <div class="nav-item">用例列表 <span class="cnt">36</span></div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">接口管理</span>
+        <span class="crumb">订单系统</span>
+        <span class="grow"></span>
+        <input class="inp" type="search" placeholder="搜索名称 / 编码 / 路径…  ⌘K" style="min-width:260px">
+        <button class="btn">批量导入 ▾</button>
+        <button class="btn primary">＋ 新建接口</button>
+      </div>
+      <div class="mgmt">
+        <div class="tree">
+          <div class="t-node"><span class="t-caret">▾</span>全部接口 <span class="cnt">128</span></div>
+          <div class="t-node child on">未分组 <span class="cnt">14</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>交易域 <span class="cnt">46</span></div>
+          <div class="t-node child" style="padding-left:40px">下单 <span class="cnt">18</span></div>
+          <div class="t-node child" style="padding-left:40px">退款 <span class="cnt">12</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>账户域 <span class="cnt">31</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>账单域 <span class="cnt">23</span></div>
+          <div class="t-node child">对账 <span class="cnt">9</span></div>
+        </div>
+        <div style="overflow:auto">
+          <table class="grid">
+            <thead><tr><th style="width:64px">方法</th><th>名称</th><th>路径</th><th>编码</th><th class="num">字段</th><th>更新</th><th style="width:120px"></th></tr></thead>
+            <tbody>
+              <tr class="sel"><td><span class="m-badge m-post">POST</span></td><td>创建订单</td><td class="path">/api/order/create</td><td class="path mut">order_create</td><td class="num">12</td><td class="mut">2 小时前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-get">GET</span></td><td>查询订单</td><td class="path">/api/order/detail</td><td class="path mut">order_detail</td><td class="num">6</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-post">POST</span></td><td>订单取消</td><td class="path">/api/order/cancel</td><td class="path mut">order_cancel</td><td class="num">5</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-put">PUT</span></td><td>更新收货地址</td><td class="path">/api/order/address</td><td class="path mut">order_addr_upd</td><td class="num">8</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-get">GET</span></td><td>订单列表分页</td><td class="path">/api/order/list</td><td class="path mut">order_list</td><td class="num">9</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-del">DELETE</span></td><td>删除订单草稿</td><td class="path">/api/order/draft</td><td class="path mut">order_draft_del</td><td class="num">3</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-post">POST</span></td><td>订单发货</td><td class="path">/api/order/ship</td><td class="path mut">order_ship</td><td class="num">11</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+              <tr><td><span class="m-badge m-get">GET</span></td><td>物流轨迹查询</td><td class="path">/api/logistics/track</td><td class="path mut">logi_track</td><td class="num">4</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">执行</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 4 · 用例编排 ============ -->
+<section class="screen" id="s-designer">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item on">用例列表 <span class="cnt">36</span></div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main designer">
+      <div class="d-title-row">
+        <span class="d-name">下单链路冒烟</span>
+        <span class="d-status">已保存 · 16:42</span>
+        <span style="flex:1"></span>
+        <button class="btn ghost">版本历史</button>
+        <button class="btn">导出</button>
+      </div>
+      <div class="d-body">
+        <div class="canvas">
+          <svg class="d-edge" style="left:0;top:0;width:100%;height:100%">
+            <defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1 L7 4 L1 7 Z" fill="var(--faint)"/></marker></defs>
+            <path d="M170 78 L228 108" stroke="var(--border-strong)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M170 158 L228 128" stroke="var(--border-strong)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M352 118 L410 118" stroke="var(--border-strong)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M534 118 L590 66" stroke="var(--border-strong)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M534 118 L590 170" stroke="var(--border-strong)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+          </svg>
+          <div class="d-node" style="left:52px;top:44px"><span class="dn-top"></span><div class="dn-name">登录</div><div class="dn-api">POST /auth/login</div></div>
+          <div class="d-node" style="left:52px;top:124px"><span class="dn-top"></span><div class="dn-name">查商品</div><div class="dn-api">GET /item/query</div></div>
+          <div class="d-node sel2" style="left:230px;top:84px"><span class="dn-top"></span><div class="dn-name">创建订单</div><div class="dn-api">POST /order/create</div></div>
+          <div class="d-node" style="left:412px;top:84px"><span class="dn-top"></span><div class="dn-name">查订单</div><div class="dn-api">GET /order/detail</div></div>
+          <div class="d-node" style="left:592px;top:32px"><span class="dn-top"></span><div class="dn-name">断言金额</div><div class="dn-api">json_path_eq</div></div>
+          <div class="d-node" style="left:592px;top:136px"><span class="dn-top"></span><div class="dn-name">取消订单</div><div class="dn-api">POST /order/cancel</div></div>
+        </div>
+        <div class="d-panel">
+          <div class="dp-sec">
+            <h4>节点 · 创建订单</h4>
+            <div class="dp-row"><span class="lbl">绑定接口</span><span class="val">order_create</span></div>
+            <div class="dp-row"><span class="lbl">前置处理</span><span class="val mut">2 条</span></div>
+            <div class="dp-row"><span class="lbl">断言</span><span class="val" style="color:var(--pass)">3 条</span></div>
+            <div class="dp-row"><span class="lbl">后置提取</span><span class="val mut">order_no</span></div>
+          </div>
+          <div class="dp-sec">
+            <h4>执行等待</h4>
+            <div class="dp-row"><span class="lbl">节点后等待</span><span class="val"><input type="number" value="500"> <span class="fnt">ms</span></span></div>
+            <p style="font-size:11px;color:var(--faint);line-height:1.6;padding-top:6px">本节点完成后、下一节点发请求前的间隔，为下游落库留出时间。</p>
+          </div>
+          <div class="dp-sec">
+            <h4>失败策略</h4>
+            <div class="dp-row"><span class="lbl">失败后</span><span class="val mut">停止整链</span></div>
+            <div class="dp-row"><span class="lbl">DB 断言重试</span><span class="val mut">3 次 × 1s</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="d-runbar">
+        <span class="env">test · 192.168.22.11</span>
+        <button class="btn primary">▶ 执行</button>
+        <span class="d-last">上次：✗ 失败 · #7 查退款单 · 26 分钟前</span>
+      </div>
+    </div>
+  </div>
+  <!-- 节点配置抽屉（点画布节点弹出，对应 NodeConfigDrawer 四 tab） -->
+  <div class="n-overlay"></div>
+  <aside class="n-drawer">
+    <div class="n-head">
+      <span class="dot pass" style="width:8px;height:8px"></span>
+      <span class="t">节点配置 · 创建订单</span>
+      <span class="fnt mono" style="font-size:11px">node_3</span>
+      <span class="x" title="关闭">×</span>
+    </div>
+    <div class="n-tabs">
+      <div class="n-tab">基础配置</div>
+      <div class="n-tab">前置处理 <span class="cnt">2</span></div>
+      <div class="n-tab">后置提取 <span class="cnt">1</span></div>
+      <div class="n-tab on">断言规则 <span class="cnt bad">3</span></div>
+    </div>
+    <div class="n-body">
+      <div class="n-sec">
+        <div class="sec-t">断言规则（3 条）</div>
+        <div class="n-item">
+          <span class="drag">⠿</span>
+          <span class="n-kv"><span class="nm">json_path_equals</span><span class="dt">$.data.order_no 存在且非空</span></span>
+          <span class="st-badge pass">✓ 用例</span>
+          <span class="ops">⋯</span>
+        </div>
+        <div class="n-item">
+          <span class="drag">⠿</span>
+          <span class="n-kv"><span class="nm">status_equals</span><span class="dt">HTTP 状态码 = 200</span></span>
+          <span class="st-badge pass">✓ 用例</span>
+          <span class="ops">⋯</span>
+        </div>
+        <div class="n-item">
+          <span class="drag">⠿</span>
+          <span class="n-kv"><span class="nm">db_query_equals</span><span class="dt">SELECT amount FROM orders WHERE order_no=${order_no}</span></span>
+          <span class="src-badge db">DB</span>
+          <span class="ops">⋯</span>
+        </div>
+        <button class="n-add">＋ 添加断言（17 种规则）</button>
+      </div>
+      <div class="n-tip">
+        DB 断言 SQL 中可用 <code>${变量名}</code> 引用已提取变量；
+        支持重试（3 次 × 1s）等待异步落库。<a href="#" style="color:var(--accent)">查看断言规则说明</a>
+      </div>
+      <div class="n-sec" style="margin-top:16px">
+        <div class="sec-t">切换到其他 Tab 的内容示意</div>
+        <div class="n-item">
+          <span class="drag">⠿</span>
+          <span class="src-badge">REQ</span>
+          <span class="n-kv"><span class="nm">set_field</span><span class="dt">$.amount ← ${db.query_value(SELECT price …)}</span></span>
+          <span class="ops">⋯</span>
+        </div>
+        <div class="n-item">
+          <span class="drag">⠿</span>
+          <span class="src-badge">RESP</span>
+          <span class="n-kv"><span class="nm">extract</span><span class="dt">order_no ← $.data.order_no</span></span>
+          <span class="ops">⋯</span>
+        </div>
+      </div>
+    </div>
+    <div class="n-foot">
+      <button class="btn">取消</button>
+      <button class="btn primary">保存配置</button>
+    </div>
+  </aside>
+</section>
+
+<!-- ============ 屏 5 · 报告详情 ============ -->
+<section class="screen" id="s-report">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item on">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="rep-banner">
+        <span class="verdict fail">✗ FAIL</span>
+        <span class="b-item">#263 · 退款全流程回归</span>
+        <span class="b-item">步骤 <b>9/10</b></span>
+        <span class="b-item">断言 <b>41/44</b></span>
+        <span class="b-item">耗时 <b>6.8s</b></span>
+        <span class="b-item">test · 张三 · 26 分钟前</span>
+        <span class="grow"></span>
+        <button class="btn">导出 ▾</button>
+        <button class="btn primary">↻ 重新执行</button>
+      </div>
+      <div class="rep-failcard">
+        <div class="rf-head">失败摘要 · 1 个步骤未通过（点击跳转）</div>
+        <div class="fail-row-item" style="margin:0 22px 10px"><span class="f-idx mono" style="color:var(--fail);font-weight:600">#7</span><span class="f-name">查退款单</span><span class="f-why">支付金额不符：期望 200，实际 100（json_path_equals $.data.amount）</span><span class="meta">3 条断言失败</span></div>
+      </div>
+      <!-- 步骤耗时条带：高度=耗时，颜色=状态，点击联动下方详情（替代原趋势图，兼作导航） -->
+      <div class="rep-trend">
+        <div class="rt-bars">
+          <div class="rt-bar" style="height:22%" title="1 · 登录 120ms"></div>
+          <div class="rt-bar" style="height:17%" title="2 · 查商品 86ms"></div>
+          <div class="rt-bar" style="height:58%" title="3 · 创建订单 310ms"></div>
+          <div class="rt-bar" style="height:18%" title="4 · 查订单 95ms"></div>
+          <div class="rt-bar" style="height:88%" title="5 · 支付下单 502ms"></div>
+          <div class="rt-bar" style="height:17%" title="6 · 支付回调 88ms"></div>
+          <div class="rt-bar fail on" style="height:70%" title="7 · 查退款单 412ms ✗"></div>
+          <div class="rt-bar skip" style="height:8%" title="8 · 通知消息（跳过）"></div>
+          <div class="rt-bar skip" style="height:8%" title="9 · 对账落库（跳过）"></div>
+          <div class="rt-bar skip" style="height:8%" title="10 · 退款通知（跳过）"></div>
+        </div>
+        <div class="rt-info">
+          <span>最大 <b>502ms</b> · #5 支付下单</span>
+          <span>平均 <b>202ms</b> · 总计 <b>6.8s</b></span>
+        </div>
+      </div>
+      <div class="rep-body">
+        <div class="rep-nav">
+          <div class="rn-search"><input class="inp" type="search" placeholder="过滤步骤…"></div>
+          <div class="rn-filter">
+            <button class="rn-fbtn on" data-f="all">全部 10</button>
+            <button class="rn-fbtn" data-f="fail">失败 1</button>
+            <button class="rn-fbtn">通过 9</button>
+          </div>
+          <div style="padding:4px 0">
+            <button class="rn-item"><span class="dot pass"></span><span class="rn-name">1 · 登录</span><span class="rn-ms">120ms</span></button>
+            <button class="rn-item"><span class="dot pass"></span><span class="rn-name">2 · 查商品</span><span class="rn-ms">86ms</span></button>
+            <button class="rn-item"><span class="dot pass"></span><span class="rn-name">3 · 创建订单</span><span class="rn-ms">310ms</span></button>
+            <button class="rn-item"><span class="dot pass"></span><span class="rn-name">4 · 查订单</span><span class="rn-ms">95ms</span></button>
+            <button class="rn-item"><span class="dot pass"></span><span class="rn-name">5 · 支付下单</span><span class="rn-ms">502ms</span></button>
+            <button class="rn-item"><span class="dot pass"></span><span class="rn-name">6 · 支付回调</span><span class="rn-ms">88ms</span></button>
+            <button class="rn-item on"><span class="dot fail"></span><span class="rn-name">7 · 查退款单</span><span class="rn-ms rn-fail">3 断言✗</span></button>
+            <button class="rn-item"><span class="dot skip"></span><span class="rn-name">8 · 通知消息</span><span class="rn-ms">—</span></button>
+            <button class="rn-item"><span class="dot skip"></span><span class="rn-name">9 · 对账落库</span><span class="rn-ms">—</span></button>
+            <button class="rn-item"><span class="dot skip"></span><span class="rn-name">10 · 退款通知</span><span class="rn-ms">—</span></button>
+          </div>
+        </div>
+        <div class="rep-detail">
+          <div class="rd-head"><span class="idx">#7</span><span class="nm">查退款单</span><span class="st-badge fail">失败</span><span class="mut mono" style="font-size:11.5px">GET /api/refund/detail</span></div>
+          <div class="rd-tabs">
+            <div class="rd-tab">请求</div>
+            <div class="rd-tab on">响应 <span class="cnt">200 · 412ms</span></div>
+            <div class="rd-tab">断言 <span class="cnt">1/3</span></div>
+          </div>
+          <div class="rd-meta">
+            <span>HTTP <b>200</b></span><span>耗时 <b>412ms</b></span><span>开始 <b>10:03:22.418</b></span><span>结束 <b>10:03:22.830</b></span>
+          </div>
+          <div class="rd-sec">
+            <div class="sec-t">断言（3 条 · 1 条失败）</div>
+            <table class="assert">
+              <thead><tr><th style="width:70px">结果</th><th style="width:220px">规则</th><th>实际值</th><th>期望值</th><th style="width:230px">消息</th></tr></thead>
+              <tbody>
+                <tr><td class="ok-t">✓ 通过</td><td>status_equals</td><td>200</td><td>200</td><td></td></tr>
+                <tr class="rowfail"><td class="bad-t">✗ 失败</td><td>json_path_equals $.data.amount</td><td>100</td><td>200</td><td class="why">支付金额不符</td></tr>
+                <tr><td class="ok-t">✓ 通过</td><td>json_path_exists $.data.refund_no</td><td>R2026081901</td><td>—</td><td></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="rd-sec" style="padding-bottom:24px">
+            <div class="sec-t">响应体</div>
+            <div class="code-blk">{
+  <span class="k">"code"</span>: 0,
+  <span class="k">"msg"</span>: <span class="s">"ok"</span>,
+  <span class="k">"data"</span>: {
+    <span class="k">"refund_no"</span>: <span class="s">"R2026081901"</span>,
+    <span class="k">"amount"</span>: <span class="n">100</span>,
+    <span class="k">"status"</span>: <span class="s">"REFUNDING"</span>
+  }
+}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 6 · 执行记录 ============ -->
+<section class="screen" id="s-exec">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item on">执行记录 <span class="cnt" style="color:var(--fail)">2</span></div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">执行记录</span>
+        <div class="chips">
+          <button class="chip on">全部 142</button>
+          <button class="chip" data-c="fail">失败 2</button>
+          <button class="chip">通过 138</button>
+          <button class="chip">执行中 1</button>
+        </div>
+        <span class="grow"></span>
+        <select class="inp" style="min-width:120px"><option>全部环境</option><option>test</option><option>staging</option></select>
+        <select class="inp" style="min-width:130px"><option>近 7 天</option><option>近 30 天</option></select>
+      </div>
+      <div style="overflow:auto;flex:1">
+        <table class="grid">
+          <thead><tr><th style="width:90px">状态</th><th>用例</th><th>环境</th><th>执行人</th><th class="num">步骤</th><th class="num">断言</th><th class="num">耗时</th><th>时间</th><th style="width:150px"></th></tr></thead>
+          <tbody>
+            <tr><td><span class="st-badge run">RUNNING</span></td><td>账单批量导出</td><td class="mut">staging</td><td class="mut">定时任务</td><td class="num mono">7/15</td><td class="num mono">—</td><td class="num mono">—</td><td class="mut">刚刚</td><td style="text-align:right"><button class="btn ghost">查看</button></td></tr>
+            <tr><td><span class="st-badge fail">FAIL</span></td><td style="font-weight:500">退款全流程回归</td><td class="mut">test</td><td class="mut">张三</td><td class="num mono">9/10</td><td class="num mono">41/44</td><td class="num mono">6.8s</td><td class="mut">26 分钟前</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+            <tr><td><span class="st-badge pass">PASS</span></td><td>下单链路冒烟</td><td class="mut">test</td><td class="mut">张三</td><td class="num mono">12/12</td><td class="num mono">38/38</td><td class="num mono">4.1s</td><td class="mut">2 分钟前</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+            <tr><td><span class="st-badge pass">PASS</span></td><td>登录态过期验证</td><td class="mut">test</td><td class="mut">李四</td><td class="num mono">3/3</td><td class="num mono">9/9</td><td class="num mono">0.9s</td><td class="mut">1 小时前</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+            <tr><td><span class="st-badge pass">PASS</span></td><td>下单链路冒烟</td><td class="mut">test</td><td class="mut">张三</td><td class="num mono">12/12</td><td class="num mono">38/38</td><td class="num mono">4.0s</td><td class="mut">3 小时前</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+            <tr><td><span class="st-badge fail">FAIL</span></td><td style="font-weight:500">对账文件生成</td><td class="mut">staging</td><td class="mut">定时任务</td><td class="num mono">1/6</td><td class="num mono">2/9</td><td class="num mono">1.2s</td><td class="mut">5 小时前</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+            <tr><td><span class="st-badge pass">PASS</span></td><td>费用提交审批流</td><td class="mut">test</td><td class="mut">王五</td><td class="num mono">8/8</td><td class="num mono">22/22</td><td class="num mono">3.3s</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+            <tr><td><span class="st-badge pass">PASS</span></td><td>账户冻结解冻</td><td class="mut">test</td><td class="mut">李四</td><td class="num mono">5/5</td><td class="num mono">14/14</td><td class="num mono">2.1s</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">报告</button> <button class="btn ghost">重跑</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 6b · 用例列表 ============ -->
+<section class="screen" id="s-cases">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理 <span class="cnt">128</span></div>
+      <div class="nav-item on">用例列表 <span class="cnt">36</span></div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录 <span class="cnt" style="color:var(--fail)">2</span></div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">用例列表</span>
+        <span class="crumb">订单系统</span>
+        <span class="grow"></span>
+        <input class="inp" type="search" placeholder="搜索用例名称…" style="min-width:220px">
+        <button class="btn">分组管理</button>
+        <button class="btn primary">＋ 新建用例</button>
+      </div>
+      <div class="mgmt">
+        <div class="tree">
+          <div class="t-node on">全部用例 <span class="cnt">36</span></div>
+          <div class="t-node child"><span class="t-caret">▾</span>冒烟 <span class="cnt">8</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>回归 <span class="cnt">21</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>监控巡检 <span class="cnt">7</span></div>
+          <div class="t-node child">未分组 <span class="cnt">3</span></div>
+        </div>
+        <div style="overflow:auto">
+          <table class="grid">
+            <thead><tr><th style="width:96px">最近结果</th><th>用例名称</th><th>分组</th><th class="num">步骤</th><th class="num">接口数</th><th>更新</th><th style="width:170px"></th></tr></thead>
+            <tbody>
+              <tr><td><span class="st-badge fail">FAIL</span> <span class="fnt mono" style="font-size:10.5px">26m</span></td><td style="font-weight:500">退款全流程回归</td><td class="mut">回归</td><td class="num mono">10</td><td class="num mono">7</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="st-badge pass">PASS</span> <span class="fnt mono" style="font-size:10.5px">2m</span></td><td style="font-weight:500">下单链路冒烟</td><td class="mut">冒烟</td><td class="num mono">12</td><td class="num mono">9</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="st-badge run">RUN</span></td><td style="font-weight:500">账单批量导出</td><td class="mut">回归</td><td class="num mono">15</td><td class="num mono">11</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="st-badge pass">PASS</span> <span class="fnt mono" style="font-size:10.5px">1h</span></td><td>登录态过期验证</td><td class="mut">冒烟</td><td class="num mono">3</td><td class="num mono">2</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="st-badge fail">FAIL</span> <span class="fnt mono" style="font-size:10.5px">5h</span></td><td style="font-weight:500">对账文件生成</td><td class="mut">回归</td><td class="num mono">6</td><td class="num mono">5</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="st-badge pass">PASS</span> <span class="fnt mono" style="font-size:10.5px">1d</span></td><td>费用提交审批流</td><td class="mut">回归</td><td class="num mono">8</td><td class="num mono">6</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="fnt">—</span></td><td>账户冻结解冻</td><td class="mut">未分组</td><td class="num mono">5</td><td class="num mono">4</td><td class="mut">两周前</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+              <tr><td><span class="fnt">—</span></td><td>库存扣减恢复</td><td class="mut">未分组</td><td class="num mono">9</td><td class="num mono">6</td><td class="mut">两周前</td><td style="text-align:right"><button class="btn ghost">编排</button> <button class="btn ghost">执行</button> <button class="btn ghost">⋯</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 6c · 用户管理（管理员） ============ -->
+<section class="screen" id="s-users">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item on">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">用户管理</span>
+        <div class="chips">
+          <button class="chip on">全部 9</button>
+          <button class="chip">管理员 2</button>
+          <button class="chip">成员 7</button>
+        </div>
+        <span class="grow"></span>
+        <input class="inp" type="search" placeholder="搜索用户名 / 姓名 / 部门…" style="min-width:240px">
+        <button class="btn primary">＋ 新建用户</button>
+      </div>
+      <div style="overflow:auto;flex:1">
+        <table class="grid">
+          <thead><tr><th style="width:76px">角色</th><th>用户名</th><th>姓名</th><th>部门</th><th>手机</th><th>邮箱</th><th>最近登录</th><th style="width:150px"></th></tr></thead>
+          <tbody>
+            <tr><td><span class="role-badge role-admin">ADMIN</span></td><td class="mono">admin</td><td>系统管理员</td><td class="mut">—</td><td class="mut mono">—</td><td class="mut">—</td><td class="mut">2 分钟前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">重置密码</button></td></tr>
+            <tr><td><span class="role-badge role-admin">ADMIN</span></td><td class="mono">zhangsan</td><td>张三</td><td class="mut">质量保障部</td><td class="mono">138****2211</td><td class="mut">zhangsan@corp</td><td class="mut">26 分钟前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">重置密码</button></td></tr>
+            <tr><td><span class="role-badge role-member">MEMBER</span></td><td class="mono">lisi</td><td>李四</td><td class="mut">质量保障部</td><td class="mono">139****8802</td><td>lisi@corp</td><td class="mut">1 小时前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">禁用</button></td></tr>
+            <tr><td><span class="role-badge role-member">MEMBER</span></td><td class="mono">wangwu</td><td>王五</td><td class="mut">研发一部</td><td class="mono">137****5560</td><td>wangwu@corp</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">禁用</button></td></tr>
+            <tr><td><span class="role-badge role-member">MEMBER</span></td><td class="mono">robot_ci</td><td>CI 机器人</td><td class="mut">—</td><td class="mut mono">—</td><td class="mut">—</td><td class="mut">昨天 23:00</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">禁用</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 6d · 操作日志（管理员） ============ -->
+<section class="screen" id="s-logs">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        fin-api-test
+      </div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item on">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">操作日志</span>
+        <div class="chips">
+          <button class="chip on">全部</button>
+          <button class="chip">create</button>
+          <button class="chip">update</button>
+          <button class="chip">delete</button>
+        </div>
+        <span class="grow"></span>
+        <select class="inp" style="min-width:130px"><option>全部对象</option><option>api</option><option>case</option><option>env</option><option>user</option></select>
+        <select class="inp" style="min-width:130px"><option>近 7 天</option><option>近 30 天</option></select>
+      </div>
+      <div style="overflow:auto;flex:1">
+        <table class="grid">
+          <thead><tr><th style="width:150px">时间</th><th style="width:110px">用户</th><th style="width:80px">动作</th><th style="width:90px">对象类型</th><th>对象</th><th>详情</th></tr></thead>
+          <tbody>
+            <tr><td class="mono mut">08-19 16:42:18</td><td>张三</td><td><span class="act-badge act-update">update</span></td><td class="mono">case</td><td>下单链路冒烟</td><td class="mut">调整 #3 节点等待 300→500ms</td></tr>
+            <tr><td class="mono mut">08-19 15:10:03</td><td>张三</td><td><span class="act-badge act-create">create</span></td><td class="mono">execution</td><td>#263 退款全流程回归</td><td class="mut">手动执行 · test 环境</td></tr>
+            <tr><td class="mono mut">08-19 11:26:44</td><td>李四</td><td><span class="act-badge act-update">update</span></td><td class="mono">api</td><td>创建订单</td><td class="mut">新增字段 amount（必填）</td></tr>
+            <tr><td class="mono mut">08-19 09:58:12</td><td>系统管理员</td><td><span class="act-badge act-create">create</span></td><td class="mono">user</td><td>wangwu</td><td class="mut">初始密码已下发强制修改</td></tr>
+            <tr><td class="mono mut">08-18 18:22:47</td><td>张三</td><td><span class="act-badge act-delete">delete</span></td><td class="mono">api_group</td><td>废弃分组「临时验证」</td><td class="mut">组内 0 接口，直接删除</td></tr>
+            <tr><td class="mono mut">08-18 14:05:31</td><td>李四</td><td><span class="act-badge act-update">update</span></td><td class="mono">env</td><td>test</td><td class="mut">更新 db_config 主机地址</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 · 项目管理 ============ -->
+<section class="screen" id="s-projects">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand"><svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>fin-api-test</div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item on">项目管理</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">项目管理</span>
+        <span class="grow"></span>
+        <input class="inp" type="search" placeholder="搜索项目名称…" style="min-width:220px">
+        <button class="btn primary">＋ 新建项目</button>
+      </div>
+      <div style="overflow:auto;flex:1">
+        <table class="grid">
+          <thead><tr><th>项目名称</th><th>描述</th><th class="num">接口</th><th class="num">用例</th><th class="num">环境</th><th>创建人</th><th>更新</th><th style="width:130px"></th></tr></thead>
+          <tbody>
+            <tr class="sel"><td style="font-weight:500">订单系统</td><td class="mut">订单/支付/退款全链路</td><td class="num mono">128</td><td class="num mono">36</td><td class="num mono">3</td><td class="mut">系统管理员</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">进入</button></td></tr>
+            <tr><td style="font-weight:500">费用报销系统</td><td class="mut">报销提交与审批流</td><td class="num mono">64</td><td class="num mono">12</td><td class="num mono">2</td><td class="mut">张三</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">进入</button></td></tr>
+            <tr><td>清结算平台</td><td class="mut">对账文件与清算</td><td class="num mono">41</td><td class="num mono">7</td><td class="num mono">1</td><td class="mut">李四</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">进入</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 · 接口编辑（字段级配置） ============ -->
+<section class="screen" id="s-apiedit">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand"><svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>fin-api-test</div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item on">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="dirty-dot" title="有未保存修改"></span>
+        <span class="title">接口编辑 · 创建订单</span>
+        <span class="crumb">订单系统 / 交易域 / 下单</span>
+        <span class="grow"></span>
+        <button class="btn">取消</button>
+        <button class="btn primary">保存 ⌘S</button>
+      </div>
+      <div class="ae-grid">
+        <div class="ae-card">
+          <div class="cfg-head">基本信息</div>
+          <div class="cfg-body">
+            <div class="ae-f"><label>接口名称</label><input class="inp" value="创建订单"></div>
+            <div class="ae-f"><label>接口编码（唯一）</label><input class="inp mono" value="order_create"></div>
+            <div class="ae-2">
+              <div class="ae-f"><label>请求方法</label><select class="inp"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></div>
+              <div class="ae-f"><label>分组</label><select class="inp"><option>交易域 / 下单</option></select></div>
+            </div>
+            <div class="ae-f"><label>请求路径</label><input class="inp mono" value="/api/order/create"></div>
+            <div class="ae-2">
+              <div class="ae-f"><label>超时（秒）</label><input class="inp mono" value="10"></div>
+              <div class="ae-f"><label>分类</label><select class="inp"><option>业务接口</option></select></div>
+            </div>
+          </div>
+        </div>
+        <div class="ae-card">
+          <div class="cfg-head">字段配置 <span class="st fnt mono" style="font-size:11px">12 个字段 · 拖拽排序</span></div>
+          <div style="overflow:auto">
+            <table class="grid">
+              <thead><tr><th style="width:34px"></th><th>字段 key</th><th>显示名</th><th style="width:90px">类型</th><th style="width:56px">必填</th><th>默认值</th><th style="width:44px"></th></tr></thead>
+              <tbody>
+                <tr><td class="fnt">⠿</td><td class="mono">order_no</td><td>订单号</td><td class="mono mut">string</td><td><span class="st-badge pass">是</span></td><td class="mono mut">${gen_order_no}</td><td style="text-align:right"><button class="btn ghost">⋯</button></td></tr>
+                <tr><td class="fnt">⠿</td><td class="mono">amount</td><td>支付金额</td><td class="mono mut">number</td><td><span class="st-badge pass">是</span></td><td class="mono mut">—</td><td style="text-align:right"><button class="btn ghost">⋯</button></td></tr>
+                <tr><td class="fnt">⠿</td><td class="mono">currency</td><td>币种</td><td class="mono mut">string</td><td><span class="st-badge pass">是</span></td><td class="mono mut">CNY</td><td style="text-align:right"><button class="btn ghost">⋯</button></td></tr>
+                <tr><td class="fnt">⠿</td><td class="mono">items</td><td>商品明细</td><td class="mono mut">array</td><td><span class="st-badge fail">否</span></td><td class="mono mut">[]</td><td style="text-align:right"><button class="btn ghost">⋯</button></td></tr>
+                <tr><td class="fnt">⠿</td><td class="mono">remark</td><td>备注</td><td class="mono mut">string</td><td><span class="st-badge fail">否</span></td><td class="mono mut">—</td><td style="text-align:right"><button class="btn ghost">⋯</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="cfg-body" style="border-top:1px solid var(--border)"><button class="btn ghost">＋ 添加字段</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 · 环境配置 ============ -->
+<section class="screen" id="s-envs">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand"><svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>fin-api-test</div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">项目管理</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item on">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">管理员</div>
+      <div class="nav-item">用户管理</div>
+      <div class="nav-item">操作日志</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">环境配置</span>
+        <span class="crumb">订单系统</span>
+        <span class="grow"></span>
+        <button class="btn">复制环境</button>
+        <button class="btn primary">＋ 新建环境</button>
+      </div>
+      <div style="display:flex;flex:1;min-height:0">
+        <div class="env-list">
+          <div class="env-item"><span class="dot pass"></span>test <span class="url">:8081</span></div>
+          <div class="env-item"><span class="dot pass"></span>staging <span class="url">:8082</span></div>
+          <div class="env-item"><span class="dot skip"></span>prod-readonly <span class="url">:80</span></div>
+        </div>
+        <div class="env-detail">
+          <h3>test</h3>
+          <div class="url-line">http://192.168.22.11:8081 · 默认环境 · 超时 10s</div>
+          <div class="cfg-sec">
+            <div class="cfg-head">数据库连接 <span class="st"><span class="st-badge pass">已连通</span> <button class="btn ghost">测试连接</button></span></div>
+            <div class="cfg-body">
+              <div class="cfg-row"><span class="k">host:port</span><span class="v">192.168.22.11:3306</span></div>
+              <div class="cfg-row"><span class="k">database</span><span class="v">order_test</span></div>
+              <div class="cfg-row"><span class="k">user</span><span class="v">qa_robot</span></div>
+            </div>
+          </div>
+          <div class="cfg-sec">
+            <div class="cfg-head">登录配置 <span class="st"><span class="st-badge pass">token 可用</span> <button class="btn ghost">测试登录</button></span></div>
+            <div class="cfg-body">
+              <div class="cfg-row"><span class="k">登录接口</span><span class="v">POST /api/auth/login</span></div>
+              <div class="cfg-row"><span class="k">token 提取</span><span class="v">$.data.token</span></div>
+              <div class="cfg-row"><span class="k">注入头</span><span class="v">Authorization: Bearer ${token}</span></div>
+            </div>
+          </div>
+          <div class="cfg-sec">
+            <div class="cfg-head">企微通知 <span class="st"><span class="st-badge pass">已配置</span></span></div>
+            <div class="cfg-body">
+              <div class="cfg-row"><span class="k">webhook</span><span class="v">https://qyapi.weixin.qq.com/…</span></div>
+              <div class="cfg-row"><span class="k">开关</span><span class="v">失败通知=开 · 成功通知=关</span></div>
+            </div>
+          </div>
+          <div class="cfg-sec">
+            <div class="cfg-head">公共变量 <span class="st fnt mono" style="font-size:11px">5 个</span></div>
+            <div class="cfg-body">
+              <div class="cfg-row"><span class="k">merchant_id</span><span class="v">M20260801</span></div>
+              <div class="cfg-row"><span class="k">pay_channel</span><span class="v">BALANCE</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 · 文件中心 ============ -->
+<section class="screen" id="s-files">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand"><svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>fin-api-test</div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">项目管理</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">运行</div>
+      <div class="nav-item">执行记录</div>
+      <div class="nav-sec">支撑</div>
+      <div class="nav-item on">文件中心</div>
+      <div class="nav-item">字段字典</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">文件中心</span>
+        <span class="crumb">订单系统</span>
+        <span class="grow"></span>
+        <input class="inp" type="search" placeholder="搜索文件名…" style="min-width:200px">
+        <button class="btn">分类管理</button>
+        <button class="btn primary">⇪ 上传文件</button>
+      </div>
+      <div class="mgmt">
+        <div class="tree">
+          <div class="t-node on">全部文件 <span class="cnt">57</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>需求文档 <span class="cnt">12</span></div>
+          <div class="t-node child"><span class="t-caret">▸</span>接口契约 <span class="cnt">9</span></div>
+          <div class="t-node child">测试数据 <span class="cnt">21</span></div>
+          <div class="t-node child">报告归档 <span class="cnt">8</span></div>
+          <div class="t-node child">未分类 <span class="cnt">7</span></div>
+        </div>
+        <div style="overflow:auto">
+          <table class="grid">
+            <thead><tr><th>文件名</th><th style="width:64px">类型</th><th class="num">大小</th><th>分类</th><th>标签</th><th>上传人</th><th>时间</th><th style="width:130px"></th></tr></thead>
+            <tbody>
+              <tr class="sel"><td style="font-weight:500">退款流程v3.md</td><td><span class="ftype">MD</span></td><td class="num mono">24 KB</td><td class="mut">需求文档</td><td><span class="file-tag t1">退款</span> <span class="file-tag">v3</span></td><td class="mut">张三</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">预览</button> <button class="btn ghost">下载</button></td></tr>
+              <tr><td>订单库表结构.sql</td><td><span class="ftype">SQL</span></td><td class="num mono">156 KB</td><td class="mut">接口契约</td><td><span class="file-tag t2">schema</span></td><td class="mut">李四</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">预览</button> <button class="btn ghost">下载</button></td></tr>
+              <tr><td>压测账号批量.xlsx</td><td><span class="ftype">XLS</span></td><td class="num mono">88 KB</td><td class="mut">测试数据</td><td><span class="file-tag">压测</span></td><td class="mut">王五</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">预览</button> <button class="btn ghost">下载</button></td></tr>
+              <tr><td>冒烟通过截图.png</td><td><span class="ftype">PNG</span></td><td class="num mono">412 KB</td><td class="mut">报告归档</td><td><span class="file-tag t1">冒烟</span></td><td class="mut">张三</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">预览</button> <button class="btn ghost">下载</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 · 字段字典 ============ -->
+<section class="screen" id="s-dict">
+  <div class="app-shell">
+    <aside class="side">
+      <div class="brand"><svg viewBox="0 0 32 32" width="22" height="22" fill="none"><g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"><path d="M8 10 L14 15 M16 8 L16 14 M24 10 L18 15"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="9" r="2.2"/><circle cx="16" cy="7" r="2.2"/><circle cx="25" cy="9" r="2.2"/></g><path d="M10 21 L14.5 25.5 L22 16.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>fin-api-test</div>
+      <div class="nav-item">工作台</div>
+      <div class="nav-sec">资产</div>
+      <div class="nav-item">项目管理</div>
+      <div class="nav-item">接口管理</div>
+      <div class="nav-item">用例列表</div>
+      <div class="nav-item">环境配置</div>
+      <div class="nav-sec">支撑</div>
+      <div class="nav-item on">字段字典</div>
+      <div class="nav-item">文件中心</div>
+    </aside>
+    <div class="main">
+      <div class="toolrow">
+        <span class="title">字段字典</span>
+        <span class="crumb">订单系统</span>
+        <span class="grow"></span>
+        <input class="inp" type="search" placeholder="搜索 key / 显示名…" style="min-width:220px">
+        <button class="btn primary">＋ 新增词条</button>
+      </div>
+      <div style="overflow:auto;flex:1">
+        <table class="grid">
+          <thead><tr><th>字段 key</th><th>显示名</th><th class="num">被引用</th><th>更新</th><th style="width:130px"></th></tr></thead>
+          <tbody>
+            <tr class="sel"><td class="mono">order_no</td><td>订单号</td><td class="num mono">23</td><td class="mut">昨天</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">删除</button></td></tr>
+            <tr><td class="mono">refund_no</td><td>退款单号</td><td class="num mono">11</td><td class="mut">3 天前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">删除</button></td></tr>
+            <tr><td class="mono">amount</td><td>支付金额</td><td class="num mono">18</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">删除</button></td></tr>
+            <tr><td class="mono">merchant_id</td><td>商户编号</td><td class="num mono">9</td><td class="mut">上周</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">删除</button></td></tr>
+            <tr><td class="mono">currency</td><td>币种</td><td class="num mono">14</td><td class="mut">两周前</td><td style="text-align:right"><button class="btn ghost">编辑</button> <button class="btn ghost">删除</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 屏 7 · 设计规范 ============ -->
+<section class="screen" id="s-spec">
+  <div class="spec-wrap">
+    <div class="spec-sec">
+      <h3>色彩 · 状态色是唯一的高饱和（深色主题）</h3>
+      <div class="sw-row">
+        <div class="sw"><div class="sw-c" style="background:#141619;border-bottom:1px solid #26292e"></div><div class="sw-t">surface #141619<br>页面基底</div></div>
+        <div class="sw"><div class="sw-c" style="background:#3fdd78"></div><div class="sw-t">--pass #3fdd78<br>通过 · 唯一绿</div></div>
+        <div class="sw"><div class="sw-c" style="background:#ff5d5d"></div><div class="sw-t">--fail #ff5d5d<br>失败 · 唯一红</div></div>
+        <div class="sw"><div class="sw-c" style="background:#ffb340"></div><div class="sw-t">--run #ffb340<br>执行中/等待</div></div>
+        <div class="sw"><div class="sw-c" style="background:#4c8dff"></div><div class="sw-t">--accent #4c8dff<br>焦点/主按钮（降频）</div></div>
+        <div class="sw"><div class="sw-c" style="background:#6b7178"></div><div class="sw-t">--skip #6b7178<br>跳过/禁用</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">规则：主色不再用于表头底色、统计高亮、装饰线——它只出现在焦点环、选中态、主按钮。通过/失败是测试平台的信息主角，必须最先被看见。</p>
+    </div>
+    <div class="spec-sec">
+      <h3>字体 · mono 是数据的一等公民</h3>
+      <div class="type-row"><span class="t-demo" style="font:400 20px/1 var(--mono)">4.12s · 41/44 · #263</span><span class="t-name">数值 20px mono · tabular-nums</span></div>
+      <div class="type-row"><span class="t-demo path">POST /api/order/create</span><span class="t-name">路径/方法 12px mono</span></div>
+      <div class="type-row"><span class="t-demo" style="font:600 16px/1 var(--sans)">接口管理</span><span class="t-name">页面标题 16px sans</span></div>
+      <div class="type-row"><span class="t-demo mut" style="font-size:12.5px">26 分钟前 · 张三 · test</span><span class="t-name">正文/元信息 12.5px sans</span></div>
+    </div>
+    <div class="spec-sec">
+      <h3>删除清单（AI 味清理）</h3>
+      <table class="grid" style="font-size:12px">
+        <thead><tr><th>项</th><th>现状</th><th>v2 处置</th></tr></thead>
+        <tbody>
+          <tr><td>登录页品牌面板 + 视差浮动节点</td><td>AI 登录页三件套</td><td style="color:var(--fail)">删除 → 单栏居中</td></tr>
+          <tr><td>Home hero 插画 + 特性网格</td><td>营销落地页语汇</td><td style="color:var(--fail)">删除 → 工作台</td></tr>
+          <tr><td>backdrop-filter 毛玻璃卡片</td><td>全站</td><td style="color:var(--fail)">删除（仅侧栏保留一处轻半透明）</td></tr>
+          <tr><td>按钮涟漪 / 弹窗渐变下划线 / 发光环</td><td>style.css</td><td style="color:var(--fail)">删除</td></tr>
+          <tr><td>统计数字 count-up 滚动</td><td>报告/执行页</td><td style="color:var(--fail)">删除 → 直接呈现</td></tr>
+          <tr><td>el-card 包裹一切</td><td>列表/表单/统计</td><td style="color:var(--pass)">改为 hairline 分区布局</td></tr>
+          <tr><td>圆角 12-16px</td><td>token 层</td><td style="color:var(--pass)">降为 6px</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="spec-sec">
+      <h3>保留清单（现有优点）</h3>
+      <p style="font-size:12.5px;color:var(--muted);line-height:1.8">深浅双主题 token 体系 · prefers-reduced-motion · ⌘K 命令面板 · 统一防抖范式 · 报告页「左导航+右详情」骨架 · tabular-nums · Element Plus 组件骨架（表格/表单/弹窗继续用，只换表皮）</p>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  'use strict';
+  // 屏幕切换
+  var btns = document.querySelectorAll('.pb-btn[data-s]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      btns.forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('on'); });
+      document.getElementById(b.dataset.s).classList.add('on');
+    });
+  });
+  // 主题切换
+  document.getElementById('themeToggle').addEventListener('click', function () {
+    var r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === 'light' ? '' : 'light';
+  });
+
+  // ===== v2.2：为每个业务屏注入顶栏（多标签 + 主题 + 用户）——对应 MainLayout 框架 =====
+  var TOPBAR = '<div class="tb">'
+    + '<span class="tb-tab">工作台</span>'
+    + '<span class="tb-tab">接口管理 <span class="x" title="中键或点 × 关闭">×</span></span>'
+    + '<span class="tb-tab on">报告 #263 <span class="x">×</span></span>'
+    + '<span class="tb-sp"></span>'
+    + '<span class="tb-ico" title="命令面板 ⌘K">⌘</span>'
+    + '<span class="tb-ico" title="主题：跟随系统">◐</span>'
+    + '<span class="tb-user"><span class="tb-ava">张</span>张三</span>'
+    + '</div>';
+  document.querySelectorAll('.app-shell .main').forEach(function (m) {
+    m.insertAdjacentHTML('afterbegin', TOPBAR);
+  });
+
+  // ===== v2.4：统一渲染侧栏（模拟真实 MainLayout：所有页面共用一份，管理员项按角色显隐） =====
+  // 旧手写侧栏漂移过（files/dict 缺管理员组，users/logs 缺支撑组），改为单一数据源
+  var NAV = [
+    { sec: null, items: [['工作台', 's-home']] },
+    { sec: '资产', items: [['项目管理', 's-projects'], ['接口管理', 's-apis'], ['用例列表', 's-cases'], ['环境配置', 's-envs']] },
+    { sec: '运行', items: [['执行记录', 's-exec']] },
+    { sec: '支撑', items: [['字段字典', 's-dict'], ['文件中心', 's-files']] },
+    { sec: '管理员', admin: true, items: [['用户管理', 's-users'], ['操作日志', 's-logs']] },
+  ];
+  // 当前屏对应高亮的 key（设计屏/编排屏属于用例域 → 高亮用例列表）
+  var ACTIVE = {
+    's-home': '工作台', 's-projects': '项目管理', 's-apis': '接口管理', 's-apiedit': '接口管理',
+    's-cases': '用例列表', 's-designer': '用例列表', 's-envs': '环境配置', 's-exec': '执行记录',
+    's-report': '执行记录', 's-dict': '字段字典', 's-files': '文件中心',
+    's-users': '用户管理', 's-logs': '操作日志',
+  };
+  function renderNav(side, activeKey, isAdmin) {
+    Array.prototype.slice.call(side.childNodes).forEach(function (n) { if (n.nodeType === 1 && !n.classList.contains('brand')) side.removeChild(n); });
+    NAV.forEach(function (g) {
+      if (g.admin && !isAdmin) return;
+      if (g.sec) {
+        var s = document.createElement('div');
+        s.className = 'nav-sec';
+        s.textContent = g.sec;
+        side.appendChild(s);
+      }
+      g.items.forEach(function (it) {
+        var d = document.createElement('div');
+        d.className = 'nav-item' + (it[0] === activeKey ? ' on' : '');
+        d.textContent = it[0];
+        side.appendChild(d);
+      });
+    });
+  }
+  // 执行记录/侧栏失败计数徽标（仅信息示意）
+  function addCounts(side) {
+    var exec = Array.prototype.find.call(side.querySelectorAll('.nav-item'), function (n) { return n.textContent.indexOf('执行记录') === 0; });
+    if (exec) {
+      var c = document.createElement('span');
+      c.className = 'cnt';
+      c.style.cssText = 'color:var(--fail)';
+      c.textContent = '2';
+      exec.appendChild(c);
+    }
+  }
+  var CURRENT = document.querySelector('.screen.on') ? document.querySelector('.screen.on').id : 's-login';
+  function applyNav() {
+    var isAdmin = true; // 原型固定管理员视角；真实系统按 store.user.role 显隐
+    document.querySelectorAll('.side').forEach(function (side) {
+      var host = side.closest('.screen') || document;
+      var key = ACTIVE[host.id] || ACTIVE[CURRENT] || '';
+      renderNav(side, key, isAdmin);
+      addCounts(side);
+    });
+  }
+  applyNav();
+  // 切屏时同步刷新各屏侧栏高亮
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      requestAnimationFrame(applyNav);
+    });
+  });
+})();
+</script>
+</body>
+</html>
