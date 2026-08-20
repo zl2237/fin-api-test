@@ -47,6 +47,8 @@ class User(Base):
     # 联系方式：可选填写，填写时全局唯一（多个用户不能共用同一手机号/邮箱）
     phone = Column(String(20), nullable=True, unique=True, comment="手机号，可选，填写时全局唯一")
     email = Column(String(100), nullable=True, unique=True, comment="邮箱，可选，填写时全局唯一")
+    # 部门：自由文本，可选，用于列表展示与筛选（不建独立部门表，降低维护成本）
+    department = Column(String(50), nullable=True, comment="部门，可选，自由文本")
 
     @property
     def has_avatar(self) -> bool:

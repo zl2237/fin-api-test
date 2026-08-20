@@ -65,11 +65,12 @@ class UserRoleUpdate(BaseModel):
 
 
 class UserInfoUpdate(BaseModel):
-    """编辑用户弹窗整弹窗提交：用户名/显示名/手机号/邮箱/角色一次保存"""
+    """编辑用户整抽屉提交：用户名/显示名/手机号/邮箱/部门/角色一次保存"""
     username: str = Field(min_length=2, max_length=50)
     name: Optional[str] = Field(default=None, max_length=50)
     phone: Optional[str] = Field(default=None, max_length=20)
     email: Optional[str] = Field(default=None, max_length=100)
+    department: Optional[str] = Field(default=None, max_length=50)
     role: str
 
 

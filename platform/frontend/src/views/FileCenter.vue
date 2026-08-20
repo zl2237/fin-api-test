@@ -1,6 +1,6 @@
 <template>
   <div class="file-center">
-    <!-- 左侧：分类树 + 标签云 -->
+    <!-- 左侧：分类导航树（单选互斥，文件夹隐喻） -->
     <div class="file-sidebar">
       <div class="sidebar-section">
         <div class="sidebar-header">
@@ -8,6 +8,17 @@
           <el-button link type="primary" size="small" @click="openCategoryDialog(null)">
             <el-icon><Plus /></el-icon>
           </el-button>
+        </div>
+        <!-- 固定导航项：全部文件 / 未分类（树顶常驻，与分类同级单选） -->
+        <div class="quick-filter" :class="{ active: filter.category_id === undefined }" @click="filter.category_id = undefined; loadFiles()">
+          <el-icon><Files /></el-icon>
+          <span>全部文件</span>
+          <span class="count">{{ totalFiles }}</span>
+        </div>
+        <div class="quick-filter" :class="{ active: filter.category_id === 0 }" @click="filter.category_id = 0; loadFiles()">
+          <el-icon><FolderOpened /></el-icon>
+          <span>未分类</span>
+          <span class="count">{{ uncategorizedCount }}</span>
         </div>
         <el-tree
           :data="categoryTree"
@@ -29,45 +40,10 @@
             </span>
           </template>
         </el-tree>
-        <!-- 全部文件 + 未分类 快捷项 -->
-        <div class="quick-filter" :class="{ active: filter.category_id === undefined }" @click="filter.category_id = undefined; loadFiles()">
-          <el-icon><Files /></el-icon>
-          <span>全部文件</span>
-          <span class="count">{{ totalFiles }}</span>
-        </div>
-        <div class="quick-filter" :class="{ active: filter.category_id === 0 }" @click="filter.category_id = 0; loadFiles()">
-          <el-icon><FolderOpened /></el-icon>
-          <span>未分类</span>
-          <span class="count">{{ uncategorizedCount }}</span>
-        </div>
-      </div>
-
-      <div class="sidebar-section">
-        <div class="sidebar-header">
-          <span class="sidebar-title">标签</span>
-          <el-button link type="primary" size="small" @click="openTagDialog(null)">
-            <el-icon><Plus /></el-icon>
-          </el-button>
-        </div>
-        <div class="tag-cloud">
-          <!-- 初始为白色默认态，点击选中后才展示标签颜色；支持多选叠加过滤 -->
-          <span
-            v-for="tag in tags"
-            :key="tag.id"
-            class="tag-chip"
-            :class="{ active: isTagSelected(tag.id) }"
-            :style="tagChipStyle(tag)"
-            @click="toggleTagFilter(tag)"
-          >
-            {{ tag.name }}
-            <el-icon class="tag-edit" @click.stop="openTagDialog(tag)"><Edit /></el-icon>
-          </span>
-          <span v-if="!tags.length" class="empty-tip">暂无标签</span>
-        </div>
       </div>
     </div>
 
-    <!-- 右侧：文件列表 -->
+    <!-- 右侧：标签过滤行 + 文件列表 -->
     <div class="file-main">
       <div class="page-head">
         <div class="head-left">
@@ -93,6 +69,28 @@
           <!-- 显示当前过滤结果数（全量计数只在左侧树），避免「筛后 5 行却写共 120 个」的误导 -->
           <span class="muted">共 {{ files.length }} 个文件</span>
         </div>
+      </div>
+
+      <!-- 标签过滤行：与左栏分类形成位置/形态差异——分类=单选导航，标签=多选叠加过滤 -->
+      <div v-if="tags.length" class="tag-filter-bar">
+        <span class="tag-filter-label">标签</span>
+        <div class="tag-cloud">
+          <!-- 初始为白色默认态，点击选中后才展示标签颜色；多选叠加，与分类的单选互斥形成对比 -->
+          <span
+            v-for="tag in tags"
+            :key="tag.id"
+            class="tag-chip"
+            :class="{ active: isTagSelected(tag.id) }"
+            :style="tagChipStyle(tag)"
+            @click="toggleTagFilter(tag)"
+          >
+            {{ tag.name }}
+            <el-icon class="tag-edit" @click.stop="openTagDialog(tag)"><Edit /></el-icon>
+          </span>
+        </div>
+        <el-button link type="primary" size="small" @click="openTagDialog(null)">
+          <el-icon><Plus /></el-icon>
+        </el-button>
       </div>
 
       <el-table v-loading="loading" :data="files" stripe size="small" row-key="id">
@@ -768,10 +766,6 @@ onMounted(() => {
 }
 .tag-chip:hover .tag-edit {
   opacity: 0.8;
-}
-.empty-tip {
-  color: var(--app-text-muted);
-  font-size: 12px;
 }
 
 .file-main {

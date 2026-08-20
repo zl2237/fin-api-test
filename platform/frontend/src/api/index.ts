@@ -82,7 +82,7 @@ http.interceptors.response.use(
 // ============ 类型 ============
 export interface User {
   id: number; username: string; name?: string; role: string; must_change_password?: boolean; created_at?: string
-  phone?: string | null; email?: string | null
+  phone?: string | null; email?: string | null; department?: string | null
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   has_avatar?: boolean
@@ -222,11 +222,11 @@ export type AvatarInfo = components['schemas']['AvatarOut']
 export const userApi = {
   list: () => http.get<User[]>('/users').then((r) => r.data),
   simple: () => http.get<SimpleUser[]>('/users/simple').then((r) => r.data),
-  create: (data: { username: string; password: string; name?: string; role?: string }) =>
+  create: (data: { username: string; password: string; name?: string; role?: string; department?: string }) =>
     http.post<User>('/users', data).then((r) => r.data),
   updateRole: (id: number, role: string) =>
     http.put<User>(`/users/${id}/role`, { role }).then((r) => r.data),
-  update: (id: number, data: { username: string; name?: string | null; phone?: string | null; email?: string | null; role: string }) =>
+  update: (id: number, data: { username: string; name?: string | null; phone?: string | null; email?: string | null; department?: string | null; role: string }) =>
     http.put<User>(`/users/${id}`, data).then((r) => r.data),
   resetPassword: (id: number, password: string) =>
     http.put(`/users/${id}/password`, { password }),
