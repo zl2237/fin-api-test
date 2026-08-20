@@ -68,8 +68,8 @@
       </div>
     </el-card>
 
-    <!-- 新增用户对话框 -->
-    <el-dialog v-model="createVisible" title="新增用户" width="420px" align-center :close-on-click-modal="false">
+    <!-- 新增用户抽屉：5 字段超弹窗边界，与编辑抽屉同构（规范 §2：同一实体增改同容器） -->
+    <el-drawer v-model="createVisible" title="新增用户" size="440px" :close-on-click-modal="false">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="80px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="createForm.username" placeholder="登录用用户名" />
@@ -96,7 +96,7 @@
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="onCreate">确定</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 编辑用户抽屉：6 字段超弹窗边界，升格为抽屉（规范 §2） -->
     <el-drawer v-model="roleVisible" title="编辑用户" size="440px" :close-on-click-modal="false">
