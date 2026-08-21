@@ -319,6 +319,27 @@ html.dark .el-table__header-wrapper th.el-table__cell {
 .group-manage-dialog .el-dialog__footer {
   flex-shrink: 0;
 }
+
+/* ===== 定时任务弹窗（CaseList 行内入口）：高度随内容自适应，条目过多时限 80vh 内滚动 ===== */
+/* 注意：不能覆盖 margin——align-center 依赖 is-align-center 的 margin:auto 居中并阻止
+   遮罩层 flex 的 align-items:stretch 拉伸；之前强设 margin-top:0 导致弹窗被拉满 80vh、底部大片空白 */
+.schedule-dialog.el-dialog {
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.schedule-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+.schedule-dialog .el-dialog__body {
+  flex: 0 1 auto; /* 收缩不生长：高度贴内容，超高时靠 flex-shrink 触发滚动 */
+  min-height: 0;
+  overflow-y: auto;
+}
+.schedule-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
 /* 弹窗内树滚动区滚动条 */
 .group-tree-scroll::-webkit-scrollbar {
   width: 8px;

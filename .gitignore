@@ -10,6 +10,9 @@ venv/
 env/
 .venv/
 
+# 本地 vendor 依赖（APScheduler 等沙箱/离线安装产物，勿提交）
+platform/backend/.vendor/
+
 # 日志 & 报告
 logs/
 report/

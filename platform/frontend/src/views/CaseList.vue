@@ -329,11 +329,17 @@
     <!-- 定时任务弹窗（用例行内联入口）：该用例的定时配置列表 + 增改表单（≤4 字段 → el-dialog） -->
     <el-dialog
       v-model="scheduleVisible"
-      :title="`定时任务 · ${scheduleCase?.name || ''}`"
       width="560px"
       align-center
       :close-on-click-modal="false"
+      class="schedule-dialog"
     >
+      <!-- 标题单行省略：用例名过长时不撑高弹窗（hover title 看全名） -->
+      <template #header>
+        <span class="schedule-dialog-title" :title="`定时任务 · ${scheduleCase?.name || ''}`">
+          定时任务 · {{ scheduleCase?.name || '' }}
+        </span>
+      </template>
       <!-- 已配置的定时任务列表 -->
       <div v-if="caseSchedules.length" class="schedule-list">
         <div v-for="s in caseSchedules" :key="s.id" class="schedule-row">
@@ -1284,6 +1290,10 @@ function onGlobalKey(e: KeyboardEvent) {
 .schedule-env {
   color: var(--app-text-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px; /* 环境名过长截断，防把行撑宽 */
+  flex-shrink: 1;
 }
 .schedule-next {
   color: var(--app-text-faint);
@@ -1305,6 +1315,17 @@ function onGlobalKey(e: KeyboardEvent) {
   display: flex;
   justify-content: center;
   padding: 4px 0;
+}
+/* 弹窗标题单行省略（header slot 内容；padding-right 避让右上角关闭按钮） */
+.schedule-dialog-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 32px;
 }
 </style>
 <!-- group-manage-dialog 全局样式已收敛至 style.css（原与 ApiManage 逐字符重复，两处漂移风险） -->
