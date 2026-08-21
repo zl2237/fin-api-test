@@ -24,10 +24,10 @@
           :key="row.key"
           class="group-block"
         >
-          <!-- 分组头（可折叠/展开） -->
+          <!-- 分组头（可折叠/展开；样式与接口管理/用例列表左侧导航树一致） -->
           <div
             class="group-header"
-            :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+            :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
             @click="onToggleGroup(row)"
           >
             <el-icon
@@ -36,14 +36,13 @@
               :class="{ expanded: isGroupExpanded(row.groupId!) }"
             ><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
-            <el-icon class="group-icon"><Folder /></el-icon>
             <span class="group-name">{{ row.name }}</span>
             <span class="group-count">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
           </div>
           <!-- 分组下的直接接口（仅展开时显示；无直接接口时不渲染，避免显示 No Data） -->
           <div
             v-if="row.isUngrouped || isGroupExpanded(row.groupId!)"
-            :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+            :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
           >
             <div
               v-for="a in apisOf(row.groupId, apiKeyword || undefined)"
@@ -127,7 +126,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Connection, Folder, CaretRight, Search } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection, CaretRight, Search } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
@@ -573,17 +572,18 @@ watch(() => store.currentProjectId, async () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
-  padding-right: 12px;
+  height: 32px;
+  padding: 0 10px;
   cursor: pointer;
-  border-radius: var(--app-radius-md);
+  user-select: none;
+  border-radius: var(--app-radius-sm);
   transition: background 0.15s;
 }
 .group-header:hover {
-  background: var(--app-chip-bg);
+  background: var(--app-hover);
 }
 .expand-icon {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
   flex-shrink: 0;
   transition: transform 0.18s ease;
@@ -592,17 +592,11 @@ watch(() => store.currentProjectId, async () => {
   transform: rotate(90deg);
 }
 .expand-spacer {
-  width: 12px;
-  flex-shrink: 0;
-}
-.group-icon {
-  font-size: 14px;
-  color: var(--app-primary);
+  width: 14px;
   flex-shrink: 0;
 }
 .group-name {
   font-size: 13px;
-  font-weight: 600;
   color: var(--app-text);
   flex: 1;
   overflow: hidden;
@@ -610,14 +604,9 @@ watch(() => store.currentProjectId, async () => {
   white-space: nowrap;
 }
 .group-count {
-  background: var(--app-primary);
-  color: #fff;
-  border-radius: 10px;
-  padding: 1px 8px;
   font-size: 11px;
-  font-weight: 500;
-  min-width: 20px;
-  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-faint);
   flex-shrink: 0;
 }
 .api-item {

@@ -35,34 +35,34 @@
         </template>
         <el-table-column prop="id" label="ID" width="60" align="center" />
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="name" label="显示名" min-width="110" show-overflow-tooltip />
-        <el-table-column label="部门" min-width="110" show-overflow-tooltip>
+        <el-table-column prop="name" label="显示名" min-width="100" show-overflow-tooltip />
+        <el-table-column label="部门" min-width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department || '—' }}</template>
         </el-table-column>
-        <el-table-column label="手机号" min-width="130" show-overflow-tooltip>
+        <el-table-column label="手机号" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.phone || '—' }}</template>
         </el-table-column>
-        <el-table-column label="邮箱" min-width="180" show-overflow-tooltip>
+        <el-table-column label="邮箱" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.email || '—' }}</template>
         </el-table-column>
-        <el-table-column label="角色" width="120" align="center">
+        <el-table-column label="角色" width="90" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.role === 'admin'" type="warning" effect="plain" round size="small">管理员</el-tag>
             <el-tag v-else type="info" effect="plain" round size="small">普通成员</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" width="120">
+        <el-table-column label="创建时间" width="110">
           <template #default="{ row }">
             <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="创建人" width="100" align="center">
+        <el-table-column label="创建人" width="90" align="center">
           <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
         </el-table-column>
-        <el-table-column label="更新人" width="100" align="center">
+        <el-table-column label="更新人" width="90" align="center">
           <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditDrawer(row)">编辑</el-button>
             <el-button link type="warning" size="small" @click="openPasswordDialog(row)">重置密码</el-button>

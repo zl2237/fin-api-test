@@ -96,8 +96,8 @@
               <span :class="['exec-dot', `is-${r.status}`]">
                 <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
               </span>
-              <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
-              <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
+              <span class="exec-name" :title="r.case_name || `#${r.case_id}`">{{ r.case_name || `#${r.case_id}` }}</span>
+              <span class="exec-env" :title="r.env_name || `环境#${r.env_id}`">{{ r.env_name || `环境#${r.env_id}` }}</span>
               <span class="exec-summary" :class="`is-${r.status}`">
                 {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
               </span>
@@ -401,6 +401,7 @@ const guideCaps = [
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
   padding: 14px 16px;
+  min-width: 0; /* grid item：防行内长内容（环境名等）把列宽撑破 */
 }
 .panel-head {
   display: flex;
@@ -449,6 +450,10 @@ const guideCaps = [
 }
 .exec-env {
   flex-shrink: 0;
+  max-width: 150px; /* 环境名过长截断，防把行/卡片撑宽 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11.5px;
   color: var(--app-text-muted);
   border: 1px solid var(--app-border);
@@ -460,9 +465,10 @@ const guideCaps = [
 .exec-summary.is-success { color: var(--app-success-text); }
 .exec-time { flex-shrink: 0; min-width: 64px; text-align: right; font-size: 12px; color: var(--app-text-faint); }
 
-/* 右栏 */
-.side-col { display: flex; flex-direction: column; gap: 12px; }
-.quick-list { list-style: none; margin: 0; padding: 0; }
+/* 右栏：min-width:0 斩断 grid min-content 传播（快速执行里的超长用例名 nowrap 不再撑爆列宽） */
+.side-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.side-col .panel { width: 100%; }
+.quick-list { list-style: none; margin: 0; padding: 0; min-width: 0; }
 .quick-row {
   display: flex;
   align-items: center;
@@ -473,6 +479,7 @@ const guideCaps = [
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm);
   margin-bottom: 6px;
+  min-width: 0;
   transition: border-color 0.15s;
 }
 .quick-row:hover { border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border)); }
