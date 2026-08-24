@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File
 from sqlalchemy.orm import Session
 from copy import deepcopy
 from datetime import datetime
@@ -72,6 +72,49 @@ def list_all(project_id: int | None = None, created_by: int | None = None, updat
     objs = crud.list_apis(db, project_id, created_by, updated_by)
     crud.fill_audit_names_batch(db, objs)
     return objs
+
+
+@router.get("/export")
+def export_list(
+    project_id: int,
+    format: str = "excel",
+    created_by: int | None = None,
+    updated_by: int | None = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """接口列表导出：Excel 简表（人看）或 JSON 全量（备份/迁移），筛选条件与列表页一致。
+    注意：此路由需在 /{api_id} 之前注册，否则 GET /export 会被 path 参数拦截。"""
+    if format not in ("excel", "json"):
+        raise HTTPException(400, "format 仅支持 excel / json")
+
+    objs = crud.list_apis(db, project_id, created_by, updated_by)
+    if not objs:
+        raise HTTPException(400, "当前筛选条件下没有可导出的接口")
+    crud.fill_audit_names_batch(db, objs)
+
+    groups = crud.list_api_groups(db, project_id) if project_id else []
+    group_names = {g.id: g.name for g in groups}
+    project = crud.get_project(db, project_id)
+    project_name = project.name if project else ""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    from ..services.export_service import export_apis_excel, export_apis_json
+    # 审计在分支前统一记录（json 分支提前 return，放分支内会漏记）
+    crud.log_operation(db, user, "export", "api", None, f"导出{len(objs)}个接口（{format}）")
+    if format == "json":
+        content = export_apis_json(objs, group_names, project_name)
+        return Response(
+            content=content,
+            media_type="application/json; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="apis_{stamp}.json"'},
+        )
+    content = export_apis_excel(objs, group_names)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="apis_{stamp}.xlsx"'},
+    )
 
 
 @router.get("/{api_id}", response_model=schemas.ApiOut)

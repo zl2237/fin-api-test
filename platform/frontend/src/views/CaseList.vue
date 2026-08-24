@@ -13,6 +13,21 @@
           :loading="batchRunning"
           @click="onBatchRun"
         >批量执行{{ selectedCaseIds.length ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
+        <el-button
+          :disabled="selectedCaseIds.length < 2"
+          @click="openCombine"
+        >组合{{ selectedCaseIds.length >= 2 ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
+        <el-dropdown style="margin-left: 12px" @command="(fmt: string) => onExport(fmt as 'excel' | 'json')">
+          <el-button>
+            导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="excel">Excel 简表</el-dropdown-item>
+              <el-dropdown-item command="json">JSON 全量（含 DAG/断言/提取）</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
       <div class="head-right">
         <el-select
@@ -326,6 +341,39 @@
       </template>
     </el-dialog>
 
+    <!-- 组合弹窗：拖拽调整拼接顺序，复制式生成新用例 -->
+    <el-dialog v-model="combineVisible" title="组合用例" width="540px" align-center :close-on-click-modal="false">
+      <div class="combine-tip">拖拽调整拼接顺序（自上而下依次执行）；组合将复制生成新用例，不影响原用例。前段提取的变量后段可直接引用。</div>
+      <div ref="combineListRef" class="combine-list">
+        <div v-for="c in combineItems" :key="c.id" class="combine-item">
+          <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+          <span class="combine-name" :title="c.name">{{ c.name }}</span>
+          <span class="combine-nodes">{{ c.dag_config?.nodes?.length || 0 }} 节点</span>
+        </div>
+      </div>
+      <el-form :model="combineForm" label-width="90px" style="margin-top: 14px">
+        <el-form-item label="新用例名" required>
+          <el-input v-model="combineForm.name" placeholder="如：冒烟全流程组合" maxlength="200" />
+        </el-form-item>
+        <el-form-item label="分组">
+          <el-tree-select
+            v-model="combineForm.group_id"
+            :data="treeSelectData"
+            node-key="id"
+            :props="treeProps"
+            placeholder="选择分组"
+            clearable
+            check-strictly
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="combineVisible = false">取消</el-button>
+        <el-button type="primary" :loading="combineLoading" @click="confirmCombine">组合生成</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 定时任务弹窗（用例行内联入口）：该用例的定时配置列表 + 增改表单（≤4 字段 → el-dialog） -->
     <el-dialog
       v-model="scheduleVisible"
@@ -414,7 +462,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'v
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, Folder, CaretRight, Search, WarningFilled, Timer } from '@element-plus/icons-vue'
+import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, execApi, userApi, scheduleApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
@@ -609,6 +657,93 @@ async function confirmBatchMove() {
   }
 }
 
+// ===== 用例组合（复制式拼接，弹窗拖排序确定顺序）=====
+const combineVisible = ref(false)
+const combineItems = ref<TestCase[]>([])
+const combineForm = ref<{ name: string; group_id: number | null }>({ name: '', group_id: null })
+const combineLoading = ref(false)
+const combineListRef = ref<HTMLElement | null>(null)
+let combineSortable: Sortable | null = null
+
+function openCombine() {
+  const sel = selectedCaseIds.value
+  if (sel.length < 2) return ElMessage.warning('组合至少需要勾选 2 个用例')
+  // 按当前列表顺序排列（勾选顺序不稳定），弹窗内拖拽可再调整
+  const selSet = new Set(sel)
+  combineItems.value = list.value.filter(c => selSet.has(c.id))
+  combineForm.value = { name: '', group_id: null }
+  combineVisible.value = true
+  nextTick(() => {
+    if (combineSortable) { combineSortable.destroy(); combineSortable = null }
+    if (combineListRef.value) {
+      combineSortable = Sortable.create(combineListRef.value, {
+        handle: '.drag-handle',
+        animation: 200,
+        ghostClass: 'sortable-ghost',
+        onEnd: (evt: any) => {
+          const { oldIndex, newIndex } = evt
+          if (oldIndex == null || newIndex == null || oldIndex === newIndex) return
+          const arr = combineItems.value
+          const [moved] = arr.splice(oldIndex, 1)
+          arr.splice(newIndex, 0, moved)
+        },
+      })
+    }
+  })
+}
+
+async function confirmCombine() {
+  if (!combineForm.value.name?.trim()) return ElMessage.warning('请输入新用例名称')
+  if (combineItems.value.length < 2) return ElMessage.warning('组合至少需要 2 个用例')
+  combineLoading.value = true
+  try {
+    const created = await caseApi.combine(
+      combineItems.value.map(c => c.id),
+      combineForm.value.name.trim(),
+      combineForm.value.group_id,
+    )
+    ElMessage.success(`已组合生成「${created.name}」（${created.dag_config?.nodes?.length || 0} 节点）`)
+    combineVisible.value = false
+    resetSelection(clearAllTables)
+    await load()
+    // 组合结果直接跳编排页检查
+    router.push(`/cases/designer/${created.id}`)
+  } catch (e: any) {
+    ElMessage.error(e.message || '组合失败')
+  } finally {
+    combineLoading.value = false
+  }
+}
+
+// ===== 列表导出（Excel 简表 / JSON 全量，筛选条件与列表页一致）=====
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+async function onExport(format: 'excel' | 'json') {
+  if (!store.currentProjectId) return
+  if (!filteredList.value.length) return ElMessage.warning('当前没有可导出的用例')
+  try {
+    const blob = await caseApi.exportList({
+      project_id: store.currentProjectId,
+      format,
+      created_by: filterCreator.value ?? undefined,
+      updated_by: filterUpdater.value ?? undefined,
+    })
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    downloadBlob(blob, `cases_${stamp}.${format === 'excel' ? 'xlsx' : 'json'}`)
+    // 不报具体数量：keyword 是前端本地过滤、不参与后端导出，报数会与文件实际条数不符
+    ElMessage.success(format === 'excel' ? '已导出 Excel 简表' : '已导出 JSON 全量')
+  } catch (e: any) {
+    ElMessage.error(e.message || '导出失败')
+  }
+}
+
 // 分组过滤/计数/可见行/组内分页等样板已收敛至 useGroupedTable（见顶部解构）
 
 async function load() {
@@ -718,7 +853,7 @@ async function runCase(row: TestCase) {
   }
 }
 
-// 批量执行：串行一个结束执行下一个（后端串行，前端逐个轮询）
+// 批量执行：后端线程池并行执行（并发上限 4，同环境共享登录 token），前端并发轮询各记录
 async function onBatchRun() {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
@@ -726,7 +861,7 @@ async function onBatchRun() {
   // 二次确认：批量执行耗时长且产生一批执行记录，门槛不应低于「批量移动」
   try {
     await ElMessageBox.confirm(
-      `将串行执行 ${selectedCaseIds.value.length} 个用例，可能需要较长时间。现在开始？`,
+      `将并行执行 ${selectedCaseIds.value.length} 个用例（最多同时跑 4 个，同环境共享登录），可能需要较长时间。现在开始？`,
       '提示',
       { type: 'warning' },
     )
@@ -736,20 +871,19 @@ async function onBatchRun() {
   batchRunning.value = true
   favicon.running()
   const msg = ElMessage({
-    message: `批量执行中（共 ${selectedCaseIds.value.length} 个用例，串行执行）...`,
+    message: `批量执行中（共 ${selectedCaseIds.value.length} 个用例，并行执行）...`,
     type: 'info',
     duration: 0,
   })
   try {
     const records = await caseApi.batchExecute(selectedCaseIds.value, store.currentEnvId)
-    // 逐个轮询：一个完成再查下一个（后端串行执行，record 会依次完成）
-    const results: { name: string; status: string; summary: any }[] = []
-    for (const rec of records) {
+    // 并发轮询：各记录独立轮询，全部完成后汇总（Promise.all 保持入参顺序）
+    const results = await Promise.all(records.map(async (rec) => {
       const caseRow = list.value.find((c) => c.id === rec.case_id)
       const name = caseRow?.name || `用例#${rec.case_id}`
       const status = await pollOne(rec.id)
-      results.push({ name, status: status.status, summary: status.summary })
-    }
+      return { name, status: status.status, summary: status.summary }
+    }))
     msg.close()
     const passed = results.filter((r) => r.status === 'success').length
     const failed = results.length - passed
@@ -1248,6 +1382,51 @@ function onGlobalKey(e: KeyboardEvent) {
 .sortable-ghost {
   opacity: 0.4;
   background: var(--app-active) !important;
+}
+/* ===== 组合弹窗 ===== */
+.combine-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.combine-list {
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.combine-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--el-bg-color);
+}
+.combine-item:last-child {
+  border-bottom: none;
+}
+.combine-item .drag-handle {
+  cursor: grab;
+  color: var(--app-text-muted);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.combine-item .drag-handle:active {
+  cursor: grabbing;
+}
+.combine-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.combine-nodes {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 .group-drag-tip {
   font-size: 12px;

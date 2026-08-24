@@ -5,6 +5,17 @@
       <div class="head-left">
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
         <el-button @click="showImportDialog = true">导入接口</el-button>
+        <el-dropdown style="margin-left: 12px" @command="(fmt: string) => onExport(fmt as 'excel' | 'json')">
+          <el-button>
+            导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="excel">Excel 简表</el-dropdown-item>
+              <el-dropdown-item command="json">JSON 全量（含字段明细）</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
       <div class="head-right">
         <el-select
@@ -327,6 +338,11 @@
                     <el-tag :type="methodTagType(row.method)" size="small" effect="plain">{{ row.method }}</el-tag>
                   </template>
                 </el-table-column>
+                <el-table-column label="名称" min-width="160">
+                  <template #default="{ row }">
+                    <el-input v-model="row.name" size="small" placeholder="接口名称，可直接修改" />
+                  </template>
+                </el-table-column>
                 <el-table-column label="路径" prop="path" min-width="200" show-overflow-tooltip />
                 <el-table-column label="字段数" width="70" align="center">
                   <template #default="{ row }">{{ row.field_count }}</template>
@@ -390,6 +406,11 @@
                 <el-table-column label="方法" width="72">
                   <template #default="{ row }">
                     <el-tag :type="methodTagType(row.method)" size="small" effect="plain">{{ row.method }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="名称" min-width="160">
+                  <template #default="{ row }">
+                    <el-input v-model="row.name" size="small" placeholder="接口名称，可直接修改" />
                   </template>
                 </el-table-column>
                 <el-table-column label="路径" prop="path" min-width="200" show-overflow-tooltip />
@@ -490,7 +511,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { Rank, Upload, Folder, Search, CaretRight, WarningFilled } from '@element-plus/icons-vue'
+import { Rank, Upload, Folder, Search, CaretRight, WarningFilled, ArrowDown } from '@element-plus/icons-vue'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 const store = useAppStore()
@@ -880,6 +901,31 @@ async function confirmBatchMove() {
     ElMessage.error(e.message || '批量移动失败')
   } finally {
     batchMoveLoading.value = false
+  }
+}
+
+// ===== 列表导出（Excel 简表 / JSON 全量，筛选条件与列表页一致）=====
+async function onExport(format: 'excel' | 'json') {
+  if (!currentProjectId.value) return
+  if (!filteredApis.value.length) return ElMessage.warning('当前没有可导出的接口')
+  try {
+    const blob = await apiApi.exportList({
+      project_id: currentProjectId.value,
+      format,
+      created_by: filterCreator.value ?? undefined,
+      updated_by: filterUpdater.value ?? undefined,
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    link.href = url
+    link.download = `apis_${stamp}.${format === 'excel' ? 'xlsx' : 'json'}`
+    link.click()
+    URL.revokeObjectURL(url)
+    // 不报具体数量：keyword 是前端本地过滤、不参与后端导出，报数会与文件实际条数不符
+    ElMessage.success(format === 'excel' ? '已导出 Excel 简表' : '已导出 JSON 全量')
+  } catch (e: any) {
+    ElMessage.error(e.message || '导出失败')
   }
 }
 

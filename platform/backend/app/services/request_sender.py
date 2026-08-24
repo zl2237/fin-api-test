@@ -98,7 +98,11 @@ def send_request(db, client, api, body: Any,
         return e.status_code, {"error": str(e)}, str(e)
     except BusinessError as e:
         return 200, {"code": e.code, "msg": e.msg, "error": str(e)}, str(e)
-    except (AuthError, HttpTimeoutError, JsonParseError) as e:
+    except JsonParseError as e:
+        # HTTP 200 已收到，仅响应体非 JSON（HTML/纯文本等）：请求本身未失败，
+        # 状态码保留 200，原文放 text 字段，通过与否交给断言判定
+        return 200, {"text": e.resp_text[:2000]}, None
+    except (AuthError, HttpTimeoutError) as e:
         return 0, {"error": str(e)}, str(e)
     except Exception as e:
         # 未预期的请求异常（如连接错误、SSL 错误等），记录日志便于排查

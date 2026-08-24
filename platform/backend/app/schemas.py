@@ -462,6 +462,20 @@ class CaseBatchMove(BaseModel):
     group_id: Optional[int] = None
 
 
+class CaseCombineRequest(BaseModel):
+    """多用例组合（拼接成新用例），case_ids 顺序即拼接顺序"""
+    case_ids: List[int]
+    name: str
+    group_id: Optional[int] = None
+
+
+class CaseSplitRequest(BaseModel):
+    """用例拆分：抽离 node_ids 到新用例（scan-split 阶段只需 node_ids，执行阶段才要新用例名）"""
+    node_ids: List[str]
+    new_name: Optional[str] = None
+    new_group_id: Optional[int] = None
+
+
 # ============ ProjectVersion 项目版本快照 ============
 class ProjectVersionCreate(BaseModel):
     """手动创建版本快照"""

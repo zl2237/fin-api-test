@@ -125,12 +125,18 @@ class TestSendRequestErrorTaxonomy:
     @pytest.mark.parametrize("exc", [
         AuthError("/order", "未登录"),
         HttpTimeoutError("/order", 15),
-        __import__("utils.exceptions", fromlist=["JsonParseError"]).JsonParseError("/order", "<html>"),
     ])
     def test_auth_timeout_returns_zero(self, exc):
         c = StubClient(exc=exc)
         code, data, err = send_request(None, c, _api(), {})
         assert code == 0 and err
+
+    def test_json_parse_error_keeps_200_and_text(self):
+        """非 JSON 响应（HTML/纯文本）：HTTP 已成功，状态码保留 200，原文进 text，err 为空"""
+        exc = __import__("utils.exceptions", fromlist=["JsonParseError"]).JsonParseError("/order", "<html>x</html>")
+        c = StubClient(exc=exc)
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 200 and err is None and data == {"text": "<html>x</html>"}
 
     def test_unexpected_error_returns_zero(self):
         c = StubClient(exc=RuntimeError("conn refused"))

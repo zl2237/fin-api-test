@@ -95,6 +95,7 @@
           >
             {{ linkMode ? linkHint : '连线模式' }}
           </el-button>
+          <el-button :loading="splitScanning" :disabled="!caseData.id" @click="onSplit">拆分选中</el-button>
           <el-button type="primary" :loading="saving" @click="onSave">保存用例</el-button>
           <el-button type="success" :loading="running" @click="onRun">执行</el-button>
         </div>
@@ -119,6 +120,52 @@
       :apis="apiList"
       @save="onConfigSave"
     />
+
+    <!-- 拆分确认弹窗：选中节点抽离 + 跨界变量清单 -->
+    <el-dialog v-model="splitVisible" title="拆分用例" width="580px" align-center :close-on-click-modal="false">
+      <div class="split-tip">
+        将把选中的 {{ splitNodeIds.length }} 个节点抽离为新用例（复制其配置与内部连线），原用例保留其余节点；
+        两侧之间的连线会被移除。
+      </div>
+      <div class="split-nodes">
+        <el-tag v-for="id in splitNodeIds" :key="id" size="small" class="split-tag">{{ nodeLabel(id) }}</el-tag>
+      </div>
+      <template v-if="splitScan && (splitScan.outgoing.length || splitScan.incoming.length)">
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+          title="检测到跨界变量引用"
+          description="以下变量在两侧用例间传递。拆分后配置原样保留，但两侧各自运行时需先执行提取方，另一侧才能取到值。"
+        />
+        <div class="split-vars">
+          <div v-for="v in splitScan.outgoing" :key="'o-' + v.var + v.consumer" class="split-var-row">
+            <el-tag size="small" type="warning">{{ varExpr(v.var) }}</el-tag>
+            <span>由「{{ v.providers.map(nodeLabel).join('、') }}」提取，留驻节点「{{ nodeLabel(v.consumer) }}」引用 → 拆分后原用例将取不到</span>
+          </div>
+          <div v-for="v in splitScan.incoming" :key="'i-' + v.var + v.consumer" class="split-var-row">
+            <el-tag size="small" type="warning">{{ varExpr(v.var) }}</el-tag>
+            <span>由留驻节点「{{ v.providers.map(nodeLabel).join('、') }}」提取，「{{ nodeLabel(v.consumer) }}」引用 → 拆分后新用例将取不到</span>
+          </div>
+        </div>
+      </template>
+      <el-alert
+        v-else
+        type="success"
+        :closable="false"
+        show-icon
+        title="未检测到跨界变量引用，可安全拆分"
+      />
+      <el-form :model="splitForm" label-width="90px" style="margin-top: 14px">
+        <el-form-item label="新用例名" required>
+          <el-input v-model="splitForm.new_name" placeholder="如：付款段" maxlength="200" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="splitVisible = false">取消</el-button>
+        <el-button type="primary" :loading="splitLoading" @click="confirmSplit">确认拆分</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -129,7 +176,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Connection, CaretRight, Search } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
-import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig } from '@/api'
+import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
@@ -278,6 +325,73 @@ async function loadCase(id: number) {
 
 function onBack() {
   router.push('/cases')
+}
+
+// ===== 拆分（选中节点抽离成新用例：先扫描跨界变量 → 弹窗确认 → 执行）=====
+const splitVisible = ref(false)
+const splitScanning = ref(false)
+const splitLoading = ref(false)
+const splitNodeIds = ref<string[]>([])
+const splitScan = ref<{ outgoing: SplitVar[]; incoming: SplitVar[] } | null>(null)
+const splitForm = ref<{ new_name: string; new_group_id: number | null }>({ new_name: '', new_group_id: null })
+
+// 节点 id → 显示名（画布节点存了接口名）
+function nodeLabel(id: string): string {
+  const n = nodes.value.find((x) => x.id === id)
+  return n?.data?.label || n?.label || id
+}
+
+// 变量名 → ${var} 表达式
+function varExpr(name: string): string {
+  return `\${${name}}`
+}
+
+async function onSplit() {
+  if (!caseData.value.id) return ElMessage.warning('请先保存用例后再拆分')
+  if (dirty.value) return ElMessage.warning('画布有未保存改动，请先保存再拆分')
+  const selected = canvasRef.value?.getSelectedNodes?.() || []
+  if (!selected.length) return ElMessage.warning('请先在画布选中要抽离的节点（框选或 Shift 多选）')
+  if (selected.length >= nodes.value.length) return ElMessage.warning('至少要保留一个节点在原用例')
+
+  splitNodeIds.value = selected.map((n: any) => n.id)
+  splitScanning.value = true
+  try {
+    splitScan.value = await caseApi.scanSplit(caseData.value.id, splitNodeIds.value)
+    // 新用例默认沿用原用例分组，列表里可再移动
+    splitForm.value = { new_name: `${caseData.value.name}-拆分`, new_group_id: caseData.value.group_id ?? null }
+    splitVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e.message || '拆分扫描失败')
+  } finally {
+    splitScanning.value = false
+  }
+}
+
+async function confirmSplit() {
+  if (!splitForm.value.new_name?.trim()) return ElMessage.warning('请输入新用例名称')
+  splitLoading.value = true
+  try {
+    const res = await caseApi.split(caseData.value.id, {
+      node_ids: splitNodeIds.value,
+      new_name: splitForm.value.new_name.trim(),
+      new_group_id: splitForm.value.new_group_id,
+    })
+    ElMessage.success(res.message)
+    splitVisible.value = false
+    // 原用例已收缩：重载画布（loadCase 会复位 dirty）
+    await loadCase(caseData.value.id)
+    ElMessageBox.confirm(
+      `新用例「${res.new_case.name}」（${res.new_case.dag_config?.nodes?.length || 0} 节点）已生成，是否前往编排？`,
+      '拆分完成',
+      { type: 'success', confirmButtonText: '前往新用例', cancelButtonText: '留在本页' },
+    ).then(() => {
+      router.push(`/cases/designer/${res.new_case.id}`)
+    }).catch(() => {})
+  } catch (e: any) {
+    ElMessage.error(e.message || '拆分失败')
+  } finally {
+    splitLoading.value = false
+  }
 }
 
 // ===== 未保存改动防丢失（B1）：路由离开 + 关闭/刷新标签页双层拦截 =====
@@ -670,5 +784,36 @@ watch(() => store.currentProjectId, async () => {
 :deep(.canvas-wrap .dag-canvas) {
   flex: 1;
   border: 1px solid var(--app-border);
+}
+/* ===== 拆分确认弹窗 ===== */
+.split-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.split-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.split-vars {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.split-var-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.split-var-row .el-tag {
+  flex-shrink: 0;
 }
 </style>
