@@ -125,7 +125,9 @@ class DagExecutor:
                     total_passed += 1
                 else:
                     total_failed += 1
-                    # 默认失败即停止
+                    # 默认失败即停止：后续节点未执行，并入 leftover（与环节点同口径：
+                    # 计入失败总数、不落步骤记录，通知里展示"未执行：N 个节点"）
+                    leftover = leftover + order[idx + 1:]
                     break
                 # 节点间等待：当前节点成功且仍有后续节点时，按配置等待若干毫秒，
                 # 给后端处理事务/数据落库留出时间，避免下游接口读到未提交数据
@@ -261,7 +263,13 @@ class DagExecutor:
             api_name=api.name, api_path=api.path, api_method=api.method,
             request_headers=headers, request_body=body,
             response_status=status_code,
-            response_body=response_data if isinstance(response_data, (dict, list)) else {"text": str(response_data)},
+            # 请求异常（超时/连接失败等）时 err 有值但响应体可能为 None，
+            # 落 {"error": err} 让步骤记录（及失败通知）可读到具体原因
+            response_body=(
+                {"error": err} if err is not None
+                else response_data if isinstance(response_data, (dict, list))
+                else {"text": str(response_data)}
+            ),
             response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
             status="success" if step_passed else "failed",
             assertions=[

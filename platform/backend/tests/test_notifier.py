@@ -7,6 +7,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import utils.wecom_util  # noqa: F401  显式绑定子模块：utils 为命名空间包，不导入则 patch("utils.wecom_util.WeComRobot") 解析目标失败
 from app.services.notifier import send_notify
 
 
@@ -24,6 +25,7 @@ def _record(status="success", summary=None, started_at=None, ended_at=None):
         summary=summary or {"passed": 3, "total": 3, "failed": 0},
         started_at=started_at,
         ended_at=ended_at,
+        steps=[],  # 对齐 ExecutionRecord ORM：steps 关系属性恒存在（空表亦然）
     )
 
 
@@ -220,3 +222,93 @@ class TestSendNotify:
         with patch("utils.wecom_util.WeComRobot") as MockRobot:
             send_notify(env, case, record)
             MockRobot.return_value.send_markdown.assert_not_called()
+
+    # ===== 失败原因区块（_build_fail_section）=====
+
+    @staticmethod
+    def _failed_record(steps, summary=None):
+        return SimpleNamespace(
+            status="failed",
+            summary=summary or {"passed": 0, "total": len(steps), "failed": len(steps)},
+            started_at=None, ended_at=None,
+            steps=steps,
+        )
+
+    @staticmethod
+    def _failed_step(api_name, asserts=(), response_status=500, response_body=None):
+        return SimpleNamespace(
+            status="failed", api_name=api_name, node_id="n1",
+            response_status=response_status, response_body=response_body,
+            assertions=list(asserts),
+        )
+
+    @staticmethod
+    def _failed_assert(message=None, result=False):
+        return SimpleNamespace(
+            result=result, message=message,
+            rule_type="json_path_equals", expected_value="1", actual_value="2",
+        )
+
+    def test_fail_section_includes_step_and_assertion(self):
+        step = self._failed_step("创建订单", [self._failed_assert("状态码应为200")])
+        record = self._failed_record([step])
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_notify(_env(notify_config=WEBHOOK_CFG), _case(), record)
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "**失败原因**" in content
+            assert "创建订单" in content and "HTTP 500" in content
+            assert "状态码应为200" in content
+
+    def test_fail_section_assert_fallback_to_rule(self):
+        """断言无 message 时回退到 rule_type+期望/实际"""
+        step = self._failed_step("分发", [self._failed_assert(message="")])
+        record = self._failed_record([step])
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_notify(_env(notify_config=WEBHOOK_CFG), _case(), record)
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "json_path_equals" in content and "1" in content and "2" in content
+
+    def test_fail_section_request_error_text(self):
+        """无断言失败但响应体含 error → 提取「请求异常」"""
+        step = self._failed_step("付款", asserts=[], response_status=0,
+                                 response_body={"error": "ConnectTimeout: 连接超时"})
+        record = self._failed_record([step])
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_notify(_env(notify_config=WEBHOOK_CFG), _case(), record)
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "请求异常" in content and "连接超时" in content
+
+    def test_fail_section_error_and_leftover_lines(self):
+        step = self._failed_step("创建")
+        record = self._failed_record([step], summary={
+            "passed": 0, "total": 3, "failed": 1, "error": "DB 断连", "leftover": ["n2", "n3"],
+        })
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_notify(_env(notify_config=WEBHOOK_CFG), _case(), record)
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "执行异常：DB 断连" in content
+            assert "未执行：2 个节点" in content
+
+    def test_byte_budget_prevents_oversize(self):
+        """极端失败信息（8 步 × 3 断言 × 500 字中文）下通知不超企微 4096 字节"""
+        long_msg = "钱" * 500  # 1500 字节/条
+        steps = [
+            self._failed_step(f"接口{i}", [self._failed_assert(long_msg) for _ in range(3)])
+            for i in range(8)
+        ]
+        record = self._failed_record(steps, summary={
+            "passed": 0, "total": 8, "failed": 8, "error": "异" * 400,
+        })
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_notify(_env(notify_config=WEBHOOK_CFG), _case(name="名" * 100), record)
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert len(content.encode("utf-8")) <= 4096
+            assert "已截断" in content or "已省略" in content
+
+    def test_success_has_no_fail_section(self):
+        record = _record(status="success")
+        record.steps = []
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_notify(_env(notify_config=WEBHOOK_CFG), _case(), record)
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "失败原因" not in content

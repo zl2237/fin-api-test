@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from ..database import get_db
 from .. import crud, schemas, models
@@ -60,6 +61,61 @@ def list_all(project_id: int | None = None, created_by: int | None = None, updat
     return objs
 
 
+@router.get("/export")
+def export_list(
+    project_id: int,
+    format: str = "excel",
+    created_by: int | None = None,
+    updated_by: int | None = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """用例列表导出：Excel 简表或 JSON 全量（含 DAG 与节点配置），筛选条件与列表页一致。
+    注意：此路由需在 /{case_id} 之前注册，否则 GET /export 会被 path 参数拦截。"""
+    if format not in ("excel", "json"):
+        raise HTTPException(400, "format 仅支持 excel / json")
+
+    objs = crud.list_testcases(db, project_id, created_by, updated_by)
+    if not objs:
+        raise HTTPException(400, "当前筛选条件下没有可导出的用例")
+    crud.fill_audit_names_batch(db, objs)
+
+    groups = crud.list_case_groups(db, project_id) if project_id else []
+    group_names = {g.id: g.name for g in groups}
+    project = crud.get_project(db, project_id)
+    project_name = project.name if project else ""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    from ..services.export_service import export_cases_excel, export_cases_json
+    if format == "json":
+        content = export_cases_json(objs, group_names, project_name)
+        crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（json）")
+        return Response(
+            content=content,
+            media_type="application/json; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="cases_{stamp}.json"'},
+        )
+    content = export_cases_excel(objs, group_names)
+    crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（excel）")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="cases_{stamp}.xlsx"'},
+    )
+
+
+@router.post("/combine", response_model=schemas.TestCaseOut)
+def combine(data: schemas.CaseCombineRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """多用例组合：按 case_ids 顺序拼接为一个新的复制式用例，段间自动串接保证先后"""
+    from ..services.case_combine_service import combine_cases
+    try:
+        obj = combine_cases(db, data.case_ids, data.name, data.group_id, user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    crud.log_operation(db, user, "combine", "testcase", obj.id, obj.name)
+    return obj
+
+
 @router.get("/{case_id}", response_model=schemas.TestCaseOut)
 def get_one(case_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_testcase(db, case_id)
@@ -110,6 +166,40 @@ def copy(case_id: int, db: Session = Depends(get_db), user: models.User = Depend
     crud.fill_audit_names(db, new_obj)
     crud.log_operation(db, user, "copy", "testcase", new_obj.id, new_obj.name)
     return new_obj
+
+
+@router.post("/{case_id}/scan-split")
+def scan_split(case_id: int, data: schemas.CaseSplitRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """拆分前置扫描：返回跨界变量清单，前端弹窗供用户确认后再执行拆分。
+    outgoing = 被抽离节点提取、留驻节点引用（随迁后留驻方悬空）
+    incoming = 留驻节点提取、被抽离节点引用（不随迁则新用例侧悬空）"""
+    from ..services.case_combine_service import scan_split_boundary
+    try:
+        result = scan_split_boundary(db, case_id, data.node_ids)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "node_ids": data.node_ids,
+        "outgoing_count": len(result["outgoing"]),
+        "incoming_count": len(result["incoming"]),
+        **result,
+    }
+
+
+@router.post("/{case_id}/split")
+def split(case_id: int, data: schemas.CaseSplitRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """执行拆分：抽离节点 + 相关边 + 节点配置到新用例，原用例同步收缩。"""
+    from ..services.case_combine_service import split_case
+    try:
+        new_case, updated = split_case(db, case_id, data.node_ids, data.new_name, data.new_group_id, user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    crud.log_operation(db, user, "split", "testcase", new_case.id, f"从 #{case_id} 拆分")
+    return {
+        "message": "拆分完成",
+        "new_case": schemas.TestCaseOut.model_validate(new_case).model_dump(),
+        "origin_case": schemas.TestCaseOut.model_validate(updated).model_dump(),
+    }
 
 
 @router.post("/batch-move")

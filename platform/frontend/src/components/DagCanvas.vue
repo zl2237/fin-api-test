@@ -406,7 +406,12 @@ function autoLayout() {
   setTimeout(() => fitView(), 50)
 }
 
-defineExpose({ addNode, findFreePosition, emitChange, toggleLinkMode, autoLayout, linkMode })
+/** 当前画布选中节点（供设计器「拆分选中」等父组件操作读取） */
+function getSelectedNodes(): any[] {
+  return getNodes.value.filter((n: any) => n.selected)
+}
+
+defineExpose({ addNode, findFreePosition, emitChange, toggleLinkMode, autoLayout, linkMode, getSelectedNodes })
 
 // props 变化（如加载用例）→ 同步到 VueFlow 内部状态
 // 仅在节点数量变化（加载用例、增删节点）时同步并 fitView，

@@ -36,8 +36,8 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
 
 @router.post("/testcases/batch-execute", response_model=list[schemas.ExecutionRecordOut])
 def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """批量执行多个用例（串行）：为每个用例创建 running 状态的执行记录并立即返回，
-    后台线程池串行执行，一个结束再执行下一个。前端可轮询各 record 状态。"""
+    """批量执行多个用例（并行）：为每个用例创建 running 状态的执行记录并立即返回，
+    后台线程池并行执行（并发上限 4，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。"""
     if not data.case_ids:
         raise HTTPException(400, "请至少选择一个用例")
     env = crud.get_environment(db, data.env_id)
@@ -53,7 +53,7 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
         crud.fill_audit_names(db, record)
         crud.fill_exec_names(db, record)
 
-    # 提交批量串行执行（非阻塞）
+    # 提交批量并行执行（非阻塞，线程池并发上限 4）
     submit_batch_execution([r.id for r in records], data.case_ids, data.env_id)
     return records
 

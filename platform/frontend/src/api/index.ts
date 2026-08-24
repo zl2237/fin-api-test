@@ -74,8 +74,21 @@ http.interceptors.response.use(
         window.location.href = '/login'
       }
     }
+    // blob 请求（文件下载/导出）失败时 body 是 Blob，需读文本后解析出后端 detail；
+    // 解析完再统一 reject，保证调用方 catch 到的仍是 Error(msg)
+    const rejectWithMsg = (msg: string) => Promise.reject(new Error(msg))
+    const data = error?.response?.data
+    if (typeof Blob !== 'undefined' && data instanceof Blob && data.type.includes('json')) {
+      return data.text().then((txt: string) => {
+        try {
+          return rejectWithMsg(JSON.parse(txt)?.detail || error?.message || '请求失败')
+        } catch {
+          return rejectWithMsg(error?.message || '请求失败')
+        }
+      })
+    }
     const msg = error?.response?.data?.detail || error?.message || '请求失败'
-    return Promise.reject(new Error(msg))
+    return rejectWithMsg(msg)
   },
 )
 
@@ -338,6 +351,9 @@ export const apiApi = {
       response_status: number; response_body: any; response_time_ms: number
       started_at: string; ok: boolean; login_failed: boolean; error: string | null
     }>(`/apis/${apiId}/debug`, { env_id: envId, body_override: bodyOverride ?? null }).then((r) => r.data),
+  // 列表导出：excel=简表 / json=全量，筛选条件与列表页一致
+  exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
+    http.get<Blob>('/apis/export', { responseType: 'blob', params }).then((r) => r.data),
 }
 
 // ============ CaseGroup ============
@@ -364,6 +380,24 @@ export const caseApi = {
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`, { case_id: caseId, env_id: envId }).then((r) => r.data),
   batchExecute: (caseIds: number[], envId: number) =>
     http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId }).then((r) => r.data),
+  // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
+  exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
+    http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
+  // 多用例组合（拼接成新用例），caseIds 顺序即拼接顺序
+  combine: (caseIds: number[], name: string, groupId?: number | null) =>
+    http.post<TestCase>('/testcases/combine', { case_ids: caseIds, name, group_id: groupId ?? null }).then((r) => r.data),
+  // 拆分前置扫描：返回跨界变量清单（outgoing/incoming），只需 node_ids
+  scanSplit: (caseId: number, nodeIds: string[]) =>
+    http.post<{ outgoing: SplitVar[]; incoming: SplitVar[] }>(`/testcases/${caseId}/scan-split`, { node_ids: nodeIds }).then((r) => r.data),
+  // 执行拆分：抽离节点到新用例
+  split: (caseId: number, data: { node_ids: string[]; new_name: string; new_group_id?: number | null }) =>
+    http.post<{ message: string; new_case: TestCase; origin_case: TestCase }>(`/testcases/${caseId}/split`, data).then((r) => r.data),
+}
+
+export interface SplitVar {
+  var: string
+  providers: string[]
+  consumer: string
 }
 
 // ============ TestSchedule 定时任务 ============
