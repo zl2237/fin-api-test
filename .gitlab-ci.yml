@@ -9,6 +9,7 @@
 #   JWT_SECRET_KEY    : 后端 JWT 密钥（生产环境，必填）
 #   DB_PASSWORD       : 后端 MySQL 密码
 #   DB_HOST / DB_USER / DB_NAME : 数据库连接信息（可选，有默认值）
+#   GITLAB_API_TOKEN  : GitLab Access Token（可选，read_api 即可；配置后失败通知能带失败日志摘要）
 # -----------------------------------------------------------------------------
 # 服务器侧假设（如不一致请调整下方 variables 或 deploy 脚本）：
 #   - 部署目录     : /opt/fin-api-test
@@ -179,7 +180,37 @@ notify-wecom:
   when: always
   script:
     - sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
-    - apk add --no-cache curl tzdata
+    - apk add --no-cache curl tzdata jq
+    # ---- 失败时抓取失败 job 的日志摘要（附在通知里，免去登服务器翻日志）----
+    # 鉴权：优先 GITLAB_API_TOKEN（项目级 Access Token，推荐配置）；
+    # 未配置则用 CI_JOB_TOKEN 尝试（部分 GitLab 版本支持读本流水线 job 日志），失败则跳过摘要。
+    - |
+      FAIL_SECTION=""
+      if [ "$CI_PIPELINE_STATUS" = "failed" ]; then
+        API_BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
+        if [ -n "$GITLAB_API_TOKEN" ]; then
+          AUTH_H="PRIVATE-TOKEN: $GITLAB_API_TOKEN"
+        else
+          AUTH_H="Job-Token: $CI_JOB_TOKEN"
+        fi
+        JOBS_JSON=$(curl -s -H "$AUTH_H" "$API_BASE/pipelines/$CI_PIPELINE_ID/jobs" || true)
+        FAILED_JOBS=$(echo "$JOBS_JSON" | jq -r '.[]? | select(.status=="failed") | "\(.id)|\(.name)"' 2>/dev/null || true)
+        if [ -n "$FAILED_JOBS" ]; then
+          FAIL_SECTION="\n> **失败原因摘要**：\n"
+          for line in $FAILED_JOBS; do
+            JID="${line%%|*}"; JNAME="${line##*|}"
+            # 取日志尾部 300 行中的错误行（最多 6 行），防通知超长
+            REASON=$(curl -s -H "$AUTH_H" "$API_BASE/jobs/$JID/trace" 2>/dev/null \
+              | tail -n 300 | grep -iE "error|failed|exception|traceback|✗" | tail -n 6 \
+              | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//; s/"/\\"/g' | head -c 800)
+            if [ -n "$REASON" ]; then
+              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】\n> \`\`\`\n${REASON}\n\`\`\`\n"
+            else
+              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）\n"
+            fi
+          done
+        fi
+      fi
     - |
       # notify 是最后一个 stage，运行时前置 stage 的 job 状态已确定：
       #   有 job 失败 → CI_PIPELINE_STATUS=failed
@@ -205,9 +236,12 @@ notify-wecom:
       MARKDOWN="${MARKDOWN}> **提交者**：$AUTHOR\n"
       MARKDOWN="${MARKDOWN}> **时间**：$TIMESTAMP\n"
       MARKDOWN="${MARKDOWN}> **流水线**：[查看详情]($PIPELINE_URL)\n"
+      MARKDOWN="${MARKDOWN}${FAIL_SECTION}"
 
+      # jq 构造 JSON，避免消息含引号/换行时打爆 payload
+      PAYLOAD=$(jq -n --arg md "$MARKDOWN" '{msgtype:"markdown",markdown:{content:$md}}')
       curl -s -X POST "$WECOM_WEBHOOK" \
         -H 'Content-Type: application/json' \
-        -d "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\"$MARKDOWN\"}}"
+        -d "$PAYLOAD"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"

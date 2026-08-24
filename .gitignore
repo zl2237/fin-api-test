@@ -59,6 +59,13 @@ htmlcov/
 # 但 Python 包标记文件不能被忽略（否则 app/crud 等新包无法提交）
 !**/__init__.py
 
+# 临时调试脚本/产物（.tmp_ 前缀：CDP 诊断、临时自测脚本等）
+.tmp_*
+
+# 浏览器诊断截图产物
+screenshots/
+screenshots-v2/
+
 # 本地teach skill学习目录
 .teach
 
