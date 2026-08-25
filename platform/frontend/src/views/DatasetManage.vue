@@ -115,6 +115,8 @@
                     v-if="editingRowId === row.id"
                     v-model="editingRowData[col.key]"
                     size="small"
+                    :type="isJsonText(editingRowData[col.key]) ? 'textarea' : 'text'"
+                    :autosize="{ minRows: 1, maxRows: 8 }"
                   />
                   <span v-else>{{ fmtCell(row.data?.[col.key]) }}</span>
                 </template>
@@ -624,9 +626,20 @@ async function confirmGenerate() {
 const editingRowId = ref<number | null>(null)
 const editingRowData = ref<Record<string, any>>({})
 
+// JSON 文本字段判定（对象/数组列编辑态显示为 JSON 文本，用 textarea）
+function isJsonText(v: any) {
+  return typeof v === 'string' && (v.startsWith('[') || v.startsWith('{'))
+}
+
 function startEditRow(row: any) {
   editingRowId.value = row.id
-  editingRowData.value = { ...row.data }
+  // 对象/数组字段先序列化为 JSON 文本再编辑：el-input 直接绑对象会显示 [object Object]，
+  // 且用户一旦触碰该输入框，原对象就被覆盖成字符串导致数据损坏
+  const data: Record<string, any> = {}
+  Object.entries(row.data || {}).forEach(([k, v]) => {
+    data[k] = typeof v === 'object' && v !== null ? JSON.stringify(v) : v
+  })
+  editingRowData.value = data
 }
 
 function cancelEditRow() {
@@ -636,8 +649,21 @@ function cancelEditRow() {
 
 async function saveRow(_row: any) {
   if (!current.value) return
+  // JSON 文本还原为对象/数组（改坏了则原样提交字符串，由后端按列类型处理）
+  const data: Record<string, any> = {}
+  Object.entries(editingRowData.value).forEach(([k, v]) => {
+    if (isJsonText(v)) {
+      try {
+        data[k] = JSON.parse(v)
+        return
+      } catch {
+        // 非合法 JSON：保留原文
+      }
+    }
+    data[k] = v
+  })
   try {
-    await datasetApi.updateRow(current.value.id, editingRowId.value!, editingRowData.value)
+    await datasetApi.updateRow(current.value.id, editingRowId.value!, data)
     ElMessage.success('已保存')
     cancelEditRow()
     await load()
