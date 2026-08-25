@@ -2,7 +2,7 @@
   <div class="user-manage">
     <div class="page-head">
       <div class="head-left">
-        <div class="title">用户管理</div>
+        <span class="page-title">用户管理</span>
         <el-button type="primary" @click="openCreate">+ 新建用户</el-button>
       </div>
       <div class="head-right">
@@ -411,22 +411,6 @@ onMounted(load)
   flex-direction: column;
   gap: 12px;
   height: 100%;
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.head-left,
-.head-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--app-text);
 }
 .table-card {
   background: var(--app-card);

@@ -9,7 +9,7 @@
    - field 可选，未指定时取第一行第一列
    - SQL 中支持 ${xxx} 变量引用（${context.xxx} 兼容旧写法）
 """
-from typing import Any, Dict, List
+from typing import Any
 
 from jsonpath_ng import parse
 
@@ -20,8 +20,8 @@ class Extractor:
     def __init__(self, db_client=None):
         self.db_client = db_client
 
-    def extract(self, response: Any, rules: List[Dict]) -> Dict[str, Any]:
-        extracted: Dict[str, Any] = {}
+    def extract(self, response: Any, rules: list[dict]) -> dict[str, Any]:
+        extracted: dict[str, Any] = {}
         # 初始化 _vars（若未通过 set_extracted_vars 设置）
         if not hasattr(self, "_vars"):
             self._vars = {}
@@ -38,7 +38,7 @@ class Extractor:
             self._vars[name] = extracted[name]
         return extracted
 
-    def _extract_from_response(self, response: Any, rule: Dict) -> Any:
+    def _extract_from_response(self, response: Any, rule: dict) -> Any:
         json_path = rule.get("json_path")
         if not json_path:
             return None
@@ -51,7 +51,7 @@ class Extractor:
         except Exception:
             return None
 
-    def _extract_from_db(self, rule: Dict) -> Any:
+    def _extract_from_db(self, rule: dict) -> Any:
         if not self.db_client:
             return None
         sql = rule.get("sql", "")
@@ -84,6 +84,6 @@ class Extractor:
         # 委托公共函数，消除三处重复的转义逻辑
         return inject_sql_vars(sql, getattr(self, "_vars", {}))
 
-    def set_extracted_vars(self, vars: Dict[str, Any]):
+    def set_extracted_vars(self, vars: dict[str, Any]):
         """供 dag_executor 在每步提取前注入当前已提取的变量，供 SQL 引用"""
         self._vars = vars

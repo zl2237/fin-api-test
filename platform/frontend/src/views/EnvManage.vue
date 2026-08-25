@@ -1,27 +1,32 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <el-button type="primary" @click="onCreate">+ 新建环境</el-button>
-      <el-select
-        v-model="filterCreator"
-        style="width: 160px; margin-left: 12px"
-        placeholder="创建人"
-        clearable
-        filterable
-        @change="load"
-      >
-        <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
-      </el-select>
-      <el-select
-        v-model="filterUpdater"
-        style="width: 160px; margin-left: 12px"
-        placeholder="更新人"
-        clearable
-        filterable
-        @change="load"
-      >
-        <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
-      </el-select>
+      <div class="head-left">
+        <span class="page-title">环境配置</span>
+        <el-button type="primary" @click="onCreate">+ 新建环境</el-button>
+      </div>
+      <div class="head-right">
+        <el-select
+          v-model="filterCreator"
+          style="width: 160px"
+          placeholder="创建人"
+          clearable
+          filterable
+          @change="load"
+        >
+          <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+        <el-select
+          v-model="filterUpdater"
+          style="width: 160px"
+          placeholder="更新人"
+          clearable
+          filterable
+          @change="load"
+        >
+          <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+      </div>
     </div>
     <div class="table-wrap">
       <el-card shadow="never" class="card">
@@ -262,12 +267,6 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   background: var(--app-bg);
-}
-.page-head {
-  padding: 12px 20px;
-  background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--app-border);
 }
 .table-wrap {
   flex: 1;

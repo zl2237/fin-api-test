@@ -3,6 +3,7 @@
     <!-- 顶部工具栏 -->
     <div class="page-head">
       <div class="head-left">
+        <span class="page-title">接口管理</span>
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
         <el-button @click="showImportDialog = true">导入接口</el-button>
         <el-dropdown style="margin-left: 12px" @command="(fmt: string) => onExport(fmt as 'excel' | 'json')">
@@ -1067,15 +1068,6 @@ watch(currentProjectId, () => {
   height: 100%;
   background: var(--app-bg);
 }
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 20px;
-  background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--app-border);
-}
 /* 批量操作条：选中即浮现（高度过渡避免布局跳变） */
 .bulk-bar {
   display: flex;
@@ -1098,15 +1090,6 @@ watch(currentProjectId, () => {
 .bulk-bar-leave-to {
   opacity: 0;
   transform: translateY(-4px);
-}
-.head-left {
-  display: flex;
-  gap: 8px;
-}
-.head-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 /* 左分组导航 + 右组内列表（master-detail） */
 .group-layout {

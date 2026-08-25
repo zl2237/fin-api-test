@@ -2,7 +2,7 @@
   <div class="log-manage">
     <div class="page-head">
       <div class="head-left">
-        <div class="title">操作日志</div>
+        <span class="page-title">操作日志</span>
       </div>
       <div class="head-right">
         <el-select v-model="filterUserId" placeholder="操作人" clearable filterable style="width: 140px" @change="load">
@@ -224,24 +224,6 @@ onMounted(() => {
 }
 .detail-empty {
   color: var(--app-text-muted);
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.head-left,
-.head-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--app-text);
 }
 .table-tip {
   margin-top: 8px;

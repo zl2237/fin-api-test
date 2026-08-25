@@ -38,22 +38,6 @@
           :value="c.id"
         />
       </el-select>
-      <el-select
-        v-model="filterTag"
-        placeholder="按标签筛选"
-        clearable
-        size="default"
-        style="width: 160px"
-        @change="loadFiles"
-      >
-        <el-option label="全部标签" :value="undefined" />
-        <el-option
-          v-for="t in tags"
-          :key="t.id"
-          :label="t.name"
-          :value="t.id"
-        />
-      </el-select>
       <el-upload
         :show-file-list="false"
         :before-upload="handleUpload"
@@ -98,19 +82,6 @@
       <el-table-column label="类型" width="110" show-overflow-tooltip>
         <template #default="{ row }">{{ formatContentType(row.content_type) }}</template>
       </el-table-column>
-      <el-table-column label="标签" min-width="120">
-        <template #default="{ row }">
-          <el-tag
-            v-for="tid in row.tag_ids"
-            :key="tid"
-            size="small"
-            :style="tagMap[tid]?.color ? { backgroundColor: tagMap[tid].color + '22', borderColor: tagMap[tid].color, color: tagMap[tid].color } : {}"
-            class="file-tag"
-          >
-            {{ tagMap[tid]?.name || tid }}
-          </el-tag>
-        </template>
-      </el-table-column>
     </el-table>
 
     <template #footer>
@@ -131,7 +102,7 @@ import {
   Search, Upload, Picture, Document, VideoPlay, Files as FilesIcon,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
-import { fileApi, fileCategoryApi, fileTagApi, type TestFile, type FileCategory, type FileTag } from '@/api'
+import { fileApi, fileCategoryApi, type TestFile, type FileCategory } from '@/api'
 import { debounce } from '@/utils/ui'
 
 const props = defineProps<{
@@ -155,18 +126,10 @@ const visible = computed({
 // ===== 数据 =====
 const files = ref<TestFile[]>([])
 const categories = ref<FileCategory[]>([])
-const tags = ref<FileTag[]>([])
 const loading = ref(false)
 const keyword = ref('')
 const filterCategory = ref<number | undefined>(undefined)
-const filterTag = ref<number | undefined>(undefined)
 const selectedId = ref<number | null>(null)
-
-const tagMap = computed(() => {
-  const m: Record<number, FileTag> = {}
-  tags.value.forEach((t) => (m[t.id] = t))
-  return m
-})
 
 const selectedFile = computed(() => files.value.find((f) => f.id === selectedId.value) || null)
 
@@ -177,7 +140,6 @@ async function loadFiles() {
   try {
     files.value = await fileApi.list(projectId.value, {
       category_id: filterCategory.value,
-      tag_id: filterTag.value,
       keyword: keyword.value,
     })
   } catch (e: any) {
@@ -196,13 +158,6 @@ async function loadCategories() {
   if (!projectId.value) return
   try {
     categories.value = await fileCategoryApi.list(projectId.value)
-  } catch { /* ignore */ }
-}
-
-async function loadTags() {
-  if (!projectId.value) return
-  try {
-    tags.value = await fileTagApi.list(projectId.value)
   } catch { /* ignore */ }
 }
 
@@ -226,7 +181,6 @@ function onClose() {
   selectedId.value = null
   keyword.value = ''
   filterCategory.value = undefined
-  filterTag.value = undefined
 }
 
 // ===== 上传 =====
@@ -303,7 +257,6 @@ watch(visible, (v) => {
   if (v) {
     loadFiles()
     loadCategories()
-    loadTags()
     // 回显已选 file_id
     if (props.modelFileId != null && props.modelFileId !== '') {
       selectedId.value = Number(props.modelFileId)
@@ -329,9 +282,6 @@ watch(visible, (v) => {
 .file-icon {
   margin-right: 6px;
   vertical-align: middle;
-}
-.file-tag {
-  margin-right: 4px;
 }
 .picker-tip {
   flex: 1;

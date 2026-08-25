@@ -11,7 +11,6 @@ import json
 import os
 import secrets
 import time
-from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -94,7 +93,7 @@ def create_token(user_id: int, username: str, role: str) -> str:
     return f"{payload_b64.decode()}.{sig_b64.decode()}"
 
 
-def decode_token(token: str) -> Optional[dict]:
+def decode_token(token: str) -> dict | None:
     """解析并校验 token：验签 + 验过期。失败返回 None。"""
     try:
         payload_b64, sig_b64 = token.split(".", 1)
@@ -113,7 +112,7 @@ def decode_token(token: str) -> Optional[dict]:
 
 # ============ FastAPI 依赖 ============
 def get_current_user(
-    cred: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> models.User:
     """解析 Bearer token，返回当前用户。未登录或 token 失效抛 401。"""
@@ -129,9 +128,9 @@ def get_current_user(
 
 
 def get_optional_user(
-    cred: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
-) -> Optional[models.User]:
+) -> models.User | None:
     """可选鉴权：有 token 且有效返回用户，否则返回 None（用于兼容老接口的可选审计）"""
     if cred is None or not cred.credentials:
         return None

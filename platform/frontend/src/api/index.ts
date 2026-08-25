@@ -4,8 +4,8 @@ import { startProgress, doneProgress } from '@/utils/requestProgress'
 const http = axios.create({
   baseURL: '/api',
   timeout: 60000,
-  // 数组参数序列化为重复键（tag_ids=1&tag_ids=2），匹配 FastAPI 的 List Query 解析；
-  // axios 默认的 tag_ids[]=1 格式后端不识别，会导致过滤参数被静默忽略
+  // 数组参数序列化为重复键（key=1&key=2），匹配 FastAPI 的 List Query 解析；
+  // axios 默认的 key[]=1 格式后端不识别，会导致过滤参数被静默忽略
   paramsSerializer: {
     serialize: (params) => {
       const sp = new URLSearchParams()
@@ -153,6 +153,7 @@ export interface TestCase {
   node_configs: NodeConfig[]; sort_order?: number; created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
+  dataset_id?: number | null  // 绑定的数据集（数据驱动），NULL=普通用例
 }
 export interface AssertionRecord {
   id: number; step_id: number; rule_type: string; rule_config?: any
@@ -172,6 +173,8 @@ export interface ExecutionRecord {
   project_id?: number | null; project_name?: string | null
   status: string
   started_at?: string; ended_at?: string; summary: Record<string, any>
+  dataset_id?: number | null
+  dataset_row?: { row_index: number; data: Record<string, any>; label: string } | null
   steps: StepRecord[]
   created_by?: number | null; created_by_name?: string | null
   trigger_type?: string
@@ -376,10 +379,11 @@ export const caseApi = {
     http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>
     http.post<{ message: string; updated: number }>('/testcases/reorder', { items }).then((r) => r.data),
-  execute: (caseId: number, envId: number) =>
-    http.post<ExecutionRecord>(`/testcases/${caseId}/execute`, { case_id: caseId, env_id: envId }).then((r) => r.data),
-  batchExecute: (caseIds: number[], envId: number) =>
-    http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId }).then((r) => r.data),
+  execute: (caseId: number, envId: number, opts?: { dataset_id?: number | null; row_ids?: number[] }) =>
+    http.post<ExecutionRecord>(`/testcases/${caseId}/execute`,
+      { case_id: caseId, env_id: envId, dataset_id: opts?.dataset_id ?? undefined, row_ids: opts?.row_ids ?? undefined }).then((r) => r.data),
+  batchExecute: (caseIds: number[], envId: number, counts?: number[]) =>
+    http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId, counts }).then((r) => r.data),
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
   exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
@@ -419,6 +423,67 @@ export const scheduleApi = {
     http.put<TestSchedule>(`/schedules/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/schedules/${id}`),
   run: (id: number) => http.post<{ message: string }>(`/schedules/${id}/run`).then((r) => r.data),
+}
+
+// ============ DataSet 数据集（数据驱动测试，用例私有 1:N） ============
+export interface DataSetColumn {
+  key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object'  // 中文名实时引用字段字典，缺失显 key
+}
+export interface DataSetNodeConfig {  // 节点配置快照（只读，手动重新同步）
+  node_id: string; api_id?: number | null
+  pre_process?: any[]; post_extract?: any[]; assertions?: any[]; wait_after_ms?: number
+}
+export interface DataSetRow {
+  id: number; dataset_id: number; row_index: number; data: Record<string, any>
+}
+export interface DataSet {
+  id: number; project_id: number; case_id: number; name: string; description?: string | null
+  columns: DataSetColumn[]; rows: DataSetRow[]; node_configs?: DataSetNodeConfig[]
+  case_bound_count?: number  // ≤1（用例私有），>0 时删除需先解绑
+  created_at?: string; updated_at?: string
+  created_by?: number | null; created_by_name?: string | null
+  updated_by?: number | null; updated_by_name?: string | null
+}
+
+export const datasetApi = {
+  list: (params?: { project_id?: number; case_id?: number; with_rows?: boolean }) =>
+    http.get<DataSet[]>('/datasets', { params }).then((r) => r.data),
+  get: (id: number) => http.get<DataSet>(`/datasets/${id}`).then((r) => r.data),
+  create: (data: { project_id: number; case_id: number; name: string; description?: string; columns: DataSetColumn[] }) =>
+    http.post<DataSet>('/datasets', data).then((r) => r.data),
+  update: (id: number, data: { name?: string; description?: string; columns?: DataSetColumn[] }) =>
+    http.put<DataSet>(`/datasets/${id}`, data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/datasets/${id}`),
+  // 复制：列/行/节点配置快照全量深拷贝，归属同用例
+  copy: (id: number) => http.post<DataSet>(`/datasets/${id}/copy`).then((r) => r.data),
+  // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）
+  resync: (id: number) =>
+    http.post<{ message: string; nodes: number }>(`/datasets/${id}/resync`).then((r) => r.data),
+  // 从用例生成：收集用例全部写死请求参数各成一列 + 1 行原值快照
+  generate: (caseId: number, name?: string) =>
+    http.post<{
+      dataset: DataSet
+      stats: { nodes: number; columns: number; dynamic: number; nested: number; empty: number; conflicts: { key: string; values: any[] }[] }
+    }>('/datasets/generate', { case_id: caseId, name: name || undefined }).then((r) => r.data),
+  // 行操作
+  listRows: (id: number) => http.get<DataSetRow[]>(`/datasets/${id}/rows`).then((r) => r.data),
+  addRow: (id: number, data: Record<string, any>) =>
+    http.post<DataSetRow>(`/datasets/${id}/rows`, { data }).then((r) => r.data),
+  replaceRows: (id: number, rows: Record<string, any>[]) =>
+    http.put<DataSetRow[]>(`/datasets/${id}/rows`, { rows }).then((r) => r.data),
+  clearRows: (id: number) => http.delete(`/datasets/${id}/rows`),
+  updateRow: (id: number, rowId: number, data: Record<string, any>) =>
+    http.put<DataSetRow>(`/datasets/${id}/rows/${rowId}`, { data }).then((r) => r.data),
+  copyRow: (id: number, rowId: number) =>
+    http.post<DataSetRow>(`/datasets/${id}/rows/${rowId}/copy`).then((r) => r.data),
+  removeRow: (id: number, rowId: number) => http.delete(`/datasets/${id}/rows/${rowId}`),
+  // 导入：preview=true 只解析返回预览；否则整体替换落库
+  importFile: (id: number, file: File, preview = false) => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post<{ preview: boolean; count: number; rows?: Record<string, any>[]; warnings: string[] }>(
+      `/datasets/${id}/import`, form, { params: { preview } }).then((r) => r.data)
+  },
 }
 
 // ============ ProjectVersion 项目版本 ============
@@ -476,16 +541,10 @@ export interface FileCategory {
   created_at?: string; created_by?: number | null; created_by_name?: string | null
 }
 
-export interface FileTag {
-  id: number; project_id: number; name: string; color: string
-  created_at?: string; created_by?: number | null; created_by_name?: string | null
-}
-
 export interface TestFile {
   id: number; project_id: number; category_id?: number | null
   name: string; original_name: string; content_type: string; size: number
   sha256: string; storage_path: string; ref_count: number
-  tag_ids: number[]
   created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
@@ -493,7 +552,7 @@ export interface TestFile {
 
 export const fileApi = {
   // 文件 CRUD
-  list: (projectId: number, params?: { category_id?: number | null; tag_ids?: number[]; tag_id?: number; keyword?: string }) =>
+  list: (projectId: number, params?: { category_id?: number | null; keyword?: string }) =>
     http.get<TestFile[]>('/files', { params: { project_id: projectId, ...params } }).then((r) => r.data),
   get: (id: number) => http.get<TestFile>(`/files/${id}`).then((r) => r.data),
   upload: (file: File, projectId: number, categoryId?: number | null) => {
@@ -503,7 +562,7 @@ export const fileApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data)
   },
-  update: (id: number, data: { name?: string; category_id?: number | null; tag_ids?: number[] }) =>
+  update: (id: number, data: { name?: string; category_id?: number | null }) =>
     http.put<TestFile>(`/files/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete<{ message: string; physical_removed: boolean }>(`/files/${id}`),
   // 下载/预览：用 axios 获取 blob（带 token），转 object URL 供 img/iframe/a 使用
@@ -522,14 +581,4 @@ export const fileCategoryApi = {
   update: (id: number, data: { name?: string; parent_id?: number | null; sort_order?: number }) =>
     http.put<FileCategory>(`/file-categories/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/file-categories/${id}`),
-}
-
-export const fileTagApi = {
-  list: (projectId: number) =>
-    http.get<FileTag[]>('/file-tags', { params: { project_id: projectId } }).then((r) => r.data),
-  create: (data: { project_id: number; name: string; color?: string }) =>
-    http.post<FileTag>('/file-tags', data).then((r) => r.data),
-  update: (id: number, data: { name?: string; color?: string }) =>
-    http.put<FileTag>(`/file-tags/${id}`, data).then((r) => r.data),
-  remove: (id: number) => http.delete(`/file-tags/${id}`),
 }

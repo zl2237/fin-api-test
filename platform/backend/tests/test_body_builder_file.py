@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 from app.services.body_builder import (
     build_request_body,
-    parse_field_value,
     extract_file_fields,
+    parse_field_value,
     pop_file_fields_from_body,
 )
 

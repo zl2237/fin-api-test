@@ -3,12 +3,11 @@
 router 只保留 HTTP 语义（状态码/权限校验），数据访问与业务规则收敛到此。
 """
 import re
-from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, crud
+from .. import crud, models
 from ..auth import hash_password, validate_password_strength
 
 # 手机号：1 开头 + 10 位数字；邮箱：常规格式校验
@@ -26,7 +25,7 @@ def list_users_simple(db: Session):
     return [{"id": r[0], "name": r[1] or r[2]} for r in rows]
 
 
-def get_user(db: Session, user_id: int) -> Optional[models.User]:
+def get_user(db: Session, user_id: int) -> models.User | None:
     return db.query(models.User).filter(models.User.id == user_id).first()
 
 

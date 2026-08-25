@@ -5,10 +5,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from .. import models, schemas, crud
-from ..crud import users as users_domain
+from .. import crud, models, schemas
 from ..auth import get_current_user
+from ..crud import users as users_domain
+from ..database import get_db
 
 router = APIRouter(prefix="/api/users", tags=["用户管理"])
 

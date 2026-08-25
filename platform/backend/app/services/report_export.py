@@ -11,8 +11,7 @@ HTML 报告为 Allure 式导航布局（左侧步骤导航 + 右侧详情 Tabs�
 """
 import json
 from datetime import datetime
-from typing import Any, List
-
+from typing import Any
 
 # ============ CSV ============
 
@@ -33,10 +32,10 @@ def _norm(v: Any) -> str:
     return str(v)
 
 
-def export_steps_csv(steps: List[Any]) -> str:
+def export_steps_csv(steps: list[Any]) -> str:
     """步骤列表 → CSV 文本（BOM + CRLF，Excel 兼容 UTF-8）。字段契约与前端原实现一致。"""
     header = ["序号", "步骤名称", "方法", "路径", "HTTP状态码", "耗时(ms)", "步骤状态", "断言通过", "断言总数", "断言详情", "请求体", "响应体"]
-    rows: List[str] = [",".join(header)]
+    rows: list[str] = [",".join(header)]
     for idx, s in enumerate(steps):
         assertions = getattr(s, "assertions", None) or []
         assert_details = " | ".join(
@@ -404,7 +403,7 @@ def _summary_metric(label: str, value: Any, hl: bool = False, nowrap: bool = Fal
 def _nav_item(s: Any, idx: int, sid: str) -> str:
     name = s.api_name or s.node_id or "未命名步骤"
     failed_asserts = sum(1 for a in (getattr(s, "assertions", None) or []) if not a.result)
-    meta: List[str] = []
+    meta: list[str] = []
     if failed_asserts:
         meta.append(f'<span class="fail-n">{failed_asserts} 断言失败</span>')
     if s.response_time_ms is not None:
@@ -430,7 +429,7 @@ def _json_sec(title: str, val: Any) -> str:
 def _step_pane(s: Any, idx: int, sid: str) -> str:
     name = s.api_name or s.node_id or "未命名步骤"
     assertions = getattr(s, "assertions", None) or []
-    p: List[str] = []
+    p: list[str] = []
     p.append(f'<section class="step-pane" data-step="{sid}" data-tabbed="1">')
 
     # 头部（步骤名单行截断 + title 悬浮全文）
@@ -472,7 +471,7 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     p.append(resp)
     # 断言
     if assertions:
-        rows: List[str] = []
+        rows: list[str] = []
         for a in assertions:
             rows.append(f'<tr class="{"" if a.result else "row-fail"}">')
             rows.append(f'<td class="{"pass" if a.result else "fail"}">{"✓ 通过" if a.result else "✗ 失败"}</td>')
@@ -492,12 +491,12 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     return "".join(p)
 
 
-def _fail_card(steps: List[Any], sid_of: Any) -> str:
+def _fail_card(steps: list[Any], sid_of: Any) -> str:
     """失败摘要卡：每个失败步骤一条（含首条失败断言消息），点击跳转"""
     failed = [i for i, s in enumerate(steps) if s.status != "success"]
     if not failed:
         return ""
-    items: List[str] = []
+    items: list[str] = []
     for i in failed:
         s = steps[i]
         name = s.api_name or s.node_id or "未命名步骤"
@@ -515,11 +514,11 @@ def _fail_card(steps: List[Any], sid_of: Any) -> str:
             f'{"".join(items)}</div>')
 
 
-def export_report_html(record: Any, steps: List[Any]) -> str:
+def export_report_html(record: Any, steps: list[Any]) -> str:
     """执行记录 + 步骤 → 自包含 HTML 报告文本（Allure 式导航布局，见模块 docstring）。"""
-    sid_of = lambda i: _step_id(steps[i], i)  # noqa: E731
+    sid_of = lambda i: _step_id(steps[i], i)
 
-    parts: List[str] = []
+    parts: list[str] = []
     parts.append('<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">')
     parts.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     parts.append(f"<title>执行报告 #{_esc(record.id)}</title>")

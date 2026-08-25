@@ -1,27 +1,32 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <el-button type="primary" @click="openCreate">+ 新建项目</el-button>
-      <el-select
-        v-model="filterCreator"
-        style="width: 160px; margin-left: 12px"
-        placeholder="创建人"
-        clearable
-        filterable
-        @change="load"
-      >
-        <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
-      </el-select>
-      <el-select
-        v-model="filterUpdater"
-        style="width: 160px; margin-left: 12px"
-        placeholder="更新人"
-        clearable
-        filterable
-        @change="load"
-      >
-        <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
-      </el-select>
+      <div class="head-left">
+        <span class="page-title">项目管理</span>
+        <el-button type="primary" @click="openCreate">+ 新建项目</el-button>
+      </div>
+      <div class="head-right">
+        <el-select
+          v-model="filterCreator"
+          style="width: 160px"
+          placeholder="创建人"
+          clearable
+          filterable
+          @change="load"
+        >
+          <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+        <el-select
+          v-model="filterUpdater"
+          style="width: 160px"
+          placeholder="更新人"
+          clearable
+          filterable
+          @change="load"
+        >
+          <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+      </div>
     </div>
     <div class="table-wrap">
       <!-- 空态：EmptyState 承担全部引导（表格/分页不再渲染，避免同屏双空态）；加载失败时优先展示错误块 -->
@@ -273,21 +278,6 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   background: var(--app-bg);
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 20px;
-  background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--app-border);
-}
-.head-left,
-.head-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 .table-wrap {
   flex: 1;

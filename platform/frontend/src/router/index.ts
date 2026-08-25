@@ -17,6 +17,7 @@ const routes = [
       { path: 'apis/edit/:id?', name: 'ApiEdit', component: () => import('@/views/ApiEdit.vue'), meta: { title: '接口编辑' } },
       { path: 'cases', name: 'CaseList', component: () => import('@/views/CaseList.vue'), meta: { title: '用例列表' } },
       { path: 'cases/designer/:id?', name: 'CaseDesigner', component: () => import('@/views/CaseDesigner.vue'), meta: { title: '用例编排' } },
+      { path: 'datasets', name: 'DatasetManage', component: () => import('@/views/DatasetManage.vue'), meta: { title: '数据集' } },
       { path: 'envs', name: 'EnvManage', component: () => import('@/views/EnvManage.vue'), meta: { title: '环境配置' } },
       { path: 'envs/edit/:id?', name: 'EnvEdit', component: () => import('@/views/EnvEdit.vue'), meta: { title: '环境编辑' } },
       { path: 'executions', name: 'Execution', component: () => import('@/views/Execution.vue'), meta: { title: '执行记录' } },

@@ -185,6 +185,9 @@ notify-wecom:
     # 鉴权：优先 GITLAB_API_TOKEN（项目级 Access Token，推荐配置）；
     # 未配置则用 CI_JOB_TOKEN 尝试（部分 GitLab 版本支持读本流水线 job 日志），失败则跳过摘要。
     - |
+      # 真实换行符：bash 双引号里的 \n 是字面量（jq --arg 也不转义），
+      # 企微 markdown 会把 "\n" 渲染成转义的 n，导致换行变 "n" 粘行
+      NL=$(printf '\n')
       FAIL_SECTION=""
       if [ "$CI_PIPELINE_STATUS" = "failed" ]; then
         API_BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
@@ -196,17 +199,18 @@ notify-wecom:
         JOBS_JSON=$(curl -s -H "$AUTH_H" "$API_BASE/pipelines/$CI_PIPELINE_ID/jobs" || true)
         FAILED_JOBS=$(echo "$JOBS_JSON" | jq -r '.[]? | select(.status=="failed") | "\(.id)|\(.name)"' 2>/dev/null || true)
         if [ -n "$FAILED_JOBS" ]; then
-          FAIL_SECTION="\n> **失败原因摘要**：\n"
+          FAIL_SECTION="${NL}> **失败原因摘要**：${NL}"
           for line in $FAILED_JOBS; do
             JID="${line%%|*}"; JNAME="${line##*|}"
             # 取日志尾部 300 行中的错误行（最多 6 行），防通知超长
+            # （引号转义交给 jq --arg，无需手动替换）
             REASON=$(curl -s -H "$AUTH_H" "$API_BASE/jobs/$JID/trace" 2>/dev/null \
               | tail -n 300 | grep -iE "error|failed|exception|traceback|✗" | tail -n 6 \
-              | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//; s/"/\\"/g' | head -c 800)
+              | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//' | head -c 800)
             if [ -n "$REASON" ]; then
-              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】\n> \`\`\`\n${REASON}\n\`\`\`\n"
+              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】${NL}> \`\`\`${NL}${REASON}${NL}\`\`\`${NL}"
             else
-              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）\n"
+              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）${NL}"
             fi
           done
         fi
@@ -220,8 +224,9 @@ notify-wecom:
       else
         PIPELINE_STATUS="✅ 成功"
       fi
-      # 用 CI 内置变量取提交信息，不依赖 git 命令（alpine 镜像未装 git）
-      COMMIT_MSG="${CI_COMMIT_MESSAGE}"
+      # 用 CI 内置变量取提交信息，不依赖 git 命令（alpine 镜像未装 git）；
+      # 只取首行——完整 message 含 body 多行换行，会打断 markdown 引用块
+      COMMIT_MSG=$(printf '%s' "${CI_COMMIT_MESSAGE}" | head -n 1)
       AUTHOR="${GITLAB_USER_NAME}"
       SHORT_SHA="${CI_COMMIT_SHORT_SHA}"
       BRANCH="${CI_COMMIT_BRANCH}"
@@ -229,13 +234,13 @@ notify-wecom:
       PROJECT_URL="${CI_PROJECT_URL}"
       TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
 
-      MARKDOWN="## fin-api-test 部署通知  $PIPELINE_STATUS\n"
-      MARKDOWN="${MARKDOWN}> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)\n"
-      MARKDOWN="${MARKDOWN}> **分支**：$BRANCH\n"
-      MARKDOWN="${MARKDOWN}> **提交**：$SHORT_SHA - $COMMIT_MSG\n"
-      MARKDOWN="${MARKDOWN}> **提交者**：$AUTHOR\n"
-      MARKDOWN="${MARKDOWN}> **时间**：$TIMESTAMP\n"
-      MARKDOWN="${MARKDOWN}> **流水线**：[查看详情]($PIPELINE_URL)\n"
+      MARKDOWN="## fin-api-test 部署通知  $PIPELINE_STATUS${NL}"
+      MARKDOWN="${MARKDOWN}> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)${NL}"
+      MARKDOWN="${MARKDOWN}> **分支**：$BRANCH${NL}"
+      MARKDOWN="${MARKDOWN}> **提交**：$SHORT_SHA - $COMMIT_MSG${NL}"
+      MARKDOWN="${MARKDOWN}> **提交者**：$AUTHOR${NL}"
+      MARKDOWN="${MARKDOWN}> **时间**：$TIMESTAMP${NL}"
+      MARKDOWN="${MARKDOWN}> **流水线**：[查看详情]($PIPELINE_URL)${NL}"
       MARKDOWN="${MARKDOWN}${FAIL_SECTION}"
 
       # jq 构造 JSON，避免消息含引号/换行时打爆 payload

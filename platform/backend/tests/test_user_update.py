@@ -14,8 +14,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import User
-from app.schemas import UserOut, UserInfoUpdate
 from app.routers.users import update_user_info
+from app.schemas import UserInfoUpdate, UserOut
 
 
 def _make_user(uid=1, username="admin", name="管理员", role="admin", phone=None, email=None, department=None):

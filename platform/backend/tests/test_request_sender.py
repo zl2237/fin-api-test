@@ -10,9 +10,9 @@
 from types import SimpleNamespace
 
 import pytest
+from utils.exceptions import AuthError, BusinessError, HttpStatusError, HttpTimeoutError
 
 from app.services.request_sender import send_request
-from utils.exceptions import AuthError, BusinessError, HttpStatusError, HttpTimeoutError
 
 
 class StubClient:

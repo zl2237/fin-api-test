@@ -12,6 +12,7 @@ fin-api-test 平台后端入口。
 """
 # 必须在导入 database/auth 之前加载 .env，否则环境变量读不到
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
@@ -20,10 +21,26 @@ import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import init_db, SessionLocal
-from .routers import projects, environments, apis, testcases, executions, reports, auth, users, operation_logs, field_dictionaries, versions, files, schedules
-from . import models, auth as auth_module
+from . import auth as auth_module
+from . import models
+from .database import SessionLocal, init_db
 from .json_safe import BigintSafeJSONResponse
+from .routers import (
+    apis,
+    auth,
+    datasets,
+    environments,
+    executions,
+    field_dictionaries,
+    files,
+    operation_logs,
+    projects,
+    reports,
+    schedules,
+    testcases,
+    users,
+    versions,
+)
 from .services.scheduler import scheduler_service
 
 app = FastAPI(
@@ -132,13 +149,13 @@ app.include_router(apis.group_router)
 app.include_router(testcases.router)
 app.include_router(testcases.group_router)
 app.include_router(schedules.router)
+app.include_router(datasets.router)
 app.include_router(versions.router)
 app.include_router(executions.router)
 app.include_router(reports.router)
 app.include_router(field_dictionaries.router)
 app.include_router(files.router)
 app.include_router(files.category_router)
-app.include_router(files.tag_router)
 
 
 if __name__ == "__main__":

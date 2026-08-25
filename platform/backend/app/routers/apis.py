@@ -1,17 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File
-from sqlalchemy.orm import Session
-from copy import deepcopy
-from datetime import datetime
 import json
 import time
+from copy import deepcopy
+from datetime import datetime
 
-from ..database import get_db
-from .. import crud, schemas, models, path_setup  # noqa: F401
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from sqlalchemy.orm import Session
+
+from .. import crud, models, path_setup, schemas  # noqa: F401
 from ..auth import get_current_user
-from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
+from ..database import get_db
 from ..engine.curl_parser import parse_curl_to_previews
-from ..services.spec_parser import path_to_code, extract_fields_from_spec
+from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
 from ..services.request_sender import send_request
+from ..services.spec_parser import extract_fields_from_spec, path_to_code
 
 router = APIRouter(prefix="/api/apis", tags=["接口定义"])
 
@@ -185,7 +186,7 @@ def reorder(data: schemas.ApiReorderRequest, db: Session = Depends(get_db), user
     """批量重排序接口（组内拖拽排序）"""
     # 注意：此路由需在 /{api_id} 之前注册，否则会被 path 参数拦截
     items = [{"id": it.id, "sort_order": it.sort_order} for it in data.items]
-    updated = crud.reorder_apis(db, items)
+    updated = crud.reorder_apis(db, items, user.id)
     return {"message": f"已更新 {updated} 个接口排序", "updated": updated}
 
 
@@ -450,8 +451,8 @@ def debug_api(
     start_ts = time.time()
 
     # 复用 runtime_service 的客户端构建与登录逻辑，保证调试行为与实际执行一致
-    from ..services.runtime_service import build_http_client, login
     from ..services.body_builder import build_request_body, pop_file_fields_from_body
+    from ..services.runtime_service import build_http_client, login
     client = build_http_client(env)
     try:
         try:

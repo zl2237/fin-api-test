@@ -16,38 +16,56 @@ DAG 拓扑执行引擎。
 import time
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from types import SimpleNamespace
+from typing import Any
 
 from sqlalchemy.orm import Session
-
-from .. import path_setup  # noqa: F401
-from .. import models
-from ..services.runtime_service import build_http_client, login, build_db_client
-from ..services.body_builder import build_request_body, pop_file_fields_from_body
-from ..services.notifier import send_notify
-from ..services.request_sender import send_request
-from .context import ExecutionContext
-from .events import AssertionResult, DbSink, ExecutionSink, StepResult
-from .preprocessor import PreProcessor
-from .extractor import Extractor
-from .assertion_engine import AssertionEngine
-from .type_coercer import coerce_json_strings, apply_field_types
 
 # 复用现有项目代码（异常分类已收敛至 services.request_sender）
 from utils.http_client import HttpClient
 
+from .. import (
+    models,
+    path_setup,  # noqa: F401
+)
+from ..services.body_builder import (
+    apply_row_overrides,
+    build_request_body,
+    pop_file_fields_from_body,
+)
+from ..services.notifier import send_notify
+from ..services.request_sender import send_request
+from ..services.runtime_service import build_db_client, build_http_client, login
+from .assertion_engine import AssertionEngine
+from .context import ExecutionContext
+from .events import AssertionResult, DbSink, ExecutionSink, StepResult
+from .extractor import Extractor
+from .preprocessor import PreProcessor
+from .type_coercer import apply_field_types, coerce_json_strings
+
 
 class DagExecutor:
     def __init__(self, db: Session, case: models.TestCase, env: models.Environment,
-                 execution_record: Optional[models.ExecutionRecord] = None,
-                 sink: Optional[ExecutionSink] = None):
+                 execution_record: models.ExecutionRecord | None = None,
+                 sink: ExecutionSink | None = None,
+                 row_vars: dict[str, Any] | None = None,
+                 node_config_overrides: dict[str, dict] | None = None,
+                 suppress_notify: bool = False):
         self.db = db
         self.case = case
         self.env = env
-        # 业务变量从 variables 读取（与登录/通知配置解耦）
-        self.context = ExecutionContext(env_vars=env.variables or {})
+        # 业务变量从 variables 读取（与登录/通知配置解耦）；
+        # 数据驱动：row_vars 为数据集行 {列key: 值}，覆盖同名环境变量进池
+        self.context = ExecutionContext(env_vars=env.variables or {}, row_vars=row_vars)
+        # 数据驱动批量执行时抑制逐条通知（由聚合器等全部完成后发一条汇总）
+        self.suppress_notify = suppress_notify
+        # 数据驱动行值原始引用：PreProcessor 据此覆盖 set_field 同名字段（绑定即生效）
+        self.row_vars = row_vars or None
+        # 数据集节点配置快照 {node_id: {api_id, pre_process, post_extract, assertions, wait_after_ms}}：
+        # 命中的节点整块替换用例当前编排（前置/后置/断言全换），未命中回落 CaseNodeConfig
+        self.node_config_overrides = node_config_overrides or None
         self.extractor = Extractor()
-        self.http_client: Optional[HttpClient] = None
+        self.http_client: HttpClient | None = None
         self.db_client = None
         # 并发执行场景下由外部预先创建 record 并传入，避免后台线程重复创建
         self._precreated_record = execution_record
@@ -56,13 +74,13 @@ class DagExecutor:
 
     # ---------- 拓扑排序 ----------
     @staticmethod
-    def _topo_sort(dag: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    def _topo_sort(dag: dict[str, Any]) -> tuple[list[str], list[str]]:
         """返回 (执行顺序节点id列表, 因环/断链未执行的节点id列表)"""
         nodes = dag.get("nodes", [])
         edges = dag.get("edges", [])
         ids = [n["id"] for n in nodes]
         in_degree = {nid: 0 for nid in ids}
-        adj: Dict[str, List[str]] = {nid: [] for nid in ids}
+        adj: dict[str, list[str]] = {nid: [] for nid in ids}
         for e in edges:
             src, tgt = e.get("source"), e.get("target")
             if src in adj and tgt in in_degree:
@@ -70,7 +88,7 @@ class DagExecutor:
                 in_degree[tgt] += 1
         # 保持稳定顺序：按节点 id 字典序入队
         queue = sorted([nid for nid, d in in_degree.items() if d == 0])
-        order: List[str] = []
+        order: list[str] = []
         while queue:
             nid = queue.pop(0)
             order.append(nid)
@@ -83,8 +101,8 @@ class DagExecutor:
         return order, leftover
 
     # ---------- 请求发送 ----------
-    def _send_request(self, api: models.ApiDefinition, body: Any, headers: Dict,
-                      file_fields: Optional[List[Tuple[str, str]]] = None) -> Tuple[int, Any, Optional[str]]:
+    def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
+                      file_fields: list[tuple[str, str]] | None = None) -> tuple[int, Any, str | None]:
         """委托共享发送器（与单接口调试同一实现），返回 (status_code, response_body, error_msg)"""
         # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
         timeout = getattr(self.env, "timeout", None) or 15
@@ -174,18 +192,35 @@ class DagExecutor:
                 project = self.db.query(models.Project).filter(models.Project.id == self.case.project_id).first()
                 if project:
                     project_name = project.name
-            send_notify(self.env, self.case, record, executor_name=executor_name, project_name=project_name)
+            if self.suppress_notify:
+                print("[通知发送] 跳过逐条通知：数据驱动批量执行由聚合器汇总发送")
+            else:
+                send_notify(self.env, self.case, record, executor_name=executor_name, project_name=project_name)
         return record
 
     # ---------- 单节点执行 ----------
-    def _execute_node(self, execution_id: int, node_id: str, node: Dict) -> Tuple[bool, int]:
-        """执行单个节点。返回 (是否通过, 节点配置的 wait_after_ms)。
-        wait_after_ms 表示当前节点执行完后到下一节点请求前的等待毫秒数，由调用方在节点间应用。
-        """
-        config = self.db.query(models.CaseNodeConfig).filter(
+    def _resolve_node_config(self, node_id: str):
+        """节点配置来源：数据集快照优先（node_id 命中整块替换）→ 回落用例 CaseNodeConfig。"""
+        snap = (self.node_config_overrides or {}).get(node_id)
+        if snap:
+            return SimpleNamespace(
+                node_id=node_id,
+                api_id=snap.get("api_id"),
+                pre_process=snap.get("pre_process") or [],
+                post_extract=snap.get("post_extract") or [],
+                assertions=snap.get("assertions") or [],
+                wait_after_ms=snap.get("wait_after_ms") or 0,
+            )
+        return self.db.query(models.CaseNodeConfig).filter(
             models.CaseNodeConfig.case_id == self.case.id,
             models.CaseNodeConfig.node_id == node_id,
         ).first()
+
+    def _execute_node(self, execution_id: int, node_id: str, node: dict) -> tuple[bool, int]:
+        """执行单个节点。返回 (是否通过, 节点配置的 wait_after_ms)。
+        wait_after_ms 表示当前节点执行完后到下一节点请求前的等待毫秒数，由调用方在节点间应用。
+        """
+        config = self._resolve_node_config(node_id)
 
         api = None
         if config and config.api_id:
@@ -210,10 +245,13 @@ class DagExecutor:
         # 1. 准备请求体 / 请求头
         # 优先用 ApiField 组装（新版本字段级配置）；无 fields 时回退到 request_template
         body = build_request_body(api)
+        # 数据驱动：行值覆盖 API 字段默认值中的同名字段（绑定即生效，节点配置零修改）
+        if self.row_vars:
+            body = apply_row_overrides(body, self.row_vars)
         headers = deepcopy(self.http_client.headers or {})
 
         # PreProcessor 持有 db_client，使 set_field 的值能通过 ${db.query_value(...)} 从 DB 取值
-        preprocessor = PreProcessor(self.context.to_dict(), self.db_client)
+        preprocessor = PreProcessor(self.context.to_dict(), self.db_client, row_vars=self.row_vars)
         # 对组装后的 body 递归求值 ${...}（覆盖 array/object 字段中嵌入的表达式）；
         # 未定义变量保留占位符，不替换为空，留给后续前置处理或下游注入
         body = preprocessor.expr.evaluate(body)
@@ -250,7 +288,7 @@ class DagExecutor:
             self.context.update_extracted(extracted)
 
         # 4. 断言
-        assertion_results: List[Dict] = []
+        assertion_results: list[dict] = []
         if config and config.assertions:
             engine = AssertionEngine(self.context.to_dict(), self.db_client)
             assertion_results = engine.evaluate_all(response_data, status_code, elapsed, config.assertions)

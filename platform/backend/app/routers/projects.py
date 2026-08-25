@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from .. import crud, schemas, models
+from .. import crud, models, schemas
 from ..auth import get_current_user
+from ..database import get_db
 
 router = APIRouter(prefix="/api/projects", tags=["项目"])
 
@@ -56,5 +56,5 @@ def delete(project_id: int, db: Session = Depends(get_db), user: models.User = D
 @router.post("/reorder")
 def reorder(data: schemas.ProjectReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     items = [{"id": it["id"], "sort_order": it["sort_order"]} for it in data.items]
-    updated = crud.reorder_projects(db, items)
+    updated = crud.reorder_projects(db, items, user.id)
     return {"message": f"已更新 {updated} 个项目排序", "updated": updated}

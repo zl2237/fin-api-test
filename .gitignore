@@ -73,3 +73,6 @@ screenshots-v2/
 skills-lock.json
 .agents
 .claude
+
+# 数据集迁移前备份（一次性产物，不入库）
+platform/backend/backup_*.json

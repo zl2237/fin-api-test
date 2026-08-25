@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy.orm import Session
 from datetime import datetime
 
-from ..database import get_db
-from .. import crud, schemas, models
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.orm import Session
+
+from .. import crud, models, schemas
 from ..auth import get_current_user
+from ..database import get_db
 
 router = APIRouter(prefix="/api/testcases", tags=["用例"])
 
@@ -130,6 +131,13 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     obj = crud.get_testcase(db, case_id)
     if not obj:
         raise HTTPException(404, "用例不存在")
+    # 数据集绑定校验（显式传 dataset_id 时）：须存在且与用例同项目
+    if "dataset_id" in data.model_fields_set:
+        from ..services.dataset_service import validate_binding
+        try:
+            validate_binding(db, obj, data.dataset_id)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     obj = crud.update_testcase(db, obj, data, user.id)
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
@@ -216,5 +224,5 @@ def reorder(data: schemas.CaseReorderRequest, db: Session = Depends(get_db), use
     """批量重排序用例（组内拖拽排序）"""
     # 注意：此路由需在 /{case_id} 之前注册，否则会被 path 参数拦截
     items = [{"id": it.id, "sort_order": it.sort_order} for it in data.items]
-    updated = crud.reorder_testcases(db, items)
+    updated = crud.reorder_testcases(db, items, user.id)
     return {"message": f"已更新 {updated} 个用例排序", "updated": updated}

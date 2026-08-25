@@ -2,6 +2,7 @@
   <div class="page">
     <div class="page-head">
       <div class="head-left">
+        <span class="page-title">字段字典</span>
         <el-button type="primary" @click="openCreate">+ 新增字典</el-button>
         <el-button type="success" @click="openBatch">批量导入</el-button>
       </div>
@@ -317,21 +318,6 @@ watch(() => store.currentProjectId, (n, old) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 0 16px;
-  flex-shrink: 0;
-}
-.head-left {
-  display: flex;
-  gap: 8px;
-}
-.head-right {
-  display: flex;
-  gap: 8px;
 }
 .table-wrap {
   flex: 1;

@@ -15,8 +15,16 @@
 - AssertionRecord  断言记录
 """
 from datetime import datetime
+
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean,
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -184,6 +192,8 @@ class TestCase(Base):
     description = Column(Text, comment="用例描述")
     dag_config = Column(JSON, nullable=False, comment="DAG 配置：{nodes: [...], edges: [...]}")
     sort_order = Column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
+    dataset_id = Column(Integer, ForeignKey("data_sets.id"), nullable=True,
+                        comment="绑定的数据集ID，NULL=普通用例；绑定时执行按数据行展开（数据驱动）")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
     created_by = Column(Integer, nullable=True, comment="创建人 user_id")
@@ -193,6 +203,48 @@ class TestCase(Base):
     group = relationship("CaseGroup", back_populates="cases")
     node_configs = relationship("CaseNodeConfig", back_populates="case", cascade="all, delete-orphan")
     executions = relationship("ExecutionRecord", back_populates="case", cascade="all, delete-orphan")
+
+
+class DataSet(Base):
+    """数据集（用例私有，1:N）：数据驱动测试的场景包。
+
+    归属：case_id 用例级隔离（不同用例的数据集互相不可见，复用靠复制）；
+    project_id 冗余保留（项目过滤仍可用）。
+    组成：
+    - columns/rows：列定义 + 行数据（列名即变量名；列中文名实时引用项目字段字典，不落库）
+    - node_configs：编排配置快照 [{node_id, api_id, pre_process, post_extract, assertions, wait_after_ms}]，
+      执行时按 node_id 整块替换用例当前节点配置（缺失节点回落用例配置）
+    """
+    __tablename__ = "data_sets"
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID（冗余，归属以 case_id 为准）")
+    case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True,
+                     comment="归属用例ID（1:N，用例间隔离）")
+    name = Column(String(100), nullable=False, comment="数据集名称")
+    description = Column(Text, comment="描述")
+    columns = Column(JSON, default=list, comment="列定义：[{key, type}]，key 即执行时变量名；中文名实时引用字段字典")
+    node_configs = Column(JSON, default=list,
+                          comment="编排配置快照：[{node_id, api_id, pre_process, post_extract, assertions, wait_after_ms}]，执行时整块覆盖用例节点配置")
+    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+
+    rows = relationship("DataSetRow", back_populates="dataset", cascade="all, delete-orphan",
+                        order_by="DataSetRow.row_index")
+
+
+class DataSetRow(Base):
+    """数据集行：一行 = 一次执行的变量组"""
+    __tablename__ = "data_set_rows"
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    dataset_id = Column(Integer, ForeignKey("data_sets.id"), comment="所属数据集ID")
+    row_index = Column(Integer, nullable=False, comment="行序（1 起，删行后重排保持连续）")
+    data = Column(JSON, default=dict, comment="行数据：{列key: 值}")
+
+    dataset = relationship("DataSet", back_populates="rows")
 
 
 class CaseNodeConfig(Base):
@@ -222,6 +274,10 @@ class ExecutionRecord(Base):
     started_at = Column(DateTime, default=datetime.now, comment="开始执行时间")
     ended_at = Column(DateTime, comment="结束时间")
     summary = Column(JSON, default=dict, comment="执行摘要：{total 总数, passed 通过, failed 失败}")
+    dataset_id = Column(Integer, nullable=True,
+                        comment="执行时使用的数据集ID（快照解耦：纯溯源编号，无外键，数据集可删；数据以 dataset_row 为准）")
+    dataset_row = Column(JSON, nullable=True,
+                         comment="该次执行对应的数据行快照：{row_index, data, label}，不回写不更新")
     created_by = Column(Integer, nullable=True, comment="执行人 user_id")
 
     case = relationship("TestCase", back_populates="executions")
@@ -341,23 +397,6 @@ class FileCategory(Base):
     files = relationship("TestFile", back_populates="category", cascade="all, delete-orphan")
 
 
-class FileTag(Base):
-    """文件标签（项目级，扁平结构）"""
-    __tablename__ = "file_tags"
-    __table_args__ = (
-        UniqueConstraint("project_id", "name", name="uq_file_tag_project_name"),
-    )
-
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
-    name = Column(String(50), nullable=False, comment="标签名称")
-    color = Column(String(20), default="", comment="标签颜色（如 #409EFF）")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-
-    project = relationship("Project")
-
-
 class TestFile(Base):
     """测试文件（项目级隔离，sha256 内容去重，ref_count 引用计数）"""
     __tablename__ = "test_files"
@@ -379,22 +418,6 @@ class TestFile(Base):
 
     project = relationship("Project")
     category = relationship("FileCategory", back_populates="files")
-    tag_links = relationship("FileTagRelation", back_populates="file", cascade="all, delete-orphan")
-
-
-class FileTagRelation(Base):
-    """文件-标签 多对多关联"""
-    __tablename__ = "file_tag_relations"
-    __table_args__ = (
-        UniqueConstraint("file_id", "tag_id", name="uq_file_tag_relation"),
-    )
-
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    file_id = Column(Integer, ForeignKey("test_files.id"), nullable=False, index=True, comment="文件ID")
-    tag_id = Column(Integer, ForeignKey("file_tags.id"), nullable=False, index=True, comment="标签ID")
-
-    file = relationship("TestFile", back_populates="tag_links")
-    tag = relationship("FileTag")
 
 
 class TestSchedule(Base):

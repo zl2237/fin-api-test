@@ -299,6 +299,33 @@ html.dark .el-table__header-wrapper th.el-table__cell {
   flex-shrink: 0;
 }
 
+/* ===== 页面顶部工具栏全站统一基准（原先 10 页三派并存，此处收敛为单一事实来源） =====
+   结构约定：head-left = 页面标题 + 主操作按钮；head-right = 筛选/搜索/计数/次要操作 */
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 12px 20px;
+  background: var(--app-card);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--app-border);
+}
+.page-head .head-left,
+.page-head .head-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.page-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
 /* ===== 分组管理弹窗（el-dialog teleport 到 body，scoped 无法命中，原 ApiManage/CaseList 两份重复定义） ===== */
 .group-manage-dialog.el-dialog {
   margin-top: 0 !important;

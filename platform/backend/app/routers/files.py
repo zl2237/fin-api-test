@@ -1,4 +1,4 @@
-"""文件中心路由：文件上传/下载/预览/重命名/删除 + 分类/标签 CRUD
+"""文件中心路由：文件上传/下载/预览/重命名/删除 + 分类 CRUD
 
 存储约定：
 - 物理目录：{UPLOAD_ROOT}/files/{sha256前2位}/{sha256}（默认 backend/uploads/files）
@@ -8,19 +8,22 @@
 """
 import hashlib
 import os
-from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from .. import crud, schemas, models
+from .. import crud, models, schemas
 from ..auth import get_current_user
+from ..database import get_db
 from ..services.file_helpers import (
     build_storage_path as _build_storage_path,
-    resolve_physical_path as _resolve_physical_path,
+)
+from ..services.file_helpers import (
     is_previewable as _is_previewable,
+)
+from ..services.file_helpers import (
+    resolve_physical_path as _resolve_physical_path,
 )
 
 router = APIRouter(prefix="/api/files", tags=["文件中心"])
@@ -33,7 +36,7 @@ _MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
 async def upload_file(
     project_id: int = Query(..., description="所属项目ID"),
     file: UploadFile = File(...),
-    category_id: Optional[int] = Query(None, description="分类ID"),
+    category_id: int | None = Query(None, description="分类ID"),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
@@ -58,7 +61,6 @@ async def upload_file(
         db.commit()
         db.refresh(existing)
         crud.fill_audit_names(db, existing)
-        crud.fill_file_tag_ids(db, [existing])
         return existing
 
     # 落盘
@@ -81,25 +83,21 @@ async def upload_file(
         user_id=user.id,
     )
     crud.fill_audit_names(db, obj)
-    crud.fill_file_tag_ids(db, [obj])
     crud.log_operation(db, user, "upload", "file", obj.id, obj.name)
     return obj
 
 
 # ============ 文件列表/详情 ============
-@router.get("", response_model=List[schemas.FileOut])
+@router.get("", response_model=list[schemas.FileOut])
 def list_files(
     project_id: int = Query(..., description="所属项目ID"),
-    category_id: Optional[int] = Query(None, description="按分类过滤"),
-    tag_id: Optional[int] = Query(None, description="按标签过滤（单选，兼容旧参数）"),
-    tag_ids: Optional[List[int]] = Query(None, description="按标签过滤（多选，OR 语义）"),
-    keyword: Optional[str] = Query(None, description="按名称模糊搜索"),
+    category_id: int | None = Query(None, description="按分类过滤"),
+    keyword: str | None = Query(None, description="按名称模糊搜索"),
     db: Session = Depends(get_db),
     _user: models.User = Depends(get_current_user),
 ):
-    objs = crud.list_files(db, project_id, category_id, tag_id, keyword, tag_ids)
+    objs = crud.list_files(db, project_id, category_id, keyword)
     crud.fill_audit_names_batch(db, objs)
-    crud.fill_file_tag_ids(db, objs)
     return objs
 
 
@@ -113,7 +111,6 @@ def get_file_detail(
     if not obj:
         raise HTTPException(404, "文件不存在")
     crud.fill_audit_names(db, obj)
-    crud.fill_file_tag_ids(db, [obj])
     return obj
 
 
@@ -160,7 +157,7 @@ def preview_file(
     )
 
 
-# ============ 重命名 / 改分类 / 改标签 ============
+# ============ 重命名 / 改分类 ============
 @router.put("/{file_id}", response_model=schemas.FileOut)
 def update_file(
     file_id: int,
@@ -173,7 +170,6 @@ def update_file(
         raise HTTPException(404, "文件不存在")
     obj = crud.update_file(db, obj, data, user.id)
     crud.fill_audit_names(db, obj)
-    crud.fill_file_tag_ids(db, [obj])
     crud.log_operation(db, user, "update", "file", obj.id, obj.name)
     return obj
 
@@ -206,7 +202,7 @@ def delete_file(
 category_router = APIRouter(prefix="/api/file-categories", tags=["文件中心"])
 
 
-@category_router.get("", response_model=List[schemas.FileCategoryOut])
+@category_router.get("", response_model=list[schemas.FileCategoryOut])
 def list_categories(
     project_id: int = Query(...),
     db: Session = Depends(get_db),
@@ -256,63 +252,4 @@ def delete_category(
         raise HTTPException(404, "分类不存在")
     crud.log_operation(db, user, "delete", "file_category", obj.id, obj.name)
     crud.delete_file_category(db, obj)
-    return {"message": "已删除"}
-
-
-# ============ 文件标签 CRUD ============
-tag_router = APIRouter(prefix="/api/file-tags", tags=["文件中心"])
-
-
-@tag_router.get("", response_model=List[schemas.FileTagOut])
-def list_tags(
-    project_id: int = Query(...),
-    db: Session = Depends(get_db),
-    _user: models.User = Depends(get_current_user),
-):
-    objs = crud.list_file_tags(db, project_id)
-    crud.fill_audit_names_batch(db, objs)
-    return objs
-
-
-@tag_router.post("", response_model=schemas.FileTagOut)
-def create_tag(
-    data: schemas.FileTagCreate,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
-):
-    if crud.get_file_tag_by_name(db, data.project_id, data.name):
-        raise HTTPException(400, f"标签已存在：{data.name}")
-    obj = crud.create_file_tag(db, data, user.id)
-    crud.fill_audit_names(db, obj)
-    crud.log_operation(db, user, "create", "file_tag", obj.id, obj.name)
-    return obj
-
-
-@tag_router.put("/{tag_id}", response_model=schemas.FileTagOut)
-def update_tag(
-    tag_id: int,
-    data: schemas.FileTagUpdate,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
-):
-    obj = crud.get_file_tag(db, tag_id)
-    if not obj:
-        raise HTTPException(404, "标签不存在")
-    obj = crud.update_file_tag(db, obj, data)
-    crud.fill_audit_names(db, obj)
-    crud.log_operation(db, user, "update", "file_tag", obj.id, obj.name)
-    return obj
-
-
-@tag_router.delete("/{tag_id}")
-def delete_tag(
-    tag_id: int,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
-):
-    obj = crud.get_file_tag(db, tag_id)
-    if not obj:
-        raise HTTPException(404, "标签不存在")
-    crud.log_operation(db, user, "delete", "file_tag", obj.id, obj.name)
-    crud.delete_file_tag(db, obj)
     return {"message": "已删除"}

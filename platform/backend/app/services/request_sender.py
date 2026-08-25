@@ -9,15 +9,24 @@ routers/apis.debug_api 内联），本模块归一为单一事实来源：
 
 调用方：DagExecutor._send_request（执行主链路）、apis.debug_api（单接口调试）。
 """
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
-from .. import path_setup  # noqa: F401  确保 utils 可导入（sys.path 指向本仓根）
-from .. import models
+from utils.exceptions import (
+    AuthError,
+    BusinessError,
+    HttpStatusError,
+    HttpTimeoutError,
+    JsonParseError,
+)
+
+from .. import (
+    models,
+    path_setup,  # noqa: F401  确保 utils 可导入（sys.path 指向本仓根）
+)
 from ..services.file_helpers import resolve_physical_path
-from utils.exceptions import HttpStatusError, BusinessError, AuthError, HttpTimeoutError, JsonParseError
 
 
-def build_multipart_files(db, file_fields: List[Tuple[str, str]]) -> list:
+def build_multipart_files(db, file_fields: list[tuple[str, str]]) -> list:
     """将 file_id 列表转为 requests 的 files 参数格式。
 
     返回 [(field_name, (filename, fileobj, content_type)), ...]
@@ -55,8 +64,8 @@ def close_multipart_files(files_payload: list) -> None:
 
 
 def send_request(db, client, api, body: Any,
-                 file_fields: Optional[List[Tuple[str, str]]] = None,
-                 timeout: int = 15) -> Tuple[int, Any, Optional[str]]:
+                 file_fields: list[tuple[str, str]] | None = None,
+                 timeout: int = 15) -> tuple[int, Any, str | None]:
     """发送一次接口请求。返回 (status_code, response_body, error_msg)。
 
     :param file_fields: file 类型字段列表 [(field_name, file_id), ...]
