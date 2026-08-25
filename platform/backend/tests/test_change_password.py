@@ -12,8 +12,8 @@ from fastapi import HTTPException
 
 from app import auth
 from app.models import User
-from app.schemas import ChangePasswordRequest, UserOut
 from app.routers.auth import change_password
+from app.schemas import ChangePasswordRequest, UserOut
 
 
 class FakeDb:

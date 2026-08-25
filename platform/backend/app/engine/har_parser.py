@@ -18,12 +18,11 @@ HAR 1.2 规范核心结构：
     5. 跳过静态资源请求（.js/.css/.png 等）
 """
 import json
-from typing import Any, Dict, List
+from typing import Any
 from urllib.parse import urlparse
 
 from .. import schemas
 from ..services.spec_parser import path_to_code
-
 
 # 静态资源后缀，导入时跳过
 _STATIC_EXTENSIONS = {
@@ -73,7 +72,7 @@ def _coerce_default_value(value: Any, field_type: str) -> str:
     return str(value)
 
 
-def parse_har_to_previews(har_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def parse_har_to_previews(har_data: dict[str, Any]) -> list[dict[str, Any]]:
     """解析 HAR JSON，返回接口预览列表。
 
     每个预览项结构：
@@ -100,7 +99,7 @@ def parse_har_to_previews(har_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not isinstance(entries, list):
         return []
 
-    previews: List[Dict[str, Any]] = []
+    previews: list[dict[str, Any]] = []
     seen: set = set()  # (method, path) 去重
 
     for entry in entries:
@@ -146,13 +145,13 @@ def parse_har_to_previews(har_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return previews
 
 
-def _parse_request_fields(request: Dict[str, Any]) -> tuple:
+def _parse_request_fields(request: dict[str, Any]) -> tuple:
     """解析单个 HAR request 的字段。
 
     返回 (fields, is_array_body, content_type)
     fields 是 ApiFieldIn 兼容的 dict 列表（含 key/field_type/default_value/in）。
     """
-    fields: List[Dict[str, Any]] = []
+    fields: list[dict[str, Any]] = []
     seen_keys: set = set()
     is_array_body = False
     content_type = ""
@@ -199,7 +198,7 @@ def _parse_request_fields(request: Dict[str, Any]) -> tuple:
     return fields, is_array_body, content_type
 
 
-def _extract_body_fields(body: Dict[str, Any], fields: List[Dict[str, Any]], seen_keys: set):
+def _extract_body_fields(body: dict[str, Any], fields: list[dict[str, Any]], seen_keys: set):
     """从请求体 dict 提取顶层字段"""
     for key, value in body.items():
         if key in seen_keys:
@@ -217,7 +216,7 @@ def _extract_body_fields(body: Dict[str, Any], fields: List[Dict[str, Any]], see
 
 
 def previews_to_api_create(
-    previews: List[Dict[str, Any]],
+    previews: list[dict[str, Any]],
     project_id: int,
     group_id: int | None,
     existing_codes: set,

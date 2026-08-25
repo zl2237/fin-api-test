@@ -20,7 +20,6 @@ job id 规范：schedule-{schedule_id}，与业务表主键一一对应。
 import os
 import threading
 from datetime import datetime
-from typing import Optional
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -34,10 +33,11 @@ except ImportError:
 TZ = "Asia/Shanghai"
 MISFIRE_GRACE = 60  # 秒：错过超过 60s 的触发直接丢弃，不补跑
 
-from ..database import SessionLocal
 from .. import models
 from ..crud.executions import create_execution
-from ..engine.runner import submit_execution
+from ..database import SessionLocal
+from ..engine.runner import submit_batch_aggregate_notify, submit_execution
+from . import dataset_service
 
 
 def _job_id(schedule_id: int) -> str:
@@ -48,7 +48,7 @@ class SchedulerService:
     """进程内单例调度器；APScheduler 缺失时所有方法降级为 no-op"""
 
     def __init__(self):
-        self._scheduler: Optional["BackgroundScheduler"] = None
+        self._scheduler: BackgroundScheduler | None = None
         self._lock = threading.Lock()
 
     @property
@@ -196,7 +196,7 @@ class SchedulerService:
         return True
 
 
-def _parse_daily_time(value: Optional[str]):
+def _parse_daily_time(value: str | None):
     """解析 HH:MM；非法返回 (None, None)"""
     if not value or ":" not in value:
         return None, None
@@ -237,9 +237,26 @@ def _run_schedule_job(schedule_id: int) -> None:
         # 记录最近触发时间；执行人归属 schedule 创建者（审计可追溯）
         schedule.last_run_at = datetime.now()
         db.commit()
-        record = create_execution(db, case_id=schedule.case_id, env_id=schedule.env_id,
-                                  user_id=schedule.created_by, trigger_type="schedule")
-        submit_execution(schedule.case_id, schedule.env_id, record.id)
+        # 数据驱动（周期8）：绑定数据集的用例按行展开，每行一条 trigger_type=schedule 记录；
+        # 多行批量失败聚合成一条通知（与手动执行同策略）
+        try:
+            plan = dataset_service.plan_case_expansion(db, case)
+        except ValueError as e:
+            print(f"[定时任务] schedule#{schedule_id} 数据集不可执行，跳过本轮: {e}")
+            return
+        aggregate = len(plan) > 1 and plan[0]["dataset_id"] is not None
+        group_ids = []
+        for item in plan:
+            record = create_execution(db, case_id=schedule.case_id, env_id=schedule.env_id,
+                                      user_id=schedule.created_by, trigger_type="schedule",
+                                      dataset_id=item["dataset_id"], dataset_row=item["row"])
+            submit_execution(schedule.case_id, schedule.env_id, record.id,
+                             row_vars=(item["row"] or {}).get("data"),
+                             node_config_overrides=item["overrides"], suppress_notify=aggregate)
+            group_ids.append(record.id)
+        if aggregate:
+            submit_batch_aggregate_notify(group_ids, schedule.case_id, schedule.env_id,
+                                          plan[0]["dataset_id"], case.name)
     except Exception as e:
         print(f"[定时任务] schedule#{schedule_id} 触发失败: {e}")
     finally:

@@ -27,16 +27,21 @@ import re
 import string
 import uuid as _uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
+
+from utils.generator_util import (
+    generate_bl_no,
+    generate_invoice_number,
+    generate_unique_id,
+)
 
 # 先把项目根目录加入 sys.path，再复用现有 utils
 from .. import path_setup  # noqa: F401
-from utils.generator_util import generate_bl_no, generate_unique_id, generate_invoice_number
 
 
-def _parse_kwargs(args_str: str) -> Dict[str, Any]:
+def _parse_kwargs(args_str: str) -> dict[str, Any]:
     """解析 key=value 形式的关键字参数，支持字符串与数字"""
-    kwargs: Dict[str, Any] = {}
+    kwargs: dict[str, Any] = {}
     for part in re.split(r",\s*(?![^']*['])", args_str.strip()):
         if not part.strip():
             continue
@@ -133,7 +138,7 @@ def _date_add_func(**kwargs):
 
 
 class ExpressionEngine:
-    def __init__(self, context: Dict[str, Any], db_client=None):
+    def __init__(self, context: dict[str, Any], db_client=None):
         self.context = context
         self.db_client = db_client
         self.functions = {
@@ -292,7 +297,7 @@ def expr_inner_marker(inner: str) -> str:
 _SQL_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 
 
-def inject_sql_vars(sql: str, extracted: Dict[str, Any]) -> str:
+def inject_sql_vars(sql: str, extracted: dict[str, Any]) -> str:
     """把 ${xxx} 替换为已提取变量值，字符串做防注入转义。
 
     支持 ${context.xxx} / ${extracted.xxx} 前缀，等价于 ${xxx}。

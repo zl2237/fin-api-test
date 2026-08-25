@@ -2,9 +2,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from .. import crud, schemas, models
+from .. import crud, models, schemas
 from ..auth import get_current_user
+from ..database import get_db
 
 router = APIRouter(prefix="/api/field-dictionaries", tags=["字段字典"])
 

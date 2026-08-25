@@ -3,6 +3,7 @@
     <!-- 搜索过滤栏：左主筛选 / 右筛选+查询+操作（≥3 条件组合查询：显式查询按钮触发，规范 §3） -->
     <div class="page-head">
       <div class="head-left">
+        <span class="page-title">执行记录</span>
         <el-select
           v-model="filterProjectId"
           style="width: 140px"
@@ -92,6 +93,24 @@
               <el-tag type="warning" effect="plain" size="small"><el-icon><Timer /></el-icon>定时</el-tag>
             </el-tooltip>
             <span v-else class="trigger-manual">手动</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="数据行" width="130">
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="row.dataset_row"
+              placement="top"
+            >
+              <template #content>
+                <div v-for="(v, k) in row.dataset_row.data" :key="k">{{ k }} = {{ v }}</div>
+              </template>
+              <!-- el-tooltip 默认插槽只渲染单个触发元素：tag+行号需包一层，否则 ds-row-label 被丢弃 -->
+              <span class="ds-row-wrap">
+                <el-tag type="info" effect="plain" size="small">数据驱动</el-tag>
+                <span class="ds-row-label">#{{ row.dataset_row.row_index }} {{ row.dataset_row.label }}</span>
+              </span>
+            </el-tooltip>
+            <span v-else class="ds-row-none">—</span>
           </template>
         </el-table-column>
         <el-table-column label="通过/总数" width="120">
@@ -408,23 +427,9 @@ onUnmounted(() => {
   background: var(--app-card);
   backdrop-filter: saturate(180%) blur(20px);
 }
+/* 顶部工具栏统一走全局 .page-head 基准（style.css），此处仅保留本页布局所需的修正 */
 .page-head {
   flex-shrink: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  flex-wrap: wrap;
-  background: var(--app-card);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-lg);
-}
-.head-left,
-.head-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 .filter-count {
   margin-left: auto;
@@ -439,6 +444,19 @@ onUnmounted(() => {
 /* 来源列：手动为常态弱文本，定时用 warning tag 区分（见模板） */
 .trigger-manual {
   font-size: 12px;
+  color: var(--app-text-muted);
+}
+/* 数据行列：行号 + 首列值（hover 显示整行数据快照） */
+.ds-row-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.ds-row-label {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.ds-row-none {
   color: var(--app-text-muted);
 }
 </style>

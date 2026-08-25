@@ -1,5 +1,10 @@
 """json_safe 模块单测：大整数序列化，防止前端精度丢失。"""
-from app.json_safe import sanitize_bigints, _is_big_int, JS_MAX_SAFE_INT, JS_MIN_SAFE_INT
+from app.json_safe import (
+    JS_MAX_SAFE_INT,
+    JS_MIN_SAFE_INT,
+    _is_big_int,
+    sanitize_bigints,
+)
 
 
 class TestIsBigInt:

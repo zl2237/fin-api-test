@@ -4,12 +4,12 @@
 pick_default_value / coerce_default / extract_fields_from_spec 的关键分支。
 """
 from app.services.spec_parser import (
-    path_to_code,
-    resolve_ref,
-    swagger_type_to_field_type,
-    pick_default_value,
     coerce_default,
     extract_fields_from_spec,
+    path_to_code,
+    pick_default_value,
+    resolve_ref,
+    swagger_type_to_field_type,
 )
 
 

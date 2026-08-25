@@ -9,6 +9,7 @@ SQLAlchemy 引擎与会话工厂（仅支持 MySQL）。
     DB_NAME（默认 fin_api_test）
 """
 import os
+
 from sqlalchemy import URL, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -52,7 +53,6 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 class Base(DeclarativeBase):
     """所有 ORM 模型的基类"""
-    pass
 
 
 def get_db():
@@ -73,8 +73,10 @@ def init_db():
     - 已迁移库（有 alembic_version 表）：执行 alembic upgrade head，应用增量迁移
     """
     from pathlib import Path
-    from sqlalchemy import inspect
+
     from alembic.config import Config
+    from sqlalchemy import inspect
+
     from alembic import command
 
     from . import models  # noqa: F401  触发模型注册

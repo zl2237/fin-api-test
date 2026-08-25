@@ -9,14 +9,14 @@
 """
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Protocol
+from typing import Any, Protocol
 
 
 @dataclass
 class AssertionResult:
     """单条断言的求值结果"""
     type: str
-    rule_config: Dict[str, Any]
+    rule_config: dict[str, Any]
     passed: bool
     actual: Any = None
     expected: Any = None
@@ -31,7 +31,7 @@ class StepResult:
     api_name: str
     api_path: str
     api_method: str
-    request_headers: Dict[str, Any]
+    request_headers: dict[str, Any]
     request_body: Any
     response_status: int
     response_body: Any
@@ -39,7 +39,7 @@ class StepResult:
     started_at: datetime
     ended_at: datetime
     status: str  # success / failed
-    assertions: List[AssertionResult] = field(default_factory=list)
+    assertions: list[AssertionResult] = field(default_factory=list)
 
 
 class ExecutionSink(Protocol):

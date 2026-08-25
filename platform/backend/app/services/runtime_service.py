@@ -5,13 +5,13 @@
 """
 import time
 from copy import deepcopy
-from typing import Any, Dict
+from typing import Any
 
 from jsonpath_ng import parse as jsonpath_parse
 from jsonpath_ng.exceptions import JsonPathParserError
+from utils.http_client import HttpClient
 
 from .. import path_setup  # noqa: F401  确保 utils 可导入
-from utils.http_client import HttpClient
 from .token_cache import EnvTokenCache
 
 
@@ -46,7 +46,7 @@ def login(client: HttpClient, env) -> None:
       401 时条件重登（已被他人刷新则直接复用），消除单会话系统下的乒乓互踢
     - isolated：每执行独立登录（原行为）。多会话系统用，保留每执行独立 session
     """
-    login_cfg: Dict[str, Any] = env.login_config or {}
+    login_cfg: dict[str, Any] = env.login_config or {}
     login_path = login_cfg.get("login_path", "/api/home/login/userLogin")
     login_body = login_cfg.get("login_body")
     token_jsonpath = login_cfg.get("token_jsonpath", "$.data.token")

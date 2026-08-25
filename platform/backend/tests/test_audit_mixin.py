@@ -8,7 +8,7 @@ import datetime
 
 from pydantic import BaseModel
 
-from app.schemas import AuditMixin, FileCategoryOut, FileTagOut, ProjectOut
+from app.schemas import AuditMixin, FileCategoryOut, ProjectOut
 
 
 class _Obj(BaseModel):
@@ -27,18 +27,14 @@ class TestAuditMixinContract:
         assert fields["created_at"].annotation in (datetime.datetime | None, )
         assert "created_by_name" in fields
 
-    def test_file_tag_out_inherits_audit(self):
-        assert "created_by_name" in FileTagOut.model_fields
-        assert "created_by" in FileTagOut.model_fields
-
     def test_project_out_inherits_audit(self):
         assert "created_by_name" in ProjectOut.model_fields
         assert "created_at" in ProjectOut.model_fields
 
     def test_out_serializes_with_audit_fields(self):
         """构造带审计字段的对象可正常序列化（ORMBase from_attributes）"""
-        obj = FileTagOut.model_validate({
-            "id": 1, "project_id": 2, "name": "冒烟", "color": "",
+        obj = ProjectOut.model_validate({
+            "id": 1, "name": "冒烟", "description": "",
             "created_at": "2026-01-01T00:00:00", "created_by": 9, "created_by_name": "boss",
         })
         dumped = obj.model_dump()

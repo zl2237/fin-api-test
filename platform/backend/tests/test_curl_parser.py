@@ -1,5 +1,5 @@
 """curl_parser 模块单测：验证 cURL 命令解析为预览项的正确性。"""
-from app.engine.curl_parser import parse_curl_to_previews, _split_curl_commands
+from app.engine.curl_parser import _split_curl_commands, parse_curl_to_previews
 
 
 class TestSplitCurlCommands:

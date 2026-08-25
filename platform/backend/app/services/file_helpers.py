@@ -5,7 +5,6 @@
 import os
 from pathlib import Path
 
-
 # 上传根目录：默认 backend/uploads，可通过 .env UPLOAD_ROOT 覆盖
 UPLOAD_ROOT = os.getenv("UPLOAD_ROOT", "uploads")
 
@@ -38,7 +37,7 @@ def resolve_physical_path(storage_path: str) -> Path:
     """storage_path 形如 'files/a3/a3f5...' → 返回 {UPLOAD_ROOT}/a3/a3f5..."""
     backend_dir = get_backend_dir()
     # 去掉前缀 "files/"
-    rel = storage_path[len("files/"):] if storage_path.startswith("files/") else storage_path
+    rel = storage_path.removeprefix("files/")
     return backend_dir / UPLOAD_ROOT / rel
 
 

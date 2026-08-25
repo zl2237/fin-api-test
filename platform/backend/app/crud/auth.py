@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models
-from ..auth import hash_password, verify_password, validate_password_strength
+from ..auth import hash_password, validate_password_strength, verify_password
 
 # 登录安全策略：连续失败 5 次锁定 15 分钟
 LOGIN_MAX_FAILS = 5

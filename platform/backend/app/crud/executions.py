@@ -4,7 +4,6 @@ router 只管 HTTP 语义与触发线程池；记录创建/批量创建/清理�
 消除 router 内联 ORM 与 legacy 中无人调用的 create_execution 死代码。
 """
 from datetime import datetime
-from typing import List
 
 from sqlalchemy.orm import Session
 
@@ -12,11 +11,15 @@ from .. import models
 
 
 def create_execution(db: Session, case_id: int, env_id: int, user_id: int,
-                     trigger_type: str = "manual") -> models.ExecutionRecord:
-    """创建 running 状态的执行记录（触发执行前先落库，前端立即可轮询）"""
+                     trigger_type: str = "manual",
+                     dataset_id: int = None, dataset_row: dict = None) -> models.ExecutionRecord:
+    """创建 running 状态的执行记录（触发执行前先落库，前端立即可轮询）。
+
+    dataset_id/dataset_row：数据驱动执行时的数据行快照（失败可溯源是哪行）。
+    """
     record = models.ExecutionRecord(
         case_id=case_id, env_id=env_id, status="running", created_by=user_id,
-        trigger_type=trigger_type,
+        trigger_type=trigger_type, dataset_id=dataset_id, dataset_row=dataset_row,
     )
     db.add(record)
     db.commit()
@@ -33,8 +36,3 @@ def cleanup_old_records(db: Session, cutoff: datetime) -> int:
         db.delete(exec_obj)
     db.commit()
     return len(old_execs)
-
-
-def create_executions_batch(db: Session, case_ids: List[int], env_id: int, user_id: int) -> List[models.ExecutionRecord]:
-    """批量创建执行记录（串行批量执行前逐个落库）"""
-    return [create_execution(db, case_id=cid, env_id=env_id, user_id=user_id) for cid in case_ids]

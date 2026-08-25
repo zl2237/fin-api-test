@@ -6,10 +6,10 @@
 from types import SimpleNamespace
 
 from app.engine.type_coercer import (
-    coerce_json_strings,
     apply_field_types,
-    infer_array_elem_type,
+    coerce_json_strings,
     coerce_scalar,
+    infer_array_elem_type,
 )
 
 

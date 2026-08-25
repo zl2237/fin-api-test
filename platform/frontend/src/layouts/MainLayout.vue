@@ -60,6 +60,10 @@
           <el-icon><Share /></el-icon>
           <template #title><span>用例列表</span></template>
         </el-menu-item>
+        <el-menu-item index="/datasets">
+          <el-icon><Grid /></el-icon>
+          <template #title><span>数据集</span></template>
+        </el-menu-item>
         <el-menu-item index="/executions">
           <el-icon><Histogram /></el-icon>
           <template #title><span>执行记录</span></template>
@@ -445,7 +449,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -462,7 +466,7 @@ const versionVisible = ref(false)
 
 // 侧边菜单项（与模板 el-menu-item index 一一对应；项目管理为低频配置，入口在顶栏项目选择器旁）
 const MENU_PATHS = [
-  '/envs', '/apis', '/cases', '/executions',
+  '/envs', '/apis', '/cases', '/datasets', '/executions',
   '/dictionary', '/files', '/users', '/operation-logs',
 ]
 // 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失

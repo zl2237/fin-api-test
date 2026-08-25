@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from .. import crud, schemas, models, path_setup  # noqa: F401
+from .. import crud, models, path_setup, schemas  # noqa: F401
 from ..auth import get_current_user
+from ..database import get_db
 
 router = APIRouter(prefix="/api/environments", tags=["环境"])
 
@@ -52,8 +52,8 @@ def delete(env_id: int, db: Session = Depends(get_db), user: models.User = Depen
     if not obj:
         raise HTTPException(404, "环境不存在")
     # 清理共享 token 缓存与该环境的定时任务（先移 job——remove_by_env 需查业务行取 id，再删业务行）
-    from ..services.token_cache import EnvTokenCache
     from ..services.scheduler import scheduler_service
+    from ..services.token_cache import EnvTokenCache
     EnvTokenCache.invalidate(env_id)
     scheduler_service.remove_by_env(env_id)
     db.query(models.TestSchedule).filter(models.TestSchedule.env_id == env_id).delete()
@@ -66,7 +66,7 @@ def delete(env_id: int, db: Session = Depends(get_db), user: models.User = Depen
 @router.post("/reorder")
 def reorder(data: schemas.EnvironmentReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     items = [{"id": it["id"], "sort_order": it["sort_order"]} for it in data.items]
-    updated = crud.reorder_environments(db, items)
+    updated = crud.reorder_environments(db, items, user.id)
     return {"message": f"已更新 {updated} 个环境排序", "updated": updated}
 
 

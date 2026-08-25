@@ -11,11 +11,11 @@
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
+from app.routers.schedules import _validate_payload
 from app.services import scheduler as sched_mod
 from app.services.scheduler import SchedulerService, _parse_daily_time
-from app.routers.schedules import _validate_payload
-from fastapi import HTTPException
 
 requires_apscheduler = pytest.mark.skipif(
     not sched_mod.APSCHEDULER_AVAILABLE,
@@ -135,18 +135,26 @@ class TestRunScheduleJob:
     def patched(self, monkeypatch):
         created = []
         submitted = []
+        aggregates = []
 
-        def fake_create(db, case_id, env_id, user_id, trigger_type="manual"):
-            created.append(dict(case_id=case_id, env_id=env_id,
-                                user_id=user_id, trigger_type=trigger_type))
+        def fake_create(db, case_id, env_id, user_id, trigger_type="manual",
+                        dataset_id=None, dataset_row=None):
+            created.append(dict(case_id=case_id, env_id=env_id, user_id=user_id,
+                                trigger_type=trigger_type, dataset_id=dataset_id,
+                                dataset_row=dataset_row))
             return SimpleNamespace(id=len(created) + 100)
 
-        def fake_submit(case_id, env_id, record_id):
-            submitted.append((case_id, env_id, record_id))
+        def fake_submit(case_id, env_id, record_id, row_vars=None,
+                        node_config_overrides=None, suppress_notify=False):
+            submitted.append((case_id, env_id, record_id, suppress_notify))
+
+        def fake_aggregate(execution_ids, case_id, env_id, dataset_id, case_name):
+            aggregates.append((tuple(execution_ids), dataset_id))
 
         monkeypatch.setattr(sched_mod, "create_execution", fake_create)
         monkeypatch.setattr(sched_mod, "submit_execution", fake_submit)
-        return SimpleNamespace(created=created, submitted=submitted)
+        monkeypatch.setattr(sched_mod, "submit_batch_aggregate_notify", fake_aggregate)
+        return SimpleNamespace(created=created, submitted=submitted, aggregates=aggregates)
 
     def _mk_db(self, sched_mod_alias, schedule, case=object(), env=object()):
         return FakeDb({
@@ -163,10 +171,49 @@ class TestRunScheduleJob:
         sched_mod._run_schedule_job(7)
 
         # 记录 trigger_type=schedule，执行人归属 schedule 创建者
-        assert patched.created == [dict(case_id=11, env_id=22, user_id=5, trigger_type="schedule")]
-        assert patched.submitted == [(11, 22, 101)]
+        assert patched.created == [dict(case_id=11, env_id=22, user_id=5,
+                                        trigger_type="schedule", dataset_id=None, dataset_row=None)]
+        assert patched.submitted == [(11, 22, 101, False)]  # 普通用例：不抑制通知
+        assert patched.aggregates == []  # 单条无聚合
         assert schedule.last_run_at is not None
         assert db.closed
+
+    def test_bound_case_expands_per_row(self, patched, monkeypatch):
+        """数据驱动（周期8）：绑定数据集的用例定时触发按行展开 N 条记录 + 聚合通知"""
+        plan = [
+            {"dataset_id": 7, "row": {"row_index": 1, "data": {"bl_no": "BL001"}, "label": "BL001"}, "overrides": None},
+            {"dataset_id": 7, "row": {"row_index": 2, "data": {"bl_no": "BL002"}, "label": "BL002"}, "overrides": None},
+        ]
+        case = SimpleNamespace(id=11, dataset_id=7, name="数据驱动用例")
+        schedule = _schedule(id=12, case_id=11, env_id=22, created_by=5)
+        db = self._mk_db(sched_mod, schedule, case=case)
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
+        monkeypatch.setattr(sched_mod.dataset_service, "plan_case_expansion",
+                            lambda db_, c, **kw: plan)
+
+        sched_mod._run_schedule_job(12)
+
+        assert len(patched.created) == 2
+        assert all(c["dataset_id"] == 7 and c["dataset_row"]["row_index"] == i + 1
+                   for i, c in enumerate(patched.created))
+        assert all(c["trigger_type"] == "schedule" for c in patched.created)
+        assert [s[3] for s in patched.submitted] == [True, True]  # 抑制逐条
+        assert patched.aggregates == [((101, 102), 7)]  # 一条聚合
+
+    def test_zero_rows_swallowed(self, patched, monkeypatch):
+        """数据集 0 行：打印跳过，不创建记录，调度线程不崩"""
+        def boom(db_, c, **kw):
+            raise ValueError("数据集无数据行，请先录入数据再执行")
+
+        schedule = _schedule(id=13)
+        db = self._mk_db(sched_mod, schedule, case=SimpleNamespace(dataset_id=7))
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
+        monkeypatch.setattr(sched_mod.dataset_service, "plan_case_expansion", boom)
+
+        sched_mod._run_schedule_job(13)  # 不应抛出
+
+        assert patched.created == []
+        assert patched.submitted == []
 
     def test_schedule_missing_silent(self, patched, monkeypatch):
         db = self._mk_db(sched_mod, None)

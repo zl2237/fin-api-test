@@ -6,24 +6,29 @@
 引用方式：
     ${name}   从上下文统一变量池取值
     ${context.name}   兼容旧写法，等价于 ${name}
+
+数据驱动（方案定案 #4）：数据集行的列名即变量名，row_vars 在初始化时
+覆盖同名环境变量进池，${列名} 全链路（默认值/前置/断言）直接可用。
 """
-from typing import Any, Dict
+from typing import Any
 
 
 class ExecutionContext:
-    def __init__(self, env_vars: Dict[str, Any] = None, global_vars: Dict[str, Any] = None):
+    def __init__(self, env_vars: dict[str, Any] = None, global_vars: dict[str, Any] = None,
+                 row_vars: dict[str, Any] = None):
         # 环境变量在用例开始时并入统一变量池，作为初始已提取变量
-        self.env_vars: Dict[str, Any] = env_vars or {}
-        self.extracted: Dict[str, Any] = dict(self.env_vars)
-        self.global_vars: Dict[str, Any] = global_vars or {}
+        self.env_vars: dict[str, Any] = env_vars or {}
+        # 数据行变量优先于同名环境变量（列名即变量名）
+        self.extracted: dict[str, Any] = {**self.env_vars, **(row_vars or {})}
+        self.global_vars: dict[str, Any] = global_vars or {}
 
-    def update_extracted(self, data: Dict[str, Any]):
+    def update_extracted(self, data: dict[str, Any]):
         self.extracted.update(data)
 
     def set_global(self, key: str, value: Any):
         self.global_vars[key] = value
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "env": self.env_vars,
             "extracted": self.extracted,

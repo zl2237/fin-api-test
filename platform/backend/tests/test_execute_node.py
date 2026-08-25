@@ -6,7 +6,7 @@
 fake db 沿用项目现有测试风格（见 test_file_update.py）。
 """
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.engine.dag_executor import DagExecutor
 from app.engine.events import StepResult
@@ -15,10 +15,10 @@ from app.engine.events import StepResult
 class FakeDb:
     """最小 Session 替身：支持 query().filter().first() 链式调用"""
 
-    def __init__(self, first_results: Optional[List[Any]] = None):
+    def __init__(self, first_results: list[Any] | None = None):
         # first_results 按查询顺序依次弹出；空则返回 None
         self._firsts = list(first_results or [])
-        self.added: List[Any] = []
+        self.added: list[Any] = []
         self.commits = 0
 
     def query(self, *_a, **_kw):
@@ -47,7 +47,7 @@ class MemorySink:
     """内存 sink：收集事件，供断言"""
 
     def __init__(self):
-        self.steps: List[StepResult] = []
+        self.steps: list[StepResult] = []
 
     def record_step(self, result: StepResult) -> None:
         self.steps.append(result)
@@ -64,7 +64,7 @@ class StubHttpClient:
     """不发网络的 http client 替身：post 返回固定响应，记录收到的 body"""
 
     def __init__(self, response=None):
-        self.headers: Dict[str, str] = {}
+        self.headers: dict[str, str] = {}
         self.response = response if response is not None else {"code": 200, "msg": "ok"}
         self.last_json_body = None
         self.last_path = None

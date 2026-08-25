@@ -24,9 +24,8 @@
 import json
 import re
 import shlex
-from typing import Any, Dict, List, Tuple
-from urllib.parse import urlparse, parse_qs
-
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 # cURL 数据参数，命中其一即认为该 token 后跟请求体
 _DATA_FLAGS = {"-d", "--data", "--data-raw", "--data-binary", "--data-ascii"}
@@ -45,7 +44,7 @@ def _preprocess_ansi_c_quoting(text: str) -> str:
 _SKIP_METHODS = {"OPTIONS", "HEAD", "CONNECT", "TRACE"}
 
 
-def _split_curl_commands(text: str) -> List[str]:
+def _split_curl_commands(text: str) -> list[str]:
     """把用户粘贴的文本拆分为多条 cURL 命令。
 
     规则：
@@ -59,8 +58,8 @@ def _split_curl_commands(text: str) -> List[str]:
     text = re.sub(r"\\\n", " ", text)
     lines = text.split("\n")
 
-    commands: List[str] = []
-    current: List[str] = []
+    commands: list[str] = []
+    current: list[str] = []
     for line in lines:
         stripped = line.strip()
         if not stripped:
@@ -84,7 +83,7 @@ def _split_curl_commands(text: str) -> List[str]:
     return commands
 
 
-def _parse_single_curl(cmd: str) -> Tuple[Dict[str, Any] | None, str | None]:
+def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
     """解析单条 cURL 命令为预览项。
 
     返回 (preview, error_msg)。解析失败时 preview=None。
@@ -99,7 +98,7 @@ def _parse_single_curl(cmd: str) -> Tuple[Dict[str, Any] | None, str | None]:
 
     method = ""
     url = ""
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     body_text = ""
 
     i = 1
@@ -168,7 +167,7 @@ def _parse_single_curl(cmd: str) -> Tuple[Dict[str, Any] | None, str | None]:
         path = "/" + path
 
     # query 参数
-    fields: List[Dict[str, Any]] = []
+    fields: list[dict[str, Any]] = []
     seen_keys: set = set()
     if parsed.query:
         for name, values in parse_qs(parsed.query, keep_blank_values=True).items():
@@ -253,7 +252,7 @@ def _coerce_default_value(value: Any, field_type: str) -> str:
     return str(value)
 
 
-def _extract_body_fields(body: Dict[str, Any], fields: List[Dict[str, Any]], seen_keys: set):
+def _extract_body_fields(body: dict[str, Any], fields: list[dict[str, Any]], seen_keys: set):
     """从请求体 dict 提取顶层字段"""
     for key, value in body.items():
         if key in seen_keys:
@@ -270,15 +269,15 @@ def _extract_body_fields(body: Dict[str, Any], fields: List[Dict[str, Any]], see
         seen_keys.add(key)
 
 
-def parse_curl_to_previews(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+def parse_curl_to_previews(text: str) -> tuple[list[dict[str, Any]], list[str]]:
     """解析多条 cURL 命令文本，返回 (预览列表, 错误列表)。
 
     预览项结构与 HAR 完全一致，可复用 previews_to_api_create 落库。
     同 method+path 去重（保留第一次）。
     """
     commands = _split_curl_commands(text)
-    previews: List[Dict[str, Any]] = []
-    errors: List[str] = []
+    previews: list[dict[str, Any]] = []
+    errors: list[str] = []
     seen: set = set()
 
     for idx, cmd in enumerate(commands, 1):
@@ -300,7 +299,7 @@ def parse_curl_to_previews(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
     return previews, errors
 
 
-def preview_to_fields_for_override(preview: Dict[str, Any]) -> List[Dict[str, Any]]:
+def preview_to_fields_for_override(preview: dict[str, Any]) -> list[dict[str, Any]]:
     """供 ApiEdit 覆盖字段场景使用：从单个预览项提取字段列表。
 
     与 HAR 覆盖字段的前端逻辑保持一致：返回原始字段 dict 列表，
@@ -310,4 +309,4 @@ def preview_to_fields_for_override(preview: Dict[str, Any]) -> List[Dict[str, An
 
 
 # 复用 har_parser.previews_to_api_create，避免重复落库逻辑
-from .har_parser import previews_to_api_create  # noqa: E402,F401
+from .har_parser import previews_to_api_create  # noqa: F401

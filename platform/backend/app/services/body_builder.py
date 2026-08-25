@@ -12,7 +12,7 @@ DagExecutor 实例的依赖（进而删除 _DummyCase 占位对象）。
 """
 import json
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def build_request_body(api) -> Any:
@@ -24,7 +24,7 @@ def build_request_body(api) -> Any:
     # request_template 为 list 表示数组请求体（body 本身是 [{...}]）
     is_array_body = isinstance(api.request_template, list)
 
-    body: Dict[str, Any] = {}
+    body: dict[str, Any] = {}
     for f in fields:
         if not f.key:
             continue
@@ -35,7 +35,7 @@ def build_request_body(api) -> Any:
     return [body] if is_array_body else body
 
 
-def parse_field_value(raw: Optional[str], field_type: str) -> Any:
+def parse_field_value(raw: str | None, field_type: str) -> Any:
     """解析字段默认值。
 
     - 空 → string 给空串，其他给 None
@@ -70,7 +70,7 @@ def parse_field_value(raw: Optional[str], field_type: str) -> Any:
     return raw
 
 
-def set_nested(target: Dict[str, Any], path: str, value: Any) -> None:
+def set_nested(target: dict[str, Any], path: str, value: Any) -> None:
     """按点号路径设置嵌套 dict 值。"""
     keys = path.split(".")
     cur = target
@@ -81,7 +81,25 @@ def set_nested(target: Dict[str, Any], path: str, value: Any) -> None:
     cur[keys[-1]] = value
 
 
-def extract_file_fields(api) -> List[Tuple[str, str]]:
+def apply_row_overrides(body: Any, row_vars: dict[str, Any] | None) -> Any:
+    """数据驱动：行值覆盖请求体中同名的顶层字段（API 字段默认值，绑定即生效）。
+
+    - 只覆盖请求中已存在的字段（不新增参数）；数组请求体作用于首元素（与前置处理数组语义一致）
+    - 只覆盖写死的字面量：字段默认值含 ${}（上游提取注入）不覆盖，交给表达式引擎求值
+    - 覆盖发生在表达式求值之前：行值若含 ${} 表达式同样会被求值
+    - 嵌套路径字段（如 to_customer.xxx）列名无法含点号，用 ${列名} 表达式注入
+    """
+    if not row_vars:
+        return body
+    target = body[0] if isinstance(body, list) and body and isinstance(body[0], dict) else body
+    if isinstance(target, dict):
+        for k, v in row_vars.items():
+            if k in target and not (isinstance(target[k], str) and "${" in target[k]):
+                target[k] = v
+    return body
+
+
+def extract_file_fields(api) -> list[tuple[str, str]]:
     """提取接口中 file 类型字段的 (path, file_id) 列表。
 
     返回值供 dag_executor 构建 multipart files 参数：
@@ -89,7 +107,7 @@ def extract_file_fields(api) -> List[Tuple[str, str]]:
     - file_id：文件中心文件 ID（字符串），用于查询物理文件
     """
     fields = getattr(api, "fields", None) or []
-    result: List[Tuple[str, str]] = []
+    result: list[tuple[str, str]] = []
     for f in fields:
         if not f.key or f.field_type != "file":
             continue
@@ -101,7 +119,7 @@ def extract_file_fields(api) -> List[Tuple[str, str]]:
     return result
 
 
-def pop_file_fields_from_body(body: Any, api) -> Tuple[Any, List[Tuple[str, str]]]:
+def pop_file_fields_from_body(body: Any, api) -> tuple[Any, list[tuple[str, str]]]:
     """从请求体中剔除 file 类型字段，返回 (剩余body, file字段列表)。
 
     file 字段不参与 JSON body，由 dag_executor 单独组装到 multipart files 参数。
@@ -112,9 +130,9 @@ def pop_file_fields_from_body(body: Any, api) -> Tuple[Any, List[Tuple[str, str]
     if not file_keys:
         return body, []
 
-    file_list: List[Tuple[str, str]] = []
+    file_list: list[tuple[str, str]] = []
 
-    def _pop_from_dict(d: Dict[str, Any], prefix: str = "") -> None:
+    def _pop_from_dict(d: dict[str, Any], prefix: str = "") -> None:
         for k in list(d.keys()):
             full_path = f"{prefix}.{k}" if prefix else k
             if full_path in file_keys:

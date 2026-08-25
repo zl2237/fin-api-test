@@ -2,6 +2,7 @@
   <div class="page">
     <div class="page-head">
       <div class="head-left">
+        <span class="page-title">用例列表</span>
         <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
         <el-button
           :disabled="selectedCaseIds.length === 0"
@@ -141,7 +142,7 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="300" fixed="right">
+            <el-table-column label="操作" width="330" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
@@ -149,6 +150,9 @@
                 </el-tooltip>
                 <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
                 <el-button link type="primary" size="small" @click="openSchedule(row)">定时</el-button>
+                <el-tooltip :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
+                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
+                </el-tooltip>
                 <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
                 <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
               </template>
@@ -212,7 +216,7 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="300" fixed="right">
+            <el-table-column label="操作" width="330" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
@@ -220,6 +224,9 @@
                 </el-tooltip>
                 <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
                 <el-button link type="primary" size="small" @click="openSchedule(row)">定时</el-button>
+                <el-tooltip :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
+                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
+                </el-tooltip>
                 <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
                 <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
               </template>
@@ -341,6 +348,25 @@
       </template>
     </el-dialog>
 
+    <!-- 批量执行配置弹窗：逐用例设置执行次数（1~20），确认后并行提交 -->
+    <el-dialog v-model="batchRunVisible" title="批量执行" width="480px" align-center :close-on-click-modal="false">
+      <div class="batch-run-tip">
+        为每个用例设置执行次数（并行执行，最多同时跑 4 个，同环境共享登录）。绑定数据集的用例每轮按数据行展开。
+      </div>
+      <div class="batch-run-list">
+        <div v-for="it in batchRunItems" :key="it.id" class="batch-run-row">
+          <span class="batch-run-name" :title="it.name">{{ it.name }}</span>
+          <span class="batch-run-count-label">执行次数</span>
+          <el-input-number v-model="batchRunCounts[it.id]" :min="1" :max="20" size="small" />
+        </div>
+      </div>
+      <template #footer>
+        <span class="batch-run-total">共 {{ batchRunItems.length }} 个用例 / {{ batchRunTotal }} 轮</span>
+        <el-button @click="batchRunVisible = false">取消</el-button>
+        <el-button type="success" :loading="batchRunning" @click="confirmBatchRun">开始执行</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 组合弹窗：拖拽调整拼接顺序，复制式生成新用例 -->
     <el-dialog v-model="combineVisible" title="组合用例" width="540px" align-center :close-on-click-modal="false">
       <div class="combine-tip">拖拽调整拼接顺序（自上而下依次执行）；组合将复制生成新用例，不影响原用例。前段提取的变量后段可直接引用。</div>
@@ -454,6 +480,62 @@
         <el-button @click="scheduleVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 绑定数据集（数据驱动） -->
+    <el-dialog v-model="bindVisible" title="绑定数据集" width="480px">
+      <div class="bind-tip">
+        绑定后执行该用例时按数据行展开：N 行数据 = N 次执行，行值以
+        <code v-pre>${列名}</code> 注入变量（优先于同名环境变量）。数据集按用例隔离，仅可选本用例名下的数据集
+      </div>
+      <el-select v-model="bindDatasetId" placeholder="选择数据集（空=不绑定）" clearable style="width: 100%">
+        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.rows?.length ?? 0} 行）`" :value="d.id" />
+      </el-select>
+      <div v-if="!projectDatasets.length" class="bind-empty">
+        该用例暂无数据集（数据集为用例私有），
+        <el-button link type="primary" @click="router.push('/datasets')">去创建</el-button>
+      </div>
+      <template #footer>
+        <el-button @click="bindVisible = false">取消</el-button>
+        <el-button type="primary" :loading="bindSaving" @click="saveBind">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 数据驱动执行确认：N 行将执行 N 次，可临时换数据集/选行 -->
+    <el-dialog v-model="ddVisible" :title="`数据驱动执行：${ddCase?.name || ''}`" width="640px">
+      <div class="bind-tip">
+        <el-icon style="color: var(--el-color-warning)"><WarningFilled /></el-icon>
+        该用例绑定了数据集，<b>{{ ddSelectedRows.length }} 行数据将执行 {{ ddSelectedRows.length }} 次</b>（并行，并发上限 4）
+      </div>
+      <el-select v-model="ddDatasetId" style="width: 260px; margin-bottom: 10px" @change="onDdDatasetChange">
+        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.rows?.length ?? 0} 行）`" :value="d.id" />
+      </el-select>
+      <el-table
+        ref="ddTableRef"
+        :data="ddRows"
+        size="small"
+        max-height="320"
+        row-key="id"
+        @selection-change="(sel: any[]) => (ddSelectedRows = sel)"
+      >
+        <el-table-column type="selection" width="42" />
+        <el-table-column prop="row_index" label="#" width="50" />
+        <el-table-column
+          v-for="col in ddColumns"
+          :key="col.key"
+          :label="store.fieldDictMap?.[col.key] || col.key"
+          min-width="120"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">{{ row.data?.[col.key] ?? '—' }}</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="ddVisible = false">取消</el-button>
+        <el-button type="success" :disabled="!ddSelectedRows.length" :loading="ddRunning" @click="confirmDataDrivenRun">
+          执行 {{ ddSelectedRows.length }} 次
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -463,7 +545,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
-import { caseApi, caseGroupApi, execApi, userApi, scheduleApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule } from '@/api'
+import { caseApi, caseGroupApi, execApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
@@ -560,6 +642,11 @@ const batchMoveVisible = ref(false)
 const batchMoveTarget = ref<number | null>(null)
 const batchMoveLoading = ref(false)
 const batchRunning = ref(false)
+// 批量执行配置弹窗：每个用例可单独设置执行次数（1~20）
+const batchRunVisible = ref(false)
+const batchRunCounts = ref<Record<number, number>>({})
+// 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
+const batchRunItems = ref<{ id: number; name: string }[]>([])
 const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
 
 // ===== 批量移动：互斥勾选状态机在 useGroupedTable；视图只持有表格实例引用 =====
@@ -805,6 +892,11 @@ function goDesign(id: number) {
 
 async function runCase(row: TestCase) {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
+  // 数据驱动：绑定数据集的用例先弹确认面板（N 行执行 N 次，可临时换数据集/选行）
+  if (row.dataset_id) {
+    await openDataDrivenRun(row)
+    return
+  }
   try {
     // 异步执行：接口立即返回 running 状态的 record，后台线程池执行
     const rec = await caseApi.execute(row.id, store.currentEnvId)
@@ -853,36 +945,52 @@ async function runCase(row: TestCase) {
   }
 }
 
-// 批量执行：后端线程池并行执行（并发上限 4，同环境共享登录 token），前端并发轮询各记录
-async function onBatchRun() {
+// 批量执行入口：先弹配置窗（每个用例可设执行次数），确认后由 confirmBatchRun 提交
+function onBatchRun() {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
+  // 按当前勾选快照生成展示行，次数默认 1
+  batchRunItems.value = selectedCaseIds.value
+    .map((id) => ({ id, name: list.value.find((c) => c.id === id)?.name || `用例#${id}` }))
+  const init: Record<number, number> = {}
+  batchRunItems.value.forEach((it) => { init[it.id] = 1 })
+  batchRunCounts.value = init
+  batchRunVisible.value = true
+}
+
+// 配置弹窗内的总轮次（每用例次数之和）
+const batchRunTotal = computed(() =>
+  batchRunItems.value.reduce((sum, it) => sum + (batchRunCounts.value[it.id] || 0), 0),
+)
+
+// 确认批量执行：后端线程池并行执行（并发上限 4，同环境共享登录 token），前端并发轮询各记录
+async function confirmBatchRun() {
   if (batchRunning.value) return
-  // 二次确认：批量执行耗时长且产生一批执行记录，门槛不应低于「批量移动」
-  try {
-    await ElMessageBox.confirm(
-      `将并行执行 ${selectedCaseIds.value.length} 个用例（最多同时跑 4 个，同环境共享登录），可能需要较长时间。现在开始？`,
-      '提示',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
+  // 弹窗开着期间环境可能被清空，提交前再守卫一次（同时收窄类型）
+  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
+  const caseIds = batchRunItems.value.map((it) => it.id)
+  const counts = batchRunItems.value.map((it) => batchRunCounts.value[it.id] || 1)
+  const total = counts.reduce((a, b) => a + b, 0)
+  batchRunVisible.value = false
   batchRunning.value = true
   favicon.running()
   const msg = ElMessage({
-    message: `批量执行中（共 ${selectedCaseIds.value.length} 个用例，并行执行）...`,
+    message: `批量执行中（${caseIds.length} 个用例共 ${total} 轮，并行执行）...`,
     type: 'info',
     duration: 0,
   })
   try {
-    const records = await caseApi.batchExecute(selectedCaseIds.value, store.currentEnvId)
-    // 并发轮询：各记录独立轮询，全部完成后汇总（Promise.all 保持入参顺序）
+    const records = await caseApi.batchExecute(caseIds, store.currentEnvId, counts)
+    // 并发轮询：各记录独立轮询，全部完成后汇总；同一用例多轮时标注轮次
+    const seen: Record<number, number> = {}
     const results = await Promise.all(records.map(async (rec) => {
       const caseRow = list.value.find((c) => c.id === rec.case_id)
       const name = caseRow?.name || `用例#${rec.case_id}`
+      seen[rec.case_id] = (seen[rec.case_id] || 0) + 1
+      const multi = (batchRunCounts.value[rec.case_id] || 1) > 1
+      const label = multi ? `${name}（第 ${seen[rec.case_id]} 轮）` : name
       const status = await pollOne(rec.id)
-      return { name, status: status.status, summary: status.summary }
+      return { name: label, status: status.status, summary: status.summary }
     }))
     msg.close()
     const passed = results.filter((r) => r.status === 'success').length
@@ -1014,6 +1122,117 @@ function openSchedule(row: TestCase) {
     scheduleFormVisible.value = false
   } else {
     openScheduleForm()
+  }
+}
+
+// ============ 数据集绑定 + 数据驱动执行（周期 6/7） ============
+
+const projectDatasets = ref<DataSet[]>([])
+const bindVisible = ref(false)
+const bindSaving = ref(false)
+const bindCase = ref<TestCase | null>(null)
+const bindDatasetId = ref<number | null>(null)
+
+async function loadDatasets(caseId: number) {
+  if (!store.currentProjectId) return
+  try {
+    projectDatasets.value = await datasetApi.list({
+      project_id: store.currentProjectId, case_id: caseId, with_rows: true,
+    })
+  } catch {
+    projectDatasets.value = []  // 数据集加载失败不阻塞列表主体
+  }
+}
+
+async function openBind(row: TestCase) {
+  bindCase.value = row
+  bindDatasetId.value = row.dataset_id ?? null
+  await loadDatasets(row.id)
+  bindVisible.value = true
+}
+
+async function saveBind() {
+  if (!bindCase.value) return
+  bindSaving.value = true
+  try {
+    await caseApi.update(bindCase.value.id, { dataset_id: bindDatasetId.value ?? null })
+    bindCase.value.dataset_id = bindDatasetId.value ?? null
+    ElMessage.success(bindDatasetId.value ? '已绑定数据集' : '已解绑')
+    bindVisible.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    bindSaving.value = false
+  }
+}
+
+// ---------- 数据驱动执行确认面板 ----------
+const ddVisible = ref(false)
+const ddRunning = ref(false)
+const ddCase = ref<TestCase | null>(null)
+const ddDatasetId = ref<number | null>(null)
+const ddRows = ref<any[]>([])
+const ddColumns = ref<{ key: string; type?: string }[]>([])
+const ddSelectedRows = ref<any[]>([])
+const ddTableRef = ref<any>(null)
+
+async function openDataDrivenRun(row: TestCase) {
+  ddCase.value = row
+  ddDatasetId.value = row.dataset_id ?? null
+  await loadDatasets(row.id)
+  await applyDdDataset()
+  ddVisible.value = true
+  // 默认全选所有行
+  await nextTick()
+  ddTableRef.value?.toggleAllSelection?.()
+}
+
+async function applyDdDataset() {
+  const ds = projectDatasets.value.find((d) => d.id === ddDatasetId.value)
+  ddRows.value = (ds?.rows as any[]) || []
+  ddColumns.value = (ds?.columns as any[]) || []
+  ddSelectedRows.value = ddRows.value
+}
+
+async function onDdDatasetChange() {
+  await applyDdDataset()
+  await nextTick()
+  ddTableRef.value?.toggleAllSelection?.()
+}
+
+async function confirmDataDrivenRun() {
+  if (!ddCase.value || !ddSelectedRows.value.length) return
+  ddRunning.value = true
+  favicon.running()
+  const msg = ElMessage({
+    message: `数据驱动执行中（${ddSelectedRows.value.length} 行并行）...`,
+    type: 'info',
+    duration: 0,
+  })
+  try {
+    // 后端按选行展开：N 行 → N 条记录（失败聚合成一条通知）
+    const first = await caseApi.execute(ddCase.value.id, store.currentEnvId!, {
+      dataset_id: ddDatasetId.value,
+      row_ids: ddSelectedRows.value.map((r) => r.id),
+    })
+    ddVisible.value = false
+    // 轮询首条记录（代表整批）；完成后去执行记录看全部
+    const status = await pollOne(first.id)
+    msg.close()
+    if (status.status === 'success') {
+      favicon.success()
+      ElMessage.success(`数据驱动执行完成：首行通过（全部 ${ddSelectedRows.value.length} 条见执行记录）`)
+    } else {
+      favicon.failed()
+      ElMessage.warning('数据驱动执行完成，存在失败行，详见执行记录')
+    }
+    router.push({ path: '/executions', query: { case_id: ddCase.value.id } })
+  } catch (e: any) {
+    msg.close()
+    favicon.reset()
+    ElMessage.error(e?.response?.data?.detail || e?.message || '执行失败')
+  } finally {
+    ddRunning.value = false
   }
 }
 
@@ -1167,6 +1386,7 @@ watch(() => store.currentProjectId, () => {
   load()
   loadGroups()
   loadSchedules()
+  projectDatasets.value = []  // 数据集按项目隔离，切换后按需重载
 })
 onMounted(() => {
   load()
@@ -1203,24 +1423,6 @@ function onGlobalKey(e: KeyboardEvent) {
   flex-direction: column;
   height: 100%;
   background: var(--app-bg);
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 20px;
-  background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--app-border);
-}
-.head-left {
-  display: flex;
-  gap: 8px;
-}
-.head-right {
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 /* 左分组导航 + 右组内列表（master-detail） */
 .group-layout {
@@ -1384,6 +1586,49 @@ function onGlobalKey(e: KeyboardEvent) {
   background: var(--app-active) !important;
 }
 /* ===== 组合弹窗 ===== */
+/* 批量执行配置弹窗：列表限高滚动（同数据集列编辑器做法） */
+.batch-run-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.batch-run-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  padding: 4px 12px;
+}
+.batch-run-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+.batch-run-row + .batch-run-row {
+  border-top: 1px solid var(--app-border);
+}
+.batch-run-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.batch-run-count-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
+}
+.batch-run-total {
+  float: left;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 32px;
+}
+
 .combine-tip {
   font-size: 12px;
   color: var(--app-text-muted);
@@ -1494,6 +1739,22 @@ function onGlobalKey(e: KeyboardEvent) {
   display: flex;
   justify-content: center;
   padding: 4px 0;
+}
+/* 数据集绑定/数据驱动执行弹窗 */
+.bind-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+.bind-empty {
+  margin-top: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 /* 弹窗标题单行省略（header slot 内容；padding-right 避让右上角关闭按钮） */
 .schedule-dialog-title {

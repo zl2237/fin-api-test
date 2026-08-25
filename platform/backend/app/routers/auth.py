@@ -5,10 +5,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
 from .. import models, schemas
 from ..auth import create_token, get_current_user
 from ..crud import auth as auth_domain
+from ..database import get_db
 
 router = APIRouter(prefix="/api/auth", tags=["鉴权"])
 

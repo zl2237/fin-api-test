@@ -72,6 +72,34 @@ def _build_fail_section(record) -> str:
     return "\n".join(lines)
 
 
+def build_batch_notify_content(records, case_name: str, dataset_name: str):
+    """数据驱动批量执行聚合通知内容（方案定案 #7）。
+
+    - 全成功 → None（不发，沿用 enable_on_success 语义）
+    - 有失败 → 一条汇总：用例名 + 数据集名 + 失败行号列表（#行号 首列值）+ 首个失败原因
+    """
+    failed = [r for r in records if getattr(r, "status", None) != "success"]
+    if not failed:
+        return None
+    row_list = "、".join(
+        f"#{r.dataset_row['row_index']} {r.dataset_row.get('label', '')}".rstrip()
+        for r in failed if r.dataset_row
+    )
+    first_error = next((str((r.summary or {}).get("error")) for r in failed
+                        if (r.summary or {}).get("error")), "无失败摘要（详见执行报告）")
+    passed = len(records) - len(failed)
+    lines = [
+        "**数据驱动批量执行通知**",
+        f"> 用例：{case_name}",
+        f"> 数据集：{dataset_name}",
+        f"> 状态：❌ {len(failed)}/{len(records)} 行失败（通过 {passed}/{len(records)}）",
+    ]
+    if row_list:
+        lines += ["> ", "**失败行**", f"> {row_list}"]
+    lines += ["> ", "**首个失败原因**", f"> {_clip(first_error, 300)}"]
+    return "\n".join(lines)
+
+
 def send_notify(env, case, record, executor_name: str = "", project_name: str = "") -> None:
     """执行完成后发送企微通知；notify_config 未配置 webhook 或开关关闭则跳过；失败不影响主流程。
 

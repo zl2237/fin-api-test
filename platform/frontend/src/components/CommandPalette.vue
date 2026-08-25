@@ -144,6 +144,7 @@ const results = computed<CmdItem[]>(() => {
     { title: '环境配置', path: '/envs' },
     { title: '接口管理', path: '/apis' },
     { title: '用例列表', path: '/cases' },
+    { title: '数据集', path: '/datasets' },
     { title: '执行记录', path: '/executions' },
     { title: '字段字典', path: '/dictionary' },
     { title: '文件中心', path: '/files' },

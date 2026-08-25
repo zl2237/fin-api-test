@@ -9,7 +9,7 @@
 """
 import time
 from copy import deepcopy
-from typing import Any, Dict, List
+from typing import Any
 
 from .expression import ExpressionEngine
 
@@ -82,10 +82,13 @@ def delete_nested_value(data: Any, path: str):
 
 
 class PreProcessor:
-    def __init__(self, context: Dict[str, Any], db_client=None):
+    def __init__(self, context: dict[str, Any], db_client=None, row_vars: dict[str, Any] = None):
         self.expr = ExpressionEngine(context, db_client=db_client)
+        # 数据驱动行值（原始引用，区别于 context 池中被覆盖过的值）：
+        # 列名 == set_field 完整 path 时行值直接覆盖，原值（字面量/生成函数/${context.x}）不执行
+        self.row_vars = row_vars or None
 
-    def process(self, body: Any, actions: List[Dict], extracted: Dict[str, Any] = None) -> Any:
+    def process(self, body: Any, actions: list[dict], extracted: dict[str, Any] = None) -> Any:
         """
         执行前置处理动作。
 
@@ -109,14 +112,18 @@ class PreProcessor:
         # 普通 dict 请求体
         return self._process_dict(body, actions, extracted)
 
-    def _process_dict(self, body: Dict, actions: List[Dict], extracted: Dict[str, Any] = None) -> Dict:
+    def _process_dict(self, body: dict, actions: list[dict], extracted: dict[str, Any] = None) -> dict:
         """对 dict 请求体执行前置处理动作"""
         for action in actions or []:
             action_type = action.get("type")
 
             if action_type in ("set_field", "add_field"):
-                value = self.expr.evaluate(action.get("value"))
                 path = action["path"]
+                if self.row_vars and path in self.row_vars:
+                    # 数据驱动覆盖：列名 == path，行值直接生效（不走表达式求值）
+                    value = self.row_vars[path]
+                else:
+                    value = self.expr.evaluate(action.get("value"))
                 set_nested_value(body, path, value)
                 # 同步到上下文：用 path 末段作为 key（bl_no / order_id 等顶层字段直接可用）
                 if extracted is not None:

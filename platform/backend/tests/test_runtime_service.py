@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.runtime_service import (
+    _extract_by_jsonpath,
+    build_db_client,
     build_http_client,
     login,
-    build_db_client,
-    _extract_by_jsonpath,
 )
 from app.services.token_cache import EnvTokenCache
 

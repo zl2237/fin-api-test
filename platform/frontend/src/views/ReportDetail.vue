@@ -285,8 +285,8 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="rule_type" label="断言类型" width="180" />
-                <el-table-column label="规则配置">
+                <el-table-column prop="rule_type" label="断言类型" min-width="130" />
+                <el-table-column label="规则配置" min-width="260">
                   <template #default="{ row }">
                     <div class="config-cell">
                       <VueJsonPretty v-if="row.rule_config" :data="row.rule_config" :deep="2" />
@@ -294,17 +294,17 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="实际值" min-width="140" show-overflow-tooltip>
+                <el-table-column label="实际值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span class="mono">{{ row.actual_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="期望值" min-width="140" show-overflow-tooltip>
+                <el-table-column label="期望值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span class="mono">{{ row.expected_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="消息" min-width="180" show-overflow-tooltip>
+                <el-table-column label="消息" min-width="160" show-overflow-tooltip>
                   <template #default="{ row }">
                     <!-- 失败原因是一页报告里最重要的信息，不再弱化为灰色小字 -->
                     <span :class="row.result ? 'muted' : 'fail-msg'">{{ row.message ?? '—' }}</span>

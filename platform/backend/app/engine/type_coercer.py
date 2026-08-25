@@ -8,7 +8,7 @@ DagExecutor 私有方法的依赖。行为与原 DagExecutor 实现完全一致�
 故置于 engine 层（而非 services 层）。
 """
 import json
-from typing import Any, Optional
+from typing import Any
 
 from .preprocessor import get_nested_value, set_nested_value
 
@@ -109,7 +109,7 @@ def apply_field_types(body: Any, api) -> Any:
     return body
 
 
-def infer_array_elem_type(default_value: Optional[str]) -> Optional[str]:
+def infer_array_elem_type(default_value: str | None) -> str | None:
     """从 array 字段的 default_value 推断元素标量类型。
 
     default_value 形如 '["343928144446619648"]' → string；

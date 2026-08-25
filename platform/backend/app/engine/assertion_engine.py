@@ -24,14 +24,15 @@ DB 断言支持 retry_count / retry_interval 参数，用于应对异步落库�
 """
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from jsonpath_ng import parse
 
 from .expression import ExpressionEngine, inject_sql_vars
 
 
 class AssertionEngine:
-    def __init__(self, context: Dict[str, Any], db_client=None):
+    def __init__(self, context: dict[str, Any], db_client=None):
         self.context = context
         self.db_client = db_client
         self.expr = ExpressionEngine(context, db_client=db_client)
@@ -41,14 +42,14 @@ class AssertionEngine:
         response_body: Any,
         status_code: int,
         response_time_ms: int,
-        rules: List[Dict],
-    ) -> List[Dict]:
+        rules: list[dict],
+    ) -> list[dict]:
         results = []
         for rule in rules or []:
             results.append(self._evaluate(response_body, status_code, response_time_ms, rule))
         return results
 
-    def _evaluate(self, response_body, status_code, response_time_ms, rule: Dict) -> Dict:
+    def _evaluate(self, response_body, status_code, response_time_ms, rule: dict) -> dict:
         rule_type = rule.get("type")
         message = rule.get("message", "")
 
@@ -112,7 +113,7 @@ class AssertionEngine:
 
         return self._pack(False, "unknown", None, None, "未知断言类型: " + str(rule_type))
 
-    def _eval_db_with_retry(self, rule_type: str, rule: Dict, message: str) -> Dict:
+    def _eval_db_with_retry(self, rule_type: str, rule: dict, message: str) -> dict:
         """DB 断言带重试：应对异步落库场景（如费用穿行）。
         retry_count 默认 0（不重试），retry_interval 默认 2 秒。
         """
@@ -126,7 +127,7 @@ class AssertionEngine:
             result = self._eval_db(rule_type, rule, message)
         return result
 
-    def _eval_db_vs_jsonpath_with_retry(self, response_body: Any, rule: Dict, message: str) -> Dict:
+    def _eval_db_vs_jsonpath_with_retry(self, response_body: Any, rule: dict, message: str) -> dict:
         """db_vs_jsonpath_equals 断言带重试。"""
         retry_count = int(rule.get("retry_count", 0))
         retry_interval = float(rule.get("retry_interval", 2))
@@ -138,10 +139,10 @@ class AssertionEngine:
             result = self._eval_db_vs_jsonpath(response_body, rule, message)
         return result
 
-    def _eval_db(self, rule_type: str, rule: Dict, message: str) -> Dict:
+    def _eval_db(self, rule_type: str, rule: dict, message: str) -> dict:
         sql = rule.get("sql", "")
         sql = self._inject_extracted(sql)
-        rows: Optional[List] = None
+        rows: list | None = None
         actual = None
         if self.db_client:
             try:
@@ -226,7 +227,7 @@ class AssertionEngine:
             pass
         return False
 
-    def _eval_db_vs_jsonpath(self, response_body: Any, rule: Dict, message: str) -> Dict:
+    def _eval_db_vs_jsonpath(self, response_body: Any, rule: dict, message: str) -> dict:
         """DB查询值 vs 响应JSON Path取值 相等断言。
 
         规则格式：
@@ -310,7 +311,7 @@ class AssertionEngine:
         return "unknown"
 
     @staticmethod
-    def _pack(passed: bool, rule_type: str, actual: Any, expected: Any, message: str) -> Dict:
+    def _pack(passed: bool, rule_type: str, actual: Any, expected: Any, message: str) -> dict:
         return {
             "pass": passed,
             "type": rule_type,

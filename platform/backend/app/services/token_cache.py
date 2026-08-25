@@ -18,17 +18,17 @@
 """
 import threading
 from collections import defaultdict
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 
 class EnvTokenCache:
     """环境级 token 缓存（线程安全，进程内）"""
 
-    _locks: Dict[int, threading.Lock] = defaultdict(threading.Lock)
-    _tokens: Dict[int, str] = {}
+    _locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
+    _tokens: dict[int, str] = {}
 
     @classmethod
-    def get(cls, env_id: int) -> Optional[str]:
+    def get(cls, env_id: int) -> str | None:
         """取缓存 token（无则 None），读无需加锁（GIL 下 dict 读原子）"""
         return cls._tokens.get(env_id)
 
