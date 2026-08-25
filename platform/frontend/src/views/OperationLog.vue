@@ -22,6 +22,7 @@
           <el-option label="用户" value="user" />
           <el-option label="接口分组" value="api_group" />
           <el-option label="用例分组" value="case_group" />
+          <el-option label="数据集" value="dataset" />
         </el-select>
         <el-button @click="resetFilter">重置</el-button>
         <el-button @click="load">刷新</el-button>
@@ -172,6 +173,7 @@ function targetTypeText(t: string) {
     user: '用户',
     api_group: '接口分组',
     case_group: '用例分组',
+    dataset: '数据集',
   }
   return map[t] || t
 }
