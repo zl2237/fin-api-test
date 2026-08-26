@@ -120,17 +120,22 @@ class HttpClient:
         if resp.status_code not in (200,):
             raise HttpStatusError(resp.status_code, full_url, resp_text)
 
-        # JSON解析失败
-        if resp_json is None:
+        # JSON解析失败 / 非对象 JSON（如 ThinkPHP 裸标量响应 "-404"、JSON 数组）
+        # 无法从中读业务码，与"解析失败"同等对待：原文交回上层（断言/调试展示）判定
+        if not isinstance(resp_json, dict):
             raise JsonParseError(full_url, resp_text)
 
-        # 业务码异常（启用，符合你的架构规划）
-        if resp_json.get("code") != 200:
+        # 业务码异常：仅当响应携带 code 且非 200 时判定（平台约定 {code:200}）。
+        # code 缺失/为 null（如 ThinkPHP 系统成功响应 {"code":null,...}）时无约定
+        # 可依，不视为业务失败，原样返回交断言裁决
+        code = resp_json.get("code")
+        if code is not None and code != 200:
             raise BusinessError(
-                code=resp_json.get("code"),
+                code=code,
                 msg=resp_json.get("msg", ""),
                 url=full_url,
-                resp_text=resp_text
+                resp_text=resp_text,
+                resp_json=resp_json
             )
 
         return resp_json

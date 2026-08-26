@@ -458,7 +458,8 @@ def debug_api(
         try:
             login(client, env)
         except Exception as e:
-            return _debug_response(api, method, {}, {}, 0, {"error": f"登录失败：{e}"}, started_at, start_ts, login_failed=True)
+            # login() 已包装"登录失败："前缀，此处只透传原文，避免双重前缀
+            return _debug_response(api, method, {}, {}, 0, {"error": str(e)}, started_at, start_ts, login_failed=True)
 
         # 构建请求体：body_override 优先，否则用 fields 组装
         if data.body_override is not None:

@@ -9,6 +9,8 @@
 """
 from types import SimpleNamespace
 
+import json
+
 import pytest
 from utils.exceptions import AuthError, BusinessError, HttpStatusError, HttpTimeoutError
 
@@ -53,6 +55,13 @@ class TestSendRequestDispatch:
         assert data == {"ok": 1}
         assert c.calls[0][0] == "get"
         assert c.calls[0][2] == {"a": 1}
+
+    def test_get_array_body_takes_first_dict_as_params(self):
+        """数组请求体 GET：params 取首元素，避免 list 传 requests.params 触发解包异常"""
+        c = StubClient(resp={"ok": 1})
+        code, _, err = send_request(None, c, _api("GET"), [{"a": 1, "b": 2}], timeout=7)
+        assert (code, err) == (200, None)
+        assert c.calls[0][2] == {"a": 1, "b": 2}
 
     def test_post_uses_json(self):
         c = StubClient()
@@ -116,11 +125,28 @@ class TestSendRequestErrorTaxonomy:
         assert code == 502
         assert "error" in data and err
 
-    def test_business_error_returns_200_with_code(self):
-        c = StubClient(exc=BusinessError(40001, "余额不足", "/order", "{}"))
+    def test_business_error_returns_200_with_real_body(self):
+        # 业务码异常：HTTP 200，响应体返回真实原文（调试展示/断言取值），error 保留说明
+        real = {"code": 40001, "msg": "余额不足", "data": {"id": 7}}
+        c = StubClient(exc=BusinessError(40001, "余额不足", "/order", json.dumps(real)))
         code, data, err = send_request(None, c, _api(), {})
         assert code == 200
-        assert data["code"] == 40001 and data["msg"] == "余额不足"
+        assert data == real
+        assert "40001" in err
+
+    def test_business_error_prefers_parsed_resp_json(self):
+        # resp_text 被截断时优先用已解析的完整 resp_json（如超 2000 字符的大响应）
+        real = {"code": None, "auth": {"c1": {"search_btn": True}}}
+        c = StubClient(exc=BusinessError(None, "", "/order", "截断的半截 JSON", resp_json=real))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 200
+        assert data == real
+
+    def test_business_error_non_json_body_falls_back_to_text(self):
+        c = StubClient(exc=BusinessError(40001, "x", "/order", "not json"))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 200
+        assert data == {"text": "not json"}
 
     @pytest.mark.parametrize("exc", [
         AuthError("/order", "未登录"),

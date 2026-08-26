@@ -134,3 +134,34 @@ class TestParseCurlToPreviews:
         previews, errors = parse_curl_to_previews(text)
         assert len(previews) == 0
         assert len(errors) >= 1
+
+    def test_backtick_wrapped_url_cleaned(self):
+        # markdown/聊天工具复制的 cURL，URL 外层常带成对反引号，应剥离后再解析
+        text = "curl --url '`http://host/api/login`' -H 'Content-Type: application/json' -d '{\"u\":1}'"
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        assert previews[0]["path"] == "/api/login"
+        assert previews[0]["url"] == "http://host/api/login"
+
+    def test_backtick_wrapped_bare_url_cleaned(self):
+        # 裸 URL 位置（无 --url）同样清洗
+        text = "curl '`http://host/api/list`'"
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        assert previews[0]["path"] == "/api/list"
+
+    def test_form_urlencoded_body_fields(self):
+        # x-www-form-urlencoded：按键值对拆解为 body 字段，键值 URL 解码
+        text = """curl --url 'http://host/admin/Home/Public/index' \\
+        -H 'Content-Type: application/x-www-form-urlencoded' \\
+        --data-raw 'data%5Busername%5D=yhxzl&data%5Bpassword%5D=zl179178%40%40%40&data%5Bremember%5D=0'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        p = previews[0]
+        assert p["method"] == "POST"
+        assert p["content_type"] == "application/x-www-form-urlencoded"
+        field_map = {f["key"]: f for f in p["fields"]}
+        assert field_map["data[username]"]["default_value"] == "yhxzl"
+        # %40 解码为 @
+        assert field_map["data[password]"]["default_value"] == "zl179178@@@"
+        assert field_map["data[remember]"]["default_value"] == "0"
