@@ -626,7 +626,7 @@ async function remove(d: DataSet) {
   try {
     await ElMessageBox.confirm(
       d.case_bound_count
-        ? `数据集已被所属用例绑定，请先在用例列表解绑后再删除`
+        ? `数据集已被所属用例绑定，请先在用例管理解绑后再删除`
         : `确认删除数据集「${d.name}」及其全部数据行？`,
       '删除数据集',
       { type: 'warning', showCancelButton: !d.case_bound_count, confirmButtonText: d.case_bound_count ? '知道了' : '删除' },

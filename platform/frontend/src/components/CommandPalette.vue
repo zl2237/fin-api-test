@@ -137,15 +137,15 @@ const results = computed<CmdItem[]>(() => {
     const score = scoreMatch(kw, item.title, item.sub)
     if (!kw || score >= 0) scored.push({ item, score })
   }
-  // 导航快捷项（首页置顶）
+  // 导航快捷项（首页置顶；顺序与侧边栏一致：工作流在前、准备项与管理沉底）
   const navs: { title: string; path: string }[] = [
     { title: '首页', path: '/home' },
     { title: '项目管理', path: '/projects' },
-    { title: '环境配置', path: '/envs' },
     { title: '接口管理', path: '/apis' },
-    { title: '用例列表', path: '/cases' },
+    { title: '用例管理', path: '/cases' },
     { title: '数据集', path: '/datasets' },
     { title: '执行记录', path: '/executions' },
+    { title: '环境配置', path: '/envs' },
     { title: '字段字典', path: '/dictionary' },
     { title: '文件中心', path: '/files' },
   ]

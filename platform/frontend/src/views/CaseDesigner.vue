@@ -513,7 +513,7 @@ watch(edges, () => { dirty.value = true }, { deep: true })
 
 async function onSave(): Promise<boolean> {
   if (!caseData.value.id) {
-    ElMessage.warning('请从用例列表进入编排')
+    ElMessage.warning('请从用例管理进入编排')
     return false
   }
   saving.value = true

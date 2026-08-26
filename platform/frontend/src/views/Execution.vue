@@ -66,7 +66,7 @@
       <el-table v-else :data="pagedList" stripe size="small" row-key="id">
         <template #empty>
           <EmptyState description="暂无执行记录" :image-size="80">
-            <el-button type="primary" @click="router.push('/cases')">前往用例列表执行用例</el-button>
+            <el-button type="primary" @click="router.push('/cases')">前往用例管理执行用例</el-button>
           </EmptyState>
         </template>
         <el-table-column prop="id" label="ID" width="70" />
