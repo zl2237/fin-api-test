@@ -42,6 +42,7 @@ class UserOut(ORMBase):
     has_avatar: bool = False
     phone: str | None = None
     email: str | None = None
+    department: str | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     created_by_name: str | None = None
@@ -59,6 +60,7 @@ class UserCreateRequest(BaseModel):
     password: str
     name: str | None = None
     role: str = "member"
+    department: str | None = Field(default=None, max_length=50)
 
 
 class UserRoleUpdate(BaseModel):
