@@ -1034,6 +1034,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Rows
+         * @description 数据集行导出 xlsx（与导入对偶）：表头=列 key，可直接整表导入回本数据集，
+         *     也可覆盖合并导入到同用例的其他数据集（同名列值覆盖）。
+         *     单资源导出用 path 参数风格（与 /reports/executions/{id}/export 一致）。
+         */
+        get: operations["export_rows_api_datasets__dataset_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/generate": {
         parameters: {
             query?: never;
@@ -1045,9 +1067,9 @@ export interface paths {
         put?: never;
         /**
          * Generate From Case
-         * @description 从用例生成数据集：写死请求参数各成一列 + 1 行原值快照（绑定即生效，改值即参数化）。
+         * @description 从用例生成数据集：写死请求参数各成一列 + 1 行原值快照（改值即参数化，动态绑定 ${} 字段除外）。
          *
-         *     返回 stats 说明收集结果（列数/冲突跳过字段/动态与嵌套计数），前端据此提示。
+         *     返回 stats 说明收集结果（列数/同名异值提示/动态与嵌套计数），前端据此提示。
          */
         post: operations["generate_from_case_api_datasets_generate_post"];
         delete?: never;
@@ -1096,6 +1118,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Drift
+         * @description 快照过期检测：数据集节点配置快照 vs 归属用例当前编排 的字段级差异清单。
+         *     执行确认弹窗据此提示（stale=true 时可引导一键 resync）。
+         */
+        get: operations["drift_api_datasets__dataset_id__drift_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/{dataset_id}": {
         parameters: {
             query?: never;
@@ -1138,6 +1181,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/{dataset_id}/rows/{row_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Row
+         * @description 复制行：原行数据追加为新行（row_index 顺延），便于改少数字段快速造近似数据
+         */
+        post: operations["copy_row_api_datasets__dataset_id__rows__row_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/{dataset_id}/rows/{row_id}": {
         parameters: {
             query?: never;
@@ -1151,6 +1214,48 @@ export interface paths {
         post?: never;
         /** Delete Row */
         delete: operations["delete_row_api_datasets__dataset_id__rows__row_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/datasets/{dataset_id}/merge-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Merge Preview
+         * @description 对比目标数据集（当前）与源数据集：按 api_id 配对相同节点，返回可覆盖列。
+         *
+         *     common_nodes 为空 = 没有相同节点，无覆盖的必要（前端据此提示）。
+         */
+        get: operations["merge_preview_api_datasets__dataset_id__merge_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/datasets/{dataset_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge From
+         * @description 覆盖合并：源数据集指定行的相同节点涉及列值，刷到目标数据集全部行。
+         */
+        post: operations["merge_from_api_datasets__dataset_id__merge_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1299,6 +1404,7 @@ export interface paths {
          *     后台线程池并行执行（并发上限 4，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
          *     数据驱动：绑定数据集的用例按数据行展开，展开条目与普通条目一并平铺提交；
          *     展开多条的用例失败聚合成一条通知。
+         *     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。
          */
         post: operations["batch_execute_api_testcases_batch_execute_post"];
         delete?: never;
@@ -2000,6 +2106,8 @@ export interface components {
             case_ids: number[];
             /** Env Id */
             env_id: number;
+            /** Counts */
+            counts?: number[] | null;
         };
         /** Body_import_rows_api_datasets__dataset_id__import_post */
         Body_import_rows_api_datasets__dataset_id__import_post: {
@@ -2157,6 +2265,8 @@ export interface components {
              * @default string
              */
             type: string;
+            /** Origin */
+            origin?: unknown;
         };
         /** DataSetCreate */
         DataSetCreate: {
@@ -2180,6 +2290,21 @@ export interface components {
             case_id: number;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * DataSetMergeRequest
+         * @description 覆盖合并：源数据集指定行的相同节点涉及列值刷到目标数据集全部行
+         */
+        DataSetMergeRequest: {
+            /** Source Dataset Id */
+            source_dataset_id: number;
+            /** Api Ids */
+            api_ids?: number[] | null;
+            /**
+             * Source Row Index
+             * @default 1
+             */
+            source_row_index: number;
         };
         /** DataSetOut */
         DataSetOut: {
@@ -3087,6 +3212,8 @@ export interface components {
              * @default member
              */
             role: string;
+            /** Department */
+            department?: string | null;
         };
         /**
          * UserInfoUpdate
@@ -3133,6 +3260,8 @@ export interface components {
             phone?: string | null;
             /** Email */
             email?: string | null;
+            /** Department */
+            department?: string | null;
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -5567,6 +5696,37 @@ export interface operations {
             };
         };
     };
+    export_rows_api_datasets__dataset_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_from_case_api_datasets_generate_post: {
         parameters: {
             query?: never;
@@ -5632,6 +5792,37 @@ export interface operations {
         };
     };
     resync_api_datasets__dataset_id__resync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drift_api_datasets__dataset_id__drift_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -5891,6 +6082,38 @@ export interface operations {
             };
         };
     };
+    copy_row_api_datasets__dataset_id__rows__row_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: number;
+                row_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSetRowOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_row_api_datasets__dataset_id__rows__row_id__put: {
         parameters: {
             query?: never;
@@ -5938,6 +6161,74 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_preview_api_datasets__dataset_id__merge_preview_get: {
+        parameters: {
+            query: {
+                source_dataset_id: number;
+            };
+            header?: never;
+            path: {
+                dataset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_from_api_datasets__dataset_id__merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSetMergeRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

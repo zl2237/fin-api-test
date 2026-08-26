@@ -10,7 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
-[![Tests](https://img.shields.io/badge/pytest-397_passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/pytest-610_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
@@ -48,7 +48,7 @@ npm install && npm run dev
 ```
 ┌─────────────────────────────────────────────────┐
 │        前端 Vue3 + Element Plus + Vue Flow        │
-│  views (15 页)  ←  composables (useGroupedTable) │
+│  views (18 页)  ←  composables (useGroupedTable) │
 │       │                    ↑ 复用分组/拖拽/勾选     │
 │       │ api/index.ts ← types/api.gen.ts (OpenAPI) │
 └──────────────────────────┬──────────────────────┘
@@ -58,11 +58,12 @@ npm install && npm run dev
 │  HTTP 语义 + 鉴权 + 审计日志（薄层，无业务逻辑）      │
 ├─────────────────────────────────────────────────┤
 │       数据访问层 crud/（按域拆分）                  │
-│  users · auth · executions · legacy(兼容导出)     │
+│  users · auth · executions · datasets · legacy   │
 ├─────────────────────────────────────────────────┤
 │                 服务层 services/                   │
 │  runtime · body_builder · request_sender          │
-│  spec_parser · report_export · notifier · files   │
+│  dataset_service · scheduler · spec_parser        │
+│  report_export · notifier · files                 │
 └──────────────────────────┬──────────────────────┘
                            │ 线程池异步执行
 ┌──────────────────────────▼──────────────────────┐
@@ -101,7 +102,7 @@ npm run gen:api    # platform/frontend 下执行：导出 schema → 生成 src/
 
 ```bash
 cd platform/backend
-python -m pytest tests/ -q          # 397 passed
+python -m pytest tests/ -q          # 610 passed
 python -m ruff check --select F platform/backend   # 与 CI backend-lint 同口径
 cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口径
 ```
@@ -113,6 +114,7 @@ cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口
 | 执行引擎 | `test_execute_node.py` | 单节点 9 步管线 + 分层守卫 |
 | 请求发送 | `test_request_sender.py` | 分发/multipart/异常分类 + 防平行实现守卫 |
 | crud 域 | `test_{users,auth,executions}_domain.py` | 登录锁定/首管理员/最后管理员保护等 |
+| 数据驱动 | `test_{dataset_generate,dataset_service,row_override,execution_expand}.py` | 参数收集/快照保真过滤/三级优先级/行展开 |
 | 报告导出 | `test_report_export.py` | CSV/HTML 契约 |
 | schema | `test_audit_mixin.py` | 审计字段继承 + Out 契约 |
 
