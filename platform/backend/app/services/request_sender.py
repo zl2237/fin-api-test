@@ -11,6 +11,8 @@ routers/apis.debug_api 内联），本模块归一为单一事实来源：
 """
 from typing import Any
 
+import json
+
 from utils.exceptions import (
     AuthError,
     BusinessError,
@@ -74,7 +76,12 @@ def send_request(db, client, api, body: Any,
     files_payload: list = []
     try:
         if api.method.upper() == "GET":
-            resp = client.get(api.path, params=body, timeout=timeout)
+            # 数组请求体（is_array_body）取首元素作 query 参数，
+            # 避免整个 list 传给 requests.params 触发 k-v 解包异常
+            params = body
+            if isinstance(body, list) and body and isinstance(body[0], dict):
+                params = body[0]
+            resp = client.get(api.path, params=params, timeout=timeout)
         elif file_fields:
             # 含文件字段：构建 multipart/form-data
             files_payload = build_multipart_files(db, file_fields)
@@ -106,7 +113,19 @@ def send_request(db, client, api, body: Any,
     except HttpStatusError as e:
         return e.status_code, {"error": str(e)}, str(e)
     except BusinessError as e:
-        return 200, {"code": e.code, "msg": e.msg, "error": str(e)}, str(e)
+        # HTTP 200 但业务码非 200（平台约定 {code:200}）：响应体仍是真实数据
+        # （如 ThinkPHP 系统成功响应 code:null），原样返回供调试展示与断言取值；
+        # error 保留业务码差异说明，通过与否仍由断言判定。
+        # 优先取已解析的 resp_json（resp_text 超 2000 字符会被截断致解析失败）
+        body = e.resp_json if isinstance(e.resp_json, dict) else None
+        if body is None:
+            try:
+                body = json.loads(e.resp_text) if e.resp_text else None
+            except Exception:
+                body = None
+        if not isinstance(body, dict):
+            body = {"text": (e.resp_text or "")[:2000]}
+        return 200, body, str(e)
     except JsonParseError as e:
         # HTTP 200 已收到，仅响应体非 JSON（HTML/纯文本等）：请求本身未失败，
         # 状态码保留 200，原文放 text 字段，通过与否交给断言判定
