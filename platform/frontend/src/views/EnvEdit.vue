@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="env-edit">
     <!-- 顶部工具栏 -->
     <div class="edit-header">
@@ -72,7 +72,7 @@
       <div class="card-section">
         <div class="section-title">
           登录配置
-          <span class="section-hint">用于获取 token，自动注入到后续请求 header</span>
+          <span class="section-hint">token 型登录后注入鉴权头；session 型登录后靠 Cookie 会话保持</span>
           <el-tooltip v-if="!isEdit" content="保存后可测试登录" placement="top">
             <el-button size="small" disabled>测试登录</el-button>
           </el-tooltip>
@@ -82,6 +82,20 @@
           <el-form-item label="登录接口路径">
             <el-input v-model="formData.login_config.login_path" placeholder="/api/home/login/userLogin" style="width: 380px" />
           </el-form-item>
+          <div class="form-row">
+            <el-form-item label="登录方式">
+              <el-radio-group v-model="formData.login_config.login_mode">
+                <el-radio value="token">Token 注入请求头</el-radio>
+                <el-radio value="session">Session Cookie</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="提交格式">
+              <el-radio-group v-model="formData.login_config.login_content_type">
+                <el-radio value="json">JSON</el-radio>
+                <el-radio value="form">表单 urlencoded</el-radio>
+              </el-radio-group>
+            </el-form-item>
+          </div>
           <el-form-item label="登录请求体">
             <KeyValueTable
               v-model="formData.login_config.login_body"
@@ -89,25 +103,60 @@
               value-placeholder="字段值"
               value-type="textarea"
             />
-          </el-form-item>
-          <div class="form-row">
-            <el-form-item label="Token JSONPath">
-              <el-input v-model="formData.login_config.token_jsonpath" placeholder="$.data.token" />
-            </el-form-item>
-            <el-form-item label="Header 名称">
-              <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
-            </el-form-item>
-          </div>
-          <el-form-item label="鉴权头值模板">
-            <el-input
-              v-model="formData.login_config.auth_header_value_template"
-              placeholder="${token}"
-              style="width: 380px"
-            />
-            <div class="form-hint">
-              支持 <code>${token}</code> 和 <code>${timestamp}</code> 占位符。例：<code>Bearer ${token}</code>、<code>${token}_${timestamp}</code>；留空则等价于 <code>${token}</code>
+            <div v-if="formData.login_config.login_content_type === 'form'" class="form-hint">
+              表单模式下键值按 urlencoded 提交；键可含中括号，如 <code>data[username]</code>
             </div>
           </el-form-item>
+
+          <div class="group-title">验证码自动识别<span>选填 · 两项都填才启用</span></div>
+          <div class="form-row">
+            <el-form-item label="验证码图片地址">
+              <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
+            </el-form-item>
+            <el-form-item label="验证码字段名">
+              <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
+            </el-form-item>
+          </div>
+          <div class="group-hint">
+            登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试（默认 3 次）。需后端安装 ddddocr
+          </div>
+
+          <template v-if="formData.login_config.login_mode === 'token'">
+            <div class="group-title">Token 注入<span>Token 模式专属</span></div>
+            <div class="form-row">
+              <el-form-item label="Token JSONPath">
+                <el-input v-model="formData.login_config.token_jsonpath" placeholder="$.data.token" />
+              </el-form-item>
+              <el-form-item label="Header 名称">
+                <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
+              </el-form-item>
+            </div>
+            <el-form-item label="鉴权头值模板">
+              <el-input
+                v-model="formData.login_config.auth_header_value_template"
+                placeholder="${token}"
+                style="width: 380px"
+              />
+              <div class="form-hint">
+                支持 <code>${token}</code> 和 <code>${timestamp}</code> 占位符。例：<code>Bearer ${token}</code>、<code>${token}_${timestamp}</code>；留空则等价于 <code>${token}</code>
+              </div>
+            </el-form-item>
+          </template>
+          <template v-else>
+            <div class="group-title">登录成功校验<span>Session 模式专属 · 选填</span></div>
+            <div class="form-row">
+              <el-form-item label="成功校验路径">
+                <el-input v-model="formData.login_config.login_check_jsonpath" placeholder="$.code" />
+              </el-form-item>
+              <el-form-item label="期望值">
+                <el-input v-model="formData.login_config.login_check_value" placeholder="success" />
+              </el-form-item>
+            </div>
+            <div class="group-hint">
+              两项都填才生效：响应中该路径的值等于期望值才算登录成功，留空仅校验 HTTP 200。
+              登录成功后 Cookie 自动保持到该环境的后续请求
+            </div>
+          </template>
         </el-form>
       </div>
 
@@ -197,9 +246,15 @@ interface EnvFormData {
   login_config: {
     login_path: string
     login_body: Record<string, any>
+    login_mode: string
+    login_content_type: string
     token_jsonpath: string
     auth_header_name: string
     auth_header_value_template: string
+    login_check_jsonpath: string
+    login_check_value: string
+    captcha_url: string
+    captcha_field: string
   }
   notify_config: {
     wecom_webhook: string
@@ -219,9 +274,15 @@ const formData = reactive<EnvFormData>({
   login_config: {
     login_path: '/api/home/login/userLogin',
     login_body: {},
+    login_mode: 'token',
+    login_content_type: 'json',
     token_jsonpath: '$.data.token',
     auth_header_name: 'Authorization',
     auth_header_value_template: '${token}',
+    login_check_jsonpath: '',
+    login_check_value: '',
+    captcha_url: '',
+    captcha_field: '',
   },
   notify_config: {
     wecom_webhook: '',
@@ -258,9 +319,15 @@ async function loadEnv() {
   formData.login_config = {
     login_path: lc.login_path || oldVars.login_path || '/api/home/login/userLogin',
     login_body: lc.login_body || oldVars.login_body || {},
+    login_mode: lc.login_mode || 'token',
+    login_content_type: lc.login_content_type || 'json',
     token_jsonpath: lc.token_jsonpath || oldVars.token_jsonpath || '$.data.token',
     auth_header_name: lc.auth_header_name || oldVars.auth_header_name || 'Authorization',
     auth_header_value_template: lc.auth_header_value_template || '${token}',
+    login_check_jsonpath: lc.login_check_jsonpath || '',
+    login_check_value: lc.login_check_value || '',
+    captcha_url: lc.captcha_url || '',
+    captcha_field: lc.captcha_field || '',
   }
   // notify_config（兼容旧数据：wecom_webhook 从 variables 迁移）
   const nc = env.notify_config || {}
@@ -486,6 +553,33 @@ function onKeydown(e: KeyboardEvent) {
 .form-hint {
   margin-left: 12px;
   font-size: 12px;
+  color: var(--app-text-muted);
+}
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.group-title::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--app-primary);
+}
+.group-title span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted);
+}
+.group-hint {
+  margin: -4px 0 4px 132px;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--app-text-muted);
 }
 </style>
