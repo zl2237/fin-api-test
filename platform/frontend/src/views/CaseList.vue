@@ -81,6 +81,8 @@
             v-if="hasChildGroups(row.groupId)"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
+            title="展开/折叠子分组"
+            @click.stop="onToggleGroup(row)"
           ><CaretRight /></el-icon>
           <span v-else class="expand-spacer" />
           <span class="side-name">{{ row.name }}</span>
@@ -180,9 +182,9 @@
             <span class="group-count">{{ selectedRow.isUngrouped ? casesOf(null).length : countCasesWithDescendants(selectedRow.groupId!) }}</span>
           </div>
           <el-table
-            v-if="casesOf(selectedRow!.groupId).length"
-            :ref="(el: any) => setTableRef(selectedRow!.key, el)"
-            :data="pagedDataMap[String(selectedRow!.key)]"
+            v-if="selectedCases.length"
+            :ref="(el: any) => setTableRef(selectedRow?.key, el)"
+            :data="selectedPaged"
             size="small"
             stripe
             row-key="id"
@@ -191,7 +193,8 @@
             <el-table-column type="selection" width="42" :reserve-selection="true" />
             <el-table-column width="36" align="center">
               <template #default>
-                <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+                <!-- 父分组视图是跨组聚合列表，顺序无持久化语义，不提供拖拽 -->
+                <el-icon v-if="!isSubtreeView" class="drag-handle" title="拖拽排序"><Rank /></el-icon>
               </template>
             </el-table-column>
             <el-table-column prop="id" label="ID" width="70" />
@@ -233,13 +236,13 @@
             </el-table-column>
           </el-table>
           <el-empty v-else-if="!loading" :image-size="80" description="该分组暂无用例" />
-          <div v-if="casesOf(selectedRow!.groupId).length" class="pagination-wrap">
+          <div v-if="selectedCases.length" class="pagination-wrap">
             <el-pagination
               small
               background
               :current-page="pageMap[String(selectedRow!.key)] || 1"
               :page-size="pageSize"
-              :total="casesOf(selectedRow!.groupId).length"
+              :total="selectedCases.length"
               :page-sizes="[10, 20, 50, 100]"
               layout="total, sizes, prev, pager, next"
               @current-change="(p: number) => onPageChange(selectedRow!.key, p)"
@@ -506,6 +509,18 @@
         <el-icon style="color: var(--el-color-warning)"><WarningFilled /></el-icon>
         该用例绑定了数据集，<b>{{ ddSelectedRows.length }} 行数据将执行 {{ ddSelectedRows.length }} 次</b>（并行，并发上限 4）
       </div>
+      <!-- 快照过期提示：数据集节点配置快照与用例当前编排不一致（执行按快照跑，先同步再执行） -->
+      <el-alert v-if="ddDrift?.stale" type="warning" :closable="false" class="drift-alert">
+        <template #title>
+          数据集快照已过期：{{ ddDrift.nodes.length }} 个节点编排与用例当前不一致（执行按快照跑）
+          <el-button link type="primary" size="small" :loading="ddResyncing" style="margin-left: 8px" @click="resyncFromDialog">
+            一键同步（取用例当前编排）
+          </el-button>
+        </template>
+        <div v-for="n in ddDrift.nodes" :key="n.node_id" class="drift-node">
+          <b>{{ n.label }}</b>：{{ n.changes.join('；') }}
+        </div>
+      </el-alert>
       <el-select v-model="ddDatasetId" style="width: 260px; margin-bottom: 10px" @change="onDdDatasetChange">
         <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.rows?.length ?? 0} 行）`" :value="d.id" />
       </el-select>
@@ -548,7 +563,7 @@ import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } fro
 import { caseApi, caseGroupApi, execApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
-import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
@@ -589,7 +604,6 @@ const {
   countWithDescendants: countCasesWithDescendants,
   visibleGroupRows,
   onToggleGroup,
-  pagedDataMap,
   pageSize,
   pageMap,
   onPageChange,
@@ -610,11 +624,30 @@ function hasChildGroups(groupId: number | null): boolean {
   if (groupId == null) return false
   return groups.value.some(g => g.parent_id === groupId)
 }
-// 单击整行：父节点（有子分组）= 切换展开/折叠（树导航语义，与 caret 一致）；叶子 = 选中该组
+// 单击整行 = 选中该组（父/叶子一致，右侧展示组内用例）；caret 单击 = 展开/折叠子分组
 function onSideNodeClick(row: { key: string | number; groupId: number | null; isUngrouped?: boolean }) {
-  if (hasChildGroups(row.groupId)) onToggleGroup(row as any)
-  else selectedRowKey.value = row.key
+  selectedRowKey.value = row.key
 }
+// 父分组（有子分组）视图：右侧按计数徽章同口径展示子孙分组全部用例
+const isSubtreeView = computed(() => {
+  const row = selectedRow.value
+  return !!row && !row.isUngrouped && hasChildGroups(row.groupId)
+})
+const selectedCases = computed<TestCase[]>(() => {
+  const row = selectedRow.value
+  if (!row) return []
+  if (row.isUngrouped || row.groupId == null) return casesOf(null)
+  if (hasChildGroups(row.groupId)) {
+    const ids = [row.groupId, ...collectDescendantIds(tree.value, row.groupId)]
+    return filteredList.value.filter(c => c.group_id != null && ids.includes(c.group_id))
+  }
+  return casesOf(row.groupId)
+})
+const selectedPaged = computed(() => {
+  const page = pageMap.value[String(selectedRow.value?.key)] || 1
+  const start = (page - 1) * pageSize.value
+  return selectedCases.value.slice(start, start + pageSize.value)
+})
 // 分组重载/删除后选中项可能消失，回退到「全部」
 watch(visibleGroupRows, (rows) => {
   if (selectedRowKey.value !== 'all' && !rows.some(r => r.key === selectedRowKey.value)) {
@@ -666,8 +699,8 @@ function clearAllTables() {
 // ===== 组内拖拽排序（SortableJS 绑定 el-table tbody）=====
 const sortableInstances = new Map<string | number, any>()
 
-function setTableRef(groupId: string | number, el: any) {
-  if (el) {
+function setTableRef(groupId: string | number | undefined, el: any) {
+  if (el && groupId != null) {
     tableRefs.set(groupId, el)
     nextTick(() => {
       const tbody = el.$el?.querySelector?.('.el-table__body-wrapper tbody')
@@ -682,14 +715,20 @@ function setTableRef(groupId: string | number, el: any) {
       })
       sortableInstances.set(groupId, inst)
     })
-  } else {
-    tableRefs.delete(groupId)
-    const old = sortableInstances.get(groupId)
-    if (old) { old.destroy(); sortableInstances.delete(groupId) }
+  } else if (!el) {
+    // 卸载：ref(null) 触发时 selectedRowKey 已切走（如回「全部」），旧 key 不可知；
+    // 分组视图同一时刻仅一个表格实例，直接清空即可。
+    // 注意不能在此读取 selectedRow!.key —— 卸载时它是 undefined，会抛 TypeError 中断 patch，
+    // 导致右侧列表冻结在旧分组（分组切回全部后不再变化的根因）。
+    tableRefs.clear()
+    sortableInstances.forEach((inst) => inst.destroy())
+    sortableInstances.clear()
   }
 }
 
 async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
+  // 父分组视图无拖拽把手（跨组聚合列表），守卫兜底防 Sortable 残留实例触发
+  if (isSubtreeView.value) return
   try {
     const applied = await applyPageDragReorder(groupId, oldIndex, newIndex, (items) => caseApi.reorder(items))
     if (applied) ElMessage.success('已保存')
@@ -1192,6 +1231,35 @@ async function applyDdDataset() {
   ddRows.value = (ds?.rows as any[]) || []
   ddColumns.value = (ds?.columns as any[]) || []
   ddSelectedRows.value = ddRows.value
+  checkDdDrift()
+}
+
+// 快照过期检测：执行按快照跑，与用例当前编排不一致时在弹窗内提示并支持一键同步
+const ddDrift = ref<{ stale: boolean; nodes: { node_id: string; label: string; changes: string[] }[] } | null>(null)
+const ddResyncing = ref(false)
+
+async function checkDdDrift() {
+  ddDrift.value = null
+  if (!ddDatasetId.value) return
+  try {
+    ddDrift.value = await datasetApi.drift(ddDatasetId.value)
+  } catch {
+    // 检测失败不阻断执行流程
+  }
+}
+
+async function resyncFromDialog() {
+  if (!ddDatasetId.value) return
+  ddResyncing.value = true
+  try {
+    await datasetApi.resync(ddDatasetId.value)
+    ElMessage.success('已同步用例当前编排到数据集快照')
+    await checkDdDrift()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '同步失败')
+  } finally {
+    ddResyncing.value = false
+  }
 }
 
 async function onDdDatasetChange() {
@@ -1502,6 +1570,7 @@ function onGlobalKey(e: KeyboardEvent) {
 .expand-icon {
   font-size: 14px;
   color: var(--app-text-muted);
+  cursor: pointer; /* caret 单击展开/折叠（与整行选中分离） */
   transition: transform 0.18s ease;
 }
 .expand-icon.expanded {
@@ -1750,6 +1819,13 @@ function onGlobalKey(e: KeyboardEvent) {
   font-size: 13px;
   margin-bottom: 12px;
   line-height: 1.6;
+}
+.drift-alert {
+  margin-bottom: 10px;
+}
+.drift-node {
+  font-size: 12px;
+  line-height: 1.8;
 }
 .bind-empty {
   margin-top: 10px;

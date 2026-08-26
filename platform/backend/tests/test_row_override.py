@@ -1,8 +1,13 @@
-"""PreProcessor 行值覆盖 set_field（数据驱动：绑定即生效，节点配置零修改）。
+"""PreProcessor 三级取值优先级（引擎定案）。
 
-语义（spec 增补）：数据集行值按列名自动覆盖前置处理 set_field 的同名字段——
-- 列名 == set_field 完整 path（顶层字段）：行值直接覆盖，原值（字面量/生成函数/${context.x}）不执行
-- 列名不匹配：原逻辑不变（表达式求值）
+请求体参数取值：数据集行值(1) > 用例编排 set_field(2) > 接口字段默认值(3)。
+动态绑定例外：数据集 = 除动态绑定（值为 ${} 表达式：上游提取注入/生成函数）外
+的所有字段集合——表达式照常求值，行值同名列不压制。
+
+- 列名 == set_field 完整 path（顶层）且值为字面量：行值直接生效（优先级 1）
+- 嵌套 path 顶层段 == 列名（行值已整块替换该对象）且值为字面量：写入跳过（防盖回行值）
+- 值含 ${}（动态绑定）：表达式求值，优先级 2 生效，行值不压制
+- 列名不匹配 / 行值为空（单元格未配置）：原逻辑不变（表达式求值或字面量）
 - iterate_set / delete_field 不受影响
 """
 from app.engine.preprocessor import PreProcessor
@@ -21,23 +26,24 @@ class TestRowVarsOverride:
         )
         assert body["voy"] == "MY-VOYAGE"
 
-    def test_expression_value_not_evaluated_when_overridden(self):
-        """原值为生成函数表达式时也不执行，直接用行值"""
+    def test_dynamic_generate_not_suppressed_by_row(self):
+        """动态绑定（生成函数）不被行值压制：表达式照常求值（三级优先级例外）"""
         pp = self._mk({"bl_no": "ROW001"})
         body = pp.process(
             {},
             [{"type": "set_field", "path": "bl_no", "value": "${generate_bl_no(prefix='smoke')}"}],
         )
-        assert body["bl_no"] == "ROW001"
+        assert body["bl_no"].startswith("smoke")
+        assert body["bl_no"] != "ROW001"
 
-    def test_context_ref_value_overridden_by_row(self):
-        """${context.x} 引用同样被行值覆盖（下游节点不必改配置）"""
-        pp = self._mk({"bl_no": "ROW002"})
+    def test_dynamic_context_ref_not_suppressed_by_row(self):
+        """动态绑定（${context.x} 上游提取注入）不被行值压制：取上下文池的值"""
+        pp = PreProcessor({"extracted": {"bl_no": "PREV"}}, row_vars={"bl_no": "ROW002"})
         body = pp.process(
-            {"bl_no": "PREV"},
+            {},
             [{"type": "set_field", "path": "bl_no", "value": "${context.bl_no}"}],
         )
-        assert body["bl_no"] == "ROW002"
+        assert body["bl_no"] == "PREV"
 
     def test_no_row_var_keeps_original(self):
         """列名不匹配 → 原逻辑（表达式求值）"""
@@ -57,16 +63,61 @@ class TestRowVarsOverride:
         )
         assert body["a"]["b"] == "old"
 
+    def test_nested_literal_under_row_column_skipped(self):
+        """嵌套字面量写入落在行值整块替换的对象下 → 跳过（快照残留防盖回行值）。
+
+        场景：数据集列 to_customer 整对象行值覆盖后，快照 pre_process 里
+        生成期的字面量 set_field to_customer.xxx.yyy 不得再改写它"""
+        pp = self._mk({"to_customer": {"put_amount": {"standard_list": [{"policy_sub_id": "460"}]}}})
+        body = pp.process(
+            {"to_customer": {"put_amount": {"standard_list": [{"policy_sub_id": "460"}]}}},
+            [{"type": "set_field", "path": "to_customer.put_amount.standard_list.0.policy_sub_id",
+              "value": "343613802069098496"}],
+        )
+        assert body["to_customer"]["put_amount"]["standard_list"][0]["policy_sub_id"] == "460"
+
+    def test_nested_expression_under_row_column_still_runs(self):
+        """嵌套 ${} 表达式写入不受行值覆盖影响（运行时注入仍执行）"""
+        pp = PreProcessor({"extracted": {"order_id": "OID-1"}},
+                          row_vars={"to_customer": {"remark": "row"}})
+        body = pp.process(
+            {"to_customer": {"remark": "row"}},
+            [{"type": "set_field", "path": "to_customer.order_id", "value": "${context.order_id}"}],
+        )
+        assert body["to_customer"]["order_id"] == "OID-1"
+        assert body["to_customer"]["remark"] == "row"
+
+    def test_nested_literal_under_non_row_column_kept(self):
+        """嵌套字面量顶层段不是行列 → 原逻辑不变（正常写入）"""
+        pp = self._mk({"other": "x"})
+        body = pp.process(
+            {"to_customer": {"policy_sub_id": "old"}},
+            [{"type": "set_field", "path": "to_customer.policy_sub_id", "value": "NEW"}],
+        )
+        assert body["to_customer"]["policy_sub_id"] == "NEW"
+
     def test_override_syncs_to_extracted_pool(self):
-        """覆盖后的行值同步进上下文池（下游 ${xxx} 引用拿到行值）"""
+        """行值覆盖后（字面量 set_field 让位）同步进上下文池（下游 ${xxx} 拿到行值）"""
         pp = self._mk({"bl_no": "ROW003"})
         extracted = {}
         pp.process(
             {},
-            [{"type": "set_field", "path": "bl_no", "value": "${generate_bl_no()}"}],
+            [{"type": "set_field", "path": "bl_no", "value": "CFG-LITERAL"}],
             extracted,
         )
         assert extracted["bl_no"] == "ROW003"
+
+    def test_dynamic_eval_syncs_to_extracted_pool(self):
+        """动态绑定求值结果同步进上下文池（行值同名列不压制）"""
+        pp = PreProcessor({"extracted": {"order_id": "OID-9"}},
+                          row_vars={"order_id": "ROW-9"})
+        extracted = {}
+        pp.process(
+            {},
+            [{"type": "set_field", "path": "order_id", "value": "${order_id}"}],
+            extracted,
+        )
+        assert extracted["order_id"] == "OID-9"
 
     def test_expr_ref_row_var_still_works(self):
         """既有机制不变：value 里显式 ${列名} 引用行值（列名 != path）。
@@ -86,6 +137,27 @@ class TestRowVarsOverride:
             [{"type": "set_field", "path": "voy", "value": "LITERAL"}],
         )
         assert body["voy"] == "LITERAL"
+
+    def test_empty_row_value_falls_back_to_expression(self):
+        """空值列（None/""，单元格未配置）不拦截：set_field 恢复表达式求值。
+
+        场景：数据集误含 audit_ids 列且清空后，[${audit_id}] 注入应正常执行"""
+        pp = PreProcessor({"extracted": {"audit_id": "350514100771487744"}},
+                          row_vars={"audit_ids": "", "unused": None})
+        body = pp.process(
+            {"audit_ids": ["旧值"]},
+            [{"type": "set_field", "path": "audit_ids", "value": "[${audit_id}]"}],
+        )
+        assert body["audit_ids"] == "[350514100771487744]"
+
+    def test_zero_row_value_still_overrides(self):
+        """0 是有效值不是空值，照常覆盖（边界：bool/int 语义）"""
+        pp = self._mk({"import_status": 0})
+        body = pp.process(
+            {"import_status": 1},
+            [{"type": "set_field", "path": "import_status", "value": 1}],
+        )
+        assert body["import_status"] == 0
 
 
 class TestApiDefaultOverride:
@@ -124,3 +196,13 @@ class TestApiDefaultOverride:
         )
         assert body["order_id"] == "${order_id}"
         assert body["voy"] == "NEW"
+
+    def test_empty_row_value_not_overridden(self):
+        """空值单元格（None/""）= 未配置：不覆盖，沿用字段默认值"""
+        from app.services.body_builder import apply_row_overrides
+        body = apply_row_overrides(
+            {"audit_ids": ["343317004406489088"], "import_status": 0},
+            {"audit_ids": "", "import_status": None, "voy": ""},
+        )
+        assert body["audit_ids"] == ["343317004406489088"]
+        assert body["import_status"] == 0

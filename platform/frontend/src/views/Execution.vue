@@ -100,9 +100,22 @@
             <el-tooltip
               v-if="row.dataset_row"
               placement="top"
+              popper-class="ds-row-popper"
             >
               <template #content>
-                <div v-for="(v, k) in row.dataset_row.data" :key="k">{{ k }} = {{ v }}</div>
+                <div class="ds-row-detail">
+                  <template v-if="dsRowItems(row.dataset_row.data).length">
+                    <div
+                      v-for="[k, v] in dsRowItems(row.dataset_row.data)"
+                      :key="k"
+                      class="ds-row-item"
+                    >
+                      <span class="ds-row-key">{{ k }}</span>
+                      <span class="ds-row-val">{{ formatDsVal(v) }}</span>
+                    </div>
+                  </template>
+                  <div v-else class="ds-row-empty">该行所有字段均为空</div>
+                </div>
               </template>
               <!-- el-tooltip 默认插槽只渲染单个触发元素：tag+行号需包一层，否则 ds-row-label 被丢弃 -->
               <span class="ds-row-wrap">
@@ -292,6 +305,16 @@ function statusText(s: string) {
   return s === 'success' ? '通过' : s === 'running' ? '执行中' : '失败'
 }
 
+// 数据行快照 tooltip：只展示已配置字段（数据集动辄上百列，空单元格无展示意义）
+function dsRowItems(data: Record<string, any>): [string, any][] {
+  return Object.entries(data || {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
+}
+// 对象/数组序列化为紧凑 JSON，避免 [object Object]
+function formatDsVal(v: any): string {
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
 // 自动刷新：列表存在 running 记录时轮询，全部结束后停止
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 const REFRESH_INTERVAL = 3000
@@ -458,5 +481,47 @@ onUnmounted(() => {
 }
 .ds-row-none {
   color: var(--app-text-muted);
+}
+</style>
+
+<style>
+/* 数据行 tooltip（popper 挂 body，不能 scoped）：限宽限高 + 内部滚动，长值截断 */
+.ds-row-popper.el-popper {
+  max-width: 420px;
+}
+.ds-row-popper .ds-row-detail {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ds-row-popper .ds-row-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ds-row-popper .ds-row-key {
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c0c4cc;
+}
+.ds-row-popper .ds-row-val {
+  color: inherit;
+  word-break: break-all;
+  /* 超长值（如整对象列的 JSON）最多 3 行，超出截断 */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ds-row-popper .ds-row-empty {
+  font-size: 12px;
+  color: #c0c4cc;
 }
 </style>

@@ -145,6 +145,7 @@ class TestRunScheduleJob:
             return SimpleNamespace(id=len(created) + 100)
 
         def fake_submit(case_id, env_id, record_id, row_vars=None,
+                        row_origins=None,
                         node_config_overrides=None, suppress_notify=False):
             submitted.append((case_id, env_id, record_id, suppress_notify))
 
