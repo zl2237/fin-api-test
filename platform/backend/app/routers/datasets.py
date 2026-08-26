@@ -57,12 +57,12 @@ def list_datasets(case_id: int | None = None, project_id: int | None = None, wit
     return out
 
 
-@router.get("/export")
+@router.get("/{dataset_id}/export")
 def export_rows(dataset_id: int, db: Session = Depends(get_db),
                 user: models.User = Depends(get_current_user)):
     """数据集行导出 xlsx（与导入对偶）：表头=列 key，可直接整表导入回本数据集，
     也可覆盖合并导入到同用例的其他数据集（同名列值覆盖）。
-    注意：此路由需在 /{dataset_id} 之前注册，否则 GET /export 会被 path 参数拦截。"""
+    单资源导出用 path 参数风格（与 /reports/executions/{id}/export 一致）。"""
     from datetime import datetime
     from urllib.parse import quote
 

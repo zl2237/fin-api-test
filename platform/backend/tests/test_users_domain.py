@@ -73,13 +73,15 @@ class TestCreateUser:
 
     def test_create_hashes_password_and_defaults_role(self):
         db = FakeDb(first_results=[None])
-        req = SimpleNamespace(username="newbie", password="abc12345", name="", role="hacker")
+        req = SimpleNamespace(username="newbie", password="abc12345", name="", role="hacker", department=" 测试部 ")
         user = users_domain.create_user(db, req, operator=_admin())
         assert user.username == "newbie"
         # 密码哈希而非明文
         assert user.password_hash != "abc12345"
         # 非法角色回退 member
         assert user.role == "member"
+        # 部门随创建写入并去空白
+        assert user.department == "测试部"
         assert db.added and db.committed >= 1
 
 

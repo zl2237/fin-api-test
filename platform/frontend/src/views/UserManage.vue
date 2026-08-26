@@ -298,6 +298,7 @@ function openCreate() {
   createForm.name = ''
   createForm.password = ''
   createForm.role = 'member'
+  createForm.department = ''
   createVisible.value = true
 }
 
@@ -312,6 +313,7 @@ async function onCreate() {
         password: createForm.password,
         name: createForm.name.trim() || undefined,
         role: createForm.role,
+        department: (createForm.department || '').trim() || undefined,
       })
       ElMessage.success('已创建')
       createVisible.value = false
