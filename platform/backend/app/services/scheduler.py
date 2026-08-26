@@ -252,6 +252,7 @@ def _run_schedule_job(schedule_id: int) -> None:
                                       dataset_id=item["dataset_id"], dataset_row=item["row"])
             submit_execution(schedule.case_id, schedule.env_id, record.id,
                              row_vars=(item["row"] or {}).get("data"),
+                             row_origins=item.get("origins"),
                              node_config_overrides=item["overrides"], suppress_notify=aggregate)
             group_ids.append(record.id)
         if aggregate:

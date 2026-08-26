@@ -693,6 +693,10 @@ class DataSetColumnIn(BaseModel):
     """列定义：key 即执行时变量名（校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）"""
     key: str
     type: str = "string"  # string/int/bool/array/object
+    # 快照原值（从用例生成的列携带）：执行时快照保真的比对基准
+    # （同名异值列只作用于"节点配置值 == origin"的节点）；手工列/用户不传则为空
+    origin: Any = None
+    model_config = {"extra": "ignore"}
 
 
 class DataSetCreate(BaseModel):
@@ -744,6 +748,13 @@ class DataSetRowCreate(BaseModel):
 class DataSetRowsReplace(BaseModel):
     """批量保存（表格整页保存）：整体替换，row_index 由后端重排"""
     rows: list[dict[str, Any]]
+
+
+class DataSetMergeRequest(BaseModel):
+    """覆盖合并：源数据集指定行的相同节点涉及列值刷到目标数据集全部行"""
+    source_dataset_id: int
+    api_ids: list[int] | None = None  # 不传=全部相同节点
+    source_row_index: int = 1
 
 
 # ============ 轻量契约（原裸 dict 出参） ============

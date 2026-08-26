@@ -428,6 +428,7 @@ export const scheduleApi = {
 // ============ DataSet 数据集（数据驱动测试，用例私有 1:N） ============
 export interface DataSetColumn {
   key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object'  // 中文名实时引用字段字典，缺失显 key
+  origin?: any  // 快照原值（生成列携带）：执行时快照保真比对基准，手工列无
 }
 export interface DataSetNodeConfig {  // 节点配置快照（只读，手动重新同步）
   node_id: string; api_id?: number | null
@@ -459,6 +460,9 @@ export const datasetApi = {
   // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）
   resync: (id: number) =>
     http.post<{ message: string; nodes: number }>(`/datasets/${id}/resync`).then((r) => r.data),
+  // 快照过期检测：节点配置快照 vs 用例当前编排 的字段级差异
+  drift: (id: number) =>
+    http.get<{ stale: boolean; nodes: { node_id: string; label: string; changes: string[] }[] }>(`/datasets/${id}/drift`).then((r) => r.data),
   // 从用例生成：收集用例全部写死请求参数各成一列 + 1 行原值快照
   generate: (caseId: number, name?: string) =>
     http.post<{
@@ -484,6 +488,16 @@ export const datasetApi = {
     return http.post<{ preview: boolean; count: number; rows?: Record<string, any>[]; warnings: string[] }>(
       `/datasets/${id}/import`, form, { params: { preview } }).then((r) => r.data)
   },
+  // 行导出 xlsx（与导入对偶：表头=列 key，object/array 为 JSON 字符串）
+  exportRows: (id: number) =>
+    http.get<Blob>(`/datasets/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
+  // 数据集间对比：按 api_id 配对相同节点，返回可覆盖列（空=无覆盖必要）
+  mergePreview: (id: number, sourceId: number) =>
+    http.get<{ source: { id: number; name: string; rows: number; row_labels: string[] }; common_nodes: { api_id: number; api_name: string; columns: string[] }[]; columns_total: number }>(
+      `/datasets/${id}/merge-preview`, { params: { source_dataset_id: sourceId } }).then((r) => r.data),
+  // 覆盖合并：源数据集指定行的相同节点涉及列值刷到目标全部行
+  merge: (id: number, data: { source_dataset_id: number; api_ids?: number[]; source_row_index?: number }) =>
+    http.post<{ message: string; rows: number; columns: number; keys: string[] }>(`/datasets/${id}/merge`, data).then((r) => r.data),
 }
 
 // ============ ProjectVersion 项目版本 ============

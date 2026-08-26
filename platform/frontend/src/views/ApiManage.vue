@@ -83,6 +83,8 @@
             v-if="hasChildGroups(row.groupId)"
             class="expand-icon"
             :class="{ expanded: isGroupExpanded(row.groupId!) }"
+            title="展开/折叠子分组"
+            @click.stop="onToggleGroup(row)"
           ><CaretRight /></el-icon>
           <span v-else class="expand-spacer" />
           <span class="side-name">{{ row.name }}</span>
@@ -171,9 +173,9 @@
             <span class="group-count">{{ selectedRow.isUngrouped ? apisOf(null).length : countApisWithDescendants(selectedRow.groupId!) }}</span>
           </div>
           <el-table
-            v-if="apisOf(selectedRow!.groupId).length"
-            :ref="(el: any) => setTableRef(selectedRow!.key, el)"
-            :data="pagedDataMap[String(selectedRow!.key)]"
+            v-if="selectedApis.length"
+            :ref="(el: any) => setTableRef(selectedRow?.key, el)"
+            :data="selectedPaged"
             size="small"
             stripe
             row-key="id"
@@ -182,7 +184,8 @@
             <el-table-column type="selection" width="42" :reserve-selection="true" />
             <el-table-column width="36" align="center">
               <template #default>
-                <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+                <!-- 父分组视图是跨组聚合列表，顺序无持久化语义，不提供拖拽 -->
+                <el-icon v-if="!isSubtreeView" class="drag-handle" title="拖拽排序"><Rank /></el-icon>
               </template>
             </el-table-column>
             <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip />
@@ -513,7 +516,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { Rank, Upload, Folder, Search, CaretRight, WarningFilled, ArrowDown } from '@element-plus/icons-vue'
-import { useGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
@@ -552,7 +555,6 @@ const {
   countWithDescendants: countApisWithDescendants,
   visibleGroupRows,
   onToggleGroup,
-  pagedDataMap,
   pageSize,
   pageMap,
   onPageChange,
@@ -573,11 +575,30 @@ function hasChildGroups(groupId: number | null): boolean {
   if (groupId == null) return false
   return groups.value.some(g => g.parent_id === groupId)
 }
-// 单击整行：父节点（有子分组）= 切换展开/折叠（树导航语义，与 caret 一致）；叶子 = 选中该组
+// 单击整行 = 选中该组（父/叶子一致，右侧展示组内接口）；caret 单击 = 展开/折叠子分组
 function onSideNodeClick(row: { key: string | number; groupId: number | null; isUngrouped?: boolean }) {
-  if (hasChildGroups(row.groupId)) onToggleGroup(row as any)
-  else selectedRowKey.value = row.key
+  selectedRowKey.value = row.key
 }
+// 父分组（有子分组）视图：右侧按计数徽章同口径展示子孙分组全部接口
+const isSubtreeView = computed(() => {
+  const row = selectedRow.value
+  return !!row && !row.isUngrouped && hasChildGroups(row.groupId)
+})
+const selectedApis = computed<ApiDef[]>(() => {
+  const row = selectedRow.value
+  if (!row) return []
+  if (row.isUngrouped || row.groupId == null) return apisOf(null)
+  if (hasChildGroups(row.groupId)) {
+    const ids = [row.groupId, ...collectDescendantIds(tree.value, row.groupId)]
+    return filteredApis.value.filter(a => a.group_id != null && ids.includes(a.group_id))
+  }
+  return apisOf(row.groupId)
+})
+const selectedPaged = computed(() => {
+  const page = pageMap.value[String(selectedRow.value?.key)] || 1
+  const start = (page - 1) * pageSize.value
+  return selectedApis.value.slice(start, start + pageSize.value)
+})
 // 分组重载/删除后选中项可能消失，回退到「全部」
 watch(visibleGroupRows, (rows) => {
   if (selectedRowKey.value !== 'all' && !rows.some(r => r.key === selectedRowKey.value)) {
@@ -829,8 +850,8 @@ function onSelectionChange(groupId: string | number, selection: ApiDef[]) {
 // ===== 组内拖拽排序（SortableJS 绑定 el-table tbody）=====
 const sortableInstances = new Map<string | number, any>()
 
-function setTableRef(groupId: string | number, el: any) {
-  if (el) {
+function setTableRef(groupId: string | number | undefined, el: any) {
+  if (el && groupId != null) {
     tableRefs.set(groupId, el)
     // 初始化 SortableJS 行拖拽
     nextTick(() => {
@@ -847,14 +868,19 @@ function setTableRef(groupId: string | number, el: any) {
       })
       sortableInstances.set(groupId, inst)
     })
-  } else {
-    tableRefs.delete(groupId)
-    const old = sortableInstances.get(groupId)
-    if (old) { old.destroy(); sortableInstances.delete(groupId) }
+  } else if (!el) {
+    // 卸载：ref(null) 触发时 selectedRowKey 已切走（如回「全部」），旧 key 不可知；
+    // 分组视图同一时刻仅一个表格实例，直接清空即可（否则 selectedRow!.key 会抛
+    // TypeError 中断 patch，右侧列表冻结在旧分组——与 CaseList 同源 bug）。
+    tableRefs.clear()
+    sortableInstances.forEach((inst) => inst.destroy())
+    sortableInstances.clear()
   }
 }
 
 async function onApiRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
+  // 父分组视图无拖拽把手（跨组聚合列表），守卫兜底防 Sortable 残留实例触发
+  if (isSubtreeView.value) return
   try {
     const applied = await applyPageDragReorder(groupId, oldIndex, newIndex, (items) => apiApi.reorder(items))
     if (applied) ElMessage.success('排序已保存')
@@ -1169,6 +1195,7 @@ watch(currentProjectId, () => {
 .expand-icon {
   font-size: 14px;
   color: var(--app-text-muted);
+  cursor: pointer; /* caret 单击展开/折叠（与整行选中分离） */
   transition: transform 0.18s ease;
 }
 .expand-icon.expanded {
