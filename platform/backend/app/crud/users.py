@@ -41,6 +41,7 @@ def create_user(db: Session, data, operator: models.User) -> models.User:
         password_hash=hash_password(data.password),
         name=data.name or data.username,
         role=data.role if data.role in ("admin", "member") else "member",
+        department=(data.department or "").strip() or None,
         created_by=operator.id,
         updated_by=operator.id,
     )
