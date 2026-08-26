@@ -33,6 +33,7 @@ from ..services.body_builder import (
     build_request_body,
     pop_file_fields_from_body,
 )
+from ..services.dataset_service import filter_row_vars_for_node
 from ..services.notifier import send_notify
 from ..services.request_sender import send_request
 from ..services.runtime_service import build_db_client, build_http_client, login
@@ -49,6 +50,7 @@ class DagExecutor:
                  execution_record: models.ExecutionRecord | None = None,
                  sink: ExecutionSink | None = None,
                  row_vars: dict[str, Any] | None = None,
+                 row_origins: dict[str, Any] | None = None,
                  node_config_overrides: dict[str, dict] | None = None,
                  suppress_notify: bool = False):
         self.db = db
@@ -59,8 +61,11 @@ class DagExecutor:
         self.context = ExecutionContext(env_vars=env.variables or {}, row_vars=row_vars)
         # 数据驱动批量执行时抑制逐条通知（由聚合器等全部完成后发一条汇总）
         self.suppress_notify = suppress_notify
-        # 数据驱动行值原始引用：PreProcessor 据此覆盖 set_field 同名字段（绑定即生效）
+        # 数据集行值原始引用（优先级 1）：PreProcessor 据此让非动态 set_field 让位行值
         self.row_vars = row_vars or None
+        # 列快照原值 {key: 生成时源头值}（数据集 columns 的 origin）：同名异值列
+        # 只作用于"节点配置值 == origin"的节点（快照保真，见 filter_row_vars_for_node）
+        self.row_origins = row_origins or None
         # 数据集节点配置快照 {node_id: {api_id, pre_process, post_extract, assertions, wait_after_ms}}：
         # 命中的节点整块替换用例当前编排（前置/后置/断言全换），未命中回落 CaseNodeConfig
         self.node_config_overrides = node_config_overrides or None
@@ -244,14 +249,21 @@ class DagExecutor:
 
         # 1. 准备请求体 / 请求头
         # 优先用 ApiField 组装（新版本字段级配置）；无 fields 时回退到 request_template
+        # 三级取值优先级：数据集(1) > 用例编排 set_field(2) > 接口字段默认值(3，此处组装的兜底值)
         body = build_request_body(api)
-        # 数据驱动：行值覆盖 API 字段默认值中的同名字段（绑定即生效，节点配置零修改）
-        if self.row_vars:
-            body = apply_row_overrides(body, self.row_vars)
+        # 优先级 1（数据集）：行值覆盖同名字段（动态绑定 ${} 字段除外，见 apply_row_overrides）。
+        # 快照保真：用户编辑过的单元格（行值 != origin）无条件覆盖全部节点；
+        # 未编辑的快照值仅作用于"配置值 == origin"的节点，异值节点保留自身配置
+        node_row_vars = filter_row_vars_for_node(
+            self.row_vars, self.row_origins, api,
+            config.pre_process if config else None)
+        if node_row_vars:
+            body = apply_row_overrides(body, node_row_vars)
         headers = deepcopy(self.http_client.headers or {})
 
         # PreProcessor 持有 db_client，使 set_field 的值能通过 ${db.query_value(...)} 从 DB 取值
-        preprocessor = PreProcessor(self.context.to_dict(), self.db_client, row_vars=self.row_vars)
+        # set_field 内部同规则：非动态字面量让位行值（优先级 1），${} 动态绑定照常求值
+        preprocessor = PreProcessor(self.context.to_dict(), self.db_client, row_vars=node_row_vars)
         # 对组装后的 body 递归求值 ${...}（覆盖 array/object 字段中嵌入的表达式）；
         # 未定义变量保留占位符，不替换为空，留给后续前置处理或下游注入
         body = preprocessor.expr.evaluate(body)

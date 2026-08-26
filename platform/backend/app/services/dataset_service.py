@@ -15,8 +15,10 @@
 命名更严——点号撞嵌套路径语法、${} 撞表达式占位符、空格撞变量引用。
 """
 import io
+import json
 import re
 from copy import deepcopy
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -204,10 +206,12 @@ def plan_case_expansion(db: Session, case, dataset_id=None, row_ids=None) -> lis
     - 绑定但 0 行 → ValueError（先录入数据再执行）
     - dataset_id 传入时临时覆盖用例绑定（执行面板换数据集，不改绑定本身）
     - row_ids 传入时只执行选中行（单行手动执行=逐条通知的来源）
+    - origins：列快照原值 {key: 生成时值}，执行时据此做快照保真过滤（同名异值列
+      只作用于配置值与原值一致的节点；手工列/旧数据集无 origin → 不过滤）
     """
     effective = dataset_id if dataset_id is not None else getattr(case, "dataset_id", None)
     if not effective:
-        return [{"dataset_id": None, "row": None, "overrides": None}]
+        return [{"dataset_id": None, "row": None, "overrides": None, "origins": None}]
     ds = crud.get_dataset(db, effective)
     if not ds:
         raise ValueError(f"用例绑定的数据集不存在: {effective}")
@@ -225,6 +229,8 @@ def plan_case_expansion(db: Session, case, dataset_id=None, row_ids=None) -> lis
     first_key = (ds.columns or [{}])[0].get("key") if ds.columns else None
     # 节点配置快照映射：命中 node_id 整块替换用例编排（数据集=场景包语义）
     overrides = {c["node_id"]: c for c in (ds.node_configs or []) if c.get("node_id")} or None
+    origins = {c["key"]: c["origin"] for c in (ds.columns or [])
+               if isinstance(c, dict) and "origin" in c} or None
     return [{
         "dataset_id": effective,
         "row": {
@@ -233,6 +239,7 @@ def plan_case_expansion(db: Session, case, dataset_id=None, row_ids=None) -> lis
             "label": str((r.data or {}).get(first_key)) if first_key else str(r.row_index),
         },
         "overrides": overrides,
+        "origins": origins,
     } for r in rows]
 
 
@@ -264,27 +271,65 @@ def _infer_col_type(value) -> str:
     return "string"
 
 
+def _topo_node_ids(dag: dict) -> list:
+    """dag 节点的拓扑执行序（与 DagExecutor._topo_sort 同算法：Kahn + 节点 id 字典序入队）。
+
+    收集口径需按执行序取值：同名异值列取业务链路源头节点（执行序首个）的值，
+    而非 dag 数组顺序（数组可能是用户拖拽后的任意顺序，源头节点不一定排最前）。
+    环/断链节点按引擎同口径排到末尾（引擎也不执行它们，只是收集时仍扫一遍兜底）。
+    """
+    nodes = (dag or {}).get("nodes", [])
+    edges = (dag or {}).get("edges", [])
+    ids = [n["id"] for n in nodes]
+    in_degree = {nid: 0 for nid in ids}
+    adj: dict = {nid: [] for nid in ids}
+    for e in edges:
+        src, tgt = e.get("source"), e.get("target")
+        if src in adj and tgt in in_degree:
+            adj[src].append(tgt)
+            in_degree[tgt] += 1
+    queue = sorted([nid for nid, d in in_degree.items() if d == 0])
+    order: list = []
+    while queue:
+        nid = queue.pop(0)
+        order.append(nid)
+        for nxt in adj[nid]:
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+        queue.sort()
+    order.extend(nid for nid in ids if nid not in order)
+    return order
+
+
 def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     """扫描用例全部节点，收集可参数化的"写死"请求参数（纯函数，不触 db）。
 
-    收集口径与数据集覆盖语义（绑定即生效）一致：
+    收集口径与三级取值优先级一致（数据集 = 除动态绑定外的所有字段集合）：
     - API 字段默认值：顶层 key（无点号）、非 file、非空、不含 ${}（上游提取注入属动态，不收）
     - 前置处理 set_field/add_field：path 顶层、value 不含 ${}；
       同节点同 key 时 set_field 覆盖默认值（执行顺序在组装之后，最终生效值为准）
-    - 跨节点同名同值 → 合并一列（一列同时覆盖所有同名节点，值不变无风险）；
-      同名异值 → 冲突跳过（合并会改变链路行为），记入 stats.conflicts
+    - set_field/add_field 顶层 path 的 value 含 ${}（运行时动态注入，如 [${audit_id}]）
+      → 该 key 整体剔除（含早前节点收集的默认值）：列存在会触发"列名==path 行值优先"
+      拦截表达式求值，动态注入字段不能成为数据列
+    - 跨节点同名 → 合并一列（一列统一覆盖所有同名节点）；同名异值取执行序首个
+      （业务链路源头）节点的值，并把该值记为列 origin（快照原值）；
+      stats.conflicts 记录异值字段仅作提示（并集口径：除动态绑定外所有字段都成列）
+    - 列 origin（生成时该 key 的源头值）：执行时快照保真——行值只作用于
+      "节点自身配置值 == origin"的节点，异值节点保留自身配置（见 filter_row_vars_for_node），
+      保证生成的数据集原样执行与原用例行为一致
 
-    返回 {columns, row, stats}；row = 1 行原值快照（绑定后行为与原用例一致，改值即参数化）。
+    返回 {columns, row, stats}；row = 1 行原值快照（同名异值列取源头节点值，改值即参数化）。
     全部不可提取时返回空结果（columns=[]），由 generate_dataset_from_case 抛用户可读错误。
     """
-    values: dict = {}      # key -> 首个最终生效值（列顺序 = 节点定义序）
-    conflicted = set()
+    values: dict = {}      # key -> 首个最终生效值（列顺序 = 拓扑执行序）
+    dynamic_keys = set()   # 被 ${} 动态注入的顶层 key：运行时表达式生效，不可作数据列
     conflicts = []
     stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0, "nested": 0, "empty": 0}
 
     cfg_by_node = {c.node_id: c for c in node_configs}
-    for node in (getattr(case, "dag_config", None) or {}).get("nodes", []):
-        cfg = cfg_by_node.get(node.get("id"))
+    for node_id in _topo_node_ids(getattr(case, "dag_config", None)):
+        cfg = cfg_by_node.get(node_id)
         if not cfg or not cfg.api_id:
             continue
         api = apis_by_id.get(cfg.api_id)
@@ -320,27 +365,92 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
                 stats["nested"] += 1
                 continue
             if isinstance(val, str) and "${" in val:
+                # 动态注入（如 [${audit_id}]）：运行时由表达式求值，不是数据列；
+                # 剔除本节点与早前节点收集的同名值，防止列拦截表达式
                 stats["dynamic"] += 1
+                dynamic_keys.add(path)
+                node_vals.pop(path, None)
+                values.pop(path, None)
                 continue
             node_vals[path] = val
 
         for k, v in node_vals.items():
-            if k in conflicted:
+            if k in dynamic_keys:
                 continue
             if k not in values:
                 values[k] = v
             elif values[k] != v:
-                # 同名异值：一列会同时覆盖所有同名节点，合并会改变链路行为 → 跳过
-                conflicted.add(k)
-                conflicts.append({"key": k, "values": [values.pop(k), v]})
+                # 同名异值：并集口径仍成一列（数据集=除动态绑定外所有字段的集合），
+                # 取执行序源头节点值；conflicts 仅提示异值。
+                # 执行时 origin 保真：异值节点不应用行值（见 filter_row_vars_for_node）
+                conflicts.append({"key": k, "values": [values[k], v]})
 
     if not values:
         # 全部不可提取（动态/嵌套/空/冲突）：返回空结果，由 generate_dataset_from_case 抛用户可读错误
         return {"columns": [], "row": {}, "stats": stats}
 
-    columns = [{"key": k, "type": _infer_col_type(v)} for k, v in values.items()]
+    # origin = 生成时该 key 的源头值（与 row 初值相同）：执行时快照保真的比对基准
+    columns = [{"key": k, "type": _infer_col_type(v), "origin": v} for k, v in values.items()]
     stats["columns"] = len(columns)
     return {"columns": columns, "row": dict(values), "stats": stats}
+
+
+def filter_row_vars_for_node(row_vars: dict | None, origins: dict | None,
+                             api, pre_process: list | None) -> dict | None:
+    """快照保真过滤：数据集行值按节点过滤后应用（纯函数，执行层调用）。
+
+    同名异值列（跨节点配置值不同，如 main_ids '3,1' vs ',3,1,'）一张列无法同时
+    驱动所有节点——按行值是否被用户编辑分两种语义：
+
+    1. 行值 == origin（生成后未编辑的快照值）：只作用于"节点自身配置值 == origin"
+       的节点，异值节点保留自身配置。防的是生成时被下游真实订单节点污染的快照
+       盖掉源头节点配置（teu 56→3 案例），保证原样执行与原用例行为一致。
+    2. 行值 != origin（用户在数据集里编辑过该单元格）：明确的覆盖意图，
+       作用于全部节点——即使某节点配置值与 origin 异值（如接口默认值是从真实
+       订单拷贝的"带 order_id 版本"），也按行值覆盖（supplier 整体替换场景）。
+
+    - origins 为 None/空（手工列、旧数据集无 origin）→ 不过滤，行为与现状一致
+    - 节点对 key 的自身配置值 = pre_process 顶层 set_field/add_field 字面量 ?? API 字段
+      默认值（parse_field_value 解析后，与生成口径一致）
+    - 默认值为空的字段记空串哨兵（≠ 任何非空 origin）→ 排除：空值节点的字段
+      不被其他节点贡献的列值盖掉（生成只收非空值，保真口径空 ≠ 非空）
+    - pre_process 对该 key 是动态注入（值含 ${}）→ 该 key 排除（动态绑定不在数据集范围）
+    - 节点没有该 key（请求体无此字段）→ 保留（apply_row_overrides 只覆盖已存在字段，无副作用）
+    """
+    if not row_vars or not origins:
+        return row_vars
+    effective: dict = {}
+    excluded = set()  # 动态注入 key：不在数据集覆盖范围（生成侧已剔除，此处双保险）
+    for f in getattr(api, "fields", None) or []:
+        if not f.key or "." in f.key or f.field_type == "file":
+            continue
+        raw = f.default_value
+        if isinstance(raw, str) and "${" in raw:
+            continue  # 动态默认值：apply_row_overrides 本就跳过 ${} 值
+        effective[f.key] = "" if raw is None or (isinstance(raw, str) and not raw.strip()) \
+            else parse_field_value(raw, f.field_type or "string")
+    for act in pre_process or []:
+        if act.get("type") not in ("set_field", "add_field"):
+            continue
+        path = act.get("path") or ""
+        if not path or "." in path:
+            continue
+        val = act.get("value")
+        if isinstance(val, str) and "${" in val:
+            excluded.add(path)  # 动态注入：该 key 不在数据集覆盖范围
+        else:
+            effective[path] = val
+    result: dict = {}
+    for k, v in row_vars.items():
+        if k in excluded:
+            continue
+        if k not in origins or v != origins[k]:
+            # 无 origin（手工列/旧数据集）或用户编辑过该单元格 → 无条件覆盖
+            result[k] = v
+        elif k not in effective or effective[k] == origins[k]:
+            # 未编辑的快照值：仅当节点配置与 origin 一致才应用（防污染）
+            result[k] = v
+    return result
 
 
 def snapshot_node_configs(case, node_configs: list) -> list:
@@ -452,7 +562,65 @@ def resync_node_configs(db: Session, dataset_id: int) -> int:
     return len(ds.node_configs)
 
 
+# 编排字段中文名（drift 报告用）
+_DRIFT_FIELD_NAMES = {
+    "api_id": "接口绑定",
+    "pre_process": "前置处理",
+    "post_extract": "后置提取",
+    "assertions": "断言",
+    "wait_after_ms": "等待时长",
+}
+
+
+def config_drift(db: Session, dataset_id: int) -> dict:
+    """比对数据集节点配置快照与归属用例当前编排，返回差异清单（执行前提示快照过期）。
+
+    只比快照与用例两侧都存在的节点：仅快照有（用例已删节点，执行不再触发）或
+    仅有用例（快照缺位，执行自然回落用例当前配置）都不影响执行行为。
+    字段级 diff 与 snapshot_node_configs 同口径（None/空列表归一）。
+    """
+    ds = get_dataset(db, dataset_id)
+    case = crud.get_testcase(db, ds.case_id)
+    if not case:
+        raise ValueError(f"归属用例不存在: {ds.case_id}")
+    # 当前编排按快照同口径归一（只取 dag 中存在的节点）
+    cfgs = (db.query(models.CaseNodeConfig)
+            .filter(models.CaseNodeConfig.case_id == ds.case_id).all())
+    current = {c["node_id"]: c for c in snapshot_node_configs(case, cfgs)}
+    snapshot = {c["node_id"]: c for c in (ds.node_configs or []) if c.get("node_id")}
+    labels = {n.get("id"): (n.get("label") or n.get("id"))
+              for n in (getattr(case, "dag_config", None) or {}).get("nodes", [])
+              if isinstance(n, dict)}
+    nodes = []
+    for nid in sorted(set(snapshot) & set(current)):
+        s, c = snapshot[nid], current[nid]
+        changes = []
+        for field, cname in _DRIFT_FIELD_NAMES.items():
+            if s.get(field) != c.get(field):
+                if field in ("pre_process", "post_extract", "assertions"):
+                    changes.append(f"{cname}：{len(s.get(field) or [])} 条 → {len(c.get(field) or [])} 条")
+                else:
+                    changes.append(f"{cname}：{s.get(field)} → {c.get(field)}")
+        if changes:
+            nodes.append({"node_id": nid, "label": labels.get(nid, nid), "changes": changes})
+    return {"stale": bool(nodes), "nodes": nodes}
+
+
 # ============ 导入解析（纯函数，不触 db） ============
+
+def _coerce_cell(value, col_type: str | None):
+    """导入单元格按列类型还原：object/array 列的字符串值尝试 JSON 解析（失败保留原样）。
+
+    与导出侧（export_rows_excel 序列化为 JSON 字符串）对偶，保证 Excel 往返后类型不丢
+    （历史缺陷：object 列导入后以字符串落库，行值覆盖会把字符串塞进请求体）。
+    """
+    if col_type in ("object", "array") and isinstance(value, str) and value.strip():
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+    return value
+
 
 def parse_import_file(filename: str, content: bytes, columns: list) -> tuple:
     """Excel/CSV → 行数据。首行表头按列 key 匹配。
@@ -478,6 +646,7 @@ def parse_import_file(filename: str, content: bytes, columns: list) -> tuple:
 
     warnings = []
     col_keys = [c["key"] for c in columns]
+    col_types = {c["key"]: c.get("type") for c in columns}
     header_set = {h.strip() for h in header}
     extra = [h for h in header if h.strip() not in col_keys]
     if extra:
@@ -494,7 +663,8 @@ def parse_import_file(filename: str, content: bytes, columns: list) -> tuple:
             key = key_by_header.get(str(header[i]).strip()) if i < len(header) else None
             if key is not None:
                 row_data[key] = "" if cell is None else cell
-        rows.append(row_data)
+        # object/array 列的字符串值还原为原生 JSON（往返类型不丢）
+        rows.append({k: _coerce_cell(v, col_types.get(k)) for k, v in row_data.items()})
     return rows, warnings
 
 
@@ -522,3 +692,159 @@ def _parse_xlsx(content: bytes):
     if not matrix:
         return [], []
     return [str(c).strip() if c is not None else "" for c in matrix[0]], matrix[1:]
+
+
+# ============ 导出与覆盖合并（与导入对偶，数据集间字段流转） ============
+
+def export_rows_excel(db: Session, dataset_id: int) -> tuple[bytes, str, int]:
+    """数据集行导出 xlsx：首行表头=列 key，其后每行一行数据。
+
+    object/array 值序列化为 JSON 字符串（导入侧 _coerce_cell 还原，往返类型不丢）。
+    返回 (文件内容, 数据集名, 行数)；文件名由 router 组装（需时间戳）。
+    """
+    ds = get_dataset(db, dataset_id)
+    rows = crud.list_rows(db, dataset_id)  # 已按 row_index 排序
+    if not rows:
+        raise ValueError("数据集无数据行，请先录入或导入数据再导出")
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "rows"
+    keys = [c["key"] for c in (ds.columns or [])]
+    ws.append(keys)
+    for r in rows:
+        data = r.data or {}
+        ws.append([_cell_out(data.get(k)) for k in keys])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), ds.name, len(rows)
+
+
+def _cell_out(v) -> Any:
+    """导出单元格序列化：None→空串；dict/list→JSON 字符串；其余原样。"""
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    return v
+
+
+def _node_param_keys(cfg, api) -> set:
+    """单节点可参数化列（collect_case_params 的单节点口径，含 dynamic 剔除）。
+
+    cfg 为节点配置快照 dict（node_configs 元素）。
+    - API 字段默认值：顶层、非 file、非空、不含 ${}
+    - pre_process set_field/add_field：path 顶层、value 非动态
+    - 动态注入（value 含 ${}）的 key 整体剔除（与生成口径一致）
+    """
+    keys: set = set()
+    for f in getattr(api, "fields", None) or []:
+        if not f.key or "." in f.key or f.field_type == "file":
+            continue
+        raw = f.default_value
+        if raw is None or (isinstance(raw, str) and (not raw.strip() or "${" in raw)):
+            continue
+        keys.add(f.key)
+    for act in (cfg.get("pre_process") or []):
+        if act.get("type") not in ("set_field", "add_field"):
+            continue
+        path = act.get("path") or ""
+        val = act.get("value")
+        if not path or "." in path:
+            continue
+        if isinstance(val, str) and "${" in val:
+            keys.discard(path)
+            continue
+        keys.add(path)
+    return keys
+
+
+def compare_datasets(db: Session, target_id: int, source_id: int) -> dict:
+    """对比两个数据集的节点配置快照：按 api_id 配对相同节点，算出可覆盖列。
+
+    可覆盖列 = 节点参数化列 ∩ 源数据集列 ∩ 目标数据集列（三方交集：
+    列不在数据集里则行数据里没有值可刷，或刷了也不生效）。
+    无相同节点 → common_nodes=[]（调用方据此提示"没有覆盖的必要"）。
+    """
+    if target_id == source_id:
+        raise ValueError("源数据集与目标数据集不能相同")
+    t = get_dataset(db, target_id)
+    s = get_dataset(db, source_id)
+    t_keys = {c["key"] for c in (t.columns or [])}
+    s_keys = {c["key"] for c in (s.columns or [])}
+
+    t_by_api: dict = {}
+    for c in (t.node_configs or []):
+        if c.get("api_id"):
+            t_by_api.setdefault(c["api_id"], []).append(c)
+    common = []
+    seen = set()
+    for c in (s.node_configs or []):
+        aid = c.get("api_id")
+        if not aid or aid not in t_by_api or aid in seen:
+            continue
+        seen.add(aid)
+        api = db.get(models.ApiDefinition, aid)
+        if not api:
+            continue
+        keys: set = set()
+        for sc in [c, *t_by_api[aid]]:
+            keys |= _node_param_keys(sc, api)
+        columns = sorted(keys & t_keys & s_keys)
+        if not columns:
+            continue
+        common.append({
+            "api_id": aid,
+            "api_name": api.name,
+            "target_nodes": [x.get("node_id") for x in t_by_api[aid]],
+            "source_nodes": [c.get("node_id")],
+            "columns": columns,
+        })
+    src_rows = crud.list_rows(db, source_id)
+    return {
+        "source": {"id": s.id, "name": s.name, "case_id": s.case_id, "rows": len(src_rows),
+                   "row_labels": [str(r.row_index) for r in src_rows]},
+        "common_nodes": common,
+        "columns_total": len({k for n in common for k in n["columns"]}),
+    }
+
+
+def merge_from_dataset(db: Session, target_id: int, source_id: int,
+                       api_ids: list | None = None, source_row_index: int = 1) -> dict:
+    """覆盖合并：源数据集指定行的"相同节点涉及列"值刷到目标数据集全部行。
+
+    - api_ids 不传 = 全部相同节点；传则只刷这些节点的列（与 compare 结果对齐）
+    - 源行空值（None/""）跳过：与行值覆盖语义一致（空=未配置，不覆盖不置空）
+    - 目标独有列自然保留；目标行数为 0 时报错（无可作用对象）
+    """
+    cmp_data = compare_datasets(db, target_id, source_id)
+    nodes = cmp_data["common_nodes"]
+    if not nodes:
+        raise ValueError("两个数据集没有相同节点，无覆盖的必要")
+    if api_ids is not None:
+        wanted = set(api_ids)
+        unknown = wanted - {n["api_id"] for n in nodes}
+        if unknown:
+            raise ValueError(f"接口不在相同节点列表内: {'、'.join(str(u) for u in sorted(unknown))}")
+        nodes = [n for n in nodes if n["api_id"] in wanted]
+    columns = {k for n in nodes for k in n["columns"]}
+    if not columns:
+        raise ValueError("所选节点没有两侧数据集共有的可覆盖列")
+
+    src_row = (db.query(models.DataSetRow)
+               .filter(models.DataSetRow.dataset_id == source_id,
+                       models.DataSetRow.row_index == source_row_index).first())
+    if not src_row:
+        raise ValueError(f"源数据集不存在第 {source_row_index} 行")
+    overrides = {k: v for k, v in (src_row.data or {}).items()
+                 if k in columns and v is not None and v != ""}
+    if not overrides:
+        raise ValueError("源行在所选节点列上均为空值，没有可覆盖内容")
+
+    target_rows = crud.list_rows(db, target_id)
+    if not target_rows:
+        raise ValueError("目标数据集无数据行，覆盖合并无可作用对象")
+    for r in target_rows:
+        r.data = {**(r.data or {}), **overrides}
+    db.commit()
+    return {"rows": len(target_rows), "columns": len(overrides), "keys": sorted(overrides)}
