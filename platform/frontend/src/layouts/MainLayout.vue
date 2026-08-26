@@ -48,17 +48,15 @@
         class="nav-menu"
         :collapse="collapsed"
       >
-        <el-menu-item index="/envs">
-          <el-icon><Setting /></el-icon>
-          <template #title><span>环境配置</span></template>
-        </el-menu-item>
+        <!-- 顺序 = 日常测试工作流：接口(素材) → 用例(编排/执行) → 数据集(参数化) → 执行记录(结果)；
+             环境配置与字典/文件为低频准备项，管理员功能沉底 -->
         <el-menu-item index="/apis">
           <el-icon><Connection /></el-icon>
           <template #title><span>接口管理</span></template>
         </el-menu-item>
         <el-menu-item index="/cases">
           <el-icon><Share /></el-icon>
-          <template #title><span>用例列表</span></template>
+          <template #title><span>用例管理</span></template>
         </el-menu-item>
         <el-menu-item index="/datasets">
           <el-icon><Grid /></el-icon>
@@ -67,6 +65,10 @@
         <el-menu-item index="/executions">
           <el-icon><Histogram /></el-icon>
           <template #title><span>执行记录</span></template>
+        </el-menu-item>
+        <el-menu-item index="/envs">
+          <el-icon><Setting /></el-icon>
+          <template #title><span>环境配置</span></template>
         </el-menu-item>
         <el-menu-item index="/dictionary">
           <el-icon><Collection /></el-icon>

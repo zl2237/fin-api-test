@@ -286,6 +286,7 @@ const guideSteps = [
 ]
 
 const guideCaps = [
+  { title: '数据驱动测试', desc: '用例生成数据集，改单元格即参数化：一行一执行，支持 Excel 导入导出与跨数据集覆盖合并', tab: null },
   { title: '数据自动生成', desc: '随机手机号、日期加减、唯一单号，写一次 ${uuid()} 到处复用', tab: 'expression' as const },
   { title: '17 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验，支持失败重试', tab: 'assertion' as const },
   { title: '批量导入接口', desc: 'cURL 粘贴即用，HAR 抓包文件、Swagger 文档批量导入', tab: null },

@@ -2,7 +2,7 @@
   <div class="page">
     <div class="page-head">
       <div class="head-left">
-        <span class="page-title">用例列表</span>
+        <span class="page-title">用例管理</span>
         <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
         <el-button
           :disabled="selectedCaseIds.length === 0"
