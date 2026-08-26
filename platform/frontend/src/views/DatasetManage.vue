@@ -88,6 +88,8 @@
                 <el-upload :show-file-list="false" accept=".xlsx,.csv" :auto-upload="false" :on-change="onImportFile">
                   <el-button size="small">Excel/CSV 导入</el-button>
                 </el-upload>
+                <el-button size="small" @click="exportRows">导出 Excel</el-button>
+                <el-button size="small" @click="openMerge">从其他数据集覆盖…</el-button>
                 <el-button size="small" @click="copyDataset">复制</el-button>
                 <el-button size="small" @click="openEdit(current)">编辑列定义</el-button>
                 <el-button size="small" type="danger" link @click="remove(current)">删除</el-button>
@@ -110,28 +112,13 @@
                   <span>{{ colLabel(col.key) }}</span>
                   <span v-if="!dictLabel(col.key)" class="col-key-raw">{{ col.key }}</span>
                 </template>
-                <template #default="{ row }">
-                  <el-input
-                    v-if="editingRowId === row.id"
-                    v-model="editingRowData[col.key]"
-                    size="small"
-                    :type="isJsonText(editingRowData[col.key]) ? 'textarea' : 'text'"
-                    :autosize="{ minRows: 1, maxRows: 8 }"
-                  />
-                  <span v-else>{{ fmtCell(row.data?.[col.key]) }}</span>
-                </template>
+                <template #default="{ row }">{{ fmtCell(row.data?.[col.key]) }}</template>
               </el-table-column>
               <el-table-column label="操作" width="180" fixed="right">
                 <template #default="{ row }">
-                  <template v-if="editingRowId === row.id">
-                    <el-button link size="small" type="primary" @click="saveRow(row)">保存</el-button>
-                    <el-button link size="small" @click="cancelEditRow">取消</el-button>
-                  </template>
-                  <template v-else>
-                    <el-button link size="small" @click="startEditRow(row)">编辑</el-button>
-                    <el-button link size="small" @click="copyRow(row)">复制</el-button>
-                    <el-button link size="small" type="danger" @click="removeRow(row)">删除</el-button>
-                  </template>
+                  <el-button link size="small" @click="startEditRow(row)">编辑</el-button>
+                  <el-button link size="small" @click="copyRow(row)">复制</el-button>
+                  <el-button link size="small" type="danger" @click="removeRow(row)">删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -288,11 +275,127 @@
         <el-button type="primary" :loading="importing" @click="confirmImport">确认导入</el-button>
       </template>
     </el-dialog>
+
+    <!-- 行编辑抽屉：字段纵向排列 + 搜索定位，替代横向滚动表格内编辑 -->
+    <el-drawer v-model="drawerVisible" size="640px" :close-on-click-modal="false">
+      <template #header>
+        <span>编辑第 {{ editingRowIndex }} 行数据</span>
+      </template>
+      <div class="drawer-body">
+        <el-input
+          v-model="fieldSearch"
+          placeholder="搜索字段（中文名 / key）"
+          clearable
+          class="field-search"
+        />
+        <div class="field-count">
+          {{ filteredFields.length }} / {{ current?.columns?.length || 0 }} 个字段{{ fieldSearch ? '（已过滤）' : '' }}
+        </div>
+        <el-scrollbar class="field-scroll">
+          <el-form label-position="top" size="small" @submit.prevent>
+            <el-form-item v-for="col in filteredFields" :key="col.key">
+              <template #label>
+                <span>{{ colLabel(col.key) }}</span>
+                <span v-if="!dictLabel(col.key)" class="col-key-raw">{{ col.key }}</span>
+                <span class="col-type-tag">{{ col.type }}</span>
+              </template>
+              <el-input
+                v-model="editingRowData[col.key]"
+                :type="isJsonText(editingRowData[col.key]) ? 'textarea' : 'text'"
+                :autosize="{ minRows: 1, maxRows: 20 }"
+              />
+              <div v-if="jsonError(col.key)" class="json-err">{{ jsonError(col.key) }}</div>
+            </el-form-item>
+          </el-form>
+        </el-scrollbar>
+      </div>
+      <template #footer>
+        <el-button @click="cancelEditRow">取消</el-button>
+        <el-button type="primary" :loading="rowSaving" @click="saveRow">保存</el-button>
+      </template>
+    </el-drawer>
+
+    <!-- 从其他数据集覆盖（节点级对比合并） -->
+    <el-dialog v-model="mergeVisible" title="从其他数据集覆盖" width="720px" :close-on-click-modal="false">
+      <el-form label-width="90px" size="small">
+        <el-form-item label="源数据集">
+          <el-select
+            v-model="mergeSourceId"
+            placeholder="选择同项目其他数据集"
+            style="width: 100%"
+            @change="doMergePreview"
+          >
+            <el-option
+              v-for="d in mergeCandidates"
+              :key="d.id"
+              :value="d.id"
+              :label="`${d.name}（${caseName(d.case_id)}，${d.rows?.length ?? 0} 行）`"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+
+      <div v-if="mergeLoading" v-loading="true" style="min-height: 120px" />
+
+      <template v-else-if="mergePreviewData">
+        <el-alert
+          v-if="!mergePreviewData.common_nodes.length"
+          type="info"
+          :closable="false"
+          title="两个数据集没有相同节点（相同接口），没有覆盖的必要"
+        />
+        <template v-else>
+          <el-form label-width="90px" size="small">
+            <el-form-item label="用源哪一行">
+              <el-select v-model="mergeRowIdx" style="width: 200px">
+                <el-option
+                  v-for="(lbl, i) in mergePreviewData.source.row_labels"
+                  :key="i"
+                  :value="i + 1"
+                  :label="`第 ${lbl} 行`"
+                />
+              </el-select>
+              <span class="merge-hint">该行的值将覆盖下方勾选节点涉及的列（当前数据集全部行）</span>
+            </el-form-item>
+          </el-form>
+          <el-table
+            ref="mergeTableRef"
+            :data="mergePreviewData.common_nodes"
+            size="small"
+            @selection-change="(rows: any[]) => (mergeSelectedApis = rows.map((r) => r.api_id))"
+          >
+            <el-table-column type="selection" width="40" />
+            <el-table-column prop="api_name" label="相同节点（接口）" min-width="140" />
+            <el-table-column label="涉及列" min-width="300">
+              <template #default="{ row }">
+                <span class="merge-cols" :title="row.columns.join('、')">{{ row.columns.join('、') }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="merge-hint" style="margin-top: 8px">
+            已选 {{ mergeSelectedApis.length }} 个节点 · 源「{{ mergePreviewData.source.name }}」共
+            {{ mergePreviewData.source.rows }} 行 · 目标独有列保持不变 · 源行空值不覆盖
+          </div>
+        </template>
+      </template>
+
+      <template #footer>
+        <el-button @click="mergeVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="!mergePreviewData || !mergePreviewData.common_nodes.length || !mergeSelectedApis.length"
+          :loading="merging"
+          @click="confirmMerge"
+        >
+          覆盖合并
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Folder, Grid, WarningFilled } from '@element-plus/icons-vue'
 import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup } from '@/api'
@@ -609,7 +712,7 @@ async function confirmGenerate() {
     ElMessage.success(`已生成「${dataset.name}」：${stats.columns} 列 · 扫描 ${stats.nodes} 节点 · 含 1 行原值快照`)
     if (stats.conflicts?.length) {
       const keys = stats.conflicts.slice(0, 5).map((c) => c.key).join('、')
-      ElMessage.warning(`${stats.conflicts.length} 个参数跨节点取值不同已跳过：${keys}${stats.conflicts.length > 5 ? '…' : ''}`)
+      ElMessage.info(`${stats.conflicts.length} 个参数跨节点取值不同，已取首节点值成列：${keys}${stats.conflicts.length > 5 ? '…' : ''}`)
     }
     genVisible.value = false
     await load()
@@ -622,34 +725,73 @@ async function confirmGenerate() {
   }
 }
 
-// ---------- 行编辑 ----------
+// ---------- 行编辑（右侧抽屉：字段纵向排列 + 搜索定位） ----------
 const editingRowId = ref<number | null>(null)
+const editingRowIndex = ref<number | null>(null)
 const editingRowData = ref<Record<string, any>>({})
+const drawerVisible = ref(false)
+const rowSaving = ref(false)
+const fieldSearch = ref('')
 
 // JSON 文本字段判定（对象/数组列编辑态显示为 JSON 文本，用 textarea）
 function isJsonText(v: any) {
   return typeof v === 'string' && (v.startsWith('[') || v.startsWith('{'))
 }
 
+/** 即时 JSON 校验：文本以 {/[ 开头但解析失败时给出提示（不阻塞输入） */
+function jsonError(key: string) {
+  const v = editingRowData.value[key]
+  if (!isJsonText(v)) return ''
+  try {
+    JSON.parse(v)
+    return ''
+  } catch (e: any) {
+    return `JSON 格式错误：${e.message}`
+  }
+}
+
+const filteredFields = computed(() => {
+  const cols = current.value?.columns || []
+  const kw = fieldSearch.value.trim().toLowerCase()
+  if (!kw) return cols
+  return cols.filter(
+    (c) => c.key.toLowerCase().includes(kw) || colLabel(c.key).toLowerCase().includes(kw),
+  )
+})
+
 function startEditRow(row: any) {
   editingRowId.value = row.id
+  editingRowIndex.value = row.row_index
+  fieldSearch.value = ''
   // 对象/数组字段先序列化为 JSON 文本再编辑：el-input 直接绑对象会显示 [object Object]，
   // 且用户一旦触碰该输入框，原对象就被覆盖成字符串导致数据损坏
   const data: Record<string, any> = {}
   Object.entries(row.data || {}).forEach(([k, v]) => {
-    data[k] = typeof v === 'object' && v !== null ? JSON.stringify(v) : v
+    data[k] = typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : v
   })
   editingRowData.value = data
+  drawerVisible.value = true
 }
 
 function cancelEditRow() {
+  drawerVisible.value = false
   editingRowId.value = null
+  editingRowIndex.value = null
   editingRowData.value = {}
 }
 
-async function saveRow(_row: any) {
-  if (!current.value) return
-  // JSON 文本还原为对象/数组（改坏了则原样提交字符串，由后端按列类型处理）
+async function saveRow() {
+  if (!current.value || !editingRowId.value) return
+  // 有 JSON 语法错误时阻止保存（提示第一个错误字段）
+  for (const col of current.value.columns) {
+    const err = jsonError(col.key)
+    if (err) {
+      fieldSearch.value = ''
+      ElMessage.error(`${colLabel(col.key)}：${err}`)
+      return
+    }
+  }
+  // JSON 文本还原为对象/数组
   const data: Record<string, any> = {}
   Object.entries(editingRowData.value).forEach(([k, v]) => {
     if (isJsonText(v)) {
@@ -657,18 +799,21 @@ async function saveRow(_row: any) {
         data[k] = JSON.parse(v)
         return
       } catch {
-        // 非合法 JSON：保留原文
+        // 上方已校验，这里不会走到
       }
     }
     data[k] = v
   })
+  rowSaving.value = true
   try {
-    await datasetApi.updateRow(current.value.id, editingRowId.value!, data)
+    await datasetApi.updateRow(current.value.id, editingRowId.value, data)
     ElMessage.success('已保存')
     cancelEditRow()
     await load()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    rowSaving.value = false
   }
 }
 
@@ -764,6 +909,97 @@ function fmtCell(v: any) {
   if (v === null || v === undefined || v === '') return '—'
   if (typeof v === 'object') return JSON.stringify(v)
   return String(v)
+}
+
+// ---------- 行导出 Excel ----------
+async function exportRows() {
+  if (!current.value) return
+  try {
+    const blob = await datasetApi.exportRows(current.value.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    link.href = url
+    link.download = `${current.value.name}_${stamp}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('已导出 Excel')
+  } catch (e: any) {
+    // blob 错误响应需按文本解析（axios 对 blob 不走 JSON 拦截）
+    try {
+      const txt = await (e?.response?.data as Blob)?.text()
+      const detail = txt ? JSON.parse(txt).detail : ''
+      ElMessage.error(detail || '导出失败')
+    } catch {
+      ElMessage.error('导出失败')
+    }
+  }
+}
+
+// ---------- 从其他数据集覆盖（节点级对比合并） ----------
+const mergeVisible = ref(false)
+const mergeSourceId = ref<number | null>(null)
+const mergeLoading = ref(false)
+const merging = ref(false)
+const mergePreviewData = ref<Awaited<ReturnType<typeof datasetApi.mergePreview>> | null>(null)
+const mergeSelectedApis = ref<number[]>([])
+const mergeRowIdx = ref(1)
+const mergeTableRef = ref()
+
+/** 源候选：同项目其他数据集（项目内已全量加载，无需再请求） */
+const mergeCandidates = computed(() =>
+  datasets.value.filter((d) => d.id !== current.value?.id && (d.rows?.length ?? 0) > 0),
+)
+
+function caseName(caseId: number) {
+  return cases.value.find((c) => c.id === caseId)?.name || `用例#${caseId}`
+}
+
+function openMerge() {
+  mergeSourceId.value = null
+  mergePreviewData.value = null
+  mergeSelectedApis.value = []
+  mergeRowIdx.value = 1
+  mergeVisible.value = true
+}
+
+async function doMergePreview() {
+  if (!current.value || !mergeSourceId.value) return
+  mergeLoading.value = true
+  mergePreviewData.value = null
+  try {
+    mergePreviewData.value = await datasetApi.mergePreview(current.value.id, mergeSourceId.value)
+    mergeSelectedApis.value = mergePreviewData.value.common_nodes.map((n) => n.api_id)
+    // 表格默认全选（selection 列不记忆状态，需手动 toggle）
+    nextTick(() => {
+      mergePreviewData.value?.common_nodes.forEach((n) =>
+        mergeTableRef.value?.toggleRowSelection(n as any, true),
+      )
+    })
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '对比失败')
+  } finally {
+    mergeLoading.value = false
+  }
+}
+
+async function confirmMerge() {
+  if (!current.value || !mergeSourceId.value || !mergeSelectedApis.value.length) return
+  merging.value = true
+  try {
+    const res = await datasetApi.merge(current.value.id, {
+      source_dataset_id: mergeSourceId.value,
+      api_ids: mergeSelectedApis.value,
+      source_row_index: mergeRowIdx.value,
+    })
+    ElMessage.success(`${res.message}：${res.keys.slice(0, 8).join('、')}${res.keys.length > 8 ? '…' : ''}`)
+    mergeVisible.value = false
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '覆盖合并失败')
+  } finally {
+    merging.value = false
+  }
 }
 
 onMounted(load)
@@ -1038,5 +1274,50 @@ watch(() => store.currentProjectId, () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 行编辑抽屉：搜索固定顶部，字段区独立滚动 */
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 4px;
+}
+.field-search {
+  margin-bottom: 8px;
+}
+.field-count {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-bottom: 8px;
+}
+.field-scroll {
+  flex: 1;
+}
+.col-type-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  border: 1px solid var(--el-border-color);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.json-err {
+  font-size: 12px;
+  color: var(--el-color-danger);
+  margin-top: 2px;
+}
+/* 覆盖合并弹窗 */
+.merge-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-left: 12px;
+}
+.merge-cols {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>

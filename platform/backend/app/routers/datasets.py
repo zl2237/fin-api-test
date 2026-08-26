@@ -57,6 +57,30 @@ def list_datasets(case_id: int | None = None, project_id: int | None = None, wit
     return out
 
 
+@router.get("/export")
+def export_rows(dataset_id: int, db: Session = Depends(get_db),
+                user: models.User = Depends(get_current_user)):
+    """数据集行导出 xlsx（与导入对偶）：表头=列 key，可直接整表导入回本数据集，
+    也可覆盖合并导入到同用例的其他数据集（同名列值覆盖）。
+    注意：此路由需在 /{dataset_id} 之前注册，否则 GET /export 会被 path 参数拦截。"""
+    from datetime import datetime
+    from urllib.parse import quote
+
+    from fastapi import Response
+
+    _get_or_404(db, dataset_id)
+    content, name, n = _svc_call(svc.export_rows_excel, db, dataset_id)
+    crud.log_operation(db, user, "export", "dataset", dataset_id, f"导出 {name}（{n} 行）")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 中文文件名：RFC 5987 编码（filename*=UTF-8''），兼容各浏览器
+    fname = quote(f"{name}_{stamp}.xlsx")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
+    )
+
+
 @router.post("", response_model=schemas.DataSetOut)
 def create(data: schemas.DataSetCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     case = crud.get_testcase(db, data.case_id)
@@ -75,9 +99,9 @@ def create(data: schemas.DataSetCreate, db: Session = Depends(get_db), user: mod
 @router.post("/generate")
 def generate_from_case(data: schemas.DataSetGenerateIn, db: Session = Depends(get_db),
                        user: models.User = Depends(get_current_user)):
-    """从用例生成数据集：写死请求参数各成一列 + 1 行原值快照（绑定即生效，改值即参数化）。
+    """从用例生成数据集：写死请求参数各成一列 + 1 行原值快照（改值即参数化，动态绑定 ${} 字段除外）。
 
-    返回 stats 说明收集结果（列数/冲突跳过字段/动态与嵌套计数），前端据此提示。
+    返回 stats 说明收集结果（列数/同名异值提示/动态与嵌套计数），前端据此提示。
     """
     if not crud.get_testcase(db, data.case_id):
         raise HTTPException(404, f"用例不存在: {data.case_id}")
@@ -102,6 +126,14 @@ def resync(dataset_id: int, db: Session = Depends(get_db), user: models.User = D
     n = _svc_call(svc.resync_node_configs, db, dataset_id)
     crud.log_operation(db, user, "update", "dataset", dataset_id, f"resync {n} node configs")
     return {"message": f"已重新同步 {n} 个节点的配置快照", "nodes": n}
+
+
+@router.get("/{dataset_id}/drift")
+def drift(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """快照过期检测：数据集节点配置快照 vs 归属用例当前编排 的字段级差异清单。
+    执行确认弹窗据此提示（stale=true 时可引导一键 resync）。"""
+    _get_or_404(db, dataset_id)
+    return _svc_call(svc.config_drift, db, dataset_id)
 
 
 @router.get("/{dataset_id}", response_model=schemas.DataSetOut)
@@ -188,6 +220,32 @@ def delete_row(dataset_id: int, row_id: int, db: Session = Depends(get_db),
     _svc_call(svc.delete_row, db, dataset_id, row_id)
     crud.log_operation(db, user, "update", "dataset", dataset_id, f"delete row#{row_id}")
     return {"message": "已删除"}
+
+
+@router.get("/{dataset_id}/merge-preview")
+def merge_preview(dataset_id: int, source_dataset_id: int, db: Session = Depends(get_db),
+                  user: models.User = Depends(get_current_user)):
+    """对比目标数据集（当前）与源数据集：按 api_id 配对相同节点，返回可覆盖列。
+
+    common_nodes 为空 = 没有相同节点，无覆盖的必要（前端据此提示）。"""
+    _get_or_404(db, dataset_id)
+    _get_or_404(db, source_dataset_id)
+    return _svc_call(svc.compare_datasets, db, dataset_id, source_dataset_id)
+
+
+@router.post("/{dataset_id}/merge")
+def merge_from(dataset_id: int, data: schemas.DataSetMergeRequest, db: Session = Depends(get_db),
+               user: models.User = Depends(get_current_user)):
+    """覆盖合并：源数据集指定行的相同节点涉及列值，刷到目标数据集全部行。"""
+    _get_or_404(db, dataset_id)
+    _get_or_404(db, data.source_dataset_id)
+    result = _svc_call(svc.merge_from_dataset, db, dataset_id, data.source_dataset_id,
+                       api_ids=data.api_ids, source_row_index=data.source_row_index or 1)
+    crud.log_operation(db, user, "update", "dataset", dataset_id,
+                       f"从数据集#{data.source_dataset_id}行{data.source_row_index or 1}覆盖合并"
+                       f"{result['columns']}列×{result['rows']}行")
+    return {"message": f"已覆盖 {result['columns']} 列（{result['rows']} 行）",
+            **result}
 
 
 @router.post("/{dataset_id}/import")

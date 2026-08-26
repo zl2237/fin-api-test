@@ -29,7 +29,7 @@ class TestPlanCaseExpansion:
         case = SimpleNamespace(id=11, dataset_id=None)
         with patch.object(svc.crud, "get_dataset") as g:
             plan = svc.plan_case_expansion(SimpleNamespace(), case)
-        assert plan == [{"dataset_id": None, "row": None, "overrides": None}]
+        assert plan == [{"dataset_id": None, "row": None, "overrides": None, "origins": None}]
         g.assert_not_called()  # 未绑定不查数据集
 
     def test_bound_case_expands_per_row(self):

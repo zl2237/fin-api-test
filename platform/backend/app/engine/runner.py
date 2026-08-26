@@ -36,11 +36,13 @@ def run_execution(db: Session, case_id: int, env_id: int) -> models.ExecutionRec
 
 def run_execution_background(execution_id: int, case_id: int, env_id: int,
                              row_vars: dict | None = None,
+                             row_origins: dict | None = None,
                              node_config_overrides: dict | None = None,
                              suppress_notify: bool = False) -> None:
     """在后台线程中执行用例，使用独立的数据库会话。
     execution_id 对应的 ExecutionRecord 已由调用方创建（status=running）。
     row_vars：数据驱动执行的数据行变量（列名即变量名，覆盖同名环境变量）。
+    row_origins：列快照原值（数据集 columns 的 origin），执行时快照保真过滤（可选）。
     node_config_overrides：数据集节点配置快照 {node_id: {...}}，命中节点整块替换用例编排。
     suppress_notify：数据驱动批量执行时抑制逐条通知（由聚合器汇总发送）。"""
     db = SessionLocal()
@@ -69,6 +71,7 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
         if not record:
             return  # record 已被删除，放弃执行
         DagExecutor(db, case, env, execution_record=record, row_vars=row_vars,
+                    row_origins=row_origins,
                     node_config_overrides=node_config_overrides,
                     suppress_notify=suppress_notify).execute()
     except Exception as e:
@@ -87,15 +90,17 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
 
 
 def submit_execution(case_id: int, env_id: int, execution_id: int, row_vars: dict | None = None,
+                     row_origins: dict | None = None,
                      node_config_overrides: dict | None = None,
                      suppress_notify: bool = False) -> None:
     """提交用例执行到线程池（非阻塞）；row_vars 为数据驱动行变量"""
     _get_executor().submit(run_execution_background, execution_id, case_id, env_id,
-                           row_vars, node_config_overrides, suppress_notify)
+                           row_vars, row_origins, node_config_overrides, suppress_notify)
 
 
 def submit_batch_execution(execution_ids: list, case_ids: list, env_id: int,
                            rows_vars: list | None = None,
+                           rows_origins: list | None = None,
                            node_config_overrides_list: list | None = None,
                            suppress_notify_flags: list | None = None) -> None:
     """提交批量并行执行到线程池（非阻塞）。
@@ -105,15 +110,17 @@ def submit_batch_execution(execution_ids: list, case_ids: list, env_id: int,
     EnvTokenCache 共享 token 方案消除（见 services/token_cache.py）。
     execution_ids[i] 对应 case_ids[i]，record 已由调用方创建为 running 状态。
     rows_vars[i] 为该条的数据驱动行变量（普通执行传 None）。
+    rows_origins[i] 为该条的列快照原值（快照保真过滤，普通执行传 None）。
     node_config_overrides_list[i] 为该条使用的数据集节点配置快照（普通执行传 None）。
     suppress_notify_flags[i] 为 True 时该条不发逐条通知（数据驱动批量）。
     """
     for i, (execution_id, case_id) in enumerate(zip(execution_ids, case_ids)):
         row_vars = rows_vars[i] if rows_vars else None
+        row_origins = rows_origins[i] if rows_origins else None
         overrides = node_config_overrides_list[i] if node_config_overrides_list else None
         flag = suppress_notify_flags[i] if suppress_notify_flags else False
         _get_executor().submit(run_execution_background, execution_id, case_id, env_id,
-                               row_vars, overrides, flag)
+                               row_vars, row_origins, overrides, flag)
 
 
 def submit_batch_aggregate_notify(execution_ids: list, case_id: int, env_id: int,

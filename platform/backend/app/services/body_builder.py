@@ -82,18 +82,26 @@ def set_nested(target: dict[str, Any], path: str, value: Any) -> None:
 
 
 def apply_row_overrides(body: Any, row_vars: dict[str, Any] | None) -> Any:
-    """数据驱动：行值覆盖请求体中同名的顶层字段（API 字段默认值，绑定即生效）。
+    """数据驱动（优先级 1）：行值覆盖请求体中同名的顶层字段。
+
+    请求体参数三级取值优先级（引擎定案）：
+    1. 数据集行值（本函数）：覆盖除动态绑定外的所有字段
+    2. 用例编排（pre_process set_field 字面量，见 PreProcessor）
+    3. 接口字段默认值（build_request_body 组装的兜底值）
 
     - 只覆盖请求中已存在的字段（不新增参数）；数组请求体作用于首元素（与前置处理数组语义一致）
-    - 只覆盖写死的字面量：字段默认值含 ${}（上游提取注入）不覆盖，交给表达式引擎求值
+    - 字段值为 ${}（动态绑定）不覆盖：动态注入字段不在数据集覆盖范围，交给表达式引擎
+    - 行值为空（None/""，单元格未配置）不覆盖：未配置 = 让位下一优先级
     - 覆盖发生在表达式求值之前：行值若含 ${} 表达式同样会被求值
-    - 嵌套路径字段（如 to_customer.xxx）列名无法含点号，用 ${列名} 表达式注入
+    - 嵌套路径字段（如 to_customer.xxx）列名无法含点号：整对象列覆盖或 ${列名} 表达式注入
     """
     if not row_vars:
         return body
     target = body[0] if isinstance(body, list) and body and isinstance(body[0], dict) else body
     if isinstance(target, dict):
         for k, v in row_vars.items():
+            if v is None or v == "":
+                continue
             if k in target and not (isinstance(target[k], str) and "${" in target[k]):
                 target[k] = v
     return body

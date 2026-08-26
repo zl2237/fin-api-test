@@ -51,6 +51,7 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
         # overrides 为数据集节点配置快照（场景包：命中节点整块替换用例编排）
         submit_execution(case_id, data.env_id, record.id,
                          row_vars=(item["row"] or {}).get("data"),
+                         row_origins=item.get("origins"),
                          node_config_overrides=item["overrides"], suppress_notify=aggregate)
         group_ids.append(record.id)
         first = first or record
@@ -82,7 +83,7 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     if not env:
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
-    records, flat_case_ids, rows_vars, overrides_list, suppress_flags = [], [], [], [], []
+    records, flat_case_ids, rows_vars, rows_origins, overrides_list, suppress_flags = [], [], [], [], [], []
     aggregate_groups = []  # (execution_ids, case_id, dataset_id, case_name)
     for case_id, run_count in zip(data.case_ids, counts):
         case = crud.get_testcase(db, case_id)
@@ -102,6 +103,7 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
                 records.append(record)
                 flat_case_ids.append(case_id)
                 rows_vars.append((item["row"] or {}).get("data"))
+                rows_origins.append(item.get("origins"))
                 overrides_list.append(item["overrides"])
                 suppress_flags.append(aggregate)
                 group_ids.append(record.id)
@@ -114,7 +116,7 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
 
     # 提交批量并行执行（非阻塞，线程池并发上限 4）
     submit_batch_execution([r.id for r in records], flat_case_ids, data.env_id,
-                           rows_vars, overrides_list, suppress_flags)
+                           rows_vars, rows_origins, overrides_list, suppress_flags)
     for group_ids, case_id, dataset_id, case_name in aggregate_groups:
         submit_batch_aggregate_notify(group_ids, case_id, data.env_id, dataset_id, case_name)
     return records

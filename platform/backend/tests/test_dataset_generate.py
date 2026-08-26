@@ -1,12 +1,12 @@
 """从用例生成数据集（collect_case_params / generate_dataset_from_case）单测。
 
-语义（与数据集"绑定即生效"覆盖口径一致）：
+语义（与三级取值优先级一致：数据集 = 除动态绑定外的所有字段集合）：
 - 收集范围 = 用例中所有"写死"的请求参数（非上游 ${} 提取注入）：
   ① API 字段默认值（顶层 key、非 file、非空、不含 ${}）
   ② 前置处理 set_field/add_field 字面量（path 顶层、value 不含 ${}）
 - 节点内同 key：set_field 晚于默认值组装执行，最终生效值 = set_field 值
-- 跨节点同名同值合并一列（绑定即生效会同时覆盖所有同名节点）；
-  同名异值冲突 → 跳过该列（合并会改变链路行为），stats 记录
+- 跨节点同名 → 合并一列（一列统一覆盖所有同名节点）；同名异值取首节点值成列，
+  stats.conflicts 仅作提示（并集口径，不剔除）
 """
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -87,16 +87,44 @@ class TestCollectCaseParams:
         assert keys.count("action") == 1
         assert out["row"]["action"] == "submit"
 
-    def test_conflicting_values_skipped(self):
-        """跨节点同名异值 → 跳过（合并会改变链路行为），stats 记录冲突"""
+    def test_conflicting_values_takes_first(self):
+        """跨节点同名异值 → 并集口径仍成一列，取执行序首个（源头）节点值；conflicts 仅提示"""
         case = _case([("n1", 7), ("n2", 8)])
         apis = {
             7: _api([_field("action", "create")]),
             8: _api([_field("action", "audit")]),
         }
         out = svc.collect_case_params(case, [_cfg("n1", 7), _cfg("n2", 8)], apis)
-        assert "action" not in [c["key"] for c in out["columns"]]
+        assert out["row"]["action"] == "create"
         assert any(c["key"] == "action" for c in out["stats"]["conflicts"])
+
+    def test_conflicting_values_follow_topo_order_not_array(self):
+        """dag 数组顺序 ≠ 执行顺序：同名异值取拓扑执行序源头节点值。
+
+        场景：数组里下游节点排最前（用户拖拽），但有边 create→audit；
+        源头（create）值应胜出，而不是数组首个（audit）"""
+        case = SimpleNamespace(
+            id=92, name="拖拽乱序", project_id=1,
+            dag_config={
+                "nodes": [{"id": "n_audit"}, {"id": "n_create"}],
+                "edges": [{"source": "n_create", "target": "n_audit"}],
+            },
+        )
+        apis = {
+            7: _api([_field("main_ids", "3,1")]),   # create：源头
+            8: _api([_field("main_ids", ",3,1,")]),  # audit：回显格式
+        }
+        out = svc.collect_case_params(
+            case, [_cfg("n_create", 7), _cfg("n_audit", 8)], apis)
+        assert out["row"]["main_ids"] == "3,1"
+
+    def test_columns_carry_origin(self):
+        """列记录 origin（生成时源头值）：执行时快照保真的比对基准"""
+        case = _case([("n1", 7)])
+        apis = {7: _api([_field("voy", "V001")])}
+        out = svc.collect_case_params(case, [_cfg("n1", 7)], apis)
+        col = next(c for c in out["columns"] if c["key"] == "voy")
+        assert col["origin"] == "V001"
 
     def test_dynamic_expression_skipped(self):
         """含 ${}（上游提取注入）不属"写死参数"→ 跳过并计入 dynamic"""
@@ -106,6 +134,46 @@ class TestCollectCaseParams:
         out = svc.collect_case_params(case, [cfg], apis)
         assert out["columns"] == []
         assert out["stats"]["dynamic"] == 2
+
+    def test_dynamic_set_field_excludes_field_default(self):
+        """set_field 动态注入（value 含 ${}）→ 同名字段默认值一并剔除，不建列。
+
+        场景：audit_ids 字段默认值是写死旧值（如 ["343..."]），但前置处理
+        用 [${audit_id}] 动态注入 → audit_ids 不能成为数据列（列会拦截表达式）"""
+        case = _case([("n1", 7)])
+        apis = {7: _api([_field("audit_ids", '["343317004406489088"]', ftype="array"),
+                         _field("remark", "保留")])}
+        cfg = _cfg("n1", 7, pre=[{"type": "set_field", "path": "audit_ids", "value": "[${audit_id}]"}])
+        out = svc.collect_case_params(case, [cfg], apis)
+        keys = [c["key"] for c in out["columns"]]
+        assert "audit_ids" not in keys
+        assert "audit_ids" not in out["row"]
+        assert keys == ["remark"]
+
+    def test_dynamic_set_field_excludes_earlier_node_value(self):
+        """节点1 写死收集了 key，节点2 对同 key 动态注入 → 整体剔除（跨节点）"""
+        case = _case([("n1", 7), ("n2", 8)])
+        apis = {7: _api([_field("audit_ids", '["1"]', ftype="array")]), 8: _api([])}
+        cfgs = [
+            _cfg("n1", 7),
+            _cfg("n2", 8, pre=[{"type": "set_field", "path": "audit_ids", "value": "[${audit_id}]"}]),
+        ]
+        out = svc.collect_case_params(case, cfgs, apis)
+        assert "audit_ids" not in [c["key"] for c in out["columns"]]
+
+    def test_dynamic_set_field_excludes_later_node_default(self):
+        """节点1 动态注入后，节点2 的同名字段默认值也不再收集"""
+        case = _case([("n1", 7), ("n2", 8)])
+        apis = {
+            7: _api([]),
+            8: _api([_field("audit_ids", '["1"]', ftype="array")]),
+        }
+        cfgs = [
+            _cfg("n1", 7, pre=[{"type": "set_field", "path": "audit_ids", "value": "[${audit_id}]"}]),
+            _cfg("n2", 8),
+        ]
+        out = svc.collect_case_params(case, cfgs, apis)
+        assert out["columns"] == []
 
     def test_nested_path_skipped(self):
         """含点号路径（嵌套字段）→ 跳过（列名不允许点号，自动覆盖不生效）"""
@@ -188,6 +256,93 @@ class TestCollectCaseParams:
         assert out["stats"]["columns"] == 2
 
 
+# ============ filter_row_vars_for_node：执行时快照保真过滤（纯函数） ============
+
+class TestFilterRowVarsForNode:
+    """同名异值列的过滤语义（快照保真）：
+    - 未编辑快照值（行值 == origin）：只作用于"节点配置值 == origin"的节点
+    - 用户编辑过的单元格（行值 != origin）：无条件作用于全部节点
+    """
+
+    def test_matching_node_gets_row_value(self):
+        """节点配置值 == origin → 行值应用（数据驱动正常生效）"""
+        api = _api([_field("main_ids", "3,1")])
+        out = svc.filter_row_vars_for_node(
+            {"main_ids": "5,2"}, {"main_ids": "3,1"}, api, [])
+        assert out == {"main_ids": "5,2"}
+
+    def test_edited_row_value_overrides_mismatched_node(self):
+        """用户编辑过单元格（行值 != origin）→ 即使节点配置与 origin 异值也覆盖。
+        supplier 场景：提交订单接口的 supplier 默认值是从真实订单拷贝的
+        "带 order_id 版本"（≠ origin 干净版），用户在数据集行里设置的新供应商
+        应整体替换到所有节点"""
+        api = _api([_field("supplier", '[{"supplier_id": "61224", "order_id": "343"}]', ftype="array")])
+        out = svc.filter_row_vars_for_node(
+            {"supplier": [{"supplier_id": "26"}]},
+            {"supplier": [{"supplier_id": "61224", "order_id": ""}]}, api, [])
+        assert out == {"supplier": [{"supplier_id": "26"}]}
+
+    def test_mismatched_node_keeps_own_config(self):
+        """未编辑快照值（行值 == origin）+ 节点配置值 ≠ origin（跨节点异值，
+        如 ',3,1,' 回显格式）→ 排除，节点保留自身配置——原样执行与原用例行为一致"""
+        api = _api([_field("main_ids", ",3,1,")])
+        out = svc.filter_row_vars_for_node(
+            {"main_ids": "3,1"}, {"main_ids": "3,1"}, api, [])
+        assert out == {}
+
+    def test_empty_default_node_excluded(self):
+        """节点默认值为空（列值来自其他节点）→ 排除：空值字段不被列值盖掉"""
+        api = _api([_field("customer_name", "")])
+        out = svc.filter_row_vars_for_node(
+            {"customer_name": "青岛统济机电"}, {"customer_name": "青岛统济机电"}, api, [])
+        assert out == {}
+
+    def test_set_field_literal_is_effective_value(self):
+        """节点自身配置值 = pre_process set_field 字面量（优先于 API 默认值）"""
+        api = _api([_field("teu", "56")])
+        # 未编辑快照值（56 == origin）+ set_field 字面量 3 ≠ origin → 排除（防污染）
+        pre = [{"type": "set_field", "path": "teu", "value": "3"}]
+        out = svc.filter_row_vars_for_node({"teu": "56"}, {"teu": "56"}, api, pre)
+        assert out == {}
+        # 未编辑快照值 + set_field 字面量 == origin → 应用
+        pre2 = [{"type": "set_field", "path": "teu", "value": "56"}]
+        out2 = svc.filter_row_vars_for_node({"teu": "56"}, {"teu": "56"}, api, pre2)
+        assert out2 == {"teu": "56"}
+        # 编辑过行值（99 != origin）→ 无条件应用（用户覆盖意图优先于异值保护）
+        out3 = svc.filter_row_vars_for_node({"teu": "99"}, {"teu": "56"}, api, pre)
+        assert out3 == {"teu": "99"}
+
+    def test_no_origins_no_filter(self):
+        """origins 为空（手工列/旧数据集）→ 不过滤，行为与现状一致"""
+        api = _api([_field("main_ids", ",3,1,")])
+        out = svc.filter_row_vars_for_node({"main_ids": "5,2"}, None, api, [])
+        assert out == {"main_ids": "5,2"}
+        out2 = svc.filter_row_vars_for_node({"main_ids": "5,2"}, {}, api, [])
+        assert out2 == {"main_ids": "5,2"}
+
+    def test_key_without_origin_kept(self):
+        """行值里的 key 无对应 origin（手工加列）→ 不过滤"""
+        api = _api([_field("voy", "V")])
+        out = svc.filter_row_vars_for_node(
+            {"voy": "NEW", "extra": "x"}, {"voy": "V"}, api, [])
+        assert out == {"voy": "NEW", "extra": "x"}
+
+    def test_key_not_in_node_kept(self):
+        """节点没有该 key（请求体无此字段）→ 保留（apply_row_overrides 只覆盖已存在字段）"""
+        api = _api([_field("voy", "V")])
+        out = svc.filter_row_vars_for_node(
+            {"teu": "3"}, {"teu": "56"}, api, [])
+        assert out == {"teu": "3"}
+
+    def test_dynamic_injection_key_excluded(self):
+        """pre_process 对该 key 动态注入（值含 ${}）→ 排除（动态绑定不在数据集范围）"""
+        api = _api([_field("audit_ids", '["OLD"]', ftype="array")])
+        pre = [{"type": "set_field", "path": "audit_ids", "value": "[${audit_id}]"}]
+        out = svc.filter_row_vars_for_node(
+            {"audit_ids": "whatever"}, {"audit_ids": '["OLD"]'}, api, pre)
+        assert out == {}
+
+
 # ============ generate_dataset_from_case：服务编排（mock db） ============
 
 class TestGenerateDatasetFromCase:
@@ -216,7 +371,8 @@ class TestGenerateDatasetFromCase:
         kw = fake_create.call_args.kwargs
         assert kw["name"] == "最长链路-参数集"
         assert kw["case_id"] == 92
-        assert kw["columns"] == [{"key": "bl_no", "type": "string"}, {"key": "teu", "type": "int"}]
+        assert kw["columns"] == [{"key": "bl_no", "type": "string", "origin": "BL001"},
+                                 {"key": "teu", "type": "int", "origin": 2}]
         assert kw["rows_data"] == [{"bl_no": "BL001", "teu": 2}]
         # 节点配置快照：按节点整块存 pre/post/assert/wait/api_id
         assert kw["node_configs"] == [{
@@ -374,3 +530,176 @@ class TestResyncNodeConfigs:
         with patch.object(svc.crud, "get_dataset", return_value=None):
             with pytest.raises(ValueError, match="数据集不存在"):
                 svc.resync_node_configs(_fake_db(), 99)
+
+
+# ============ 数据集间对比与覆盖合并 ============
+
+class TestCompareAndMerge:
+    """对比按 api_id 配对相同节点；可覆盖列=节点参数化列∩两侧数据集列。"""
+
+    def _mk_env(self):
+        """目标 bb（用例B）：节点 n1(api7)/n2(api8)；源 aa（用例A）：m1(api7)/m3(api9)。
+        api7 相同（可覆盖）；api9 目标没有（跳过）；api8 源没有（跳过）。"""
+        t_ds = SimpleNamespace(
+            id=101, name="bb", case_id=2, project_id=1,
+            columns=[{"key": "bl_no", "type": "string"}, {"key": "teu", "type": "int"},
+                     {"key": "only_b", "type": "string"}],
+            node_configs=[
+                {"node_id": "n1", "api_id": 7, "pre_process": [], "post_extract": [], "assertions": [], "wait_after_ms": 0},
+                {"node_id": "n2", "api_id": 8, "pre_process": [], "post_extract": [], "assertions": [], "wait_after_ms": 0},
+            ],
+            rows=[SimpleNamespace(id=1, row_index=1, data={"bl_no": "B1", "teu": 1, "only_b": "keep"})],
+        )
+        s_ds = SimpleNamespace(
+            id=202, name="aa", case_id=1, project_id=1,
+            columns=[{"key": "bl_no", "type": "string"}, {"key": "teu", "type": "int"},
+                     {"key": "only_a", "type": "string"}],
+            node_configs=[
+                {"node_id": "m1", "api_id": 7, "pre_process": [], "post_extract": [], "assertions": [], "wait_after_ms": 0},
+                {"node_id": "m3", "api_id": 9, "pre_process": [], "post_extract": [], "assertions": [], "wait_after_ms": 0},
+            ],
+            rows=[SimpleNamespace(id=9, row_index=1, data={"bl_no": "A1", "teu": 9, "only_a": "x"})],
+        )
+        apis = {
+            7: SimpleNamespace(id=7, name="新建订单",
+                               fields=[_field("bl_no", "X"), _field("teu", "1", ftype="int"),
+                                       _field("order_id", "${order_id}")]),
+            8: SimpleNamespace(id=8, name="审核", fields=[_field("only_b", "v")]),
+            9: SimpleNamespace(id=9, name="独有API", fields=[_field("only_a", "v")]),
+        }
+
+        def fake_get(_self, pk):
+            return apis.get(pk)
+
+        db = SimpleNamespace(get=fake_get, query=lambda *a: SimpleNamespace(
+            filter=lambda *b: SimpleNamespace(first=lambda: None)), commit=lambda: None)
+        return db, t_ds, s_ds, apis
+
+    def test_compare_pairs_by_api_id(self):
+        """相同 api_id 配对；可覆盖列=节点参数化列∩两侧列（动态注入列剔除）"""
+        db, t_ds, s_ds, _ = self._mk_env()
+        datasets = {101: t_ds, 202: s_ds}
+        with patch.object(svc.crud, "get_dataset", side_effect=lambda _db, i: datasets[i]), \
+             patch.object(svc.crud, "list_rows", return_value=s_ds.rows):
+            out = svc.compare_datasets(db, 101, 202)
+        assert [n["api_id"] for n in out["common_nodes"]] == [7]
+        node = out["common_nodes"][0]
+        assert node["api_name"] == "新建订单"
+        assert node["columns"] == ["bl_no", "teu"]  # order_id 动态剔除，only_b/only_a 不交集
+        assert out["columns_total"] == 2
+        assert out["source"]["rows"] == 1
+
+    def test_compare_no_common_nodes(self):
+        """无相同节点 → common_nodes 空（前端提示无覆盖必要）"""
+        db, t_ds, s_ds, _ = self._mk_env()
+        s_ds.node_configs = [c for c in s_ds.node_configs if c["api_id"] == 9]
+        datasets = {101: t_ds, 202: s_ds}
+        with patch.object(svc.crud, "get_dataset", side_effect=lambda _db, i: datasets[i]), \
+             patch.object(svc.crud, "list_rows", return_value=s_ds.rows):
+            out = svc.compare_datasets(db, 101, 202)
+        assert out["common_nodes"] == [] and out["columns_total"] == 0
+
+    def test_compare_same_dataset_rejected(self):
+        db, _, _, _ = self._mk_env()
+        with pytest.raises(ValueError, match="不能相同"):
+            svc.compare_datasets(db, 1, 1)
+
+    def test_merge_overrides_common_columns_only(self):
+        """合并：源行同节点列值刷到目标全部行；目标独有列保留；空值不覆盖"""
+        db, t_ds, s_ds, apis = self._mk_env()
+        t_ds.rows.append(SimpleNamespace(id=2, row_index=2, data={"bl_no": "B2", "teu": 2, "only_b": "keep2"}))
+        s_ds.rows[0].data["only_a"] = "x"
+        s_ds.rows[0].data["bl_no"] = ""  # 空值：不覆盖
+        datasets = {101: t_ds, 202: s_ds}
+
+        def fake_query(model):
+            name = getattr(model, "__name__", "")
+            if name == "DataSetRow":
+                return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(first=lambda: s_ds.rows[0]))
+            return SimpleNamespace(filter=lambda *a: SimpleNamespace(all=list))
+
+        db = SimpleNamespace(get=lambda _s, pk: apis.get(pk), query=fake_query, commit=lambda: None)
+        with patch.object(svc.crud, "get_dataset", side_effect=lambda _db, i: datasets[i]), \
+             patch.object(svc.crud, "list_rows", side_effect=lambda _db, i: s_ds.rows if i == 202 else t_ds.rows):
+            result = svc.merge_from_dataset(db, 101, 202)
+        assert result["columns"] == 1 and result["keys"] == ["teu"]
+        assert all(r.data["teu"] == 9 for r in t_ds.rows)            # teu 刷成源值
+        assert [r.data["bl_no"] for r in t_ds.rows] == ["B1", "B2"]  # 源空值不覆盖
+        assert all(r.data["only_b"] for r in t_ds.rows)              # 目标独有列保留
+
+    def test_merge_selected_apis_only(self):
+        """指定 api_ids 只刷所选节点列（不在相同节点列表内报错）"""
+        db, t_ds, s_ds, apis = self._mk_env()
+        datasets = {101: t_ds, 202: s_ds}
+
+        def fake_query(model):
+            name = getattr(model, "__name__", "")
+            if name == "DataSetRow":
+                return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(first=lambda: s_ds.rows[0]))
+            return SimpleNamespace(filter=lambda *a: SimpleNamespace(all=list))
+
+        db = SimpleNamespace(get=lambda _s, pk: apis.get(pk), query=fake_query, commit=lambda: None)
+        with patch.object(svc.crud, "get_dataset", side_effect=lambda _db, i: datasets[i]), \
+             patch.object(svc.crud, "list_rows", side_effect=lambda _db, i: s_ds.rows if i == 202 else t_ds.rows):
+            with pytest.raises(ValueError, match="不在相同节点列表"):
+                svc.merge_from_dataset(db, 101, 202, api_ids=[8])
+
+
+# ============ config_drift：快照过期检测（执行前提示） ============
+
+class TestConfigDrift:
+    def _mk_env(self, snapshot: list, cur_cfgs: list):
+        """snapshot: 数据集 node_configs；cur_cfgs: 用例当前 CaseNodeConfig 列表"""
+        ds = SimpleNamespace(id=54, case_id=177, node_configs=snapshot)
+        case = SimpleNamespace(id=177, dag_config={"nodes": [
+            {"id": "n_gen", "label": "生成子订单"},
+            {"id": "n_audit", "label": "审核"},
+        ], "edges": []})
+        db = SimpleNamespace(query=lambda *a: SimpleNamespace(
+            filter=lambda *b: SimpleNamespace(all=lambda: cur_cfgs)))
+        return db, ds, case
+
+    def _run(self, snapshot, cur_cfgs):
+        db, ds, case = self._mk_env(snapshot, cur_cfgs)
+        with patch.object(svc.crud, "get_dataset", return_value=ds), \
+             patch.object(svc.crud, "get_testcase", return_value=case):
+            return svc.config_drift(db, 54)
+
+    def test_in_sync_returns_not_stale(self):
+        """快照与当前编排一致 → stale=False"""
+        cfg = _cfg("n_gen", 5, asserts=[{"type": "db_query_count_equals", "expected": "2"}])
+        snap = svc.snapshot_node_configs(SimpleNamespace(dag_config={"nodes": [{"id": "n_gen"}]}), [cfg])
+        out = self._run(snap, [cfg])
+        assert out == {"stale": False, "nodes": []}
+
+    def test_assertion_removed_reports_drift(self):
+        """用户删除断言后未同步 → 报告该节点 drift（本次 debug 场景）"""
+        old = _cfg("n_gen", 5, asserts=[{"type": "db_query_count_equals", "expected": "2"}])
+        cur = _cfg("n_gen", 5)  # 断言已删
+        snap = svc.snapshot_node_configs(SimpleNamespace(dag_config={"nodes": [{"id": "n_gen"}]}), [old])
+        out = self._run(snap, [cur])
+        assert out["stale"] is True
+        assert len(out["nodes"]) == 1
+        node = out["nodes"][0]
+        assert node["node_id"] == "n_gen"
+        assert node["label"] == "生成子订单"
+        assert any("断言" in c for c in node["changes"])
+
+    def test_field_level_change_description(self):
+        """字段级差异描述：前置/断言给条数变化，标量给值变化"""
+        old = _cfg("n_audit", 30, pre=[{"type": "set_field", "path": "a", "value": 1}], wait=100)
+        cur = _cfg("n_audit", 30, wait=200)
+        snap = svc.snapshot_node_configs(SimpleNamespace(dag_config={"nodes": [{"id": "n_audit"}]}), [old])
+        out = self._run(snap, [cur])
+        changes = out["nodes"][0]["changes"]
+        assert any("前置处理：1 条 → 0 条" in c for c in changes)
+        assert any("等待时长：100 → 200" in c for c in changes)
+
+    def test_node_missing_on_one_side_ignored(self):
+        """仅一侧存在的节点不报 drift：快照缺位执行回落用例配置，用例缺位节点不再执行"""
+        snap_cfg = _cfg("n_gen", 5)
+        new_cfg = _cfg("n_extra", 6)
+        snap = svc.snapshot_node_configs(
+            SimpleNamespace(dag_config={"nodes": [{"id": "n_gen"}]}), [snap_cfg])
+        out = self._run(snap, [snap_cfg, new_cfg])
+        assert out == {"stale": False, "nodes": []}
