@@ -140,6 +140,15 @@ def test_login(env_id: int, db: Session = Depends(get_db), user: models.User = D
         client = build_http_client(env)
         try:
             login(client, env)
+            # session 模式：无鉴权头可回显，改为展示已保持的 Cookie
+            if (login_cfg.get("login_mode") or "token") == "session":
+                cookie_names = [c.name for c in client.session.cookies]
+                preview = ", ".join(cookie_names[:5]) or "无"
+                return {
+                    "ok": True,
+                    "message": f"登录成功（session 模式），已保持 {len(cookie_names)} 个 Cookie：{preview}",
+                    "base_url": env.base_url,
+                }
             # 登录成功，提取实际注入的鉴权头
             auth_header_name = login_cfg.get("auth_header_name", "Authorization")
             auth_value = client.headers.get(auth_header_name, "")
@@ -159,4 +168,5 @@ def test_login(env_id: int, db: Session = Depends(get_db), user: models.User = D
             except Exception:
                 pass
     except Exception as e:
-        return {"ok": False, "message": f"登录失败：{e}"}
+        # login() 已包装"登录失败："前缀，此处不再重复
+        return {"ok": False, "message": str(e)}
