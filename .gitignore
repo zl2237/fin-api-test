@@ -76,3 +76,7 @@ skills-lock.json
 
 # 数据集迁移前备份（一次性产物，不入库）
 platform/backend/backup_*.json
+
+# 本地学习/文档目录（个人笔记，不入库）
+learn/
+docs/
