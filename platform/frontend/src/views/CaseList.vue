@@ -4,20 +4,6 @@
       <div class="head-left">
         <span class="page-title">用例管理</span>
         <el-button type="primary" @click="openCreate">+ 新建用例</el-button>
-        <el-button
-          :disabled="selectedCaseIds.length === 0"
-          @click="onBatchMove"
-        >批量移动到{{ selectedCaseIds.length ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
-        <el-button
-          type="success"
-          :disabled="selectedCaseIds.length === 0 || batchRunning"
-          :loading="batchRunning"
-          @click="onBatchRun"
-        >批量执行{{ selectedCaseIds.length ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
-        <el-button
-          :disabled="selectedCaseIds.length < 2"
-          @click="openCombine"
-        >组合{{ selectedCaseIds.length >= 2 ? `（已选 ${selectedCaseIds.length}）` : '' }}</el-button>
         <el-dropdown style="margin-left: 12px" @command="(fmt: string) => onExport(fmt as 'excel' | 'json')">
           <el-button>
             导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -56,6 +42,23 @@
         </el-input>
       </div>
     </div>
+
+    <!-- 批量操作条：仅在有选中时浮现（与接口管理一致），未选中不占空间 -->
+    <Transition name="bulk-bar">
+      <div v-if="selectedCaseIds.length" class="bulk-bar">
+        <span class="bulk-count">已选 {{ selectedCaseIds.length }} 项</span>
+        <el-button size="small" @click="onBatchMove">移动到分组</el-button>
+        <el-button
+          size="small"
+          type="success"
+          :disabled="batchRunning"
+          :loading="batchRunning"
+          @click="onBatchRun"
+        >批量执行</el-button>
+        <el-button size="small" :disabled="selectedCaseIds.length < 2" @click="openCombine">组合</el-button>
+        <el-button size="small" text @click="clearAllTables()">取消选择</el-button>
+      </div>
+    </Transition>
 
     <!-- 左分组导航 + 右组内列表（master-detail）；页面级加载遮罩 -->
     <div v-loading="loading" class="group-layout">
@@ -1492,6 +1495,29 @@ function onGlobalKey(e: KeyboardEvent) {
   flex-direction: column;
   height: 100%;
   background: var(--app-bg);
+}
+/* 批量操作条（与接口管理一致） */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  background: color-mix(in srgb, var(--app-primary) 7%, var(--app-card));
+  border-bottom: 1px solid color-mix(in srgb, var(--app-primary) 22%, var(--app-border));
+}
+.bulk-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary);
+}
+.bulk-bar-enter-active,
+.bulk-bar-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.bulk-bar-enter-from,
+.bulk-bar-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 /* 左分组导航 + 右组内列表（master-detail） */
 .group-layout {
