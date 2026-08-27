@@ -205,7 +205,7 @@
             <el-input v-model="formData.code" placeholder="order_create" />
           </el-form-item>
           <el-form-item label="接口分组">
-            <el-select v-model="formData.group_id" placeholder="选择分组" clearable style="width: 100%">
+            <el-select v-model="formData.group_id" placeholder="选择分组 / 输入搜索" clearable filterable style="width: 100%">
               <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
             </el-select>
           </el-form-item>

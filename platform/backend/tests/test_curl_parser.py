@@ -165,3 +165,52 @@ class TestParseCurlToPreviews:
         # %40 解码为 @
         assert field_map["data[password]"]["default_value"] == "zl179178@@@"
         assert field_map["data[remember]"]["default_value"] == "0"
+
+
+class TestMultipartFormdata:
+    def test_chrome_data_raw_multipart(self):
+        # Chrome「Copy as cURL」的 multipart 完整报文（--data-raw $'...\r\n...'）：
+        # 文本 part 与文件 part 都应提取为 body 字段
+        text = r"""curl --url 'https://fin.example.com/api/order/orderDocument/uploadOrderDocument' \
+  -H 'Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryabc' \
+  --data-raw $'------WebKitFormBoundaryabc\r\nContent-Disposition: form-data; name="order_id"\r\n\r\n351258043645689856\r\n------WebKitFormBoundaryabc\r\nContent-Disposition: form-data; name="document_type"\r\n\r\nDECLARATION\r\n------WebKitFormBoundaryabc\r\nContent-Disposition: form-data; name="file"; filename="报关单.pdf"\r\nContent-Type: application/pdf\r\n\r\n\r\n------WebKitFormBoundaryabc--\r\n'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        p = previews[0]
+        assert p["method"] == "POST"
+        field_map = {f["key"]: f for f in p["fields"]}
+        # 文本 part：实际值作默认值
+        assert field_map["order_id"]["field_type"] == "string"
+        assert field_map["order_id"]["default_value"] == "351258043645689856"
+        assert field_map["document_type"]["default_value"] == "DECLARATION"
+        # 文件 part：file 字段，默认值留空（运行时从文件中心选）
+        assert field_map["file"]["field_type"] == "file"
+        assert field_map["file"]["default_value"] == ""
+
+    def test_form_flag_multipart(self):
+        # -F/--form 形式：@ 文件 → file 字段；键值对 → string 字段
+        text = """curl 'http://host/api/upload' -F 'order_id=123' -F 'file=@报关单.pdf'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        p = previews[0]
+        assert p["method"] == "POST"
+        assert p["content_type"] == "multipart/form-data"
+        field_map = {f["key"]: f for f in p["fields"]}
+        assert field_map["order_id"]["field_type"] == "string"
+        assert field_map["order_id"]["default_value"] == "123"
+        assert field_map["file"]["field_type"] == "file"
+
+    def test_multipart_without_boundary_no_crash(self):
+        # Content-Type 声明 multipart 但无 boundary：静默跳过，不产出字段也不报错
+        text = """curl 'http://host/api/upload' -H 'Content-Type: multipart/form-data' -d 'xxx'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        assert previews[0]["fields"] == []
+
+    def test_multipart_lf_line_endings(self):
+        # 报文用 \n（而非 \r\n）换行的 ANSI-C 字面转义，同样应解析
+        text = r"""curl 'http://host/api/upload' -H 'Content-Type: multipart/form-data; boundary=BB' --data-raw $'--BB\nContent-Disposition: form-data; name="a"\n\n1\n--BB--\n'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        field_map = {f["key"]: f for f in previews[0]["fields"]}
+        assert field_map["a"]["default_value"] == "1"
