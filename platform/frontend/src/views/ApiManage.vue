@@ -491,8 +491,9 @@
         :data="treeSelectWithUngrouped"
         node-key="id"
         :props="treeProps"
-        placeholder="选择目标分组"
+        placeholder="选择目标分组 / 输入搜索"
         clearable
+        filterable
         check-strictly
         style="width: 100%"
       />
