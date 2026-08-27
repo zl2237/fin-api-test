@@ -3,8 +3,13 @@
     <div class="page-head">
       <div class="head-left">
         <span class="page-title">数据集</span>
-        <el-button type="primary" @click="openGenerate">从用例生成</el-button>
-        <el-button :disabled="!currentCase" @click="openCreate">+ 新建数据集</el-button>
+        <el-button type="primary" :disabled="!currentCase" @click="openCreate">+ 新建数据集</el-button>
+        <el-upload :show-file-list="false" accept=".xlsx,.csv" :auto-upload="false" :disabled="!current" :on-change="onImportFile">
+          <el-button :disabled="!current">Excel/CSV 导入</el-button>
+        </el-upload>
+        <el-button @click="openGenerate">从用例生成</el-button>
+        <el-button :disabled="!current" @click="openMerge">从其他数据集覆盖…</el-button>
+        <el-button :disabled="!current" @click="exportRows">导出 Excel</el-button>
       </div>
       <div class="head-right">
         <span class="head-tip">数据集按用例隔离 · 每行数据 = 一次执行 · 复用靠复制 · 列中文名实时引用字段字典</span>
@@ -85,11 +90,6 @@
               <span class="group-count">{{ current.rows?.length ?? 0 }}</span>
               <span class="main-sub" :title="colKeys.join('、')">列：{{ colLabels.join('、') || '（未定义）' }}</span>
               <div class="main-actions">
-                <el-upload :show-file-list="false" accept=".xlsx,.csv" :auto-upload="false" :on-change="onImportFile">
-                  <el-button size="small">Excel/CSV 导入</el-button>
-                </el-upload>
-                <el-button size="small" @click="exportRows">导出 Excel</el-button>
-                <el-button size="small" @click="openMerge">从其他数据集覆盖…</el-button>
                 <el-button size="small" @click="copyDataset">复制</el-button>
                 <el-button size="small" @click="openEdit(current)">编辑列定义</el-button>
                 <el-button size="small" type="danger" link @click="remove(current)">删除</el-button>
@@ -323,6 +323,8 @@
             v-model="mergeSourceId"
             placeholder="选择同项目其他数据集"
             style="width: 100%"
+            filterable
+            fit-input-width
             @change="doMergePreview"
           >
             <el-option
@@ -347,7 +349,7 @@
         <template v-else>
           <el-form label-width="90px" size="small">
             <el-form-item label="用源哪一行">
-              <el-select v-model="mergeRowIdx" style="width: 200px">
+              <el-select v-model="mergeRowIdx" style="width: 200px" filterable fit-input-width>
                 <el-option
                   v-for="(lbl, i) in mergePreviewData.source.row_labels"
                   :key="i"
