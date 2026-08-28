@@ -355,16 +355,21 @@
       </template>
     </el-dialog>
 
-    <!-- 批量执行配置弹窗：逐用例设置执行次数（1~20），确认后并行提交 -->
+    <!-- 批量执行配置弹窗：逐用例设置执行次数 + 并发数，确认后提交 -->
     <el-dialog v-model="batchRunVisible" title="批量执行" width="480px" align-center :close-on-click-modal="false">
       <div class="batch-run-tip">
-        为每个用例设置执行次数（并行执行，最多同时跑 4 个，同环境共享登录）。绑定数据集的用例每轮按数据行展开。
+        为每个用例设置执行次数，并发数 1 = 逐个串行执行（避免并发问题），&gt;1 并行（同环境共享登录）。绑定数据集的用例每轮按数据行展开。
+      </div>
+      <div class="batch-run-concurrency">
+        <span class="batch-run-count-label">并发数</span>
+        <el-input-number v-model="batchRunConcurrency" :min="1" :max="16" size="small" />
+        <span class="batch-run-concurrency-hint">{{ batchRunConcurrency === 1 ? '串行：一个执行完再下一个' : `同时执行 ${batchRunConcurrency} 个` }}</span>
       </div>
       <div class="batch-run-list">
         <div v-for="it in batchRunItems" :key="it.id" class="batch-run-row">
           <span class="batch-run-name" :title="it.name">{{ it.name }}</span>
           <span class="batch-run-count-label">执行次数</span>
-          <el-input-number v-model="batchRunCounts[it.id]" :min="1" :max="20" size="small" />
+          <el-input-number v-model="batchRunCounts[it.id]" :min="1" :max="9999" size="small" />
         </div>
       </div>
       <template #footer>
@@ -679,9 +684,10 @@ const batchMoveVisible = ref(false)
 const batchMoveTarget = ref<number | null>(null)
 const batchMoveLoading = ref(false)
 const batchRunning = ref(false)
-// 批量执行配置弹窗：每个用例可单独设置执行次数（1~20）
+// 批量执行配置弹窗：每个用例可单独设置执行次数（1~9999），并发数可配（1=串行）
 const batchRunVisible = ref(false)
 const batchRunCounts = ref<Record<number, number>>({})
+const batchRunConcurrency = ref(4)
 // 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
 const batchRunItems = ref<{ id: number; name: string }[]>([])
 const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
@@ -998,6 +1004,7 @@ function onBatchRun() {
   const init: Record<number, number> = {}
   batchRunItems.value.forEach((it) => { init[it.id] = 1 })
   batchRunCounts.value = init
+  batchRunConcurrency.value = 4
   batchRunVisible.value = true
 }
 
@@ -1006,24 +1013,25 @@ const batchRunTotal = computed(() =>
   batchRunItems.value.reduce((sum, it) => sum + (batchRunCounts.value[it.id] || 0), 0),
 )
 
-// 确认批量执行：后端线程池并行执行（并发上限 4，同环境共享登录 token），前端并发轮询各记录
+// 确认批量执行：按配置的并发数提交（1=串行），同环境共享登录 token，前端并发轮询各记录
 async function confirmBatchRun() {
   if (batchRunning.value) return
   // 弹窗开着期间环境可能被清空，提交前再守卫一次（同时收窄类型）
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   const caseIds = batchRunItems.value.map((it) => it.id)
   const counts = batchRunItems.value.map((it) => batchRunCounts.value[it.id] || 1)
+  const concurrency = batchRunConcurrency.value
   const total = counts.reduce((a, b) => a + b, 0)
   batchRunVisible.value = false
   batchRunning.value = true
   favicon.running()
   const msg = ElMessage({
-    message: `批量执行中（${caseIds.length} 个用例共 ${total} 轮，并行执行）...`,
+    message: `批量执行中（${caseIds.length} 个用例共 ${total} 轮，${concurrency === 1 ? '串行执行' : `并发 ${concurrency}`}）...`,
     type: 'info',
     duration: 0,
   })
   try {
-    const records = await caseApi.batchExecute(caseIds, store.currentEnvId, counts)
+    const records = await caseApi.batchExecute(caseIds, store.currentEnvId, counts, concurrency)
     // 并发轮询：各记录独立轮询，全部完成后汇总；同一用例多轮时标注轮次
     const seen: Record<number, number> = {}
     const results = await Promise.all(records.map(async (rec) => {
@@ -1688,6 +1696,16 @@ function onGlobalKey(e: KeyboardEvent) {
   color: var(--app-text-muted);
   margin-bottom: 10px;
   line-height: 1.5;
+}
+.batch-run-concurrency {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.batch-run-concurrency-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 .batch-run-list {
   max-height: 300px;

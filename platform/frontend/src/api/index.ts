@@ -382,8 +382,9 @@ export const caseApi = {
   execute: (caseId: number, envId: number, opts?: { dataset_id?: number | null; row_ids?: number[] }) =>
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`,
       { case_id: caseId, env_id: envId, dataset_id: opts?.dataset_id ?? undefined, row_ids: opts?.row_ids ?? undefined }).then((r) => r.data),
-  batchExecute: (caseIds: number[], envId: number, counts?: number[]) =>
-    http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId, counts }).then((r) => r.data),
+  batchExecute: (caseIds: number[], envId: number, counts?: number[], concurrency: number = 4) =>
+    http.post<ExecutionRecord[]>('/testcases/batch-execute',
+      { case_ids: caseIds, env_id: envId, counts, concurrency }).then((r) => r.data),
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
   exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
