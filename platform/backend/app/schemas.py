@@ -514,14 +514,18 @@ class ExecutionCreate(BaseModel):
     env_id: int
     dataset_id: int | None = None  # 执行时临时换数据集（不改用例绑定）
     row_ids: list[int] | None = None  # 仅执行选中的数据行（单行手动执行=逐条通知）
+    # 并发执行数：1=逐个串行（一个结束再下一个，避免并发问题），默认 4
+    concurrency: int = 4
 
 
 class BatchExecutionCreate(BaseModel):
-    """批量执行：串行执行多个用例，一个结束执行下一个"""
+    """批量执行：多个用例并行执行，并发数可配（1=串行，一个结束再下一个）"""
     case_ids: list[int]
     env_id: int
     # 每个用例的执行次数（与 case_ids 一一对应，缺省全部为 1）；如 A 跑 3 次、B 跑 1 次
     counts: list[int] | None = None
+    # 并发执行数：1=逐个串行（避免并发问题）；>1 按需并行，默认 4
+    concurrency: int = 4
 
 
 class AssertionRecordOut(ORMBase):

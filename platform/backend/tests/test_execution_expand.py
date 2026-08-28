@@ -110,13 +110,15 @@ class TestRecordSnapshot:
 
 
 class TestBatchExecuteCounts:
-    """批量执行次数参数（counts）校验：路由层在触达 db 前完成参数检查"""
+    """批量执行次数（counts）与并发数（concurrency）校验：路由层在触达 db 前完成参数检查"""
 
-    def _call(self, counts):
+    def _call(self, counts, concurrency=4):
         from app.routers.executions import batch_execute
         from app.schemas import BatchExecutionCreate
 
-        return batch_execute(BatchExecutionCreate(case_ids=[1, 2, 3], env_id=1, counts=counts), db=None, user=None)
+        return batch_execute(
+            BatchExecutionCreate(case_ids=[1, 2, 3], env_id=1, counts=counts, concurrency=concurrency),
+            db=None, user=None)
 
     def test_counts_length_mismatch_rejected(self):
         from fastapi import HTTPException
@@ -132,14 +134,44 @@ class TestBatchExecuteCounts:
         with pytest.raises(HTTPException) as e:
             self._call([1, 0, 2])  # 0 次非法
         assert e.value.status_code == 400
-        assert "1~20" in e.value.detail
+        assert "1~9999" in e.value.detail
 
     def test_counts_over_limit_rejected(self):
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as e:
-            self._call([21, 1, 1])  # 超过上限 20
+            self._call([10000, 1, 1])  # 超过上限 9999（仅防手滑）
         assert e.value.status_code == 400
+
+    def test_counts_large_but_within_limit_passes(self):
+        """100 次循环这类大次数合法（原 20 上限已放开）"""
+        from fastapi import HTTPException
+
+        with patch("app.routers.executions.crud.get_environment", return_value=None):
+            with pytest.raises(HTTPException) as e:
+                self._call([100, 1, 1])
+        assert e.value.status_code == 404  # 通过参数校验，停在环境检查
+
+    def test_concurrency_out_of_range_rejected(self):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as e:
+            self._call([1, 1, 1], concurrency=0)
+        assert e.value.status_code == 400
+        assert "1~16" in e.value.detail
+
+        with pytest.raises(HTTPException) as e:
+            self._call([1, 1, 1], concurrency=17)
+        assert e.value.status_code == 400
+
+    def test_concurrency_one_passes_validation(self):
+        """并发数 1（串行）合法，继续走到环境检查"""
+        from fastapi import HTTPException
+
+        with patch("app.routers.executions.crud.get_environment", return_value=None):
+            with pytest.raises(HTTPException) as e:
+                self._call([1, 1, 1], concurrency=1)
+        assert e.value.status_code == 404
 
     def test_valid_counts_passes_validation_and_fails_on_env(self):
         """合法 counts 通过参数校验，继续走到环境检查（无 db 时在 env 处被拦即可证明顺序）"""
