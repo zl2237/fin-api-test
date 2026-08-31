@@ -189,3 +189,65 @@ class TestEngineLayering:
 
         src = inspect.getsource(de)
         assert "from ..routers" not in src, "engine 反向依赖 routers，应改走 services 层"
+
+
+class TestExecuteStartedAt:
+    """execute() 的 started_at 口径：真正开始执行的时刻，而非 record 创建（批量提交）时刻"""
+
+    def test_precreated_record_started_at_refreshed_on_execute(self, monkeypatch):
+        """批量预创建 record 排队 1 小时后才执行：耗时不应包含排队等待
+
+        场景：批量执行（尤其串行 concurrency=1）时 record 在提交瞬间统一创建，
+        started_at 落为提交时刻；若执行时不刷新，报告耗时 = 排队 + 真实执行。
+        """
+        from datetime import datetime, timedelta
+
+        import app.engine.dag_executor as de
+        from app.models import ExecutionRecord
+
+        monkeypatch.setattr(de, "login", lambda *a, **kw: None)
+        monkeypatch.setattr(de, "build_http_client", lambda env: None)
+        monkeypatch.setattr(de, "build_db_client", lambda env: None)
+        monkeypatch.setattr(de, "send_notify", lambda *a, **kw: None)
+
+        class MergeableDb(FakeDb):
+            """支持预创建 record 的 merge/contains 的 FakeDb 变体"""
+
+            def merge(self, obj):
+                return obj
+
+            def __contains__(self, obj):
+                return False
+
+        submitted_at = datetime.now() - timedelta(hours=1)  # 模拟提交后排队 1 小时
+        record = ExecutionRecord(case_id=1, env_id=2, status="running")
+        record.started_at = submitted_at
+
+        db = MergeableDb()
+        env = SimpleNamespace(variables={}, timeout=5)
+        case = SimpleNamespace(id=1, project_id=None, dag_config={"nodes": [], "edges": []})
+        de.DagExecutor(db, case, env, execution_record=record).execute()
+
+        # started_at 已刷新为执行时刻（距提交时刻远小于 1 小时）
+        assert record.started_at > submitted_at + timedelta(minutes=59)
+        # 结束不早于开始
+        assert record.ended_at >= record.started_at
+        # 空 DAG：全部通过
+        assert record.status == "success"
+
+    def test_selfcreated_record_started_at_set(self, monkeypatch):
+        """无预创建 record（自建分支）：started_at 同样在执行时写入"""
+        import app.engine.dag_executor as de
+
+        monkeypatch.setattr(de, "login", lambda *a, **kw: None)
+        monkeypatch.setattr(de, "build_http_client", lambda env: None)
+        monkeypatch.setattr(de, "build_db_client", lambda env: None)
+        monkeypatch.setattr(de, "send_notify", lambda *a, **kw: None)
+
+        db = FakeDb()
+        env = SimpleNamespace(id=2, variables={}, timeout=5)
+        case = SimpleNamespace(id=1, project_id=None, dag_config={"nodes": [], "edges": []})
+        record = de.DagExecutor(db, case, env).execute()
+
+        assert record.started_at is not None
+        assert record.ended_at >= record.started_at

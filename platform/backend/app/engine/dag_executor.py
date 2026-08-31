@@ -127,6 +127,10 @@ class DagExecutor:
             self.db.commit()
             self.db.refresh(record)
 
+        # 耗时口径：started_at 取真正开始执行的时刻，而非批量提交时创建 record 的
+        # 时刻——排队等待不计入用例耗时（报告/通知的 duration = ended_at - started_at）
+        record.started_at = datetime.now()
+
         self.http_client = build_http_client(self.env)
         self.db_client = build_db_client(self.env)
         # extractor / assertion_engine 共享 db_client，供 source=db 提取与 db_* 断言使用
