@@ -106,22 +106,18 @@ import { fileApi, fileCategoryApi, type TestFile, type FileCategory } from '@/ap
 import { debounce } from '@/utils/ui'
 
 const props = defineProps<{
-  modelValue: boolean
   /** 当前已选中的 file_id，用于回显 */
   modelFileId?: number | string | null
 }>()
 const emit = defineEmits<{
-  (e: 'update:modelValue', v: boolean): void
   (e: 'select', file: TestFile): void
 }>()
 
 const store = useAppStore()
 const projectId = computed(() => store.currentProjectId)
 
-const visible = computed({
-  get: () => props.modelValue,
-  set: (v) => emit('update:modelValue', v),
-})
+/** 弹窗显隐：defineModel 双向绑定（Vue 3.4+，替代手写 modelValue + computed get/set 样板） */
+const visible = defineModel<boolean>({ default: false })
 
 // ===== 数据 =====
 const files = ref<TestFile[]>([])
