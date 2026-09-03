@@ -190,7 +190,8 @@ import { Loading, WarningFilled, Timer } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { formatTime, formatRelativeTime } from '@/utils/format'
+import { formatTime, formatRelativeTime, execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
+import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import EmptyState from '@/components/EmptyState.vue'
 
 const route = useRoute()
@@ -298,12 +299,7 @@ function resetFilter() {
   onQuery()
 }
 
-function statusType(s: string) {
-  return s === 'success' ? 'success' : s === 'running' ? 'warning' : 'danger'
-}
-function statusText(s: string) {
-  return s === 'success' ? '通过' : s === 'running' ? '执行中' : '失败'
-}
+// 状态映射统一走 utils/format（execStatusType/execStatusText 的本地别名见顶部 import）
 
 // 数据行快照 tooltip：只展示已配置字段（数据集动辄上百列，空单元格无展示意义）
 function dsRowItems(data: Record<string, any>): [string, any][] {
@@ -315,53 +311,47 @@ function formatDsVal(v: any): string {
   return String(v)
 }
 
-// 自动刷新：列表存在 running 记录时轮询，全部结束后停止
-let refreshTimer: ReturnType<typeof setInterval> | null = null
-const REFRESH_INTERVAL = 3000
+// 自动刷新：列表存在 running 记录时轮询，全部结束/刷新失败即停（间隔与详情页一致）
+const runner = useExecutionRunner()
+let stopRefresh: (() => void) | null = null
+
+// 生效条件快照 → 列表查询参数（load 与自动刷新共用，保证两处口径一致）
+function execListParams(): { case_id?: number; project_id?: number; created_by?: number; limit?: number } | null {
+  // 项目隔离：优先用生效条件中的项目，未选则回退到当前项目
+  const projectId = applied.projectId ?? currentProjectId.value
+  if (!projectId) return null
+  const caseId = applied.caseId ? Number(applied.caseId) : undefined
+  const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
+  if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
+  if (applied.executor) params.created_by = applied.executor
+  return params
+}
 
 function startAutoRefresh() {
-  if (refreshTimer) return
-  refreshTimer = setInterval(async () => {
-    try {
-      const projectId = applied.projectId ?? currentProjectId.value
-      if (!projectId) return
-      const caseId = applied.caseId ? Number(applied.caseId) : undefined
-      const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
-      if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
-      if (applied.executor) params.created_by = applied.executor
-      list.value = await execApi.list(params)
-      // 没有 running 记录了，停止轮询
-      if (!list.value.some(e => e.status === 'running')) {
-        stopAutoRefresh()
-      }
-    } catch {
-      stopAutoRefresh()
-    }
-  }, REFRESH_INTERVAL)
+  if (stopRefresh) return
+  stopRefresh = runner.refreshWhileRunning(async () => {
+    const params = execListParams()
+    if (!params) return true // 无项目上下文：跳过本轮，继续观察
+    list.value = await execApi.list(params)
+    // 没有 running 记录了，停止轮询
+    return list.value.some(e => e.status === 'running')
+  }, { interval: 3000 })
 }
 
 function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
+  stopRefresh?.()
+  stopRefresh = null
 }
 
 async function load() {
-  // 项目隔离：优先用生效条件中的项目，未选则回退到当前项目
-  const projectId = applied.projectId ?? currentProjectId.value
-  if (!projectId) {
+  const params = execListParams()
+  if (!params) {
     list.value = []
     return
   }
   loading.value = true
   loadError.value = ''
   try {
-    // 后端过滤：case_id、project_id、created_by（执行人），均取生效条件快照
-    const caseId = applied.caseId ? Number(applied.caseId) : undefined
-    const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
-    if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
-    if (applied.executor) params.created_by = applied.executor
     list.value = await execApi.list(params)
     // 存在执行中的记录则启动轮询，否则确保停止
     if (list.value.some(e => e.status === 'running')) {

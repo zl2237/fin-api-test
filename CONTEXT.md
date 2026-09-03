@@ -10,6 +10,7 @@
 - **AggregateGroup**（聚合组）：一次数据驱动多行展开的失败聚合通知组——全部终态后只发一条汇总，组内每条抑制逐条通知。
 - **批次专用池**：每次批量执行新建 `ThreadPoolExecutor(max_workers=concurrency)`，提交完即回收；与内部后台任务池（聚合通知等零散提交）互不复用。
 
-## 前端（待 F2 落地后补充）
+## 前端
 
-- `useExecutionRunner`：执行轮询的深模块候选（runOnce / pollUntilDone / refreshWhileRunning），统一 5 处轮询实现。
+- **useExecutionRunner**（`composables/useExecutionRunner.ts`）：执行轮询的深模块——定时器注册表、卸载清理、间隔/超时策略、favicon 三态、结果提示单点管理。窄接口三个：`runWithFeedback`（单用例完整体验）、`pollUntilDone`（纯轮询到终态）、`refreshWhileRunning`（running 态自刷新）。取代此前 5 份平行实现（CaseList runCase/pollOne、CaseDesigner onRun、ReportDetail、Execution），2s/3s 与 150/300 魔法数不再漂移。
+- **execStatusType / execStatusText**（`utils/format.ts`）：执行状态 → 标签色/中文文案的唯一映射，各视图以 `as statusType/statusText` 别名引入。

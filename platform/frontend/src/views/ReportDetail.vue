@@ -9,7 +9,7 @@
       show-icon
     >
       <template #title>
-        用例执行中，每 {{ POLL_MS / 1000 }} 秒自动刷新…
+        用例执行中，每 3 秒自动刷新…
         <el-icon class="is-loading"><Loading /></el-icon>
       </template>
     </el-alert>
@@ -264,6 +264,8 @@ import EmptyState from '@/components/EmptyState.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
+import { execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
+import { useExecutionRunner } from '@/composables/useExecutionRunner'
 
 const route = useRoute()
 const router = useRouter()
@@ -370,18 +372,7 @@ function formatDuration(ms: number): string {
 }
 const durationText = computed(() => formatDuration(durationMs.value))
 
-function statusType(s?: string) {
-  if (s === 'success') return 'success'
-  if (s === 'running') return 'warning'
-  if (s == null) return 'info' // 加载中/加载失败不再是红色标签 + '-'
-  return 'danger'
-}
-function statusText(s?: string) {
-  if (s === 'success') return '通过'
-  if (s === 'running') return '执行中'
-  if (s === 'failed') return '失败'
-  return s ?? '-'
-}
+// 状态映射统一走 utils/format（execStatusType/execStatusText 的本地别名见顶部 import）
 
 function stepType(s?: string) {
   if (s === 'success') return 'success'
@@ -443,25 +434,23 @@ async function downloadExport(format: 'csv' | 'html', okMsg: string) {
   }
 }
 
-// running 态轮询间隔（与执行列表页一致的节奏）
-const POLL_MS = 3000
-let pollTimer: ReturnType<typeof setTimeout> | null = null
+// running 态轮询：单次触发静默刷新，load 内部再决定是否续排（保持原递归语义）
+const runner = useExecutionRunner()
+let stopRefresh: (() => void) | null = null
 
 function stopPolling() {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
-  }
+  stopRefresh?.()
+  stopRefresh = null
 }
 
 /** running 态自动轮询直到出结果；终态即停（含页面失活兜底） */
 function schedulePollIfRunning() {
   stopPolling()
   if (record.value?.status !== 'running') return
-  pollTimer = setTimeout(async () => {
+  stopRefresh = runner.refreshWhileRunning(async () => {
     await load(true)
-    schedulePollIfRunning()
-  }, POLL_MS)
+    return false // load(true) 完成后会再调 schedulePollIfRunning，由它决定续排与否
+  }, { interval: 3000 })
 }
 
 async function load(silent = false) {
