@@ -1,21 +1,37 @@
 """执行入口：从数据库加载用例与环境，驱动 DAG 执行"""
 import threading
 from concurrent.futures import ThreadPoolExecutor
-
-from sqlalchemy.orm import Session
+from dataclasses import dataclass
 
 from .. import crud, models
 from ..database import SessionLocal
 from .dag_executor import DagExecutor
 
-# 内部后台任务池：定时任务（scheduler.submit_execution）、聚合通知等零散提交。
-# 与批量执行无关——批量执行一律建批次专用池（见 submit_batch_execution），
-# 互不复用避免两套池并存时并发额度互相不可见。
+# 内部后台任务池：聚合通知等零散提交。用例执行一律走批次专用池
+# （见 submit_batch_execution），互不复用避免两套池并存时并发额度互相不可见。
 _executor_lock = threading.Lock()
 _executor: ThreadPoolExecutor | None = None
 
 # 批量执行默认并发数：用户未指定时的并发上限
 DEFAULT_CONCURRENCY = 4
+
+
+@dataclass
+class ExecutionSpec:
+    """单条执行的提交规格：record 已建为 running，executor 按此执行。
+
+    这是 submit_batch_execution 的接口——替代此前的 5 个平行数组，
+    调用方（execution_launcher）不再需要知道实现内部按索引 zip 的表示。
+    """
+
+    execution_id: int
+    case_id: int
+    # 数据驱动：行变量（列名即变量名）、列快照原值（快照保真过滤）、节点配置快照
+    row_vars: dict | None = None
+    row_origins: dict | None = None
+    node_config_overrides: dict | None = None
+    # 多行数据驱动批量时抑制逐条通知（由聚合器汇总发送）
+    suppress_notify: bool = False
 
 
 def _get_executor() -> ThreadPoolExecutor:
@@ -25,17 +41,6 @@ def _get_executor() -> ThreadPoolExecutor:
         if _executor is None:
             _executor = ThreadPoolExecutor(max_workers=DEFAULT_CONCURRENCY, thread_name_prefix="case-runner")
     return _executor
-
-
-def run_execution(db: Session, case_id: int, env_id: int) -> models.ExecutionRecord:
-    """同步执行用例（兼容旧调用方）"""
-    case = crud.get_testcase(db, case_id)
-    if not case:
-        raise ValueError(f"用例不存在: {case_id}")
-    env = crud.get_environment(db, env_id)
-    if not env:
-        raise ValueError(f"环境不存在: {env_id}")
-    return DagExecutor(db, case, env).execute()
 
 
 def run_execution_background(execution_id: int, case_id: int, env_id: int,
@@ -93,40 +98,21 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
         db.close()
 
 
-def submit_execution(case_id: int, env_id: int, execution_id: int, row_vars: dict | None = None,
-                     row_origins: dict | None = None,
-                     node_config_overrides: dict | None = None,
-                     suppress_notify: bool = False) -> None:
-    """提交用例执行到线程池（非阻塞）；row_vars 为数据驱动行变量"""
-    _get_executor().submit(run_execution_background, execution_id, case_id, env_id,
-                           row_vars, row_origins, node_config_overrides, suppress_notify)
-
-
-def submit_batch_execution(execution_ids: list, case_ids: list, env_id: int,
-                           rows_vars: list | None = None,
-                           rows_origins: list | None = None,
-                           node_config_overrides_list: list | None = None,
-                           suppress_notify_flags: list | None = None,
+def submit_batch_execution(specs: list[ExecutionSpec], env_id: int,
                            concurrency: int = DEFAULT_CONCURRENCY) -> None:
-    """提交批量并行执行到线程池（非阻塞）。
+    """提交批量并行执行到线程池（非阻塞）。specs 为空则什么都不做。
 
-    每个用例独立 submit 到批次专用线程池（max_workers=concurrency）：
+    每条 spec 独立 submit 到批次专用线程池（max_workers=concurrency）：
     concurrency=1 时逐个串行（一个结束再下一个），>1 并行。同环境并发下的
     登录互踢由 EnvTokenCache 共享 token 方案消除（见 services/token_cache.py）。
-    execution_ids[i] 对应 case_ids[i]，record 已由调用方创建为 running 状态。
-    rows_vars[i] 为该条的数据驱动行变量（普通执行传 None）。
-    rows_origins[i] 为该条的列快照原值（快照保真过滤，普通执行传 None）。
-    node_config_overrides_list[i] 为该条使用的数据集节点配置快照（普通执行传 None）。
-    suppress_notify_flags[i] 为 True 时该条不发逐条通知（数据驱动批量）。
     """
+    if not specs:
+        return
     pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix=f"case-c{concurrency}")
-    for i, (execution_id, case_id) in enumerate(zip(execution_ids, case_ids)):
-        row_vars = rows_vars[i] if rows_vars else None
-        row_origins = rows_origins[i] if rows_origins else None
-        overrides = node_config_overrides_list[i] if node_config_overrides_list else None
-        flag = suppress_notify_flags[i] if suppress_notify_flags else False
-        pool.submit(run_execution_background, execution_id, case_id, env_id,
-                    row_vars, row_origins, overrides, flag)
+    for spec in specs:
+        pool.submit(run_execution_background, spec.execution_id, spec.case_id, env_id,
+                    spec.row_vars, spec.row_origins,
+                    spec.node_config_overrides, spec.suppress_notify)
     pool.shutdown(wait=False)  # 提交完即关闭，已提交任务继续执行完
 
 

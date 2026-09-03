@@ -7,11 +7,7 @@ from .. import crud, models, schemas
 from ..auth import get_current_user
 from ..crud import executions as exec_domain
 from ..database import get_db
-from ..engine.runner import (
-    submit_batch_aggregate_notify,
-    submit_batch_execution,
-)
-from ..services import dataset_service
+from ..services.execution_launcher import build_launch_plan, commit_launch
 
 router = APIRouter(prefix="/api", tags=["执行"])
 
@@ -42,38 +38,13 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
     try:
-        plan = dataset_service.plan_case_expansion(db, case, dataset_id=data.dataset_id,
-                                                   row_ids=data.row_ids)
+        plan = build_launch_plan(db, case, data.env_id, user.id,
+                                 dataset_id=data.dataset_id, row_ids=data.row_ids)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _validate_concurrency(data.concurrency)
-
-    # 多行数据驱动批量 → 抑制逐条通知，聚合器等全部完成发一条汇总
-    aggregate = len(plan) > 1 and plan[0]["dataset_id"] is not None
-    first = None
-    group_ids: list[int] = []
-    flat_case_ids, rows_vars, rows_origins, overrides_list, suppress_flags = [], [], [], [], []
-    for item in plan:
-        record = exec_domain.create_execution(db, case_id=case_id, env_id=data.env_id, user_id=user.id,
-                                              dataset_id=item["dataset_id"], dataset_row=item["row"])
-        crud.fill_audit_names(db, record)
-        crud.fill_exec_names(db, record)
-        # 行数据作为变量注入（列名即变量名），overrides 为数据集节点配置快照
-        # （场景包：命中节点整块替换用例编排）；统一批量提交以支持并发数配置
-        flat_case_ids.append(case_id)
-        rows_vars.append((item["row"] or {}).get("data"))
-        rows_origins.append(item.get("origins"))
-        overrides_list.append(item["overrides"])
-        suppress_flags.append(aggregate)
-        group_ids.append(record.id)
-        first = first or record
-    submit_batch_execution(group_ids, flat_case_ids, data.env_id,
-                           rows_vars, rows_origins, overrides_list, suppress_flags,
-                           concurrency=data.concurrency)
-    if aggregate:
-        submit_batch_aggregate_notify(group_ids, case_id, data.env_id,
-                                      plan[0]["dataset_id"], case.name)
-    return first
+    commit_launch([plan], data.env_id, concurrency=data.concurrency)
+    return plan.records[0]
 
 
 @router.post("/testcases/batch-execute", response_model=list[schemas.ExecutionRecordOut])
@@ -100,44 +71,20 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     if not env:
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
-    records, flat_case_ids, rows_vars, rows_origins, overrides_list, suppress_flags = [], [], [], [], [], []
-    aggregate_groups = []  # (execution_ids, case_id, dataset_id, case_name)
+    plans = []
     for case_id, run_count in zip(data.case_ids, counts):
         case = crud.get_testcase(db, case_id)
         if not case:
             raise HTTPException(404, f"用例不存在: {case_id}")
         try:
-            plan = dataset_service.plan_case_expansion(db, case)
+            plans.append(build_launch_plan(db, case, data.env_id, user.id,
+                                           run_count=run_count))
         except ValueError as e:
             raise HTTPException(400, f"用例 {case.name}: {e}")
-        group_ids = []
-        aggregate = len(plan) > 1 and plan[0]["dataset_id"] is not None
-        # 同一用例按执行次数重复提交（同轮次的数据行展开 plan 一致，复用一次规划结果）
-        for _ in range(run_count):
-            for item in plan:
-                record = exec_domain.create_execution(db, case_id=case_id, env_id=data.env_id, user_id=user.id,
-                                                      dataset_id=item["dataset_id"], dataset_row=item["row"])
-                records.append(record)
-                flat_case_ids.append(case_id)
-                rows_vars.append((item["row"] or {}).get("data"))
-                rows_origins.append(item.get("origins"))
-                overrides_list.append(item["overrides"])
-                suppress_flags.append(aggregate)
-                group_ids.append(record.id)
-        if aggregate:
-            aggregate_groups.append((group_ids, case_id, plan[0]["dataset_id"], case.name))
 
-    for record in records:
-        crud.fill_audit_names(db, record)
-        crud.fill_exec_names(db, record)
-
-    # 提交批量执行（非阻塞，线程池并发数 = concurrency，1 即串行）
-    submit_batch_execution([r.id for r in records], flat_case_ids, data.env_id,
-                           rows_vars, rows_origins, overrides_list, suppress_flags,
-                           concurrency=data.concurrency)
-    for group_ids, case_id, dataset_id, case_name in aggregate_groups:
-        submit_batch_aggregate_notify(group_ids, case_id, data.env_id, dataset_id, case_name)
-    return records
+    # 全部用例平铺进一个批次专用线程池（并发数 = concurrency，1 即串行）
+    commit_launch(plans, data.env_id, concurrency=data.concurrency)
+    return [record for plan in plans for record in plan.records]
 
 
 @router.get("/executions", response_model=list[schemas.ExecutionRecordOut])
