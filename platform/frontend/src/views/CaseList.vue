@@ -284,76 +284,25 @@
       </template>
     </el-dialog>
 
-    <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序） -->
-    <el-dialog v-model="showGroupDialog" title="用例分组管理" width="620px" align-center class="group-manage-dialog" :close-on-click-modal="false">
-      <div class="group-dialog-body">
-        <div class="group-add">
-          <el-input
-            v-model="newGroupName"
-            placeholder="新分组名称（如：冒烟组/订单组/付款组）"
-            style="flex: 1"
-            @keyup.enter="onAddGroup"
-          />
-          <el-tree-select
-            v-model="newGroupParentId"
-            :data="treeSelectData"
-            node-key="id"
-            :props="treeProps"
-            placeholder="父分组（留空为顶层）"
-            clearable
-            check-strictly
-            style="width: 220px"
-          />
-          <el-button type="primary" @click="onAddGroup">添加</el-button>
-        </div>
-        <div class="group-drag-tip">拖拽节点可调整层级与顺序，松开自动保存</div>
-        <div class="group-tree-scroll">
-          <el-tree
-            ref="groupTreeRef"
-            :data="groupTreeNodes"
-            node-key="id"
-            :props="treeProps"
-            :expand-on-click-node="false"
-            default-expand-all
-            draggable
-            @node-drop="onTreeNodeDrop"
-          >
-            <template #default="{ data }">
-              <div class="group-tree-row">
-                <span class="group-tree-name">{{ data.label }}</span>
-                <div class="group-tree-actions">
-                  <el-button link type="primary" size="small" @click.stop="onRenameGroup(data)">重命名</el-button>
-                  <el-button link type="danger" size="small" @click.stop="onDeleteGroup(data)">删除</el-button>
-                </div>
-              </div>
-            </template>
-          </el-tree>
-          <EmptyState v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
-        </div>
-      </div>
-    </el-dialog>
+    <!-- 分组管理弹窗（多级：el-tree 拖拽调整层级与顺序；CRUD 与拖拽保存收敛在组件内） -->
+    <GroupManageDialog
+      v-model="showGroupDialog"
+      title="用例分组管理"
+      :tree-data="treeSelectData"
+      :api="caseGroupApi"
+      :project-id="store.currentProjectId"
+      item-word="用例"
+      @changed="onGroupsChanged"
+    />
 
-    <!-- 批量移动弹窗 -->
-    <el-dialog v-model="batchMoveVisible" title="批量移动到分组" width="420px" align-center :close-on-click-modal="false">
-      <div style="margin-bottom: 12px; color: var(--app-text-muted);">
-        将 {{ selectedCaseIds.length }} 个用例移动到：
-      </div>
-      <el-tree-select
-        v-model="batchMoveTarget"
-        :data="treeSelectWithUngrouped"
-        node-key="id"
-        :props="treeProps"
-        placeholder="选择目标分组 / 输入搜索"
-        clearable
-        filterable
-        check-strictly
-        style="width: 100%"
-      />
-      <template #footer>
-        <el-button @click="batchMoveVisible = false">取消</el-button>
-        <el-button type="primary" :loading="batchMoveLoading" @click="confirmBatchMove">确定移动</el-button>
-      </template>
-    </el-dialog>
+    <!-- 批量移动弹窗（目标选择与移动执行收敛在组件内，成功后自关） -->
+    <BatchMoveDialog
+      v-model="batchMoveVisible"
+      :count="selectedCaseIds.length"
+      :tree-data="treeSelectWithUngrouped"
+      item-word="用例"
+      :move="doBatchMove"
+    />
 
     <!-- 批量执行配置弹窗：逐用例设置执行次数 + 并发数，确认后提交 -->
     <el-dialog v-model="batchRunVisible" title="批量执行" width="480px" align-center :close-on-click-modal="false">
@@ -572,8 +521,10 @@ import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } fro
 import { caseApi, caseGroupApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
-import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
-import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
+import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
+import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
+import GroupManageDialog from '@/components/GroupManageDialog.vue'
+import BatchMoveDialog from '@/components/BatchMoveDialog.vue'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { debounce } from '@/utils/ui'
@@ -628,64 +579,38 @@ const {
 // 150ms 防抖：输入过程不逐键重算全量过滤链（对齐 DictManage/FileCenter 既有模式）
 watch(keyword, debounce(() => resetPages(), 150))
 
-// ===== 左分组导航选中态（master-detail）=====
-const selectedRowKey = ref<string | number>('all')
-const selectedRow = computed(() => visibleGroupRows.value.find(r => r.key === selectedRowKey.value))
-// 左栏 caret 仅在「有子分组」时显示（composable 的 expandable 含"组内有数据"的旧手风琴语义，叶子分组展开无意义）
-function hasChildGroups(groupId: number | null): boolean {
-  if (groupId == null) return false
-  return groups.value.some(g => g.parent_id === groupId)
-}
-// 单击整行 = 选中该组（父/叶子一致，右侧展示组内用例）；caret 单击 = 展开/折叠子分组
-function onSideNodeClick(row: { key: string | number; groupId: number | null; isUngrouped?: boolean }) {
-  selectedRowKey.value = row.key
-}
-// 父分组（有子分组）视图：右侧按计数徽章同口径展示子孙分组全部用例
-const isSubtreeView = computed(() => {
-  const row = selectedRow.value
-  return !!row && !row.isUngrouped && hasChildGroups(row.groupId)
-})
-const selectedCases = computed<TestCase[]>(() => {
-  const row = selectedRow.value
-  if (!row) return []
-  if (row.isUngrouped || row.groupId == null) return casesOf(null)
-  if (hasChildGroups(row.groupId)) {
-    const ids = [row.groupId, ...collectDescendantIds(tree.value, row.groupId)]
-    return filteredList.value.filter(c => c.group_id != null && ids.includes(c.group_id))
-  }
-  return casesOf(row.groupId)
-})
-const selectedPaged = computed(() => {
-  const page = pageMap.value[String(selectedRow.value?.key)] || 1
-  const start = (page - 1) * pageSize.value
-  return selectedCases.value.slice(start, start + pageSize.value)
-})
-// 分组重载/删除后选中项可能消失，回退到「全部」
-watch(visibleGroupRows, (rows) => {
-  if (selectedRowKey.value !== 'all' && !rows.some(r => r.key === selectedRowKey.value)) {
-    selectedRowKey.value = 'all'
-  }
-})
-// 「全部」视图分页：复用 composable 的 pageMap/pageSize（键 'all' 不与分组键冲突）
-const allPage = computed(() => pageMap.value['all'] || 1)
-const allPaged = computed(() => {
-  const start = (allPage.value - 1) * pageSize.value
-  return filteredList.value.slice(start, start + pageSize.value)
+// ===== 左分组导航选中态（master-detail 状态机收敛进 composable，与 ApiManage 共用）=====
+const {
+  selectedRowKey,
+  selectedRow,
+  hasChildGroups,
+  onSideNodeClick,
+  isSubtreeView,
+  selectedItems: selectedCases,
+  selectedPaged,
+  allPage,
+  allPaged,
+  setTableRef,
+  clearOtherTables,
+  clearAllTables,
+} = useGroupMasterDetail({
+  groups,
+  tree,
+  visibleGroupRows,
+  itemsOf: casesOf,
+  filteredItems: filteredList,
+  pageMap,
+  pageSize,
+  onRowDragEnd: onCaseRowDragEnd,
 })
 
 // el-tree / el-tree-select 公共字段映射
 const treeProps = { label: 'label', children: 'children' }
 
 const dialogVisible = ref(false)
+// 分组管理弹窗与批量移动弹窗的开合态（交互收敛在组件内，见模板）
 const showGroupDialog = ref(false)
-const newGroupName = ref('')
-const newGroupParentId = ref<number | null>(null)
-// el-tree 可变数据（管理弹窗拖拽用），groups 变化时重建
-const groupTreeNodes = ref<GroupTreeNode[]>([])
-const groupTreeRef = ref<any>(null)
 const batchMoveVisible = ref(false)
-const batchMoveTarget = ref<number | null>(null)
-const batchMoveLoading = ref(false)
 const batchRunning = ref(false)
 // 批量执行配置弹窗：每个用例可单独设置执行次数（1~9999），并发数可配（1=串行）
 const batchRunVisible = ref(false)
@@ -695,53 +620,10 @@ const batchRunConcurrency = ref(4)
 const batchRunItems = ref<{ id: number; name: string }[]>([])
 const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
 
-// ===== 批量移动：互斥勾选状态机在 useGroupedTable；视图只持有表格实例引用 =====
-const tableRefs = new Map<string | number, any>()
+// ===== 批量移动：互斥勾选状态机在 useGroupedTable，表格实例/SortableJS 绑定在 useGroupMasterDetail =====
 const selectedCaseIds = tableSel.selectedIds
 
-function clearOtherTables(keep: string | number) {
-  tableRefs.forEach((tableRef, key) => {
-    if (key !== keep) tableRef?.clearSelection?.()
-  })
-}
-
-function clearAllTables() {
-  tableRefs.forEach((tableRef) => tableRef?.clearSelection?.())
-}
-
-// ===== 组内拖拽排序（SortableJS 绑定 el-table tbody）=====
-const sortableInstances = new Map<string | number, any>()
-
-function setTableRef(groupId: string | number | undefined, el: any) {
-  if (el && groupId != null) {
-    tableRefs.set(groupId, el)
-    nextTick(() => {
-      const tbody = el.$el?.querySelector?.('.el-table__body-wrapper tbody')
-      if (!tbody) return
-      const old = sortableInstances.get(groupId)
-      if (old) old.destroy()
-      const inst = Sortable.create(tbody, {
-        handle: '.drag-handle',
-        animation: 200,
-        ghostClass: 'sortable-ghost',
-        onEnd: (evt: any) => onCaseRowDragEnd(groupId, evt.oldIndex, evt.newIndex),
-      })
-      sortableInstances.set(groupId, inst)
-    })
-  } else if (!el) {
-    // 卸载：ref(null) 触发时 selectedRowKey 已切走（如回「全部」），旧 key 不可知；
-    // 分组视图同一时刻仅一个表格实例，直接清空即可。
-    // 注意不能在此读取 selectedRow!.key —— 卸载时它是 undefined，会抛 TypeError 中断 patch，
-    // 导致右侧列表冻结在旧分组（分组切回全部后不再变化的根因）。
-    tableRefs.clear()
-    sortableInstances.forEach((inst) => inst.destroy())
-    sortableInstances.clear()
-  }
-}
-
 async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newIndex: number) {
-  // 父分组视图无拖拽把手（跨组聚合列表），守卫兜底防 Sortable 残留实例触发
-  if (isSubtreeView.value) return
   try {
     const applied = await applyPageDragReorder(groupId, oldIndex, newIndex, (items) => caseApi.reorder(items))
     if (applied) ElMessage.success('已保存')
@@ -751,49 +633,22 @@ async function onCaseRowDragEnd(groupId: string | number, oldIndex: number, newI
   }
 }
 
-/** el-tree 拖拽落点：持久化 parent_id + sort_order */
-async function onTreeNodeDrop() {
-  // el-tree 拖拽后已就地更新 groupTreeNodes，收集树平面更新载荷
-  const updates = collectTreeUpdates(groupTreeNodes.value)
-  try {
-    await Promise.all(updates.map(it => caseGroupApi.update(it.id, { parent_id: it.parent_id, sort_order: it.sort_order })))
-    ElMessage.success('已保存')
-    await loadGroups()
-  } catch (e: any) {
-    ElMessage.error(e.message || '分组排序保存失败')
-    await loadGroups()
-  }
-}
-
 function onSelectionChange(groupId: string | number, selection: TestCase[]) {
   tableSel.onSelectionChange(groupId, selection, clearOtherTables)
 }
 
 function onBatchMove() {
   if (selectedCaseIds.value.length === 0) return
-  batchMoveTarget.value = null
   batchMoveVisible.value = true
 }
 
-async function confirmBatchMove() {
-  if (batchMoveTarget.value === null) {
-    ElMessage.warning('请选择目标分组')
-    return
-  }
-  batchMoveLoading.value = true
-  try {
-    const targetGroupId = batchMoveTarget.value === 0 ? null : batchMoveTarget.value
-    const res = await caseApi.batchMove(selectedCaseIds.value, targetGroupId)
-    ElMessage.success(res.message)
-    batchMoveVisible.value = false
-    // 清空选中与 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
-    resetSelection(clearAllTables)
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '批量移动失败')
-  } finally {
-    batchMoveLoading.value = false
-  }
+/** 批量移动执行（BatchMoveDialog 确认时调用；成功 resolve 弹窗自关，失败 throw 由弹窗报错） */
+async function doBatchMove(targetGroupId: number | null) {
+  const res = await caseApi.batchMove(selectedCaseIds.value, targetGroupId)
+  ElMessage.success(res.message)
+  // 清空选中与 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
+  resetSelection(clearAllTables)
+  await load()
 }
 
 // ===== 用例组合（复制式拼接，弹窗拖排序确定顺序）=====
@@ -910,8 +765,6 @@ async function loadUsers() {
 async function loadGroups() {
   if (!store.currentProjectId) return
   groups.value = await caseGroupApi.list(store.currentProjectId)
-  // 重建 el-tree 可变数据（深拷贝，供管理弹窗拖拽就地修改）
-  groupTreeNodes.value = JSON.parse(JSON.stringify(treeSelectData.value))
   // 无记忆时默认全部展开
   applyDefaultExpand()
   // 重置分页
@@ -1355,50 +1208,10 @@ async function onRemoveSchedule(s: TestSchedule) {
   }
 }
 
-async function onAddGroup() {
-  if (!newGroupName.value.trim()) return
-  try {
-    await caseGroupApi.create({
-      project_id: store.currentProjectId!,
-      parent_id: newGroupParentId.value,
-      name: newGroupName.value.trim(),
-    })
-    newGroupName.value = ''
-    newGroupParentId.value = null
-    await loadGroups()
-    ElMessage.success('已添加')
-  } catch (e: any) {
-    ElMessage.error(e.message || '添加失败')
-  }
-}
-
-async function onRenameGroup(data: GroupTreeNode) {
-  try {
-    const { value } = await ElMessageBox.prompt('分组名称', '重命名', { inputValue: data.label })
-    if (value && value !== data.label) {
-      await caseGroupApi.update(data.id, { name: value })
-      await loadGroups()
-      ElMessage.success('已重命名')
-    }
-  } catch (e) {
-    // cancel
-  }
-}
-
-async function onDeleteGroup(data: GroupTreeNode) {
-  try {
-    await ElMessageBox.confirm(
-      `确认删除分组「${data.label}」？\n注意：含子分组或用例时将阻止删除，请先处理`,
-      '提示',
-      { type: 'warning' },
-    )
-    await caseGroupApi.remove(data.id)
-    await loadGroups()
-    await load()
-    ElMessage.success('已删除')
-  } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error(e.message || '删除失败')
-  }
+/** GroupManageDialog 变更回调：重载分组；删除时同步重载用例（其余变更不影响条目） */
+async function onGroupsChanged(kind: 'add' | 'rename' | 'delete' | 'reorder') {
+  await loadGroups()
+  if (kind === 'delete') await load()
 }
 
 // 项目切换时：重置筛选并回第 1 页（统一行为，避免携带旧项目筛选）
@@ -1575,39 +1388,7 @@ function onGlobalKey(e: KeyboardEvent) {
 .group-body {
   padding: 0 16px 12px;
 }
-.group-dialog-body {
-  padding: 8px 4px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.group-add {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-shrink: 0;
-}
-.group-tree-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 6px;
-}
-.group-tree-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding-right: 8px;
-}
-.group-tree-name {
-  font-size: 14px;
-  color: var(--app-text);
-}
-.group-tree-actions {
-  display: flex;
-  gap: 4px;
-}
+/* 分组管理弹窗样式已随 GroupManageDialog 组件迁移（原与 ApiManage 逐字重复） */
 .pagination-wrap {
   display: flex;
   justify-content: flex-end;
@@ -1728,12 +1509,6 @@ function onGlobalKey(e: KeyboardEvent) {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--app-text-muted);
-}
-.group-drag-tip {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin: 12px 0 8px;
-  flex-shrink: 0;
 }
 /* ===== 定时任务：列表图标标识 + 弹窗 ===== */
 .schedule-mark {
