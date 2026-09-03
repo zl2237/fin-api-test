@@ -543,6 +543,29 @@ def resync_node_configs(db: Session, dataset_id: int) -> int:
     return len(ds.node_configs)
 
 
+def sync_case_datasets(db: Session, case_id: int) -> int:
+    """保存用例后自动同步：把该用例绑定的全部数据集 node_configs 一次性重快照（列/行不动）。
+
+    与手动 resync_node_configs 同口径（snapshot_node_configs），按用例批量执行；
+    各数据集持有快照的独立深拷贝，互不影响。返回同步的数据集数
+    （未绑定数据集或用例已不存在返回 0，不视为错误）。
+    """
+    datasets = (db.query(models.DataSet)
+                .filter(models.DataSet.case_id == case_id).all())
+    if not datasets:
+        return 0
+    case = crud.get_testcase(db, case_id)
+    if not case:
+        return 0
+    cfgs = (db.query(models.CaseNodeConfig)
+            .filter(models.CaseNodeConfig.case_id == case_id).all())
+    snapshot = snapshot_node_configs(case, cfgs)
+    for ds in datasets:
+        ds.node_configs = deepcopy(snapshot)
+    db.commit()
+    return len(datasets)
+
+
 # 编排字段中文名（drift 报告用）
 _DRIFT_FIELD_NAMES = {
     "api_id": "接口绑定",

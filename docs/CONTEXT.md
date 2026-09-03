@@ -20,6 +20,11 @@
 - **topo_order**（`engine/topo.py`）：DAG 拓扑序的唯一实现（Kahn + 节点 id 字典序入队），返回 (拓扑序, 环/断链未入序节点)。执行顺序（dag_executor）与收集口径（dataset_service 同名异值列取源头节点值）共用——入队稳定性改变两边同时生效，不允许再出现平行第二份。
 - **set_nested_value**（`engine/preprocessor.py`）：点号路径嵌套设值的唯一实现（数字段索引已存在列表）。body_builder 组装请求体与编排 set_field / 类型强转共用，不再有 dict-only 的平行版本。
 
+## 数据驱动（dataset）
+
+- **snapshot_node_configs**（`services/dataset_service.py`）：用例当前编排 → 数据集节点配置快照的唯一口径（只快照 dag 中存在的节点）；生成/resync/自动同步/drift 四处共用。
+- **sync_case_datasets**（`services/dataset_service.py`）：保存用例即同步——用例 update 提交 node_configs/dag_config 时，把该用例绑定的全部数据集 node_configs 一次性重快照（列/行不动，各数据集独立深拷贝）。手动 `resync_node_configs` 降级为兜底入口，drift 检测降级为异常兜底（自动同步失败时不影响用例保存）。
+
 ## crud 域拆分
 
 - **crud/versions**（`crud/versions.py`）：项目版本域——快照（snapshot）/对比（diff）/回滚（rollback）整族自 legacy.py 迁出。回滚是高风险机制（删当前全部接口/用例/分组后按快照重建，执行记录分离再重关联），一文件自洽；对外经 crud 包显式 re-export，`crud.rollback_project_version` 等旧引用不变。

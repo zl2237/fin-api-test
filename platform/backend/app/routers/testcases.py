@@ -139,6 +139,14 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
         except ValueError as e:
             raise HTTPException(400, str(e))
     obj = crud.update_testcase(db, obj, data, user.id)
+    # 编排有改动时自动同步绑定数据集的节点配置快照（省去数据集页手动 resync）；
+    # 同步失败不影响用例保存——快照过期仍可 drift 检测兜底并手动 resync
+    if {"node_configs", "dag_config"} & data.model_fields_set:
+        from ..services.dataset_service import sync_case_datasets
+        try:
+            sync_case_datasets(db, obj.id)
+        except Exception as e:
+            print(f"[保存用例] 自动同步数据集节点配置快照失败（忽略）: {e}")
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj
