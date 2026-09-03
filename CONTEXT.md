@@ -10,6 +10,11 @@
 - **AggregateGroup**（聚合组）：一次数据驱动多行展开的失败聚合通知组——全部终态后只发一条汇总，组内每条抑制逐条通知。
 - **批次专用池**：每次批量执行新建 `ThreadPoolExecutor(max_workers=concurrency)`，提交完即回收；与内部后台任务池（聚合通知等零散提交）互不复用。
 
+## 请求组装（prepare_request）
+
+- **prepare_request**（`engine/prepare_request.py`）：请求组装的深模块——三级取值优先级（数据集行值 > 编排 set_field 字面量 > 接口默认值）的唯一调用点，编排顺序（组装→行值覆盖→求值→pre_process→再求值→coerce→apply_field_types→pop_file_fields→headers 求值）成为直接可测单元。调用方仅 dag_executor。
+- **RequestParts**：组装产物 dataclass（body / headers / file_fields），取代此前散落的三个平行返回值。
+
 ## 前端
 
 - **useExecutionRunner**（`composables/useExecutionRunner.ts`）：执行轮询的深模块——定时器注册表、卸载清理、间隔/超时策略、favicon 三态、结果提示单点管理。窄接口三个：`runWithFeedback`（单用例完整体验）、`pollUntilDone`（纯轮询到终态）、`refreshWhileRunning`（running 态自刷新）。取代此前 5 份平行实现（CaseList runCase/pollOne、CaseDesigner onRun、ReportDetail、Execution），2s/3s 与 150/300 魔法数不再漂移。
