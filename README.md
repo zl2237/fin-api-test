@@ -79,6 +79,10 @@ def test_fee_add(api_factory, db_factory, env_config):
 
 同时提供一套 Web 测试平台（[`platform/`](./platform/README.md)）：FastAPI + Vue3 + DAG 拖拽编排 + 结构化报告 + 用户权限 + 并发执行。
 
+- 架构详解与上手指南：[docs/项目架构详解与学习指南.md](./docs/项目架构详解与学习指南.md)
+- 深模块词汇表（prepare_request / execution_launcher / topo_order / useExecutionRunner 等单一实现约定）：[docs/CONTEXT.md](./docs/CONTEXT.md)
+- 后端 676 个 fake-db 单测 + 前端 vue-tsc 全量类型检查，CI 与 pre-commit 同口径
+
 ## License
 
 [MIT](LICENSE)
