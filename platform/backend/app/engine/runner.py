@@ -130,6 +130,10 @@ def submit_batch_aggregate_notify(execution_ids: list, case_id: int, env_id: int
 
 def _wait_and_notify(execution_ids: list, case_id: int, env_id: int,
                      dataset_id: int, case_name: str) -> None:
+    """聚合通知的等待侧：轮询批次到终态后调用 send_batch_notify。
+
+    环境名/数据集名取数与门控都在 notifier（单点），本函数只剩等待 + 调用。
+    """
     import time as _time
     db = SessionLocal()
     try:
@@ -144,23 +148,8 @@ def _wait_and_notify(execution_ids: list, case_id: int, env_id: int,
         else:
             print(f"[聚合通知] 等待超时放弃：case#{case_id} dataset#{dataset_id}")
             return
-        env = crud.get_environment(db, env_id)
-        dataset = crud.get_dataset(db, dataset_id)
-        if not env or not dataset:
-            return
-        from ..services.notifier import build_batch_notify_content
-        content = build_batch_notify_content(recs, case_name, dataset.name)
-        if content is None:
-            print("[聚合通知] 跳过：数据驱动批量全部成功")
-            return
-        notify_config = env.notify_config or {}
-        webhook = notify_config.get("wecom_webhook")
-        if not webhook:
-            return
-        if not notify_config.get("enable_on_failure", True):
-            return
-        from utils.wecom_util import WeComRobot
-        WeComRobot(webhook).send_markdown("数据驱动批量执行通知", content)
+        from ..services.notifier import send_batch_notify
+        send_batch_notify(db, env_id, dataset_id, recs, case_name)
     except Exception as e:
         # 聚合通知失败不影响执行结果
         print(f"[聚合通知] 发送失败（忽略）: {e}")
