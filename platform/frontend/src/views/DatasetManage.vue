@@ -401,7 +401,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Folder, Grid, WarningFilled } from '@element-plus/icons-vue'
 import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup } from '@/api'
-import { buildGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -421,57 +421,16 @@ const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === c
 const colKeys = computed(() => (current.value?.columns || []).map((c) => c.key))
 const colLabels = computed(() => colKeys.value.map((k) => colLabel(k)))
 
-// ===== 左侧用例分组树（沿用用例列表的分组结构）=====
+// ===== 左侧用例分组树（沿用用例列表的分组结构；树构建与展开记忆收敛进 useGroupTree）=====
 const UNGROUPED_ID = -1
-const groupTree = computed(() => buildGroupTree(groups.value))
-// 展开记忆：按项目持久化（与 CaseList 的 fin_group_expand_{scope}_{projectId} 同约定，scope 独立）
-const EXPAND_SCOPE = 'datasetManage'
-const expandedGroupIds = ref(new Set<number>())
-let hasExpandMemory = false
-
-function expandStorageKey() {
-  return `fin_group_expand_${EXPAND_SCOPE}_${store.currentProjectId ?? 0}`
-}
-
-function loadExpandMemory() {
-  if (!store.currentProjectId) {
-    expandedGroupIds.value = new Set()
-    hasExpandMemory = false
-    return
-  }
-  try {
-    const saved = localStorage.getItem(expandStorageKey())
-    if (saved !== null) {
-      expandedGroupIds.value = new Set(JSON.parse(saved))
-      hasExpandMemory = true
-    } else {
-      hasExpandMemory = false
-    }
-  } catch {
-    hasExpandMemory = false
-  }
-}
-
-function saveExpandMemory() {
-  if (!store.currentProjectId) return
-  try {
-    localStorage.setItem(expandStorageKey(), JSON.stringify([...expandedGroupIds.value]))
-  } catch {
-    // 忽略写入失败
-  }
-}
-
-function isExpanded(id: number) {
-  return expandedGroupIds.value.has(id)
-}
-
-function toggleGroup(id: number) {
-  const s = new Set(expandedGroupIds.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  expandedGroupIds.value = s
-  saveExpandMemory()
-}
+const {
+  tree: groupTree,
+  isExpanded,
+  toggleExpand: toggleGroup,
+  expandedIds,
+} = useGroupTree(groups, computed(() => store.currentProjectId), 'datasetManage')
+// 未分组（-1 虚拟节点）不在 useGroupTree 的树里：与真实分组共用 expandedIds，
+// 同一持久化 key（fin_group_expand_datasetManage_{projectId}），展开/折叠语义一致
 
 function casesOfGroup(gid: number | null) {
   return cases.value.filter((c) => (c.group_id ?? null) === gid)
@@ -538,14 +497,10 @@ async function load() {
     cases.value = cs
     groups.value = gs
     datasets.value = ds
-    // 展开记忆优先；首次（无记忆）默认全展开并落记忆
-    loadExpandMemory()
-    if (!hasExpandMemory) {
-      const s = new Set<number>()
-      gs.forEach((g) => s.add(g.id))
-      s.add(UNGROUPED_ID)
-      expandedGroupIds.value = s
-      saveExpandMemory()
+    // 展开记忆优先（useGroupTree 随 projectId 变化自动读写）；首次（无记忆）
+    // 默认全展开（含未分组虚拟节点）并落记忆
+    if (localStorage.getItem(expandStorageKey('datasetManage', store.currentProjectId)) === null) {
+      expandedIds.value = [...gs.map((g) => g.id), UNGROUPED_ID]
     }
     if (currentCase.value) {
       currentCase.value = cases.value.find((c) => c.id === currentCase.value!.id) || null

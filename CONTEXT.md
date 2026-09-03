@@ -32,5 +32,10 @@
 
 ## 前端
 
+- **useGroupMasterDetail**（`composables/useGroupMasterDetail.ts`）：分组管理骨架的 master-detail 状态机——左导航选中态（分组消失回「全部」）、子树聚合视图判定、右侧详情取数/分页、el-table 实例登记（互斥勾选 clearOthers 注入点）、SortableJS 组内行拖拽绑定（含卸载清理）。挂在 useGroupedTable 之上，ApiManage / CaseList 共用；视图只注入取数与拖拽落点持久化。
+- **GroupManageDialog**（`components/GroupManageDialog.vue`）：分组管理弹窗——新增/重命名/删除/拖拽层级保存收敛在组件内，CRUD API 经 props 注入（apiGroupApi / caseGroupApi），变更后 emit('changed', kind) 由父视图重载。
+- **BatchMoveDialog**（`components/BatchMoveDialog.vue`）：批量移动弹窗——目标选择（id=0 = 未分组→null）、loading 与报错自持，移动逻辑经 props.move 注入（成功 resolve 自关，失败 throw 保持打开）。
+- **expandStorageKey**（`composables/useGroupTree.ts`）：展开记忆持久化 key 的唯一约定点；视图自定义虚拟节点（如 DatasetManage 的未分组 -1）复用同一存储，不再各自拼 key。
+
 - **useExecutionRunner**（`composables/useExecutionRunner.ts`）：执行轮询的深模块——定时器注册表、卸载清理、间隔/超时策略、favicon 三态、结果提示单点管理。窄接口三个：`runWithFeedback`（单用例完整体验）、`pollUntilDone`（纯轮询到终态）、`refreshWhileRunning`（running 态自刷新）。取代此前 5 份平行实现（CaseList runCase/pollOne、CaseDesigner onRun、ReportDetail、Execution），2s/3s 与 150/300 魔法数不再漂移。
 - **execStatusType / execStatusText**（`utils/format.ts`）：执行状态 → 标签色/中文文案的唯一映射，各视图以 `as statusType/statusText` 别名引入。
