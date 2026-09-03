@@ -182,21 +182,11 @@ class DagExecutor:
                     self.http_client.session.close()
                 except Exception as e:
                     print(f"[资源清理] HTTP session 关闭失败（忽略）: {e}")
-            # 发送企微通知（notify_config 配置了 webhook 时）
-            executor_name = ""
-            if record.created_by:
-                user = self.db.query(models.User).filter(models.User.id == record.created_by).first()
-                if user:
-                    executor_name = user.username
-            project_name = ""
-            if self.case.project_id:
-                project = self.db.query(models.Project).filter(models.Project.id == self.case.project_id).first()
-                if project:
-                    project_name = project.name
+            # 发送企微通知（执行人/项目名取数与门控都在 notifier，见其模块注释）
             if self.suppress_notify:
                 print("[通知发送] 跳过逐条通知：数据驱动批量执行由聚合器汇总发送")
             else:
-                send_notify(self.env, self.case, record, executor_name=executor_name, project_name=project_name)
+                send_notify(self.db, self.env, self.case, record)
         return record
 
     # ---------- 单节点执行 ----------

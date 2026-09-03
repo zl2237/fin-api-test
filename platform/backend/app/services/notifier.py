@@ -1,9 +1,12 @@
-"""执行通知服务：用例执行完成后发送企微通知。
+"""执行通知服务：用例执行完成后的企微通知（单条 + 数据驱动批量聚合）。
 
-从 DagExecutor._send_notify 提取，供 DagExecutor 与后续 OrderFlow 编排器复用。
-行为与原 DagExecutor 实现完全一致：通知失败不影响主流程。
-失败时从步骤记录提取失败原因（失败接口/断言消息/请求异常/执行异常），附在通知里。
+深模块约定：取数与门控都在本模块内部——执行人/项目名、环境/数据集名由
+notifier 自己查表，webhook 存在性与 enable_on_success/enable_on_failure
+开关（成功默认关、失败默认开）只在 _send_wecom 定义一份。调用方只交对象
+与 id，不替通知查表；改门控语义只需改这里。失败不影响主流程；失败通知
+附失败原因（失败接口/断言消息/请求异常/执行异常）。
 """
+from .. import crud, models
 
 # 企微 markdown content 上限 4096 字节（UTF-8），失败原因区块按字节预算控制，
 # 给正文（用例名/环境等）留余量；中文 3 字节/字，不能按字符数截断
@@ -100,29 +103,48 @@ def build_batch_notify_content(records, case_name: str, dataset_name: str):
     return "\n".join(lines)
 
 
-def send_notify(env, case, record, executor_name: str = "", project_name: str = "") -> None:
-    """执行完成后发送企微通知；notify_config 未配置 webhook 或开关关闭则跳过；失败不影响主流程。
+def _resolve_executor_name(db, record) -> str:
+    """执行人姓名：record.created_by → User 表；未绑定或查无则空串"""
+    if not getattr(record, "created_by", None):
+        return ""
+    user = db.query(models.User).filter(models.User.id == record.created_by).first()
+    return user.username if user else ""
 
-    executor_name 为执行人姓名（由调用方从 record.created_by 查 User 表得到），空字符串则不显示。
-    project_name 为用例所属项目名称（由调用方从 case.project_id 查 Project 表得到），空字符串则不显示。
+
+def _resolve_project_name(db, case) -> str:
+    """项目名：case.project_id → Project 表；未绑定或查无则空串"""
+    if not getattr(case, "project_id", None):
+        return ""
+    project = db.query(models.Project).filter(models.Project.id == case.project_id).first()
+    return project.name if project else ""
+
+
+def _send_wecom(notify_config: dict, title: str, content: str, *, success_event: bool) -> None:
+    """门控 + 发送单点：webhook 存在性 + 成功/失败开关（成功默认关、失败默认开）。"""
+    webhook = notify_config.get("wecom_webhook")
+    if not webhook:
+        print("[通知发送] 跳过：未配置 wecom_webhook")
+        return
+    if success_event and not notify_config.get("enable_on_success", False):
+        print("[通知发送] 跳过：用例成功但 enable_on_success=False")
+        return
+    if not success_event and not notify_config.get("enable_on_failure", True):
+        print("[通知发送] 跳过：用例失败但 enable_on_failure=False")
+        return
+    from utils.wecom_util import WeComRobot
+    print(f"[通知发送] 发送企微通知：{title}")
+    WeComRobot(webhook).send_markdown(title, content)
+
+
+def send_notify(db, env, case, record) -> None:
+    """单条执行完成后的企微通知：执行人/项目名由本函数查表解析（调用方不再替通知取数）。
+
+    notify_config 未配置 webhook 或开关关闭则跳过；失败不影响主流程。
     """
     try:
-        notify_config = env.notify_config or {}
-        webhook = notify_config.get("wecom_webhook")
-        if not webhook:
-            print("[通知发送] 跳过：未配置 wecom_webhook")
-            return
-        # 按开关决定是否通知：成功时看 enable_on_success，失败时看 enable_on_failure
         is_success = record.status == "success"
-        if is_success and not notify_config.get("enable_on_success", False):
-            print("[通知发送] 跳过：用例成功但 enable_on_success=False")
-            return
-        if not is_success and not notify_config.get("enable_on_failure", True):
-            print("[通知发送] 跳过：用例失败但 enable_on_failure=False")
-            return
-        print(f"[通知发送] 发送企微通知：用例={case.name} 状态={record.status}")
-        from utils.wecom_util import WeComRobot
-        status_text = "✅ 通过" if is_success else "❌ 失败"
+        executor_name = _resolve_executor_name(db, record)
+        project_name = _resolve_project_name(db, case)
         summary = record.summary or {}
         duration = ""
         if record.started_at and record.ended_at:
@@ -131,7 +153,7 @@ def send_notify(env, case, record, executor_name: str = "", project_name: str = 
         lines = [
             "**用例执行通知**",
             f"> 用例：{case.name}",
-            f"> 状态：{status_text}{duration}",
+            f"> 状态：{'✅ 通过' if is_success else '❌ 失败'}{duration}",
             f"> 通过/总数：{summary.get('passed', 0)}/{summary.get('total', 0)}",
         ]
         if not is_success:
@@ -145,8 +167,29 @@ def send_notify(env, case, record, executor_name: str = "", project_name: str = 
             f"> 执行人：{executor_name}",
             f"> 时间：{record.ended_at.strftime('%Y-%m-%d %H:%M:%S') if record.ended_at else ''}",
         ]
-        content = "\n".join(lines)
-        WeComRobot(webhook).send_markdown("用例执行通知", content)
+        _send_wecom(env.notify_config or {}, "用例执行通知", "\n".join(lines),
+                    success_event=is_success)
     except Exception as e:
         # 通知失败不影响执行结果
         print(f"[通知发送] 企微通知发送失败（忽略）: {e}")
+
+
+def send_batch_notify(db, env_id: int, dataset_id: int, records, case_name: str) -> None:
+    """数据驱动批量执行的聚合通知：环境/数据集名取数与门控都收敛在本模块。
+
+    全成功不发（enable_on_success 语义）；有失败发一条汇总。失败不影响主流程。
+    """
+    try:
+        env = crud.get_environment(db, env_id)
+        dataset = crud.get_dataset(db, dataset_id)
+        if not env or not dataset:
+            return
+        content = build_batch_notify_content(records, case_name, dataset.name)
+        if content is None:
+            print("[聚合通知] 跳过：数据驱动批量全部成功")
+            return
+        _send_wecom(env.notify_config or {}, "数据驱动批量执行通知", content,
+                    success_event=False)
+    except Exception as e:
+        # 聚合通知失败不影响执行结果
+        print(f"[聚合通知] 发送失败（忽略）: {e}")

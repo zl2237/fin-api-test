@@ -15,6 +15,12 @@
 - **prepare_request**（`engine/prepare_request.py`）：请求组装的深模块——三级取值优先级（数据集行值 > 编排 set_field 字面量 > 接口默认值）的唯一调用点，编排顺序（组装→行值覆盖→求值→pre_process→再求值→coerce→apply_field_types→pop_file_fields→headers 求值）成为直接可测单元。调用方仅 dag_executor。
 - **RequestParts**：组装产物 dataclass（body / headers / file_fields），取代此前散落的三个平行返回值。
 
+## 通知（notifier）
+
+- **notifier**（`services/notifier.py`）：企微通知的深模块——取数（执行人/项目名、环境/数据集名）与门控（webhook 存在性 + enable_on_success/enable_on_failure 开关及默认值）都只在模块内部定义，调用方只交对象与 id，不替通知查表。窄接口两个：`send_notify(db, env, case, record)`（单条）、`send_batch_notify(db, env_id, dataset_id, records, case_name)`（数据驱动聚合）。
+- **_send_wecom**：门控 + 发送单点，单条与聚合通知共用；改通知开关语义只改这里。
+- **_wait_and_notify**（`engine/runner.py`）：聚合通知的等待侧——只剩"轮询批次到终态 + 调用 send_batch_notify"，不再持有门控副本。
+
 ## 前端
 
 - **useExecutionRunner**（`composables/useExecutionRunner.ts`）：执行轮询的深模块——定时器注册表、卸载清理、间隔/超时策略、favicon 三态、结果提示单点管理。窄接口三个：`runWithFeedback`（单用例完整体验）、`pollUntilDone`（纯轮询到终态）、`refreshWhileRunning`（running 态自刷新）。取代此前 5 份平行实现（CaseList runCase/pollOne、CaseDesigner onRun、ReportDetail、Execution），2s/3s 与 150/300 魔法数不再漂移。
