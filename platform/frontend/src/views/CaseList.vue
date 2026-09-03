@@ -845,7 +845,7 @@ async function saveBind() {
     ElMessage.success(bindDatasetId.value ? '已绑定数据集' : '已解绑')
     bindVisible.value = false
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     bindSaving.value = false
   }
@@ -891,7 +891,7 @@ async function confirmDataDrivenRun({ datasetId, rowIds }: { datasetId: number |
   } catch (e: any) {
     msg.close()
     favicon.reset()
-    ElMessage.error(e?.response?.data?.detail || e?.message || '执行失败')
+    ElMessage.error(e.message || '执行失败')
   } finally {
     ddRunning.value = false
   }

@@ -210,7 +210,7 @@ async function loadVersions() {
       baseId.value = versions.value[1].id
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载版本列表失败')
+    ElMessage.error(e.message || '加载版本列表失败')
   } finally {
     loading.value = false
   }
@@ -243,7 +243,7 @@ async function onCreate() {
     createVisible.value = false
     await loadVersions()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     creating.value = false
   }
@@ -266,7 +266,7 @@ async function onRollback(row: ProjectVersionListItem) {
     emit('rollback')
     visible.value = false
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '回滚失败')
+    ElMessage.error(e.message || '回滚失败')
   }
 }
 
@@ -288,7 +288,7 @@ async function onDelete(row: ProjectVersionListItem) {
     if (targetId.value === row.id) targetId.value = null
     await loadVersions()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -341,7 +341,7 @@ async function onDiff() {
       .map(s => s.key)
     diffVisible.value = true
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '对比失败')
+    ElMessage.error(e.message || '对比失败')
   } finally {
     diffLoading.value = false
   }

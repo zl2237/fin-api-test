@@ -75,8 +75,8 @@ http.interceptors.response.use(
       }
     }
     // blob 请求（文件下载/导出）失败时 body 是 Blob，需读文本后解析出后端 detail；
-    // 解析完再统一 reject，保证调用方 catch 到的仍是 Error(msg)
-    const rejectWithMsg = (msg: string) => Promise.reject(new Error(msg))
+    // 解析完再统一 reject，保证调用方 catch 到的仍是 ApiError
+    const rejectWithMsg = (msg: string) => Promise.reject(new ApiError(msg, status))
     const data = error?.response?.data
     if (typeof Blob !== 'undefined' && data instanceof Blob && data.type.includes('json')) {
       return data.text().then((txt: string) => {
@@ -92,19 +92,27 @@ http.interceptors.response.use(
   },
 )
 
+// ============ ApiError 契约 ============
+// 拦截器把一切失败（HTTP 错误/blob 响应/网络错误）规整为 ApiError：
+// message 必为后端 detail（缺失时回退 axios message / '请求失败'）。
+// 调用方 catch 只读 e.message，不要再写 e?.response?.data?.detail 之类的对冲解析。
+export class ApiError extends Error {
+  /** HTTP 状态码；无响应（网络错误/超时）时为 undefined */
+  status?: number
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 // ============ 类型 ============
-export interface User {
-  id: number; username: string; name?: string; role: string; must_change_password?: boolean; created_at?: string
-  phone?: string | null; email?: string | null; department?: string | null
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-  has_avatar?: boolean
-}
-export interface Project {
-  id: number; name: string; description?: string; sort_order?: number; created_at?: string
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-}
+// 响应类型优先取 OpenAPI 生成物别名（npm run gen:api，后端 Pydantic 为单一事实源）。
+// 仍手写的接口分两类：嵌套结构在生成物中退化为 unknown（Environment/ApiDef/TestCase/
+// NodeConfig/记录族/DataSet 族/版本族——视图需要更强的领域形状），或手写 union 承载
+// 领域约束（TestSchedule 的 schedule_type、DataSetColumn 的 type）；待后端模型细化后分批换。
+export type User = components['schemas']['UserOut']
+export type Project = components['schemas']['ProjectOut']
 export interface Environment {
   id: number; project_id: number; name: string; base_url: string
   db_config: Record<string, any>
@@ -115,9 +123,7 @@ export interface Environment {
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
-export interface ApiGroup {
-  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
-}
+export type ApiGroup = components['schemas']['ApiGroupOut']
 export interface ApiField {
   id?: number; api_id?: number
   key: string; label?: string; field_type: string; required: boolean
@@ -139,9 +145,7 @@ export interface HarPreviewItem {
   fields: HarPreviewField[]; is_array_body: boolean; content_type: string
   _selected?: boolean  // 前端勾选状态
 }
-export interface CaseGroup {
-  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
-}
+export type CaseGroup = components['schemas']['CaseGroupOut']
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
   pre_process: any[]; post_extract: any[]; assertions: any[]
@@ -264,17 +268,7 @@ export const userApi = {
 }
 
 // ============ 操作日志（仅管理员） ============
-export interface OperationLog {
-  id: number
-  user_id: number | null
-  username: string | null
-  action: string
-  target_type: string
-  target_id: number | null
-  target_name: string | null
-  detail: string | null
-  created_at: string | null
-}
+export type OperationLog = components['schemas']['OperationLogOut']
 
 export const logApi = {
   list: (params?: { action?: string; target_type?: string; user_id?: number; limit?: number }) =>
@@ -529,12 +523,7 @@ export const execApi = {
 }
 
 // ============ FieldDictionary 字段字典 ============
-export interface FieldDictionary {
-  id: number; project_id: number; key: string; label: string
-  created_at?: string; updated_at?: string
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-}
+export type FieldDictionary = components['schemas']['FieldDictionaryOut']
 
 export const dictApi = {
   list: (projectId: number, keyword?: string) =>
@@ -551,19 +540,8 @@ export const dictApi = {
 }
 
 // ============ FileCenter 文件中心 ============
-export interface FileCategory {
-  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number
-  created_at?: string; created_by?: number | null; created_by_name?: string | null
-}
-
-export interface TestFile {
-  id: number; project_id: number; category_id?: number | null
-  name: string; original_name: string; content_type: string; size: number
-  sha256: string; storage_path: string; ref_count: number
-  created_at?: string; updated_at?: string
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-}
+export type FileCategory = components['schemas']['FileCategoryOut']
+export type TestFile = components['schemas']['FileOut']
 
 export const fileApi = {
   // 文件 CRUD

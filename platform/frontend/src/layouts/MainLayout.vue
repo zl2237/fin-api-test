@@ -623,7 +623,7 @@ async function onAvatarFileChange(e: Event) {
     currentAvatar.value = dataUrl
     ElMessage.success('已更新')
   } catch (err: any) {
-    ElMessage.error(err?.response?.data?.detail || err?.message || '头像上传失败')
+    ElMessage.error(err.message || '头像上传失败')
   } finally {
     avatarUploading.value = false
     input.value = ''
