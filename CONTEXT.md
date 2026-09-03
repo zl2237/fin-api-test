@@ -20,6 +20,10 @@
 - **topo_order**（`engine/topo.py`）：DAG 拓扑序的唯一实现（Kahn + 节点 id 字典序入队），返回 (拓扑序, 环/断链未入序节点)。执行顺序（dag_executor）与收集口径（dataset_service 同名异值列取源头节点值）共用——入队稳定性改变两边同时生效，不允许再出现平行第二份。
 - **set_nested_value**（`engine/preprocessor.py`）：点号路径嵌套设值的唯一实现（数字段索引已存在列表）。body_builder 组装请求体与编排 set_field / 类型强转共用，不再有 dict-only 的平行版本。
 
+## crud 域拆分
+
+- **crud/versions**（`crud/versions.py`）：项目版本域——快照（snapshot）/对比（diff）/回滚（rollback）整族自 legacy.py 迁出。回滚是高风险机制（删当前全部接口/用例/分组后按快照重建，执行记录分离再重关联），一文件自洽；对外经 crud 包显式 re-export，`crud.rollback_project_version` 等旧引用不变。
+
 ## 通知（notifier）
 
 - **notifier**（`services/notifier.py`）：企微通知的深模块——取数（执行人/项目名、环境/数据集名）与门控（webhook 存在性 + enable_on_success/enable_on_failure 开关及默认值）都只在模块内部定义，调用方只交对象与 id，不替通知查表。窄接口两个：`send_notify(db, env, case, record)`（单条）、`send_batch_notify(db, env_id, dataset_id, records, case_name)`（数据驱动聚合）。
