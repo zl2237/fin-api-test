@@ -30,4 +30,20 @@ export function formatRelativeTime(v?: string | null): string {
   }
   return formatTime(v).slice(0, 10)
 }
-export default { formatTime, formatRelativeTime }
+
+/** 执行状态 → el-tag type（null/加载中为 info；非 success/running 一律 danger） */
+export function execStatusType(s?: string): 'success' | 'warning' | 'danger' | 'info' {
+  if (s === 'success') return 'success'
+  if (s === 'running') return 'warning'
+  if (s == null) return 'info'
+  return 'danger'
+}
+
+/** 执行状态 → 中文文案（未知状态原样展示，null 为 '-'） */
+export function execStatusText(s?: string): string {
+  if (s === 'success') return '通过'
+  if (s === 'running') return '执行中'
+  if (s === 'failed') return '失败'
+  return s ?? '-'
+}
+export default { formatTime, formatRelativeTime, execStatusType, execStatusText }

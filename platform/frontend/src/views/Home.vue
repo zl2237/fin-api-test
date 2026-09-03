@@ -161,7 +161,7 @@ import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores'
 import { apiApi, caseApi, execApi } from '@/api'
 import type { ExecutionRecord, TestCase } from '@/api'
-import { formatTime, formatRelativeTime } from '@/utils/format'
+import { formatTime, formatRelativeTime, execStatusText as statusText } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
 import HomeGuideDrawer from '@/components/HomeGuideDrawer.vue'
 
@@ -199,10 +199,6 @@ const weekStats = computed(() => {
     rate: done.length ? Math.round((passed / done.length) * 1000) / 10 : null,
   }
 })
-
-function statusText(s: string) {
-  return s === 'success' ? '通过' : s === 'failed' ? '失败' : '运行中'
-}
 
 async function loadHome() {
   if (!store.currentProjectId) return

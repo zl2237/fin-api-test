@@ -569,12 +569,13 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
-import { caseApi, caseGroupApi, execApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
+import { caseApi, caseGroupApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
+import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { debounce } from '@/utils/ui'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -583,8 +584,8 @@ const favicon = useFaviconStatus()
 const store = useAppStore()
 const router = useRouter()
 
-// 追踪所有执行轮询定时器，组件卸载时统一清理，避免切页后继续请求已失效的执行记录
-const pollTimers: ReturnType<typeof setTimeout>[] = []
+// 执行轮询统一走 useExecutionRunner（定时器注册/卸载清理/超时策略单点管理）
+const runner = useExecutionRunner()
 const list = ref<TestCase[]>([])
 const loadError = ref('')
 const groups = ref<CaseGroup[]>([])
@@ -949,50 +950,15 @@ async function runCase(row: TestCase) {
     return
   }
   try {
-    // 异步执行：接口立即返回 running 状态的 record，后台线程池执行
-    const rec = await caseApi.execute(row.id, store.currentEnvId)
-    const execId = rec.id
-    favicon.running()
-    const msg = ElMessage({
-      message: `用例「${row.name}」执行中...`,
-      type: 'info',
-      duration: 0,  // 不自动关闭
+    // 执行→进度消息→轮询→三态 favicon→结果提示（超时返回 running 态记录，同样跳报告页）
+    const cur = await runner.runWithFeedback(row.id, store.currentEnvId, {
+      runningMsg: `用例「${row.name}」执行中...`,
+      maxPolls: 150,
     })
-    // 轮询执行状态，每 2 秒一次，最多 5 分钟
-    const maxPolls = 150
-    let pollCount = 0
-    const poll = async () => {
-      pollCount++
-      try {
-        const cur = await execApi.get(execId, true)
-        if (cur.status === 'running' && pollCount < maxPolls) {
-          const t = setTimeout(poll, 2000)
-          pollTimers.push(t)
-        } else {
-          msg.close()
-          if (cur.status === 'success') {
-            favicon.success()
-            ElMessage.success(`执行通过：${cur.summary.passed}/${cur.summary.total}`)
-          } else if (pollCount >= maxPolls) {
-            favicon.reset()
-            ElMessage.warning('执行超时，请到执行记录查看结果')
-          } else {
-            favicon.failed()
-            ElMessage.warning(`执行失败：${cur.summary.failed} 项未通过`)
-          }
-          router.push(`/reports/${execId}`)
-        }
-      } catch (e: any) {
-        msg.close()
-        favicon.reset()
-        ElMessage.error(e.message || '轮询执行状态失败')
-      }
-    }
-    const t = setTimeout(poll, 2000)
-    pollTimers.push(t)
+    router.push(`/reports/${cur.id}`)
   } catch (e: any) {
     favicon.reset()
-    ElMessage.error(e.message)
+    ElMessage.error(e.message || '轮询执行状态失败')
   }
 }
 
@@ -1042,7 +1008,7 @@ async function confirmBatchRun() {
       seen[rec.case_id] = (seen[rec.case_id] || 0) + 1
       const multi = (batchRunCounts.value[rec.case_id] || 1) > 1
       const label = multi ? `${name}（第 ${seen[rec.case_id]} 轮）` : name
-      const status = await pollOne(rec.id)
+      const status = await runner.pollUntilDone(rec.id)
       return { name: label, status: status.status, summary: status.summary }
     }))
     msg.close()
@@ -1071,30 +1037,6 @@ async function confirmBatchRun() {
   } finally {
     batchRunning.value = false
   }
-}
-
-// 轮询单个执行记录直到完成，返回最终状态和汇总
-function pollOne(execId: number): Promise<{ status: string; summary: any }> {
-  return new Promise((resolve, reject) => {
-    const maxPolls = 300
-    let pollCount = 0
-    const poll = async () => {
-      pollCount++
-      try {
-        const cur = await execApi.get(execId, true)
-        if (cur.status === 'running' && pollCount < maxPolls) {
-          const t = setTimeout(poll, 2000)
-          pollTimers.push(t)
-        } else {
-          resolve({ status: cur.status, summary: cur.summary })
-        }
-      } catch (e: any) {
-        reject(e)
-      }
-    }
-    const t = setTimeout(poll, 2000)
-    pollTimers.push(t)
-  })
 }
 
 function goReport(row: TestCase) {
@@ -1299,7 +1241,7 @@ async function confirmDataDrivenRun() {
     })
     ddVisible.value = false
     // 轮询首条记录（代表整批）；完成后去执行记录看全部
-    const status = await pollOne(first.id)
+    const status = await runner.pollUntilDone(first.id)
     msg.close()
     if (status.status === 'success') {
       favicon.success()
@@ -1479,9 +1421,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKey)
-  // 清理所有执行轮询定时器，防止切页后继续请求
-  pollTimers.forEach(t => clearTimeout(t))
-  pollTimers.length = 0
+  // 执行轮询定时器由 useExecutionRunner 统一清理
 })
 
 // Ctrl+Enter：执行当前选中的用例（取第一个），无选中则提示

@@ -176,22 +176,20 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Connection, CaretRight, Search } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
-import { caseApi, apiApi, apiGroupApi, execApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
+import { caseApi, apiApi, apiGroupApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
-import { useFaviconStatus } from '@/composables/useFaviconStatus'
+import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import EmptyState from '@/components/EmptyState.vue'
-
-const favicon = useFaviconStatus()
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 const tabStore = useTabStore()
 
-// 追踪执行轮询定时器，组件卸载时统一清理，避免切页后继续请求已失效的执行记录
-const pollTimers: ReturnType<typeof setTimeout>[] = []
+// 执行轮询统一走 useExecutionRunner（定时器注册/卸载清理/超时策略单点管理）
+const runner = useExecutionRunner()
 
 const apiList = ref<ApiDef[]>([])
 const apiGroups = ref<ApiGroup[]>([])
@@ -561,51 +559,12 @@ async function onRun() {
   if (!saved) return
   running.value = true
   try {
-    // 异步执行：立即返回 running，后台线程池执行，前端轮询状态
-    const rec = await caseApi.execute(caseData.value.id, store.currentEnvId)
-    const execId = rec.id
-    favicon.running()
-    const msg = ElMessage({
-      message: '执行中...',
-      type: 'info',
-      duration: 0,
-    })
-    const maxPolls = 150
-    let pollCount = 0
-    const poll = async () => {
-      pollCount++
-      try {
-        const cur = await execApi.get(execId, true)
-        if (cur.status === 'running' && pollCount < maxPolls) {
-          const t = setTimeout(poll, 2000)
-          pollTimers.push(t)
-        } else {
-          msg.close()
-          if (cur.status === 'success') {
-            favicon.success()
-            ElMessage.success(`执行通过：${cur.summary.passed}/${cur.summary.total}`)
-          } else if (pollCount >= maxPolls) {
-            favicon.reset()
-            ElMessage.warning('执行超时，请到执行记录查看结果')
-          } else {
-            favicon.failed()
-            ElMessage.warning(`执行失败：${cur.summary.failed} 项未通过`)
-          }
-          router.push(`/reports/${execId}`)
-        }
-      } catch (e: any) {
-        msg.close()
-        favicon.reset()
-        ElMessage.error(e.message || '轮询执行状态失败')
-      } finally {
-        if (pollCount >= maxPolls) running.value = false
-      }
-    }
-    const t = setTimeout(poll, 2000)
-    pollTimers.push(t)
+    // 执行→进度消息→轮询→三态 favicon→结果提示；finally 复位 running（含成功/失败/超时）
+    const cur = await runner.runWithFeedback(caseData.value.id, store.currentEnvId)
+    router.push(`/reports/${cur.id}`)
   } catch (e: any) {
-    favicon.reset()
-    ElMessage.error(e.message)
+    ElMessage.error(e.message || '轮询执行状态失败')
+  } finally {
     running.value = false
   }
 }
@@ -625,9 +584,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  // 清理所有执行轮询定时器，防止切页后继续请求
-  pollTimers.forEach(t => clearTimeout(t))
-  pollTimers.length = 0
+  // 执行轮询定时器由 useExecutionRunner 统一清理
 })
 
 function onKeydown(e: KeyboardEvent) {
