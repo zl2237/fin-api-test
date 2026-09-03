@@ -304,29 +304,8 @@
       :move="doBatchMove"
     />
 
-    <!-- 批量执行配置弹窗：逐用例设置执行次数 + 并发数，确认后提交 -->
-    <el-dialog v-model="batchRunVisible" title="批量执行" width="480px" align-center :close-on-click-modal="false">
-      <div class="batch-run-tip">
-        为每个用例设置执行次数，并发数 1 = 逐个串行执行（避免并发问题），&gt;1 并行（同环境共享登录）。绑定数据集的用例每轮按数据行展开。
-      </div>
-      <div class="batch-run-concurrency">
-        <span class="batch-run-count-label">并发数</span>
-        <el-input-number v-model="batchRunConcurrency" :min="1" :max="16" size="small" />
-        <span class="batch-run-concurrency-hint">{{ batchRunConcurrency === 1 ? '串行：一个执行完再下一个' : `同时执行 ${batchRunConcurrency} 个` }}</span>
-      </div>
-      <div class="batch-run-list">
-        <div v-for="it in batchRunItems" :key="it.id" class="batch-run-row">
-          <span class="batch-run-name" :title="it.name">{{ it.name }}</span>
-          <span class="batch-run-count-label">执行次数</span>
-          <el-input-number v-model="batchRunCounts[it.id]" :min="1" :max="9999" size="small" />
-        </div>
-      </div>
-      <template #footer>
-        <span class="batch-run-total">共 {{ batchRunItems.length }} 个用例 / {{ batchRunTotal }} 轮</span>
-        <el-button @click="batchRunVisible = false">取消</el-button>
-        <el-button type="success" :loading="batchRunning" @click="confirmBatchRun">开始执行</el-button>
-      </template>
-    </el-dialog>
+    <!-- 批量执行配置弹窗：逐用例设置执行次数 + 并发数（配置 UI 收敛在组件，执行编排在父视图） -->
+    <BatchRunDialog v-model="batchRunVisible" :items="batchRunItems" @confirm="confirmBatchRun" />
 
     <!-- 组合弹窗：拖拽调整拼接顺序，复制式生成新用例 -->
     <el-dialog v-model="combineVisible" title="组合用例" width="540px" align-center :close-on-click-modal="false">
@@ -361,86 +340,15 @@
       </template>
     </el-dialog>
 
-    <!-- 定时任务弹窗（用例行内联入口）：该用例的定时配置列表 + 增改表单（≤4 字段 → el-dialog） -->
-    <el-dialog
+    <!-- 定时任务弹窗（自治子系统：列表+表单+增删改启停/立即执行收敛在组件内） -->
+    <ScheduleDialog
       v-model="scheduleVisible"
-      width="560px"
-      align-center
-      :close-on-click-modal="false"
-      class="schedule-dialog"
-    >
-      <!-- 标题单行省略：用例名过长时不撑高弹窗（hover title 看全名） -->
-      <template #header>
-        <span class="schedule-dialog-title" :title="`定时任务 · ${scheduleCase?.name || ''}`">
-          定时任务 · {{ scheduleCase?.name || '' }}
-        </span>
-      </template>
-      <!-- 已配置的定时任务列表 -->
-      <div v-if="caseSchedules.length" class="schedule-list">
-        <div v-for="s in caseSchedules" :key="s.id" class="schedule-row">
-          <div class="schedule-info">
-            <span class="schedule-desc">{{ describeSchedule(s) }}</span>
-            <span class="schedule-env">{{ s.env_name || `环境#${s.env_id}` }}</span>
-            <span
-              class="schedule-next"
-              :title="s.next_run_at ? formatTime(s.next_run_at) : ''"
-            >{{ s.next_run_at ? `下次 ${formatRelativeTime(s.next_run_at)}` : '未排期' }}</span>
-          </div>
-          <div class="schedule-ops">
-            <el-tooltip :content="s.enabled ? '停用定时' : '启用定时'" placement="top">
-              <el-switch :model-value="s.enabled" size="small" @change="onToggleSchedule(s)" />
-            </el-tooltip>
-            <el-button link type="success" size="small" @click="onRunSchedule(s)">执行</el-button>
-            <el-button link type="primary" size="small" @click="onEditSchedule(s)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="onRemoveSchedule(s)">删除</el-button>
-          </div>
-        </div>
-      </div>
-
-      <el-divider v-if="caseSchedules.length && scheduleFormVisible" />
-
-      <!-- 新增/编辑表单：无定时任务时直接展示，有时通过按钮展开 -->
-      <div v-if="scheduleFormVisible">
-        <el-form :model="scheduleForm" label-width="80px">
-          <el-form-item label="环境" required>
-            <el-select v-model="scheduleForm.env_id" placeholder="选择执行环境" style="width: 100%">
-              <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="调度类型" required>
-            <el-radio-group v-model="scheduleForm.schedule_type">
-              <el-radio value="interval">间隔执行</el-radio>
-              <el-radio value="daily">每日定时</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item v-if="scheduleForm.schedule_type === 'interval'" label="间隔分钟" required>
-            <el-input-number v-model="scheduleForm.interval_minutes" :min="1" :max="525600" style="width: 180px" />
-          </el-form-item>
-          <el-form-item v-else label="每日时刻" required>
-            <el-time-picker
-              v-model="scheduleForm.daily_time"
-              format="HH:mm"
-              value-format="HH:mm"
-              placeholder="如 08:30"
-              style="width: 180px"
-            />
-          </el-form-item>
-        </el-form>
-        <div class="schedule-form-foot">
-          <el-button size="small" @click="scheduleFormVisible = false">取消</el-button>
-          <el-button type="primary" size="small" :loading="scheduleSaving" @click="onSaveSchedule">
-            {{ scheduleEditingId ? '保存修改' : '添加定时' }}
-          </el-button>
-        </div>
-      </div>
-      <div v-else class="schedule-add-entry">
-        <el-button size="small" @click="openScheduleForm()">+ 新增定时</el-button>
-      </div>
-
-      <template #footer>
-        <el-button @click="scheduleVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+      :case-item="scheduleCase"
+      :schedules="caseSchedules"
+      :envs="store.environments"
+      :default-env-id="store.currentEnvId"
+      @changed="loadSchedules"
+    />
 
     <!-- 绑定数据集（数据驱动） -->
     <el-dialog v-model="bindVisible" title="绑定数据集" width="480px">
@@ -461,54 +369,14 @@
       </template>
     </el-dialog>
 
-    <!-- 数据驱动执行确认：N 行将执行 N 次，可临时换数据集/选行 -->
-    <el-dialog v-model="ddVisible" :title="`数据驱动执行：${ddCase?.name || ''}`" width="640px">
-      <div class="bind-tip">
-        <el-icon style="color: var(--el-color-warning)"><WarningFilled /></el-icon>
-        该用例绑定了数据集，<b>{{ ddSelectedRows.length }} 行数据将执行 {{ ddSelectedRows.length }} 次</b>（并行，并发上限 4）
-      </div>
-      <!-- 快照过期提示：数据集节点配置快照与用例当前编排不一致（执行按快照跑，先同步再执行） -->
-      <el-alert v-if="ddDrift?.stale" type="warning" :closable="false" class="drift-alert">
-        <template #title>
-          数据集快照已过期：{{ ddDrift.nodes.length }} 个节点编排与用例当前不一致（执行按快照跑）
-          <el-button link type="primary" size="small" :loading="ddResyncing" style="margin-left: 8px" @click="resyncFromDialog">
-            一键同步（取用例当前编排）
-          </el-button>
-        </template>
-        <div v-for="n in ddDrift.nodes" :key="n.node_id" class="drift-node">
-          <b>{{ n.label }}</b>：{{ n.changes.join('；') }}
-        </div>
-      </el-alert>
-      <el-select v-model="ddDatasetId" style="width: 260px; margin-bottom: 10px" @change="onDdDatasetChange">
-        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.rows?.length ?? 0} 行）`" :value="d.id" />
-      </el-select>
-      <el-table
-        ref="ddTableRef"
-        :data="ddRows"
-        size="small"
-        max-height="320"
-        row-key="id"
-        @selection-change="(sel: any[]) => (ddSelectedRows = sel)"
-      >
-        <el-table-column type="selection" width="42" />
-        <el-table-column prop="row_index" label="#" width="50" />
-        <el-table-column
-          v-for="col in ddColumns"
-          :key="col.key"
-          :label="store.fieldDictMap?.[col.key] || col.key"
-          min-width="120"
-          show-overflow-tooltip
-        >
-          <template #default="{ row }">{{ row.data?.[col.key] ?? '—' }}</template>
-        </el-table-column>
-      </el-table>
-      <template #footer>
-        <el-button @click="ddVisible = false">取消</el-button>
-        <el-button type="success" :disabled="!ddSelectedRows.length" :loading="ddRunning" @click="confirmDataDrivenRun">
-          执行 {{ ddSelectedRows.length }} 次
-        </el-button>
-      </template>
-    </el-dialog>
+    <!-- 数据驱动执行确认面板（选行/换数据集/快照过期检测收敛在组件，执行编排在父视图） -->
+    <DataDrivenRunDialog
+      v-model="ddVisible"
+      :case-item="ddCase"
+      :datasets="projectDatasets"
+      :field-dict-map="store.fieldDictMap"
+      @confirm="confirmDataDrivenRun"
+    />
   </div>
 </template>
 
@@ -525,6 +393,9 @@ import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupe
 import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
 import GroupManageDialog from '@/components/GroupManageDialog.vue'
 import BatchMoveDialog from '@/components/BatchMoveDialog.vue'
+import ScheduleDialog from '@/components/ScheduleDialog.vue'
+import DataDrivenRunDialog from '@/components/DataDrivenRunDialog.vue'
+import BatchRunDialog from '@/components/BatchRunDialog.vue'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { debounce } from '@/utils/ui'
@@ -611,11 +482,9 @@ const dialogVisible = ref(false)
 // 分组管理弹窗与批量移动弹窗的开合态（交互收敛在组件内，见模板）
 const showGroupDialog = ref(false)
 const batchMoveVisible = ref(false)
+// 批量执行配置弹窗状态（次数/并发配置在 BatchRunDialog 内；视图只持开合态与展示行快照）
 const batchRunning = ref(false)
-// 批量执行配置弹窗：每个用例可单独设置执行次数（1~9999），并发数可配（1=串行）
 const batchRunVisible = ref(false)
-const batchRunCounts = ref<Record<number, number>>({})
-const batchRunConcurrency = ref(4)
 // 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
 const batchRunItems = ref<{ id: number; name: string }[]>([])
 const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
@@ -819,29 +688,19 @@ async function runCase(row: TestCase) {
 function onBatchRun() {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
-  // 按当前勾选快照生成展示行，次数默认 1
+  // 按当前勾选快照生成展示行；次数/并发配置与重置在 BatchRunDialog 内部
   batchRunItems.value = selectedCaseIds.value
     .map((id) => ({ id, name: list.value.find((c) => c.id === id)?.name || `用例#${id}` }))
-  const init: Record<number, number> = {}
-  batchRunItems.value.forEach((it) => { init[it.id] = 1 })
-  batchRunCounts.value = init
-  batchRunConcurrency.value = 4
   batchRunVisible.value = true
 }
 
-// 配置弹窗内的总轮次（每用例次数之和）
-const batchRunTotal = computed(() =>
-  batchRunItems.value.reduce((sum, it) => sum + (batchRunCounts.value[it.id] || 0), 0),
-)
-
 // 确认批量执行：按配置的并发数提交（1=串行），同环境共享登录 token，前端并发轮询各记录
-async function confirmBatchRun() {
+async function confirmBatchRun({ caseIds, counts, concurrency }: { caseIds: number[]; counts: number[]; concurrency: number }) {
   if (batchRunning.value) return
   // 弹窗开着期间环境可能被清空，提交前再守卫一次（同时收窄类型）
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
-  const caseIds = batchRunItems.value.map((it) => it.id)
-  const counts = batchRunItems.value.map((it) => batchRunCounts.value[it.id] || 1)
-  const concurrency = batchRunConcurrency.value
+  // caseIds 与 counts 等长（BatchRunDialog 按展示行顺序给出），重建 case_id → 次数查表供轮次标注
+  const countByCase = new Map(caseIds.map((id, i) => [id, counts[i] || 1]))
   const total = counts.reduce((a, b) => a + b, 0)
   batchRunVisible.value = false
   batchRunning.value = true
@@ -859,7 +718,7 @@ async function confirmBatchRun() {
       const caseRow = list.value.find((c) => c.id === rec.case_id)
       const name = caseRow?.name || `用例#${rec.case_id}`
       seen[rec.case_id] = (seen[rec.case_id] || 0) + 1
-      const multi = (batchRunCounts.value[rec.case_id] || 1) > 1
+      const multi = (countByCase.get(rec.case_id) || 1) > 1
       const label = multi ? `${name}（第 ${seen[rec.case_id]} 轮）` : name
       const status = await runner.pollUntilDone(rec.id)
       return { name: label, status: status.status, summary: status.summary }
@@ -922,21 +781,12 @@ async function onRemove(row: TestCase) {
   }
 }
 
-// ===== 定时任务（用例行内联入口：弹窗配置 + 列表图标标识）=====
+// ===== 定时任务（列表图标标识 + 弹窗数据源；弹窗自治子系统见 ScheduleDialog）=====
 const schedules = ref<TestSchedule[]>([])
 const scheduleVisible = ref(false)
 const scheduleCase = ref<TestCase | null>(null)
-const scheduleFormVisible = ref(false)
-const scheduleEditingId = ref<number | null>(null)
-const scheduleSaving = ref(false)
-const scheduleForm = ref<{
-  env_id: number | null
-  schedule_type: 'interval' | 'daily'
-  interval_minutes: number | null
-  daily_time: string | null
-}>({ env_id: null, schedule_type: 'interval', interval_minutes: 30, daily_time: '08:00' })
 
-// 当前弹窗用例的定时任务（列表 + 表单共用的单一数据源）
+// 当前弹窗用例的定时任务（父视图持有的单一数据源，弹窗 changed 后 loadSchedules 重载）
 const caseSchedules = computed(() =>
   scheduleCase.value ? schedules.value.filter(s => s.case_id === scheduleCase.value!.id) : [],
 )
@@ -944,12 +794,6 @@ const caseSchedules = computed(() =>
 // 用例名称列的图标标识：存在启用中的定时任务才显示
 function hasEnabledSchedule(caseId: number): boolean {
   return schedules.value.some(s => s.case_id === caseId && s.enabled)
-}
-
-// 定时配置的人话描述：interval → 每 N 分钟；daily → 每日 HH:MM
-function describeSchedule(s: TestSchedule): string {
-  if (s.schedule_type === 'interval') return `每 ${s.interval_minutes ?? '?'} 分钟`
-  return `每日 ${s.daily_time ?? '?'}`
 }
 
 async function loadSchedules() {
@@ -963,14 +807,7 @@ async function loadSchedules() {
 
 function openSchedule(row: TestCase) {
   scheduleCase.value = row
-  scheduleVisible.value = true
-  // 已有配置则先看列表，无配置直接进新增表单
-  const existing = schedules.value.filter(s => s.case_id === row.id)
-  if (existing.length) {
-    scheduleFormVisible.value = false
-  } else {
-    openScheduleForm()
-  }
+  scheduleVisible.value = true  // 有无配置决定列表/表单首屏，由弹窗组件打开时自判
 }
 
 // ============ 数据集绑定 + 数据驱动执行（周期 6/7） ============
@@ -1014,91 +851,38 @@ async function saveBind() {
   }
 }
 
-// ---------- 数据驱动执行确认面板 ----------
+// ---------- 数据驱动执行确认面板（选行/换数据集/快照检测见 DataDrivenRunDialog） ----------
 const ddVisible = ref(false)
 const ddRunning = ref(false)
 const ddCase = ref<TestCase | null>(null)
-const ddDatasetId = ref<number | null>(null)
-const ddRows = ref<any[]>([])
-const ddColumns = ref<{ key: string; type?: string }[]>([])
-const ddSelectedRows = ref<any[]>([])
-const ddTableRef = ref<any>(null)
 
 async function openDataDrivenRun(row: TestCase) {
   ddCase.value = row
-  ddDatasetId.value = row.dataset_id ?? null
   await loadDatasets(row.id)
-  await applyDdDataset()
   ddVisible.value = true
-  // 默认全选所有行
-  await nextTick()
-  ddTableRef.value?.toggleAllSelection?.()
 }
 
-async function applyDdDataset() {
-  const ds = projectDatasets.value.find((d) => d.id === ddDatasetId.value)
-  ddRows.value = (ds?.rows as any[]) || []
-  ddColumns.value = (ds?.columns as any[]) || []
-  ddSelectedRows.value = ddRows.value
-  checkDdDrift()
-}
-
-// 快照过期检测：执行按快照跑，与用例当前编排不一致时在弹窗内提示并支持一键同步
-const ddDrift = ref<{ stale: boolean; nodes: { node_id: string; label: string; changes: string[] }[] } | null>(null)
-const ddResyncing = ref(false)
-
-async function checkDdDrift() {
-  ddDrift.value = null
-  if (!ddDatasetId.value) return
-  try {
-    ddDrift.value = await datasetApi.drift(ddDatasetId.value)
-  } catch {
-    // 检测失败不阻断执行流程
-  }
-}
-
-async function resyncFromDialog() {
-  if (!ddDatasetId.value) return
-  ddResyncing.value = true
-  try {
-    await datasetApi.resync(ddDatasetId.value)
-    ElMessage.success('已同步用例当前编排到数据集快照')
-    await checkDdDrift()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '同步失败')
-  } finally {
-    ddResyncing.value = false
-  }
-}
-
-async function onDdDatasetChange() {
-  await applyDdDataset()
-  await nextTick()
-  ddTableRef.value?.toggleAllSelection?.()
-}
-
-async function confirmDataDrivenRun() {
-  if (!ddCase.value || !ddSelectedRows.value.length) return
+/** DataDrivenRunDialog 确认回调：后端按选行展开 N 条记录（失败聚合成一条通知），轮询首条代表整批 */
+async function confirmDataDrivenRun({ datasetId, rowIds }: { datasetId: number | null; rowIds: number[] }) {
+  if (!ddCase.value || !rowIds.length) return
   ddRunning.value = true
   favicon.running()
   const msg = ElMessage({
-    message: `数据驱动执行中（${ddSelectedRows.value.length} 行并行）...`,
+    message: `数据驱动执行中（${rowIds.length} 行并行）...`,
     type: 'info',
     duration: 0,
   })
   try {
-    // 后端按选行展开：N 行 → N 条记录（失败聚合成一条通知）
     const first = await caseApi.execute(ddCase.value.id, store.currentEnvId!, {
-      dataset_id: ddDatasetId.value,
-      row_ids: ddSelectedRows.value.map((r) => r.id),
+      dataset_id: datasetId,
+      row_ids: rowIds,
     })
-    ddVisible.value = false
     // 轮询首条记录（代表整批）；完成后去执行记录看全部
     const status = await runner.pollUntilDone(first.id)
     msg.close()
     if (status.status === 'success') {
       favicon.success()
-      ElMessage.success(`数据驱动执行完成：首行通过（全部 ${ddSelectedRows.value.length} 条见执行记录）`)
+      ElMessage.success(`数据驱动执行完成：首行通过（全部 ${rowIds.length} 条见执行记录）`)
     } else {
       favicon.failed()
       ElMessage.warning('数据驱动执行完成，存在失败行，详见执行记录')
@@ -1110,101 +894,6 @@ async function confirmDataDrivenRun() {
     ElMessage.error(e?.response?.data?.detail || e?.message || '执行失败')
   } finally {
     ddRunning.value = false
-  }
-}
-
-function openScheduleForm() {
-  scheduleEditingId.value = null
-  scheduleForm.value = {
-    env_id: store.currentEnvId ?? store.environments[0]?.id ?? null,
-    schedule_type: 'interval',
-    interval_minutes: 30,
-    daily_time: '08:00',
-  }
-  scheduleFormVisible.value = true
-}
-
-function onEditSchedule(s: TestSchedule) {
-  scheduleEditingId.value = s.id
-  scheduleForm.value = {
-    env_id: s.env_id,
-    schedule_type: s.schedule_type,
-    interval_minutes: s.interval_minutes ?? 30,
-    daily_time: s.daily_time ?? '08:00',
-  }
-  scheduleFormVisible.value = true
-}
-
-async function onSaveSchedule() {
-  if (!scheduleCase.value) return
-  const f = scheduleForm.value
-  if (!f.env_id) return ElMessage.warning('请选择执行环境')
-  if (f.schedule_type === 'interval' && (!f.interval_minutes || f.interval_minutes < 1)) {
-    return ElMessage.warning('间隔分钟数需 ≥ 1')
-  }
-  if (f.schedule_type === 'daily' && !f.daily_time) return ElMessage.warning('请选择每日执行时刻')
-  scheduleSaving.value = true
-  try {
-    if (scheduleEditingId.value) {
-      await scheduleApi.update(scheduleEditingId.value, {
-        env_id: f.env_id,
-        schedule_type: f.schedule_type,
-        interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : null,
-        daily_time: f.schedule_type === 'daily' ? f.daily_time : null,
-      })
-      ElMessage.success('已保存')
-    } else {
-      await scheduleApi.create({
-        case_id: scheduleCase.value.id,
-        env_id: f.env_id,
-        schedule_type: f.schedule_type,
-        interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : undefined,
-        daily_time: f.schedule_type === 'daily' ? f.daily_time : undefined,
-        enabled: true,
-      })
-      ElMessage.success('已添加定时任务')
-    }
-    scheduleFormVisible.value = false
-    await loadSchedules()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    scheduleSaving.value = false
-  }
-}
-
-async function onToggleSchedule(s: TestSchedule) {
-  try {
-    await scheduleApi.update(s.id, { enabled: !s.enabled })
-    s.enabled = !s.enabled
-    await loadSchedules()
-  } catch (e: any) {
-    ElMessage.error(e.message || '操作失败')
-  }
-}
-
-async function onRunSchedule(s: TestSchedule) {
-  try {
-    await scheduleApi.run(s.id)
-    ElMessage.success('已触发执行，结果可在执行记录查看')
-    await loadSchedules()
-  } catch (e: any) {
-    ElMessage.error(e.message || '触发失败')
-  }
-}
-
-async function onRemoveSchedule(s: TestSchedule) {
-  try {
-    await ElMessageBox.confirm(`确认删除定时任务「${describeSchedule(s)}」？`, '提示', { type: 'warning' })
-  } catch {
-    return
-  }
-  try {
-    await scheduleApi.remove(s.id)
-    ElMessage.success('已删除')
-    await loadSchedules()
-  } catch (e: any) {
-    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -1413,59 +1102,6 @@ function onGlobalKey(e: KeyboardEvent) {
   background: var(--app-active) !important;
 }
 /* ===== 组合弹窗 ===== */
-/* 批量执行配置弹窗：列表限高滚动（同数据集列编辑器做法） */
-.batch-run-tip {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin-bottom: 10px;
-  line-height: 1.5;
-}
-.batch-run-concurrency {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 10px 0;
-}
-.batch-run-concurrency-hint {
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-.batch-run-list {
-  max-height: 300px;
-  overflow-y: auto;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  padding: 4px 12px;
-}
-.batch-run-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-.batch-run-row + .batch-run-row {
-  border-top: 1px solid var(--app-border);
-}
-.batch-run-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-}
-.batch-run-count-label {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  white-space: nowrap;
-}
-.batch-run-total {
-  float: left;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 32px;
-}
-
 .combine-tip {
   font-size: 12px;
   color: var(--app-text-muted);
@@ -1516,62 +1152,7 @@ function onGlobalKey(e: KeyboardEvent) {
   margin-right: 4px;
   vertical-align: -2px;
 }
-.schedule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.schedule-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-}
-.schedule-info {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-  font-size: 13px;
-}
-.schedule-desc {
-  font-weight: 500;
-  color: var(--app-text);
-  white-space: nowrap;
-}
-.schedule-env {
-  color: var(--app-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 130px; /* 环境名过长截断，防把行撑宽 */
-  flex-shrink: 1;
-}
-.schedule-next {
-  color: var(--app-text-faint);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.schedule-ops {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.schedule-form-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.schedule-add-entry {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-/* 数据集绑定/数据驱动执行弹窗 */
+/* 数据集绑定弹窗 */
 .bind-tip {
   display: flex;
   align-items: center;
@@ -1582,28 +1163,10 @@ function onGlobalKey(e: KeyboardEvent) {
   margin-bottom: 12px;
   line-height: 1.6;
 }
-.drift-alert {
-  margin-bottom: 10px;
-}
-.drift-node {
-  font-size: 12px;
-  line-height: 1.8;
-}
 .bind-empty {
   margin-top: 10px;
   color: var(--el-text-color-secondary);
   font-size: 13px;
-}
-/* 弹窗标题单行省略（header slot 内容；padding-right 避让右上角关闭按钮） */
-.schedule-dialog-title {
-  display: block;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--app-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding-right: 32px;
 }
 </style>
 <!-- group-manage-dialog 全局样式已收敛至 style.css（原与 ApiManage 逐字符重复，两处漂移风险） -->
