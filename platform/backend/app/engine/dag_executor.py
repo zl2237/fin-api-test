@@ -14,7 +14,6 @@ DAG 拓扑执行引擎。
 4. 默认失败即停止（断言失败或请求异常）
 """
 import time
-from copy import deepcopy
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
@@ -28,12 +27,6 @@ from .. import (
     models,
     path_setup,  # noqa: F401
 )
-from ..services.body_builder import (
-    apply_row_overrides,
-    build_request_body,
-    pop_file_fields_from_body,
-)
-from ..services.dataset_service import filter_row_vars_for_node
 from ..services.notifier import send_notify
 from ..services.request_sender import send_request
 from ..services.runtime_service import build_db_client, build_http_client, login
@@ -41,8 +34,7 @@ from .assertion_engine import AssertionEngine
 from .context import ExecutionContext
 from .events import AssertionResult, DbSink, ExecutionSink, StepResult
 from .extractor import Extractor
-from .preprocessor import PreProcessor
-from .type_coercer import apply_field_types, coerce_json_strings
+from .prepare_request import prepare_request
 
 
 class DagExecutor:
@@ -251,46 +243,12 @@ class DagExecutor:
             ))
             return False, 0
 
-        # 1. 准备请求体 / 请求头
-        # 优先用 ApiField 组装（新版本字段级配置）；无 fields 时回退到 request_template
-        # 三级取值优先级：数据集(1) > 用例编排 set_field(2) > 接口字段默认值(3，此处组装的兜底值)
-        body = build_request_body(api)
-        # 优先级 1（数据集）：行值覆盖同名字段（动态绑定 ${} 字段除外，见 apply_row_overrides）。
-        # 快照保真：用户编辑过的单元格（行值 != origin）无条件覆盖全部节点；
-        # 未编辑的快照值仅作用于"配置值 == origin"的节点，异值节点保留自身配置
-        node_row_vars = filter_row_vars_for_node(
-            self.row_vars, self.row_origins, api,
-            config.pre_process if config else None)
-        if node_row_vars:
-            body = apply_row_overrides(body, node_row_vars)
-        headers = deepcopy(self.http_client.headers or {})
-
-        # PreProcessor 持有 db_client，使 set_field 的值能通过 ${db.query_value(...)} 从 DB 取值
-        # set_field 内部同规则：非动态字面量让位行值（优先级 1），${} 动态绑定照常求值
-        preprocessor = PreProcessor(self.context.to_dict(), self.db_client, row_vars=node_row_vars)
-        # 对组装后的 body 递归求值 ${...}（覆盖 array/object 字段中嵌入的表达式）；
-        # 未定义变量保留占位符，不替换为空，留给后续前置处理或下游注入
-        body = preprocessor.expr.evaluate(body)
-        if config and config.pre_process:
-            # 传入 self.context.extracted（引用），set_field 求值后的值同步到上下文，
-            # 使后续 post_extract 的 SQL 和后续节点的 ${xxx} 能引用到
-            body = preprocessor.process(body, config.pre_process, self.context.extracted)
-            # 前置处理可能往上下文写入新变量，对 body 再求值一次，注入此时已具备的变量
-            # （保留仍未定义的占位符原样，便于排查未注入字段）
-            body = preprocessor.expr.evaluate(body)
-        # array/object 字段经表达式求值后仍是字符串（如 "[${id}]" → "[123]"），
-        # 转回原生 JSON 类型，使接口收到的是列表/对象而非字符串
-        body = coerce_json_strings(body)
-        # 按接口字段定义强转标量类型，避免表达式求值后类型丢失
-        # （如 ${order_id} 提取为 int，但字段定义为 string 时应转字符串发送）
-        body = apply_field_types(body, api)
-        # 提取 file 类型字段：从 body 中剥离 file 字段，单独组装到 multipart files
-        # file 字段不参与 JSON body，避免被 JSON 序列化为字符串
-        body, file_fields = pop_file_fields_from_body(body, api)
-        # headers 中支持表达式
-        for k, v in list(headers.items()):
-            if isinstance(v, str) and "${" in v:
-                headers[k] = preprocessor.expr.evaluate(v)
+        # 1. 组装请求（三级优先级与编排顺序统一在 prepare_request，见其模块注释）
+        parts = prepare_request(api, config, context=self.context,
+                                row_vars=self.row_vars, row_origins=self.row_origins,
+                                base_headers=self.http_client.headers,
+                                db_client=self.db_client)
+        body, headers, file_fields = parts.body, parts.headers, parts.file_fields
 
         # 2. 发送请求（file_fields 非空时走 multipart 通道）
         status_code, response_data, err = self._send_request(api, body, headers, file_fields)
