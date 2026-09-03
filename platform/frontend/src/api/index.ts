@@ -452,7 +452,8 @@ export const datasetApi = {
   remove: (id: number) => http.delete(`/datasets/${id}`),
   // 复制：列/行/节点配置快照全量深拷贝，归属同用例
   copy: (id: number) => http.post<DataSet>(`/datasets/${id}/copy`).then((r) => r.data),
-  // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）
+  // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）。
+  // 保存用例（编排有改动）时后端已自动同步全部绑定数据集，此为手动兜底入口
   resync: (id: number) =>
     http.post<{ message: string; nodes: number }>(`/datasets/${id}/resync`).then((r) => r.data),
   // 快照过期检测：节点配置快照 vs 用例当前编排 的字段级差异
