@@ -519,6 +519,11 @@ watch(
     box-shadow: 0 0 0 10px color-mix(in srgb, var(--app-success) 10%, transparent), var(--app-shadow-sm);
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .dag-node.is-new {
+    animation: none;
+  }
+}
 .dag-node.link-source {
   border-color: var(--app-success);
   box-shadow: var(--app-glow-success);

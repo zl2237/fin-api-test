@@ -16,7 +16,7 @@
         </svg>
       </div>
       <!-- 品牌区可点击回首页（首页即工作台：最近执行+统计+快速执行） -->
-      <div class="brand brand-link" title="回到首页" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
+      <router-link to="/home" class="brand brand-link" title="回到首页" aria-label="回到首页">
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -25,7 +25,7 @@
               </marker>
             </defs>
             <!-- 产品图标：DAG 节点汇聚 → 断言对勾（与 favicon 同构的白色版） -->
-            <rect width="32" height="32" rx="7" fill="rgba(255,255,255,0.16)" />
+            <rect width="32" height="32" rx="2" fill="rgba(255,255,255,0.16)" />
             <g stroke="#fff" stroke-width="1" fill="none" stroke-linecap="round">
               <path d="M7.4 9 L11 12" marker-end="url(#brandArrow)" />
               <path d="M16 7.6 L16 11.5" marker-end="url(#brandArrow)" />
@@ -41,7 +41,7 @@
           </svg>
         </span>
         <span v-if="!collapsed" class="brand-text">fin-api-test</span>
-      </div>
+      </router-link>
       <el-menu
         :default-active="menuActive"
         router
@@ -94,6 +94,8 @@
           <img
             v-if="currentAvatar"
             :src="currentAvatar"
+            width="36"
+            height="36"
             class="dev-avatar"
             :alt="store.user?.name || store.user?.username || '用户'"
             :title="store.user?.name || store.user?.username || '当前用户'"
@@ -831,8 +833,8 @@ onMounted(async () => {
 }
 .sidebar {
   position: relative;
-  /* 实底深navy（与登录页品牌区同色）：工程面板，不做渐变 */
-  background: #182642;
+  /* 实底深墨青（与登录页品牌区同色，审计青同族）：工程面板，不做渐变 */
+  background: #0e2a33;
   border-right: none;
   padding: 16px 12px;
   transition: width 0.25s ease;
@@ -900,6 +902,13 @@ onMounted(async () => {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
+/* 减少动画偏好：上传角标停止闪烁，保持常亮 */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-uploading {
+    animation: none;
+    opacity: 1;
+  }
+}
 .dev-avatar {
   width: 36px;
   height: 36px;
@@ -953,6 +962,10 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.1);
   outline: none;
 }
+/* 键盘焦点环：背景变化之外补内侧描边，深色底上保证可见性 */
+.brand-link:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
+}
 .brand-text {
   color: #fff;
 }
@@ -981,6 +994,14 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.18);
   color: #fff;
   font-weight: 500;
+  /* 票据切角签名：与主按钮同构的右上切口 */
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--app-chamfer)) 0,
+    100% var(--app-chamfer),
+    100% 100%,
+    0 100%
+  );
 }
 /* 折叠态：菜单项居中，tooltip 由 el-menu 原生提供 */
 :deep(.nav-menu.el-menu--collapse) {
@@ -996,6 +1017,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  height: 52px; /* 工具密度：顶栏收紧（EP 默认 60px） */
   background: var(--app-card);
   border-bottom: 1px solid var(--app-border);
 }
@@ -1064,6 +1086,11 @@ onMounted(async () => {
   font-size: 13px;
   outline: none;
 }
+/* 键盘焦点可见：outline:none 的替换焦点环 */
+.user-chip:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
 .user-chip .user-name {
   max-width: 120px;
   overflow: hidden;
@@ -1116,10 +1143,10 @@ onMounted(async () => {
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
 }
-/* ===== 标签页开关动画（TransitionGroup name="tab"） ===== */
+/* ===== 标签页开关动画（TransitionGroup name="tab"；仅过渡 opacity/transform 合成器属性） ===== */
 .tab-enter-active,
 .tab-leave-active {
-  transition: all 0.18s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 .tab-enter-from {
   opacity: 0;
