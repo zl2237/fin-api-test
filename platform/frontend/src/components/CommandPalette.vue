@@ -14,6 +14,7 @@
         ref="inputRef"
         v-model="keyword"
         class="cmd-input"
+        aria-label="全局搜索"
         placeholder="搜索用例 / 接口 / 项目，或输入命令"
         @keydown.down.prevent="moveDown"
         @keydown.up.prevent="moveUp"
@@ -233,6 +234,10 @@ defineExpose({ open, close })
   gap: 10px;
   padding: 4px 8px 12px;
   border-bottom: 1px solid var(--app-border);
+}
+/* 键盘焦点可见性：输入框本身无描边（视觉整合），焦点环由外层容器承载 */
+.cmd-input-wrap:focus-within {
+  box-shadow: inset 0 -2px 0 var(--app-primary);
 }
 .cmd-icon {
   font-size: 18px;

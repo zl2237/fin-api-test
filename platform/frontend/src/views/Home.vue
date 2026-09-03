@@ -33,24 +33,24 @@
         </svg>
       </section>
 
-      <!-- ===== 统计行：当前项目概览（点击直达对应页面） ===== -->
+      <!-- ===== 统计行：当前项目概览（点击直达对应页面；语义化 <button> 保证键盘可达） ===== -->
       <section class="stats">
-        <div class="stat" @click="router.push('/apis')">
+        <button type="button" class="stat" @click="router.push('/apis')">
           <b>{{ loading ? '…' : apiCount }}</b>
           <span>接口</span>
-        </div>
-        <div class="stat" @click="router.push('/cases')">
+        </button>
+        <button type="button" class="stat" @click="router.push('/cases')">
           <b>{{ loading ? '…' : caseCount }}</b>
           <span>用例</span>
-        </div>
-        <div class="stat" @click="router.push('/executions')">
+        </button>
+        <button type="button" class="stat" @click="router.push('/executions')">
           <b>{{ loading ? '…' : weekStats.count }}</b>
           <span>7 天执行</span>
-        </div>
-        <div class="stat" @click="router.push('/executions')">
+        </button>
+        <button type="button" class="stat" @click="router.push('/executions')">
           <b :class="{ 'is-pass': (weekStats.rate ?? 0) >= 90 }">{{ loading ? '…' : (weekStats.rate === null ? '—' : weekStats.rate + '%') }}</b>
           <span>7 天通过率</span>
-        </div>
+        </button>
       </section>
 
       <!-- ===== 主区：最近执行 + 快速执行/指南 ===== -->
@@ -60,7 +60,7 @@
           <header class="panel-head">
             <h3>最近执行</h3>
             <div class="panel-tools">
-              <el-button text size="small" :title="'刷新'" @click="loadHome">
+              <el-button text size="small" title="刷新" aria-label="刷新" @click="loadHome">
                 <el-icon><Refresh /></el-icon>
               </el-button>
               <el-button text type="primary" size="small" @click="router.push('/executions')">
@@ -86,10 +86,11 @@
             <el-button type="primary" @click="router.push('/cases')">去执行用例</el-button>
           </EmptyState>
 
-          <ul v-else class="exec-list">
-            <li
+          <div v-else class="exec-list">
+            <button
               v-for="r in recentExecs"
               :key="r.id"
+              type="button"
               class="exec-row"
               @click="router.push(`/reports/${r.id}`)"
             >
@@ -102,8 +103,8 @@
                 {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
               </span>
               <span class="exec-time" :title="formatTime(r.started_at)">{{ formatRelativeTime(r.started_at) }}</span>
-            </li>
-          </ul>
+            </button>
+          </div>
         </section>
 
         <!-- 右栏：快速执行 + 指南入口 -->
@@ -363,35 +364,63 @@ const guideCaps = [
 .dag-badge { fill: var(--app-success); opacity: 0.18; }
 .dag-check { stroke: var(--app-success); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 
-/* ===== 统计行 ===== */
+/* ===== 统计行：台账条（单一面板 + 列间发丝线，替代 4 张等分卡片的仪表盘套路） ===== */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.stat {
   background: var(--app-card-solid);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
-  padding: 14px 18px;
-  height: 76px;
+}
+.stat {
+  padding: 16px 20px;
+  min-height: 72px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 2px;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: background 0.15s;
 }
-.stat:hover { border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border)); }
+/* 台账列分隔：发丝线，首列无 */
+.stat + .stat {
+  border-left: 1px solid var(--app-border);
+}
+.stat:hover {
+  background: var(--app-hover);
+}
 .stat b {
   font-size: 22px;
   font-weight: 700;
   color: var(--app-text);
+  /* 机器数据 mono 身份：计数/百分比用等宽表格数字 */
+  font-family: var(--app-font-mono);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 .stat b.is-pass { color: var(--app-success-text); }
 .stat span { font-size: 12px; color: var(--app-text-muted); }
+/* .stat / .exec-row 为语义化 <button>：清除浏览器默认按钮外观，保持台账条视觉 */
+.stat,
+.exec-row {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  width: 100%;
+}
+/* .stat + .stat 列分隔线（button 无 border 时重绘） */
+.stat + .stat {
+  border-left: 1px solid var(--app-border);
+}
+/* 键盘焦点可见（规范：focus-visible 焦点环） */
+.stat:focus-visible,
+.exec-row:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
+}
 
 /* ===== 主区两栏 ===== */
 .workbench {

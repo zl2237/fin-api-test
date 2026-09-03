@@ -768,6 +768,11 @@ onUnmounted(stopPolling)
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .trend-tip {
+    animation: none;
+  }
+}
 .trend-tip-name {
   font-size: 13px;
   font-weight: 600;

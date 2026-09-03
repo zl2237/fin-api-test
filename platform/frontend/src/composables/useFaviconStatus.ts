@@ -23,7 +23,7 @@ function resolveToken(name: string, fallback: string): string {
 // SVG 模板：返回 data URI（encodeURIComponent 保证 #、<、> 等字符正确）
 function buildSvg(state: FaviconState): string {
   if (state === 'default') return DEFAULT_HREF
-  const primary = resolveToken('--app-primary', '#0071e3')
+  const primary = resolveToken('--app-primary', '#0f7285')
   const success = resolveToken('--app-success', '#34c759')
   const danger = resolveToken('--app-danger', '#ff3b30')
   const svgs: Record<Exclude<FaviconState, 'default'>, string> = {

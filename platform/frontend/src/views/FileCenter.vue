@@ -110,7 +110,7 @@
     <!-- 预览弹窗 -->
     <el-dialog v-model="previewVisible" :title="previewFileObj?.name" width="80%" align-center destroy-on-close @close="closePreview">
       <div class="preview-container" v-loading="previewLoading">
-        <img v-if="previewType === 'image' && previewUrl" :src="previewUrl" class="preview-img" />
+        <img v-if="previewType === 'image' && previewUrl" :src="previewUrl" width="800" height="600" class="preview-img" :alt="previewFileObj?.name || '文件预览'" />
         <iframe v-else-if="previewType === 'pdf' && previewUrl" :src="previewUrl" class="preview-iframe"></iframe>
       </div>
     </el-dialog>

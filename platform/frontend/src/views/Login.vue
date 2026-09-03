@@ -107,10 +107,27 @@
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSubmit">
           <el-form-item label="用户名" prop="username">
-            <el-input v-model="form.username" placeholder="请输入用户名" :prefix-icon="User" size="large" />
+            <el-input
+              v-model="form.username"
+              name="username"
+              autocomplete="username"
+              :spellcheck="false"
+              placeholder="请输入用户名"
+              :prefix-icon="User"
+              size="large"
+            />
           </el-form-item>
           <el-form-item label="密码" prop="password">
-            <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" size="large" />
+            <el-input
+              v-model="form.password"
+              type="password"
+              show-password
+              name="password"
+              :autocomplete="activeTab === 'login' ? 'current-password' : 'new-password'"
+              placeholder="请输入密码"
+              :prefix-icon="Lock"
+              size="large"
+            />
             <!-- 规则提示前置到输入框旁（注册态/focus 可见），不再是提交失败后才发现规则 -->
             <div v-if="activeTab === 'register'" class="pwd-rule-hint">
               至少 8 位，同时包含字母和数字
@@ -227,12 +244,12 @@ async function onSubmit() {
   overflow: hidden;
 }
 
-/* ===== 左侧品牌展示区：实底深navy + 蓝图网格（工程制图纸，替代渐变光晕） ===== */
+/* ===== 左侧品牌展示区：实底深墨青 + 蓝图网格（工程制图纸，替代渐变光晕） ===== */
 .brand-panel {
   position: relative;
   flex: 1;
   min-width: 0;
-  background: #182642;
+  background: #0e2a33;
   display: flex;
   flex-direction: column;
   justify-content: center;
