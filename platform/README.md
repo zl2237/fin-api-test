@@ -10,7 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
-[![Tests](https://img.shields.io/badge/pytest-610_passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/pytest-676_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
@@ -48,8 +48,10 @@ npm install && npm run dev
 ```
 ┌─────────────────────────────────────────────────┐
 │        前端 Vue3 + Element Plus + Vue Flow        │
-│  views (18 页)  ←  composables (useGroupedTable) │
-│       │                    ↑ 复用分组/拖拽/勾选     │
+│  views (18 页) ← composables                      │
+│  useGroupedTable / useGroupMasterDetail           │
+│  useExecutionRunner / useGroupTree                │
+│       │                    ↑ 复用分组/拖拽/轮询    │
 │       │ api/index.ts ← types/api.gen.ts (OpenAPI) │
 └──────────────────────────┬──────────────────────┘
                            │ /api
@@ -57,18 +59,20 @@ npm install && npm run dev
 │                 路由层 routers/                   │
 │  HTTP 语义 + 鉴权 + 审计日志（薄层，无业务逻辑）      │
 ├─────────────────────────────────────────────────┤
-│       数据访问层 crud/（按域拆分）                  │
-│  users · auth · executions · datasets · legacy   │
+│       数据访问层 crud/（按域拆分，显式 re-export）   │
+│  users · auth · executions · datasets            │
+│  versions · legacy（兼容期）                      │
 ├─────────────────────────────────────────────────┤
 │                 服务层 services/                   │
-│  runtime · body_builder · request_sender          │
-│  dataset_service · scheduler · spec_parser        │
-│  report_export · notifier · files                 │
+│  execution_launcher · runtime · request_sender   │
+│  body_builder · dataset_service · scheduler      │
+│  spec_parser · report_export · notifier · files  │
 └──────────────────────────┬──────────────────────┘
                            │ 线程池异步执行
 ┌──────────────────────────▼──────────────────────┐
 │              DAG 执行引擎 engine/                  │
-│  拓扑排序 → 前置处理 → 请求 → 提取 → 断言           │
+│  topo_order 唯一实现 → prepare_request 统一组装    │
+│  → 前置处理 → 请求 → 提取 → 断言                   │
 │  events.py: StepResult → ExecutionSink 接缝       │
 │  （事件产出与落库解耦，主链路可脱离 DB 测试）          │
 └──────────────────────────┬──────────────────────┘
@@ -83,6 +87,10 @@ npm install && npm run dev
 - 路由层不内联 ORM，业务不变量下沉 `crud/` 域模块（如登录锁定策略在 `crud/auth.py`）
 - 单次 HTTP 请求（GET/POST/multipart + 异常四分类）只有一份实现 `services/request_sender.py`，
   执行引擎与单接口调试共用
+- 执行编排（数据集展开→建记录→提交→聚合通知）只有一份实现 `services/execution_launcher.py`，
+  单次/批量/定时三入口共用；`runner.submit_batch_execution` 收 `list[ExecutionSpec]`
+- 请求组装（"行值 > set_field > 默认值"三级优先级）单点 `engine/prepare_request.py`；
+  Kahn 拓扑排序单点 `engine/topo.py`（执行序与数据集列序共用）；企微通知门控单点 `services/notifier.py`
 - 执行引擎产出 `StepResult` 事件经 `ExecutionSink` 落库（`DbSink`），
   引擎不反向 import 路由层 —— `test_engine_does_not_import_routers` 守卫
 - 报告导出为后端纯函数 `services/report_export.py`，`GET /reports/executions/{id}/export?format=csv|html`
@@ -97,12 +105,16 @@ npm run gen:api    # platform/frontend 下执行：导出 schema → 生成 src/
 ```
 
 审计字段（created/updated × by/name）由 `schemas.AuditMixin` 单一声明，7 个 Out schema 继承。
+响应类型优先取生成物别名（User/Project/ApiGroup/CaseGroup/OperationLog/FieldDictionary/
+FileCategory/TestFile 等）；嵌套结构生成物退化为 unknown 的与承载领域 union 的仍手写，
+原因注明在 `api/index.ts` 类型段头部。错误契约显式化：拦截器把一切失败规整为导出的
+`ApiError`（message 必为后端 detail），视图 catch 只读 `e.message`。
 
 ## Testing
 
 ```bash
 cd platform/backend
-python -m pytest tests/ -q          # 610 passed
+python -m pytest tests/ -q          # 676 passed
 python -m ruff check --select F platform/backend   # 与 CI backend-lint 同口径
 cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口径
 ```
@@ -111,8 +123,12 @@ cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口
 
 | 域 | 文件 | 覆盖 |
 |---|---|---|
-| 执行引擎 | `test_execute_node.py` | 单节点 9 步管线 + 分层守卫 |
+| 执行编排 | `test_execution_launcher.py` | 展开→提交→聚合编排 + ExecutionSpec 组装 |
+| 执行引擎 | `test_execute_node.py` | 单节点管线 + 分层守卫 |
+| 请求组装 | `test_prepare_request.py` | 三级取值优先级与组装顺序（11 用例） |
 | 请求发送 | `test_request_sender.py` | 分发/multipart/异常分类 + 防平行实现守卫 |
+| 通知 | `test_notifier.py` | 门控开关/单条与聚合通知/环境查无 |
+| 拓扑排序 | `test_dag_executor_topo.py` | Kahn 排序唯一实现（执行/数据集共用） |
 | crud 域 | `test_{users,auth,executions}_domain.py` | 登录锁定/首管理员/最后管理员保护等 |
 | 数据驱动 | `test_{dataset_generate,dataset_service,row_override,execution_expand}.py` | 参数收集/快照保真过滤/三级优先级/行展开 |
 | 报告导出 | `test_report_export.py` | CSV/HTML 契约 |
