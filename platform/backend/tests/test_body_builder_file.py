@@ -1,15 +1,12 @@
 """body_builder file 类型字段单测：覆盖 file 类型字段的请求体构建与剥离。
 
-新增能力：
 - parse_field_value 支持 file 类型（原样保留 file_id 字符串）
-- extract_file_fields 提取接口中 file 类型字段
 - pop_file_fields_from_body 从 body 中剥离 file 字段，单独返回供 multipart 构建
 """
 from types import SimpleNamespace
 
 from app.services.body_builder import (
     build_request_body,
-    extract_file_fields,
     parse_field_value,
     pop_file_fields_from_body,
 )
@@ -67,74 +64,6 @@ class TestBuildRequestBodyWithFile:
             "file1": "456",
             "file2": "789",
         }
-
-
-class TestExtractFileFields:
-    def test_extract_single_file(self):
-        api = _api(
-            fields=[
-                _field("order_id", "ORD001", "string"),
-                _field("id_card", "123", "file"),
-            ],
-            request_template={},
-        )
-        result = extract_file_fields(api)
-        assert result == [("id_card", "123")]
-
-    def test_extract_multiple_files(self):
-        api = _api(
-            fields=[
-                _field("file1", "100", "file"),
-                _field("file2", "200", "file"),
-                _field("name", "test", "string"),
-            ],
-            request_template={},
-        )
-        result = extract_file_fields(api)
-        assert result == [("file1", "100"), ("file2", "200")]
-
-    def test_extract_skips_empty_file_value(self):
-        api = _api(
-            fields=[
-                _field("file1", "", "file"),
-                _field("file2", "200", "file"),
-            ],
-            request_template={},
-        )
-        result = extract_file_fields(api)
-        assert result == [("file2", "200")]
-
-    def test_extract_skips_expression_file_value(self):
-        api = _api(
-            fields=[
-                _field("file1", "${file_id}", "file"),
-                _field("file2", "200", "file"),
-            ],
-            request_template={},
-        )
-        result = extract_file_fields(api)
-        assert result == [("file2", "200")]
-
-    def test_extract_no_file_fields(self):
-        api = _api(
-            fields=[
-                _field("name", "test", "string"),
-                _field("amount", "100", "int"),
-            ],
-            request_template={},
-        )
-        assert extract_file_fields(api) == []
-
-    def test_extract_skips_empty_key(self):
-        api = _api(
-            fields=[
-                _field("", "123", "file"),
-                _field("file2", "200", "file"),
-            ],
-            request_template={},
-        )
-        result = extract_file_fields(api)
-        assert result == [("file2", "200")]
 
 
 class TestPopFileFieldsFromBody:

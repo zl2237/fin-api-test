@@ -35,6 +35,7 @@ from .context import ExecutionContext
 from .events import AssertionResult, DbSink, ExecutionSink, StepResult
 from .extractor import Extractor
 from .prepare_request import prepare_request
+from .topo import topo_order
 
 
 class DagExecutor:
@@ -68,34 +69,6 @@ class DagExecutor:
         self._precreated_record = execution_record
         # 事件出口：默认落库；测试/dry-run 注入内存 sink（持久化接缝）
         self.sink: ExecutionSink = sink or DbSink(db)
-
-    # ---------- 拓扑排序 ----------
-    @staticmethod
-    def _topo_sort(dag: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """返回 (执行顺序节点id列表, 因环/断链未执行的节点id列表)"""
-        nodes = dag.get("nodes", [])
-        edges = dag.get("edges", [])
-        ids = [n["id"] for n in nodes]
-        in_degree = {nid: 0 for nid in ids}
-        adj: dict[str, list[str]] = {nid: [] for nid in ids}
-        for e in edges:
-            src, tgt = e.get("source"), e.get("target")
-            if src in adj and tgt in in_degree:
-                adj[src].append(tgt)
-                in_degree[tgt] += 1
-        # 保持稳定顺序：按节点 id 字典序入队
-        queue = sorted([nid for nid, d in in_degree.items() if d == 0])
-        order: list[str] = []
-        while queue:
-            nid = queue.pop(0)
-            order.append(nid)
-            for nxt in adj[nid]:
-                in_degree[nxt] -= 1
-                if in_degree[nxt] == 0:
-                    queue.append(nxt)
-            queue.sort()
-        leftover = [nid for nid in ids if nid not in order]
-        return order, leftover
 
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
@@ -135,7 +108,7 @@ class DagExecutor:
             # 登录在 try 内，失败时记为执行失败而非 500
             login(self.http_client, self.env)
             dag = self.case.dag_config or {"nodes": [], "edges": []}
-            order, leftover = self._topo_sort(dag)
+            order, leftover = topo_order(dag)
             nodes_map = {n["id"]: n for n in dag.get("nodes", [])}
 
             for idx, node_id in enumerate(order):

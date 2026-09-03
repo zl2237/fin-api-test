@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from .. import crud, models
+from ..engine.topo import topo_order
 from .body_builder import parse_field_value
 
 # 列 key 合法字符：字母数字下划线（不允许点/空格/${}，理由见模块注释）
@@ -272,34 +273,14 @@ def _infer_col_type(value) -> str:
 
 
 def _topo_node_ids(dag: dict) -> list:
-    """dag 节点的拓扑执行序（与 DagExecutor._topo_sort 同算法：Kahn + 节点 id 字典序入队）。
+    """dag 节点的拓扑执行序（engine.topo_order 唯一实现，此处口径：环/断链节点排末尾）。
 
     收集口径需按执行序取值：同名异值列取业务链路源头节点（执行序首个）的值，
     而非 dag 数组顺序（数组可能是用户拖拽后的任意顺序，源头节点不一定排最前）。
     环/断链节点按引擎同口径排到末尾（引擎也不执行它们，只是收集时仍扫一遍兜底）。
     """
-    nodes = (dag or {}).get("nodes", [])
-    edges = (dag or {}).get("edges", [])
-    ids = [n["id"] for n in nodes]
-    in_degree = {nid: 0 for nid in ids}
-    adj: dict = {nid: [] for nid in ids}
-    for e in edges:
-        src, tgt = e.get("source"), e.get("target")
-        if src in adj and tgt in in_degree:
-            adj[src].append(tgt)
-            in_degree[tgt] += 1
-    queue = sorted([nid for nid, d in in_degree.items() if d == 0])
-    order: list = []
-    while queue:
-        nid = queue.pop(0)
-        order.append(nid)
-        for nxt in adj[nid]:
-            in_degree[nxt] -= 1
-            if in_degree[nxt] == 0:
-                queue.append(nxt)
-        queue.sort()
-    order.extend(nid for nid in ids if nid not in order)
-    return order
+    order, leftover = topo_order(dag)
+    return order + leftover
 
 
 def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
