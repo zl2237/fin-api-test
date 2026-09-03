@@ -476,7 +476,7 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
 
 .pv-diff-body {
   background: var(--app-hover);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
   font-size: 12px;
   line-height: 1.6;

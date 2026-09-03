@@ -128,8 +128,8 @@ async function onSubmit() {
   padding: 32px 28px;
   background: var(--app-card);
   border: 1px solid var(--app-border);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(15, 30, 60, 0.08), 0 1px 3px rgba(15, 30, 60, 0.04);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-lg);
 }
 .card-header {
   margin-bottom: 24px;
@@ -160,7 +160,7 @@ async function onSubmit() {
 .submit-btn {
   width: 100%;
   margin-top: 4px;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   font-weight: 600;
   letter-spacing: 1px;
 }

@@ -831,8 +831,8 @@ onMounted(async () => {
 }
 .sidebar {
   position: relative;
-  /* 品牌渐变背景：与登录页保持视觉延续 */
-  background: linear-gradient(180deg, #1a2b4a 0%, color-mix(in srgb, var(--app-primary) 35%, #1a2b4a) 50%, color-mix(in srgb, var(--app-primary) 65%, #1a2b4a) 100%);
+  /* 实底深navy（与登录页品牌区同色）：工程面板，不做渐变 */
+  background: #182642;
   border-right: none;
   padding: 16px 12px;
   transition: width 0.25s ease;
@@ -997,7 +997,6 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
 }
 /* topbar 底部品牌色渐变线 */
@@ -1109,7 +1108,7 @@ onMounted(async () => {
   gap: 4px;
   height: 28px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   font-size: 13px;
   color: var(--app-text-muted);
   cursor: pointer;
@@ -1149,8 +1148,8 @@ onMounted(async () => {
   padding: 4px;
   background: var(--app-card);
   border: 1px solid var(--app-border);
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-lg);
 }
 .tab-ctxmenu .ctx-item {
   padding: 6px 12px;

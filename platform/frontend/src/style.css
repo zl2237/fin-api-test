@@ -6,34 +6,34 @@
     'Liberation Mono', 'Courier New', monospace;
 }
 
-/* ===== 亮色主题（默认） ===== */
+/* ===== 亮色主题（默认）「测试蓝图」视觉语言：实底面板 + 发丝线 + 近直角 ===== */
 :root {
-  /* 圆角阶梯 */
-  --app-radius-xs: 4px;
-  --app-radius-sm: 8px;
-  --app-radius: 12px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 16px;
+  /* 圆角阶梯：近直角系统（工程面板，拒绝通用大圆角） */
+  --app-radius-xs: 2px;
+  --app-radius-sm: 3px;
+  --app-radius: 3px;
+  --app-radius-md: 3px;
+  --app-radius-lg: 4px;
 
-  /* 表面与背景 */
-  --app-bg: #f5f5f7;
-  --app-sidebar: rgba(255, 255, 255, 0.72);
-  --app-card: rgba(255, 255, 255, 0.72);
+  /* 表面与背景：实底（去毛玻璃），冷灰图纸底 */
+  --app-bg: #f4f6f9;
+  --app-sidebar: #ffffff;
+  --app-card: #ffffff;
   --app-card-solid: #ffffff;
-  --app-canvas-bg: #fafafa;
-  --app-input-bg: #f0f0f5;
-  --app-hover: rgba(0, 0, 0, 0.04);
-  --app-active: rgba(0, 122, 255, 0.08);
+  --app-canvas-bg: #f8f9fb;
+  --app-input-bg: #eef1f6;
+  --app-hover: rgba(28, 34, 48, 0.045);
+  --app-active: rgba(0, 113, 227, 0.08);
   --app-chip-bg: rgba(0, 113, 227, 0.08);
-  --app-tag-bg: #e8e8ed;
+  --app-tag-bg: #e9edf4;
 
-  /* 边框与分割 */
-  --app-border: rgba(0, 0, 0, 0.08);
+  /* 边框与分割：发丝线（实色，替代透明度描边） */
+  --app-border: #e2e6ee;
 
-  /* 文字 */
-  --app-text: #1d1d1f;
-  --app-text-muted: #6e6e73;
-  --app-text-faint: #aeaeb2;
+  /* 文字：冷墨色阶 */
+  --app-text: #1c2230;
+  --app-text-muted: #5c6470;
+  --app-text-faint: #9aa1ad;
   --app-text-inverse: #ffffff;
 
   /* 主色与点缀 */
@@ -54,53 +54,58 @@
   --app-danger-text: #d32f2f;
 
   /* 浮层 */
-  --app-tooltip-bg: rgba(0, 0, 0, 0.75);
+  --app-tooltip-bg: rgba(28, 34, 48, 0.92);
 
-  /* 阴影 */
-  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
-  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.06);
+  /* 阴影：单层低扩散，带底色色相（去 AI 式双层柔影） */
+  --app-shadow-sm: 0 1px 2px rgba(28, 34, 48, 0.06);
+  --app-shadow-lg: 0 4px 16px rgba(28, 34, 48, 0.08);
 
-  /* 发光环（选中态） */
+  /* 发光环（选中态/焦点环，功能性反馈，非装饰） */
   --app-glow-primary: 0 0 0 2px rgba(0, 113, 227, 0.2);
   --app-glow-success: 0 0 0 3px rgba(52, 199, 89, 0.3);
 
+  /* 蓝图网格（品牌母题：工程制图纸纹理，用于深色品牌面） */
+  --app-grid-line: rgba(255, 255, 255, 0.055);
+  --app-grid-line-strong: rgba(255, 255, 255, 0.09);
+  --app-grid-size: 24px;
+
   /* 滚动条 */
-  --app-scrollbar-thumb: rgba(128, 128, 128, 0.4);
+  --app-scrollbar-thumb: rgba(128, 138, 152, 0.45);
 
   /* Element Plus 对齐 */
   --el-color-primary: #0071e3;
   --el-border-radius-base: var(--app-radius-sm);
 }
 
-/* ===== 暗色主题 ===== */
+/* ===== 暗色主题（与亮色成对定义） ===== */
 html.dark {
-  /* 圆角阶梯（与亮色一致） */
-  --app-radius-xs: 4px;
-  --app-radius-sm: 8px;
-  --app-radius: 12px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 16px;
+  /* 圆角阶梯（与亮色一致：近直角系统） */
+  --app-radius-xs: 2px;
+  --app-radius-sm: 3px;
+  --app-radius: 3px;
+  --app-radius-md: 3px;
+  --app-radius-lg: 4px;
 
-  /* 表面与背景 */
-  --app-bg: #1c1c1e;
-  --app-sidebar: rgba(28, 28, 30, 0.72);
-  --app-card: rgba(44, 44, 46, 0.72);
-  --app-card-solid: #2c2c2e;
-  --app-canvas-bg: #2c2c2e;
-  --app-input-bg: #3a3a3c;
-  --app-hover: rgba(255, 255, 255, 0.06);
+  /* 表面与背景：实底分层（去毛玻璃） */
+  --app-bg: #14171c;
+  --app-sidebar: #171b21;
+  --app-card: #1d2128;
+  --app-card-solid: #1d2128;
+  --app-canvas-bg: #191d24;
+  --app-input-bg: #262b34;
+  --app-hover: rgba(232, 234, 239, 0.06);
   --app-active: rgba(10, 132, 255, 0.18);
   --app-chip-bg: rgba(10, 132, 255, 0.16);
-  --app-tag-bg: #3a3a3c;
+  --app-tag-bg: #2a2f3a;
 
-  /* 边框与分割 */
-  --app-border: rgba(255, 255, 255, 0.12);
+  /* 边框与分割：发丝线 */
+  --app-border: #2a2f3a;
 
   /* 文字 */
-  --app-text: #f5f5f7;
-  --app-text-muted: #98989d;
-  --app-text-faint: #636366;
-  --app-text-inverse: #1c1c1e;
+  --app-text: #e8eaef;
+  --app-text-muted: #9aa3b2;
+  --app-text-faint: #5f6875;
+  --app-text-inverse: #14171c;
 
   /* 主色与点缀 */
   --app-primary: #0a84ff;
@@ -120,15 +125,19 @@ html.dark {
   --app-danger-text: #ff453a;
 
   /* 浮层 */
-  --app-tooltip-bg: rgba(255, 255, 255, 0.88);
+  --app-tooltip-bg: rgba(255, 255, 255, 0.92);
 
-  /* 阴影 */
-  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+  /* 阴影：单层低扩散（与亮色同构） */
+  --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --app-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.45);
 
   /* 发光环（选中态） */
   --app-glow-primary: 0 0 0 2px rgba(10, 132, 255, 0.35);
   --app-glow-success: 0 0 0 3px rgba(48, 209, 88, 0.35);
+
+  /* 蓝图网格 */
+  --app-grid-line: rgba(255, 255, 255, 0.05);
+  --app-grid-line-strong: rgba(255, 255, 255, 0.08);
 
   /* 滚动条 */
   --app-scrollbar-thumb: rgba(200, 200, 200, 0.3);
@@ -158,12 +167,36 @@ body {
   transition: background 0.25s ease, color 0.25s ease;
 }
 
-/* 等宽文本统一入口：用于 JSON 预览、SQL、断言值等 */
+/* 等宽文本统一入口：用于 JSON 预览、SQL、断言值等（表格数字对齐） */
 .app-mono,
 pre,
 code,
 kbd {
   font-family: var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 机器数据排版：ID / 耗时 / 计数 / URL / 方法签统一等宽 + 表格数字 =====
+   测试平台的数据身份：一眼区分「人读的文案」与「机器产生的数据」 */
+.app-data {
+  font-family: var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
+}
+
+/* ===== 蓝图网格（品牌母题）：工程制图纸纹理，铺在深色品牌面上 ===== */
+.app-blueprint {
+  background-image:
+    linear-gradient(var(--app-grid-line-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
+  background-size:
+    var(--app-grid-size) var(--app-grid-size),
+    var(--app-grid-size) var(--app-grid-size),
+    calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6),
+    calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6);
+  background-position: -1px -1px;
 }
 
 /* 统一圆角：所有卡片、面板、输入框遵循一致圆角 */
@@ -309,7 +342,6 @@ html.dark .el-table__header-wrapper th.el-table__cell {
   gap: 8px 12px;
   padding: 12px 20px;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
 }
 .page-head .head-left,

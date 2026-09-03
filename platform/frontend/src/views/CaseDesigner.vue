@@ -652,7 +652,6 @@ watch(() => store.currentProjectId, async () => {
 .api-panel {
   width: 280px;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
   display: flex;
@@ -757,7 +756,6 @@ watch(() => store.currentProjectId, async () => {
   align-items: center;
   justify-content: space-between;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
   padding: 10px 14px;
