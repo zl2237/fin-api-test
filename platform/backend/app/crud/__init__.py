@@ -17,3 +17,13 @@ from .legacy import (  # noqa: F401  显式 re-export
     fill_audit_names_batch as fill_audit_names_batch,
     log_operation as log_operation,
 )
+from .versions import (  # noqa: F401  项目版本域（快照/diff/回滚，自 legacy 整族迁出）
+    build_project_snapshot,
+    create_project_version,
+    delete_project_version,
+    diff_project_versions,
+    fill_version_audit_names,
+    get_project_version,
+    list_project_versions,
+    rollback_project_version,
+)
