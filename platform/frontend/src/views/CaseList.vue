@@ -575,6 +575,7 @@ import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useGroupedTable, collectTreeUpdates, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
+import { debounce } from '@/utils/ui'
 import EmptyState from '@/components/EmptyState.vue'
 
 const favicon = useFaviconStatus()
@@ -623,7 +624,8 @@ const {
 } = tableSel
 
 // 搜索条件变化即回第 1 页，避免「第 3 页 + 结果不足一页」的空白死局
-watch(keyword, () => resetPages())
+// 150ms 防抖：输入过程不逐键重算全量过滤链（对齐 DictManage/FileCenter 既有模式）
+watch(keyword, debounce(() => resetPages(), 150))
 
 // ===== 左分组导航选中态（master-detail）=====
 const selectedRowKey = ref<string | number>('all')

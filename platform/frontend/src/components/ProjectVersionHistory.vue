@@ -182,16 +182,13 @@ import {
 } from '@/api'
 import { formatTime } from '@/utils/format'
 
-const props = defineProps<{ modelValue: boolean; projectId: number | null }>()
+const props = defineProps<{ projectId: number | null }>()
 const emit = defineEmits<{
-  'update:modelValue': [val: boolean]
   rollback: []
 }>()
 
-const visible = computed({
-  get: () => props.modelValue,
-  set: (v) => emit('update:modelValue', v),
-})
+/** 弹窗显隐：defineModel 双向绑定（Vue 3.4+，替代手写 modelValue + computed get/set 样板） */
+const visible = defineModel<boolean>({ default: false })
 
 const versions = ref<ProjectVersionListItem[]>([])
 const loading = ref(false)

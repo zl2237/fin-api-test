@@ -37,7 +37,6 @@ import { ref, watch, computed } from 'vue'
 interface KVRow { key: string; value: string }
 
 const props = withDefaults(defineProps<{
-  modelValue: Record<string, any>
   keyPlaceholder?: string
   valuePlaceholder?: string
   valueType?: 'text' | 'textarea'
@@ -62,15 +61,16 @@ function dupRowClass({ row }: { row: KVRow }) {
   return isDupKey(row.key) ? 'kv-dup-row' : ''
 }
 
-const emit = defineEmits<{ (e: 'update:modelValue', v: Record<string, any>): void }>()
+/** 双向绑定：Record <-> 可编辑行（defineModel，Vue 3.4+） */
+const model = defineModel<Record<string, any>>({ default: () => ({}) })
 
 // 内部维护 rows 数组，允许存在 key 为空的待编辑行
 const rows = ref<KVRow[]>([])
-// 防止内部 emit 触发的 modelValue 变化又重建 rows（导致循环/丢失正在编辑的空行）
+// 防止内部赋值触发的 model 变化又重建 rows（导致循环/丢失正在编辑的空行）
 let isInternalChange = false
 
-// 外部 modelValue -> 内部 rows（保留当前未提交的空行，避免用户正在编辑的新行被清空）
-watch(() => props.modelValue, (obj) => {
+// 外部 model -> 内部 rows（保留当前未提交的空行，避免用户正在编辑的新行被清空）
+watch(model, (obj) => {
   if (isInternalChange) {
     isInternalChange = false
     return
@@ -82,14 +82,14 @@ watch(() => props.modelValue, (obj) => {
   rows.value = [...validRows, ...emptyRows]
 }, { immediate: true, deep: true })
 
-// 内部 rows -> 外部 modelValue（仅同步有效行，过滤掉 key 为空的待编辑行）
+// 内部 rows -> 外部 model（仅同步有效行，过滤掉 key 为空的待编辑行）
 watch(rows, () => {
   isInternalChange = true
   const obj: Record<string, any> = {}
   for (const r of rows.value) {
     if (r.key) obj[r.key] = r.value
   }
-  emit('update:modelValue', obj)
+  model.value = obj
 }, { deep: true })
 
 function add() {
