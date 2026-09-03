@@ -75,7 +75,7 @@ async function resync() {
     ElMessage.success('已同步用例当前编排到数据集快照')
     await checkDrift()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '同步失败')
+    ElMessage.error(e.message || '同步失败')
   } finally {
     resyncing.value = false
   }

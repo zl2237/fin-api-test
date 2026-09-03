@@ -511,7 +511,7 @@ async function load() {
     }
     if (!current.value && caseDatasets.value.length) current.value = caseDatasets.value[0]
   } catch (e: any) {
-    loadError.value = e?.response?.data?.detail || '加载失败'
+    loadError.value = e.message || '加载失败'
   } finally {
     loading.value = false
   }
@@ -573,7 +573,7 @@ async function save() {
     await load()
     if (editingId.value) current.value = caseDatasets.value.find((d) => d.id === editingId.value) || current.value
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     saving.value = false
   }
@@ -597,7 +597,7 @@ async function remove(d: DataSet) {
     if (current.value?.id === d.id) current.value = null
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -610,7 +610,7 @@ async function copyDataset() {
     await load()
     current.value = caseDatasets.value.find((d) => d.id === nd.id) || current.value
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '复制失败')
+    ElMessage.error(e.message || '复制失败')
   }
 }
 
@@ -622,7 +622,7 @@ async function resyncDataset() {
     ElMessage.success(r.message)
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '重新同步失败')
+    ElMessage.error(e.message || '重新同步失败')
   } finally {
     resyncing.value = false
   }
@@ -676,7 +676,7 @@ async function confirmGenerate() {
     currentCase.value = cases.value.find((c) => c.id === genCaseId.value) || currentCase.value
     current.value = caseDatasets.value.find((d) => d.id === dataset.id) || current.value
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '生成失败')
+    ElMessage.error(e.message || '生成失败')
   } finally {
     genSaving.value = false
   }
@@ -768,7 +768,7 @@ async function saveRow() {
     cancelEditRow()
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     rowSaving.value = false
   }
@@ -783,7 +783,7 @@ async function addRow() {
     await datasetApi.addRow(current.value.id, data)
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '添加失败')
+    ElMessage.error(e.message || '添加失败')
   }
 }
 
@@ -793,7 +793,7 @@ async function removeRow(row: any) {
     await datasetApi.removeRow(current.value.id, row.id)
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -805,7 +805,7 @@ async function copyRow(row: any) {
     ElMessage.success('已复制为新行')
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '复制失败')
+    ElMessage.error(e.message || '复制失败')
   }
 }
 
@@ -821,7 +821,7 @@ async function clearRows() {
     ElMessage.success('已清空')
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '操作失败')
+    ElMessage.error(e.message || '操作失败')
   }
 }
 
@@ -843,7 +843,7 @@ async function onImportFile(file: any) {
     previewCols.value = (current.value.columns || []).map((c) => c.key)
     previewVisible.value = true
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '解析失败')
+    ElMessage.error(e.message || '解析失败')
   }
 }
 
@@ -856,7 +856,7 @@ async function confirmImport() {
     previewVisible.value = false
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '导入失败')
+    ElMessage.error(e.message || '导入失败')
   } finally {
     importing.value = false
   }
@@ -882,14 +882,8 @@ async function exportRows() {
     URL.revokeObjectURL(url)
     ElMessage.success('已导出 Excel')
   } catch (e: any) {
-    // blob 错误响应需按文本解析（axios 对 blob 不走 JSON 拦截）
-    try {
-      const txt = await (e?.response?.data as Blob)?.text()
-      const detail = txt ? JSON.parse(txt).detail : ''
-      ElMessage.error(detail || '导出失败')
-    } catch {
-      ElMessage.error('导出失败')
-    }
+    // blob 错误响应已由 axios 拦截器统一解析为 ApiError，catch 只读 e.message
+    ElMessage.error(e.message || '导出失败')
   }
 }
 
@@ -934,7 +928,7 @@ async function doMergePreview() {
       )
     })
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '对比失败')
+    ElMessage.error(e.message || '对比失败')
   } finally {
     mergeLoading.value = false
   }
@@ -953,7 +947,7 @@ async function confirmMerge() {
     mergeVisible.value = false
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '覆盖合并失败')
+    ElMessage.error(e.message || '覆盖合并失败')
   } finally {
     merging.value = false
   }

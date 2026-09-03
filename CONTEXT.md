@@ -39,6 +39,8 @@
 - **ScheduleDialog**（`components/ScheduleDialog.vue`）：定时任务自治弹窗——列表展示、CRUD 六操作（新增/编辑/启停/立即执行/删除）与表单状态全在组件内走 scheduleApi，变更后 emit('changed') 由父视图重载列表；父视图只持"当前用例 + 开合态"和列表数据。
 - **DataDrivenRunDialog**（`components/DataDrivenRunDialog.vue`）：数据驱动执行弹窗——数据集选择、行勾选（打开时全选）、漂移检测（drift/resync）与字典渲染自治；确认时 emit('confirm', { datasetId, rowIds })，执行编排（runner/favicon/router）留在父视图。
 - **BatchRunDialog**（`components/BatchRunDialog.vue`）：批量执行配置弹窗——每用例次数/并发数配置与打开时重置（全 1 / 4）自治，纯 UI 无 API；确认时 emit('confirm', { caseIds, counts, concurrency })，提交与轮询编排在父视图。
+- **ApiError**（`api/index.ts`）：API 错误契约——axios 拦截器把一切失败（HTTP 错误/blob 响应/网络错误）规整为 ApiError，message 必为后端 detail；调用方 catch 只读 `e.message`，禁止再写 `e?.response?.data?.detail` 对冲解析（含 blob 手动 text()+JSON.parse 的重复实现）。
+- **响应类型别名**（`api/index.ts`）：User/Project/ApiGroup/CaseGroup/OperationLog/FieldDictionary/FileCategory/TestFile 等直接取 `components['schemas'][...]`（OpenAPI 生成物，后端 Pydantic 单一事实源）；Environment/ApiDef/TestCase/记录族/DataSet 族等仍手写，因生成物嵌套退化为 unknown 或手写 union 承载领域约束，待后端模型细化后分批换。
 
 - **useExecutionRunner**（`composables/useExecutionRunner.ts`）：执行轮询的深模块——定时器注册表、卸载清理、间隔/超时策略、favicon 三态、结果提示单点管理。窄接口三个：`runWithFeedback`（单用例完整体验）、`pollUntilDone`（纯轮询到终态）、`refreshWhileRunning`（running 态自刷新）。取代此前 5 份平行实现（CaseList runCase/pollOne、CaseDesigner onRun、ReportDetail、Execution），2s/3s 与 150/300 魔法数不再漂移。
 - **execStatusType / execStatusText**（`utils/format.ts`）：执行状态 → 标签色/中文文案的唯一映射，各视图以 `as statusType/statusText` 别名引入。
