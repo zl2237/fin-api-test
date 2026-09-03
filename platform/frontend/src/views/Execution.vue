@@ -448,7 +448,6 @@ onUnmounted(() => {
   min-height: 0;
   overflow: auto;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
 }
 /* 顶部工具栏统一走全局 .page-head 基准（style.css），此处仅保留本页布局所需的修正 */
 .page-head {

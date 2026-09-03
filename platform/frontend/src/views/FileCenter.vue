@@ -486,7 +486,7 @@ onMounted(() => {
   width: 220px;
   flex-shrink: 0;
   background: var(--app-card);
-  border-radius: 8px;
+  border-radius: var(--app-radius);
   padding: 12px;
   overflow-y: auto;
   display: flex;
@@ -525,7 +525,7 @@ onMounted(() => {
   font-size: 11px;
   color: var(--app-text-muted);
   background: var(--app-chip-bg);
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   padding: 0 6px;
   min-width: 18px;
   text-align: center;
@@ -573,7 +573,7 @@ onMounted(() => {
   flex: 1;
   min-width: 0;
   background: var(--app-card);
-  border-radius: 8px;
+  border-radius: var(--app-radius);
   padding: 16px;
   display: flex;
   flex-direction: column;

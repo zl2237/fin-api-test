@@ -275,7 +275,6 @@ onMounted(() => {
 }
 .card {
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-radius: var(--app-radius-lg);
 }
 .pagination-wrap {

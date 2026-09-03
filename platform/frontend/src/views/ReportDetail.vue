@@ -55,18 +55,18 @@
           </div>
           <div class="metric">
             <div class="metric-label">步骤通过 / 总数</div>
-            <div class="metric-value">
-              <span class="pass">{{ passedCountUp }}</span>
+            <div class="metric-value app-data">
+              <span class="pass">{{ passedCount }}</span>
               <span class="sep">/</span>
-              <span>{{ totalCountUp }}</span>
+              <span>{{ totalCount }}</span>
             </div>
           </div>
           <div class="metric">
             <div class="metric-label">断言通过 / 总数</div>
-            <div class="metric-value">
-              <span class="pass">{{ assertionPassedUp }}</span>
+            <div class="metric-value app-data">
+              <span class="pass">{{ assertionPassed }}</span>
               <span class="sep">/</span>
-              <span>{{ assertionTotalUp }}</span>
+              <span>{{ assertionTotal }}</span>
             </div>
           </div>
           <div class="metric">
@@ -75,7 +75,7 @@
           </div>
           <div class="metric">
             <div class="metric-label">耗时</div>
-            <div class="metric-value">{{ durationUp }}</div>
+            <div class="metric-value app-data">{{ durationText }}</div>
           </div>
         </div>
       </el-card>
@@ -84,7 +84,7 @@
       <el-card v-if="steps.length" shadow="never" class="trend-card" @mouseleave="hideTrendTip">
         <div class="trend-head">
           <span class="trend-title">步骤响应耗时趋势</span>
-          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮/点击节点查看步骤</span>
+          <span class="trend-sub">单位 ms，最大 {{ trendMax }} ms，平均 {{ trendAvg }} ms；悬浮或点击节点查看步骤</span>
         </div>
         <!-- vector-effect 等比保护：none 拉伸会把数据点拉成椭圆、轴文字变形 -->
         <svg class="trend-svg" :viewBox="`0 0 ${trendWidth} ${trendHeight}`" preserveAspectRatio="none">
@@ -92,21 +92,19 @@
           <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" vector-effect="non-scaling-stroke" />
           <!-- Y 轴刻度 -->
           <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
-          <!-- 面积填充（渐变，描线入场时同步淡入） -->
-          <polygon v-if="trendDots.length >= 2" :points="areaPoints" class="trend-area" :class="{ drawn: trendDrawn }" :fill="'url(#trend-grad)'" />
+          <!-- 面积填充（静态呈现：排障工具页不做入场演出） -->
+          <polygon v-if="trendDots.length >= 2" :points="areaPoints" class="trend-area" :fill="'url(#trend-grad)'" />
           <defs>
             <linearGradient id="trend-grad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="var(--app-primary)" stop-opacity="0.22" />
               <stop offset="100%" stop-color="var(--app-primary)" stop-opacity="0.02" />
             </linearGradient>
           </defs>
-          <!-- 折线（描线入场：stroke-dashoffset 从总长滚到 0） -->
+          <!-- 折线（静态呈现） -->
           <polyline
-            ref="trendLineRef"
             :points="trendPoints"
             fill="none"
             class="trend-line"
-            :class="{ drawn: trendDrawn }"
             stroke-width="2"
             stroke-linejoin="round"
             stroke-linecap="round"
@@ -322,7 +320,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading, Search, CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
@@ -331,7 +329,6 @@ import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
-import { useCountUp } from '@/composables/useCountUp'
 
 const route = useRoute()
 const router = useRouter()
@@ -426,12 +423,8 @@ const assertionPassed = computed(() =>
   )
 )
 
-// ===== 摘要数字 count-up 滚动（数据加载完成后从 0 滚到目标值） =====
-const passedCountUp = useCountUp(computed(() => passedCount.value))
-const totalCountUp = useCountUp(computed(() => totalCount.value))
-const assertionPassedUp = useCountUp(computed(() => assertionPassed.value))
-const assertionTotalUp = useCountUp(computed(() => assertionTotal.value))
-// 耗时滚动：毫秒数值滚动 + 同款格式化（<1s 显示整数 ms，否则秒两位小数）
+// 摘要指标：排障工具页数据即显（不做 count-up 滚动演出）
+// 耗时格式化：<1s 显示整数 ms，否则秒两位小数
 const durationMs = computed(() => {
   if (!record.value?.started_at || !record.value?.ended_at) return 0
   return new Date(record.value.ended_at).getTime() - new Date(record.value.started_at).getTime()
@@ -440,7 +433,7 @@ function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`
   return `${(ms / 1000).toFixed(2)} s`
 }
-const durationUp = useCountUp(durationMs, 800, formatDuration)
+const durationText = computed(() => formatDuration(durationMs.value))
 
 // ===== 步骤耗时趋势图（纯 SVG） =====
 const trendWidth = 720
@@ -501,31 +494,7 @@ const areaPoints = computed(() => {
   return `${first.x},${base} ${dots.map(p => `${p.x},${p.y}`).join(' ')} ${last.x},${base}`
 })
 
-// ===== 描线入场：steps 数据就位后，dashoffset 从总长动画到 0（从左向右画出折线） =====
-const trendLineRef = ref<SVGPolylineElement | null>(null)
-const trendDrawn = ref(false)
-watch(trendPoints, async (pts) => {
-  if (!pts) return
-  await nextTick()
-  const el = trendLineRef.value
-  if (!el) return
-  const total = el.getTotalLength ? el.getTotalLength() : 0
-  if (!total) {
-    trendDrawn.value = true
-    return
-  }
-  // 重置后触发 CSS transition 完成描线；减少动画偏好时 CSS 侧直接置 0 跳过
-  trendDrawn.value = false
-  el.style.strokeDasharray = String(total)
-  el.style.strokeDashoffset = String(total)
-  // 强制回流使起始状态生效
-  void el.getBoundingClientRect()
-  requestAnimationFrame(() => {
-    trendDrawn.value = true
-  })
-}, { immediate: true })
-
-// ===== 趋势图悬浮提示 =====
+// ===== 趋势图悬浮提示（折线/面积静态呈现，无描线入场） =====
 const hoveredTrend = ref<number | null>(null)
 const tipPos = ref({ x: 0, y: 0 })
 const tipContent = ref({ name: '', value: 0, status: '' })
@@ -714,7 +683,6 @@ onUnmounted(stopPolling)
 
 .summary-card {
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-radius: var(--app-radius-lg);
   overflow: hidden;
 }
@@ -722,7 +690,6 @@ onUnmounted(stopPolling)
 .trend-card {
   position: relative;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-radius: var(--app-radius-lg);
   display: flex;
   flex-direction: column;
@@ -762,34 +729,10 @@ onUnmounted(stopPolling)
 }
 .trend-svg .trend-line {
   stroke: var(--app-primary);
-  /* 描线入场：dasharray/offset 由脚本按总长设置，drawn 后过渡到 0 */
-  transition: stroke-dashoffset 1.1s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.trend-svg .trend-line.drawn {
-  stroke-dashoffset: 0 !important;
-}
-/* 减少动画偏好：跳过描线直接显示 */
-@media (prefers-reduced-motion: reduce) {
-  .trend-svg .trend-line {
-    transition: none;
-  }
-  .trend-svg .trend-line.drawn {
-    stroke-dashoffset: 0 !important;
-  }
-}
-/* 面积填充：随描线完成淡入 */
+/* 面积填充：静态呈现 */
 .trend-svg .trend-area {
-  opacity: 0;
-  transition: opacity 0.6s ease 0.5s;
-}
-.trend-svg .trend-area.drawn {
   opacity: 1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .trend-svg .trend-area {
-    opacity: 1;
-    transition: none;
-  }
 }
 .trend-svg .dot-ok {
   fill: var(--app-success);
@@ -800,10 +743,11 @@ onUnmounted(stopPolling)
 .trend-svg .trend-dot {
   cursor: pointer;
   transition: r 0.15s ease;
-  filter: drop-shadow(0 0 0 transparent);
 }
+/* hover：实心描边环替代发光（工程面板语言） */
 .trend-svg .trend-dot:hover {
-  filter: drop-shadow(0 0 4px currentColor);
+  stroke: var(--app-card-solid);
+  stroke-width: 2px;
 }
 
 /* 悬浮提示框 */
@@ -813,10 +757,10 @@ onUnmounted(stopPolling)
   min-width: 160px;
   max-width: 260px;
   padding: 10px 12px;
-  background: var(--app-card);
+  background: var(--app-card-solid);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-md);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--app-shadow-lg);
   pointer-events: none;
   animation: trend-tip-in 0.12s ease;
 }
@@ -936,7 +880,6 @@ onUnmounted(stopPolling)
 .steps-card,
 .detail-card {
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-radius: var(--app-radius-lg);
   display: flex;
   flex-direction: column;

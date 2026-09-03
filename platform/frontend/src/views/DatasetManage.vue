@@ -98,7 +98,7 @@
 
             <el-table :data="current.rows" stripe size="small" row-key="id" max-height="480">
               <template #empty>
-                <el-empty description="暂无数据行，下方添加或导入" :image-size="60" />
+                <EmptyState description="暂无数据行，下方添加或导入" :image-size="60" />
               </template>
               <el-table-column prop="row_index" label="#" width="50" />
               <el-table-column
@@ -140,7 +140,7 @@
                   <el-button size="small" :loading="resyncing" @click="resyncDataset">重新同步（取用例当前编排）</el-button>
                   <span class="tip">仅刷新快照，列 / 行数据不动；用例编排变更后需手动同步</span>
                 </div>
-                <el-empty
+                <EmptyState
                   v-if="!current.node_configs?.length"
                   description="暂无快照（生成时未捕获到节点配置，或已过期清空）"
                   :image-size="60"
@@ -1122,7 +1122,7 @@ watch(() => store.currentProjectId, () => {
   gap: 6px;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
-  border-radius: 14px;
+  border-radius: var(--app-radius-sm);
   cursor: pointer;
   user-select: none;
   color: var(--app-text-muted);
@@ -1168,7 +1168,7 @@ watch(() => store.currentProjectId, () => {
 .group-count {
   background: var(--app-primary);
   color: #fff;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   padding: 1px 10px;
   font-size: 12px;
   font-weight: 500;

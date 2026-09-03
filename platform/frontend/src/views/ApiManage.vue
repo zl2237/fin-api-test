@@ -215,7 +215,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-else-if="!loading" :image-size="80" description="该分组暂无接口" />
+          <EmptyState v-else-if="!loading" :image-size="80" description="该分组暂无接口" />
           <div v-if="apisOf(selectedRow!.groupId).length" class="pagination-wrap">
             <el-pagination
               small
@@ -277,7 +277,7 @@
               </div>
             </template>
           </el-tree>
-          <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
+          <EmptyState v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
         </div>
       </div>
     </el-dialog>
@@ -1213,7 +1213,7 @@ watch(currentProjectId, () => {
 .group-count {
   background: var(--app-primary);
   color: #fff;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   padding: 1px 10px;
   font-size: 12px;
   font-weight: 500;

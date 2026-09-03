@@ -499,7 +499,6 @@ function onKeydown(e: KeyboardEvent) {
   gap: 12px;
   padding: 12px 20px;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
 }
 .edit-title {

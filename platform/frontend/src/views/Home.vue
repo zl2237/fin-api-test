@@ -25,10 +25,10 @@
           <path d="M30 26 C 48 26, 44 50, 62 50" class="dag-edge" />
           <path d="M30 74 C 48 74, 44 50, 62 50" class="dag-edge" />
           <path d="M96 50 C 110 50, 106 26, 124 26" class="dag-edge" />
-          <rect x="6" y="12" width="34" height="28" rx="7" class="dag-node" />
-          <rect x="6" y="60" width="34" height="28" rx="7" class="dag-node" />
-          <rect x="62" y="36" width="36" height="28" rx="7" class="dag-node dag-node-main" />
-          <rect x="120" y="12" width="22" height="28" rx="7" class="dag-badge" />
+          <rect x="6" y="12" width="34" height="28" rx="2" class="dag-node" />
+          <rect x="6" y="60" width="34" height="28" rx="2" class="dag-node" />
+          <rect x="62" y="36" width="36" height="28" rx="2" class="dag-node dag-node-main" />
+          <rect x="120" y="12" width="22" height="28" rx="2" class="dag-badge" />
           <path d="M126 24 l3.5 4.5 l6 -7.5" class="dag-check" />
         </svg>
       </section>
@@ -305,18 +305,21 @@ const guideCaps = [
 }
 .empty-project { border-radius: var(--app-radius-lg); }
 
-/* ===== 欢迎条 ===== */
+/* ===== 欢迎条：实底面板 + 左侧主色状态轨（工程面板语言，去渐变） ===== */
 .welcome {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 22px 28px;
   border-radius: var(--app-radius-lg);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--app-primary) 10%, var(--app-card-solid)) 0%, var(--app-card-solid) 60%);
+  background: var(--app-card-solid);
   border: 1px solid var(--app-border);
+  border-left: 3px solid var(--app-primary);
   box-shadow: var(--app-shadow-sm);
   min-height: 96px;
+  overflow: hidden;
 }
 .welcome-text { min-width: 0; }
 .welcome-title {

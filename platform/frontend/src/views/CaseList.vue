@@ -238,7 +238,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-else-if="!loading" :image-size="80" description="该分组暂无用例" />
+          <EmptyState v-else-if="!loading" :image-size="80" description="该分组暂无用例" />
           <div v-if="selectedCases.length" class="pagination-wrap">
             <el-pagination
               small
@@ -328,7 +328,7 @@
               </div>
             </template>
           </el-tree>
-          <el-empty v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
+          <EmptyState v-if="!groupTreeNodes.length" description="暂无分组" :image-size="60" />
         </div>
       </div>
     </el-dialog>
@@ -1622,7 +1622,7 @@ function onGlobalKey(e: KeyboardEvent) {
 .group-count {
   background: var(--app-primary);
   color: #fff;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   padding: 1px 10px;
   font-size: 12px;
   font-weight: 500;
