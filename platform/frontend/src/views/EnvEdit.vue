@@ -112,7 +112,7 @@
             </div>
           </el-form-item>
 
-          <div class="group-title">验证码自动识别<span>选填 · 两项都填才启用</span></div>
+          <div class="group-title">验证码自动识别<span>选填 · 图片地址与字段名都填才启用</span></div>
           <div class="form-row">
             <el-form-item label="验证码图片地址">
               <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
@@ -121,8 +121,20 @@
               <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
             </el-form-item>
           </div>
+          <el-form-item label="识别重试次数">
+            <el-input-number
+              v-model="formData.login_config.captcha_retry"
+              :min="1"
+              :max="20"
+              :step="1"
+              step-strictly
+            />
+            <div class="form-hint">
+              验证码识别错误时自动换图重试的次数，默认 3；验证码较难识别时可调大提高登录成功率
+            </div>
+          </el-form-item>
           <div class="group-hint">
-            登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试（默认 3 次）。需后端安装 ddddocr
+            登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交。需后端安装 ddddocr
           </div>
 
           <template v-if="formData.login_config.login_mode === 'token'">
@@ -263,6 +275,7 @@ interface EnvFormData {
     login_check_value: string
     captcha_url: string
     captcha_field: string
+    captcha_retry: number | null
   }
   notify_config: {
     wecom_webhook: string
@@ -292,6 +305,7 @@ const formData = reactive<EnvFormData>({
     login_check_value: '',
     captcha_url: '',
     captcha_field: '',
+    captcha_retry: 3,
   },
   notify_config: {
     wecom_webhook: '',
@@ -338,6 +352,7 @@ async function loadEnv() {
     login_check_value: lc.login_check_value || '',
     captcha_url: lc.captcha_url || '',
     captcha_field: lc.captcha_field || '',
+    captcha_retry: lc.captcha_retry ?? 3,
   }
   // notify_config（兼容旧数据：wecom_webhook 从 variables 迁移）
   const nc = env.notify_config || {}

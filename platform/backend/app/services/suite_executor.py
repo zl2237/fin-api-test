@@ -149,6 +149,12 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
             ok = row_record.status == "success"
             row_report.update(execution_id=row_record.id,
                               status="success" if ok else "failed")
+            if not ok:
+                # 行失败原因回填（登录失败等执行级错误在 row_record.summary.error），
+                # 套件报告页行内直接可见，无需点进成员报告排查
+                err = (row_record.summary or {}).get("error")
+                if err:
+                    row_report["reason"] = str(err)[:200]
             member_report["rows"].append(row_report)
             row_snapshots.append(
                 _snapshot_vars(whitelist, executor.context.extracted)
