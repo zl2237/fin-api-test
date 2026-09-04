@@ -1,11 +1,8 @@
 <template>
   <div class="designer" v-loading="loading" element-loading-text="加载用例编排数据中...">
-    <!-- 左侧接口列表（按分组树折叠，继承接口管理的分组与排序） -->
+    <!-- 左侧接口列表（按分组树折叠，继承接口管理的分组与排序；返回入口统一收口到画布工具栏） -->
     <div class="api-panel">
       <div class="panel-title">
-        <el-button link @click="onBack">
-          <el-icon><ArrowLeft /></el-icon>返回
-        </el-button>
         <span class="title-text">接口列表</span>
       </div>
       <!-- 接口搜索：接口上百时免逐级展开找目标（与节点配置抽屉的 filterable 对等） -->
@@ -24,10 +21,12 @@
           :key="row.key"
           class="group-block"
         >
-          <!-- 分组头（可折叠/展开；样式与接口管理/用例列表左侧导航树一致） -->
-          <div
+          <!-- 分组头（可折叠/展开；语义化 button 键盘可达） -->
+          <button
+            type="button"
             class="group-header"
             :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
+            :aria-expanded="row.expandable ? isGroupExpanded(row.groupId!) : undefined"
             @click="onToggleGroup(row)"
           >
             <el-icon
@@ -38,21 +37,23 @@
             <span v-else class="expand-spacer" />
             <span class="group-name">{{ row.name }}</span>
             <span class="group-count">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
-          </div>
-          <!-- 分组下的直接接口（仅展开时显示；无直接接口时不渲染，避免显示 No Data） -->
+          </button>
+          <!-- 分组下的直接接口（仅展开时显示；点击添加为画布节点，语义化 button） -->
           <div
             v-if="row.isUngrouped || isGroupExpanded(row.groupId!)"
             :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
           >
-            <div
+            <button
               v-for="a in apisOf(row.groupId, apiKeyword || undefined)"
               :key="a.id"
+              type="button"
               class="api-item"
+              :title="`${a.method} ${a.path}`"
               @click="onAddNode(a)"
             >
-              <div class="api-item-name">{{ a.name }}</div>
-              <div class="api-item-path">{{ a.method }} {{ a.path }}</div>
-            </div>
+              <span class="api-item-name">{{ a.name }}</span>
+              <span class="api-item-path">{{ a.method }} {{ a.path }}</span>
+            </button>
           </div>
         </div>
         <EmptyState v-if="apiList.length && apiKeyword && !filteredApiCount" description="无匹配接口" :image-size="60" />
@@ -107,6 +108,7 @@
         ref="canvasRef"
         v-model:nodes="nodes"
         v-model:edges="edges"
+        :config-summary="configSummary"
         @node-open="onNodeOpen"
         @nodes-pasted="onNodesPasted"
         @link-mode-change="onLinkModeChange"
@@ -245,6 +247,20 @@ const caseData = ref<TestCase>(emptyCase())
 const nodes = ref<any[]>([])
 const edges = ref<any[]>([])
 const configs = ref<NodeConfig[]>([])
+
+/** 节点配置摘要：断言/提取计数与执行后等待（画布接线卡徽标行渲染用）。
+ *  纯渲染层只读派生，不写入 node.data，因此不会进入持久化 payload */
+const configSummary = computed<Record<string, { assertions: number; extracts: number; waitMs: number }>>(() => {
+  const map: Record<string, { assertions: number; extracts: number; waitMs: number }> = {}
+  for (const c of configs.value) {
+    map[c.node_id] = {
+      assertions: c.assertions?.length ?? 0,
+      extracts: c.post_extract?.length ?? 0,
+      waitMs: c.wait_after_ms ?? 0,
+    }
+  }
+  return map
+})
 const canvasRef = ref<any>(null)
 const drawerVisible = ref(false)
 const selectedNodeId = ref<string | null>(null)
@@ -645,15 +661,27 @@ watch(() => store.currentProjectId, async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   height: 32px;
   padding: 0 10px;
   cursor: pointer;
   user-select: none;
   border-radius: var(--app-radius-sm);
   transition: background 0.15s;
+  /* 语义化 button：清除浏览器默认外观 */
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
 }
 .group-header:hover {
   background: var(--app-hover);
+}
+.group-header:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
 }
 .expand-icon {
   font-size: 14px;
@@ -683,14 +711,29 @@ watch(() => store.currentProjectId, async () => {
   flex-shrink: 0;
 }
 .api-item {
+  display: block;
+  width: 100%;
   padding: 8px 14px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
   border-left: 2px solid transparent;
+  /* 语义化 button：清除浏览器默认外观 */
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
 }
 .api-item:hover {
   background: var(--app-chip-bg);
   border-left-color: var(--app-primary);
+}
+.api-item:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
 }
 .api-item-name {
   font-size: 13px;
@@ -738,6 +781,12 @@ watch(() => store.currentProjectId, async () => {
   font-size: 12px;
   color: var(--app-text-muted);
   padding: 0 4px;
+  /* 快捷键提示降噪：默认半透明，悬停全亮（熟练后不再干扰视线，新手 hover 即读） */
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.canvas-hint:hover {
+  opacity: 1;
 }
 /* 保存按钮未保存标记：呼吸圆点 + 轻微描边强调，保存完成即消失 */
 .dirty-dot {
