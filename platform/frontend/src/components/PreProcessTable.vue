@@ -104,15 +104,6 @@ function tryParseJson(s: any): any {
   }
 }
 
-function pickArrayItemLabel(item: any): string {
-  if (!item || typeof item !== 'object') return ''
-  const keys = ['supplier_name', 'name', 'label', 'service_item_name', 'order_sub_no', 'title']
-  for (const k of keys) {
-    if (item[k] && typeof item[k] === 'string') return item[k]
-  }
-  return ''
-}
-
 // 从示例值推断字段类型（用于嵌套字段，顶层字段直接用 ApiField.field_type）
 function inferType(v: any): string {
   if (v === null || v === undefined) return 'null'
@@ -123,21 +114,23 @@ function inferType(v: any): string {
   return 'string'
 }
 
-function collectKeys(obj: any, base: string, out: { value: string; label: string }[], depth = 0): void {
+// 展开嵌套字段：label 统一为「路径（字典中文名，如有）[类型]」。
+// canonBase 为去掉数组下标的规范路径（如 supplier.0.order_id → supplier.order_id），
+// 传入 dictLabel 后可按 完整路径/末段/父级段 智能命中字典，使非顶层字段也能解析中文名。
+function collectKeys(obj: any, base: string, canonBase: string, out: FieldOption[], depth = 0): void {
   if (depth > 2) return
   if (Array.isArray(obj)) {
     if (obj.length === 0) return
     obj.forEach((item, idx) => {
       if (item && typeof item === 'object') {
-        const itemLabel = pickArrayItemLabel(item)
         for (const [k, v] of Object.entries(item)) {
           const childPath = `${base}.${idx}.${k}`
+          const childCanon = `${canonBase}.${k}`
           const t = inferType(v)
-          // 优先用数组项的业务标签，其次查项目字典
-          const cn = itemLabel || dictLabel(k)
-          const lbl = cn ? `${base}.${idx}.${k}（${cn}）[${t}]` : `${base}.${idx}.${k} [${t}]`
+          const cn = dictLabel(childCanon)
+          const lbl = cn ? `${childPath}（${cn}）[${t}]` : `${childPath} [${t}]`
           out.push({ value: childPath, label: lbl })
-          if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+          if (v && typeof v === 'object') collectKeys(v, childPath, childCanon, out, depth + 1)
         }
       }
     })
@@ -145,10 +138,10 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
     for (const [k, v] of Object.entries(obj)) {
       const childPath = `${base}.${k}`
       const t = inferType(v)
-      const cn = dictLabel(k)
-      const lbl = cn ? `${base}.${k}（${cn}）[${t}]` : `${base}.${k} [${t}]`
+      const cn = dictLabel(childPath)
+      const lbl = cn ? `${childPath}（${cn}）[${t}]` : `${childPath} [${t}]`
       out.push({ value: childPath, label: lbl })
-      if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+      if (v && typeof v === 'object') collectKeys(v, childPath, childPath, out, depth + 1)
     }
   }
 }
@@ -162,7 +155,7 @@ const fieldOptions = computed<FieldOption[]>(() => {
     opts.push({ value: f.key, label })
     if (f.field_type === 'array' || f.field_type === 'object') {
       const parsed = tryParseJson(f.default_value)
-      if (parsed) collectKeys(parsed, f.key, opts)
+      if (parsed) collectKeys(parsed, f.key, f.key, opts)
     }
   }
   return opts
