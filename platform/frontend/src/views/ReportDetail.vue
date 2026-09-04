@@ -188,6 +188,20 @@
           <el-tabs v-model="activeTab" class="detail-tabs">
             <el-tab-pane label="请求" name="request">
               <div class="section">
+                <div class="section-title">前置处理 ({{ currentStep.pre_process?.length || 0 }})</div>
+                <template v-if="currentStep.pre_process?.length">
+                  <div v-for="(p, i) in currentStep.pre_process" :key="i" class="pre-item">
+                    <el-tag size="small" type="info" effect="light">{{ preTypeText(p.type) }}</el-tag>
+                    <span class="mono">{{ p.path || '—' }}</span>
+                    <template v-if="p.type !== 'delete_field'">
+                      <span class="muted">=</span>
+                      <span class="mono pre-val">{{ preValueText(p.value) }}</span>
+                    </template>
+                  </div>
+                </template>
+                <EmptyState v-else description="无前置处理" :image-size="40" />
+              </div>
+              <div class="section">
                 <div class="section-title">请求头</div>
                 <VueJsonPretty v-if="currentStep.request_headers" :data="currentStep.request_headers" />
                 <EmptyState v-else description="无请求头" :image-size="40" />
@@ -215,6 +229,35 @@
                 <VueJsonPretty v-if="currentStep.response_body != null" :data="currentStep.response_body" />
                 <EmptyState v-else description="无响应体" :image-size="40" />
               </div>
+            </el-tab-pane>
+
+            <el-tab-pane :label="`提取 (${currentStep.post_extract?.length || 0})`" name="extract">
+              <template v-if="currentStep.post_extract?.length">
+                <el-table :data="currentStep.post_extract" size="small" border>
+                  <el-table-column label="变量名" min-width="110">
+                    <template #default="{ row }">
+                      <span class="mono">{{ row.name || '—' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="来源" width="80">
+                    <template #default="{ row }">{{ extractSourceText(row.source) }}</template>
+                  </el-table-column>
+                  <el-table-column label="规则" min-width="240" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <span class="mono">{{ extractRuleText(row) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="提取结果" min-width="180" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <span v-if="extractActual(row.name) !== undefined" class="mono pre-val">
+                        {{ preValueText(extractActual(row.name)) }}
+                      </span>
+                      <span v-else class="muted">未提取到</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </template>
+              <EmptyState v-else description="该步骤无提取规则" :image-size="60" />
             </el-tab-pane>
 
             <el-tab-pane :label="`断言 (${currentStep.assertions.length})`" name="assertions">
@@ -433,6 +476,49 @@ function httpStatusType(code?: number) {
   // 接口测试语义：非 2xx 即请求层面失败（原 4xx 归 warning 与失败层级冲突）
   if (code >= 400) return 'danger'
   return 'info'
+}
+
+// ===== 前置处理 / 后置提取展示辅助（文案与 PreProcessTable 配置端一致） =====
+const PRE_TYPE_TEXT: Record<string, string> = {
+  set_field: '设置字段',
+  add_field: '新增字段',
+  delete_field: '删除字段',
+  iterate_set: '遍历赋值',
+}
+
+function preTypeText(t?: string) {
+  return (t && PRE_TYPE_TEXT[t]) || t || '—'
+}
+
+/** 快照值为执行时规则原文：字符串原样（可含 ${} 引用），对象/数组 JSON 化 */
+function preValueText(v: any): string {
+  if (v == null) return '—'
+  if (typeof v === 'string') return v
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
+}
+
+function extractSourceText(s?: string) {
+  return s === 'db' ? '数据库' : '响应'
+}
+
+/** db 规则展示 SQL + 取值字段；response 规则展示 JSONPath */
+function extractRuleText(r: any): string {
+  if (r?.source === 'db') {
+    const sql = r.sql || '—'
+    return r.field ? `${sql} → ${r.field}` : sql
+  }
+  return r?.json_path || '—'
+}
+
+/** 从实际提取结果中取变量值；undefined 表示未提取到（规则失败或值缺失） */
+function extractActual(name?: string) {
+  if (!name) return undefined
+  const vars = currentStep.value?.extracted_vars
+  return vars && Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : undefined
 }
 
 function stepTimeText(s: StepRecord) {
@@ -841,6 +927,22 @@ onUnmounted(stopPolling)
   color: var(--app-text);
   margin-bottom: 6px;
 }
+
+/* 前置处理动作行：标签 + path = 值（值可含 ${} 引用，规则原文快照） */
+.pre-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  flex-wrap: wrap;
+}
+
+.pre-val {
+  color: var(--app-text);
+  max-width: 420px;
+  vertical-align: middle;
+}
+
 
 .muted {
   color: var(--app-text-muted);

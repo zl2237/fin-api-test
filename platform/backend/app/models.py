@@ -301,6 +301,9 @@ class StepRecord(Base):
     started_at = Column(DateTime, comment="步骤开始时间")
     ended_at = Column(DateTime, comment="步骤结束时间")
     status = Column(String(20), comment="步骤状态：success 成功 / failed 失败")
+    pre_process = Column(JSON, comment="前置处理快照：[{type, path, value}]")
+    post_extract = Column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")
+    extracted_vars = Column(JSON, comment="后置提取实际结果：{name: value}")
 
     execution = relationship("ExecutionRecord", back_populates="steps")
     assertions = relationship("AssertionRecord", back_populates="step", cascade="all, delete-orphan")

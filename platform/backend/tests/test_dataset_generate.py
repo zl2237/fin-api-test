@@ -2,7 +2,7 @@
 
 语义（与三级取值优先级一致：数据集 = 除动态绑定外的所有字段集合）：
 - 收集范围 = 用例中所有"写死"的请求参数（非上游 ${} 提取注入）：
-  ① API 字段默认值（顶层 key、非 file、非空、不含 ${}）
+  ① API 字段默认值（顶层 key、非空、不含 ${}；file 字段成列 type=file，值是文件 ID）
   ② 前置处理 set_field/add_field 字面量（path 顶层、value 不含 ${}）
 - 节点内同 key：set_field 晚于默认值组装执行，最终生效值 = set_field 值
 - 跨节点同名 → 合并一列（一列统一覆盖所有同名节点）；同名异值取首节点值成列，
@@ -184,14 +184,28 @@ class TestCollectCaseParams:
         assert out["columns"] == []
         assert out["stats"]["nested"] == 2
 
-    def test_empty_and_file_skipped(self):
-        """空默认值 / file 类型（值是 file_id 非业务参数）→ 跳过"""
+    def test_empty_skipped_file_collected(self):
+        """空默认值跳过；file 字段成列（type=file，值是文件中心文件 ID）"""
         case = _case([("n1", 7)])
         apis = {7: _api([_field("remark", ""), _field("id_card", "12", ftype="file"),
                          _field("memo", None)])}
         out = svc.collect_case_params(case, [_cfg("n1", 7)], apis)
-        assert out["columns"] == []
+        cols = {c["key"]: c for c in out["columns"]}
+        assert cols["id_card"]["type"] == "file"
+        assert cols["id_card"]["origin"] == "12"
+        assert out["row"]["id_card"] == "12"
+        assert "remark" not in cols and "memo" not in cols
         assert out["stats"]["empty"] == 2
+
+    def test_set_field_file_path_typed_file(self):
+        """前置 set_field 绑定 file 字段（值是文件 ID）→ 列 type=file（按 api 字段定义识别）"""
+        case = _case([("n1", 7)])
+        apis = {7: _api([_field("id_card", None, ftype="file")])}
+        cfg = _cfg("n1", 7, pre=[{"type": "set_field", "path": "id_card", "value": "35"}])
+        out = svc.collect_case_params(case, [cfg], apis)
+        col = next(c for c in out["columns"] if c["key"] == "id_card")
+        assert col["type"] == "file"
+        assert col["origin"] == "35"
 
     def test_empty_set_field_path_skipped(self):
         """set_field 空 path（前端表格空行占位）→ 跳过不炸、不生成空名列"""

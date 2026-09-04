@@ -29,7 +29,7 @@ from .body_builder import parse_field_value
 # 列 key 合法字符：字母数字下划线（不允许点/空格/${}，理由见模块注释）
 _COL_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-_VALID_COL_TYPES = {"string", "int", "bool", "array", "object"}
+_VALID_COL_TYPES = {"string", "int", "bool", "array", "object", "file"}
 
 
 def _validate_columns(columns: list) -> None:
@@ -287,7 +287,9 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     """扫描用例全部节点，收集可参数化的"写死"请求参数（纯函数，不触 db）。
 
     收集口径与三级取值优先级一致（数据集 = 除动态绑定外的所有字段集合）：
-    - API 字段默认值：顶层 key（无点号）、非 file、非空、不含 ${}（上游提取注入属动态，不收）
+    - API 字段默认值：顶层 key（无点号）、非空、不含 ${}（上游提取注入属动态，不收）；
+      file 字段同样成列（值是文件中心文件 ID，列 type=file，行编辑器渲染文件选择器，
+      执行时经 pop_file_fields_from_body 剥离走 multipart，链路无缝）
     - 前置处理 set_field/add_field：path 顶层、value 不含 ${}；
       同节点同 key 时 set_field 覆盖默认值（执行顺序在组装之后，最终生效值为准）
     - set_field/add_field 顶层 path 的 value 含 ${}（运行时动态注入，如 [${audit_id}]）
@@ -304,6 +306,7 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     全部不可提取时返回空结果（columns=[]），由 generate_dataset_from_case 抛用户可读错误。
     """
     values: dict = {}      # key -> 首个最终生效值（列顺序 = 拓扑执行序）
+    key_types: dict = {}   # key -> 字段类型（file 需透传到列定义，行编辑器据此渲染文件选择器）
     dynamic_keys = set()   # 被 ${} 动态注入的顶层 key：运行时表达式生效，不可作数据列
     conflicts = []
     stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0, "nested": 0, "empty": 0}
@@ -318,15 +321,17 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
             continue
         stats["nodes"] += 1
 
+        # key -> field_type：pre_process 路径的 file 字段值同为文件 ID，需识别类型
+        api_field_types = {f.key: (f.field_type or "string") for f in (getattr(api, "fields", None) or []) if f.key}
+
         node_vals: dict = {}  # 本节点最终生效值：默认值 → set_field 覆盖
+        node_types: dict = {}  # 本节点 key -> 字段类型
         for f in getattr(api, "fields", None) or []:
             if not f.key:
                 continue
             if "." in f.key:
                 stats["nested"] += 1
                 continue
-            if f.field_type == "file":
-                continue  # 值是文件 ID 非业务参数
             raw = f.default_value
             if raw is None or (isinstance(raw, str) and not raw.strip()):
                 stats["empty"] += 1
@@ -335,6 +340,7 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
                 stats["dynamic"] += 1
                 continue
             node_vals[f.key] = parse_field_value(raw, f.field_type or "string")
+            node_types[f.key] = f.field_type or "string"
         for act in cfg.pre_process or []:
             if act.get("type") not in ("set_field", "add_field"):
                 continue
@@ -354,12 +360,14 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
                 values.pop(path, None)
                 continue
             node_vals[path] = val
+            node_types[path] = api_field_types.get(path, "string")
 
         for k, v in node_vals.items():
             if k in dynamic_keys:
                 continue
             if k not in values:
                 values[k] = v
+                key_types[k] = node_types.get(k, "string")
             elif values[k] != v:
                 # 同名异值：并集口径仍成一列（数据集=除动态绑定外所有字段的集合），
                 # 取执行序源头节点值；conflicts 仅提示异值。
@@ -370,8 +378,12 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
         # 全部不可提取（动态/嵌套/空/冲突）：返回空结果，由 generate_dataset_from_case 抛用户可读错误
         return {"columns": [], "row": {}, "stats": stats}
 
-    # origin = 生成时该 key 的源头值（与 row 初值相同）：执行时快照保真的比对基准
-    columns = [{"key": k, "type": _infer_col_type(v), "origin": v} for k, v in values.items()]
+    # origin = 生成时该 key 的源头值（与 row 初值相同）：执行时快照保真的比对基准；
+    # file 列类型来自字段定义（值是文件 ID，按值推断只会得到 string，行编辑器无法识别）
+    columns = [
+        {"key": k, "type": "file" if key_types.get(k) == "file" else _infer_col_type(v), "origin": v}
+        for k, v in values.items()
+    ]
     stats["columns"] = len(columns)
     return {"columns": columns, "row": dict(values), "stats": stats}
 

@@ -228,7 +228,7 @@
         type="info"
         :closable="false"
         style="margin-bottom: 12px"
-        title="扫描用例全部节点的写死请求参数（非 ${} 提取注入），每个参数一列并带 1 行原值快照；同时按节点快照当前前置/后置提取/断言配置；同名参数跨节点取值不同时跳过该列"
+        title="扫描用例全部节点的写死请求参数（非 ${} 提取注入），每个参数一列并带 1 行原值快照；file 字段同样成列（行编辑时从文件中心选择）；同时按节点快照当前前置/后置提取/断言配置；同名参数跨节点取值不同时跳过该列"
       />
       <el-form label-width="80px">
         <el-form-item label="选择用例" required>
@@ -312,7 +312,19 @@
                 <span>{{ colLabel(col.key) }}</span>
                 <span class="col-type-tag">{{ col.type }}</span>
               </template>
+              <!-- file 列：值是文件中心文件 ID，弹文件选择器而非手填文本 -->
+              <div v-if="col.type === 'file'" class="file-value-cell">
+                <el-input
+                  :model-value="editingRowData[col.key] ? `#${editingRowData[col.key]}` : ''"
+                  readonly
+                  placeholder="未选择文件"
+                  class="file-value-input"
+                />
+                <el-button link type="primary" @click="openFilePicker(col.key)">选择</el-button>
+                <el-button v-if="editingRowData[col.key]" link type="danger" @click="editingRowData[col.key] = ''">清除</el-button>
+              </div>
               <el-input
+                v-else
                 v-model="editingRowData[col.key]"
                 :type="isJsonText(editingRowData[col.key]) ? 'textarea' : 'text'"
                 :autosize="{ minRows: 1, maxRows: 20 }"
@@ -327,6 +339,13 @@
         <el-button type="primary" :loading="rowSaving" @click="saveRow">保存</el-button>
       </template>
     </el-drawer>
+
+    <!-- file 列取值：文件中心选择器（与前置处理的文件选择同构） -->
+    <FilePicker
+      v-model="filePickerVisible"
+      :model-file-id="editingRowData[filePickerKey] || ''"
+      @select="onFileSelect"
+    />
 
     <!-- 从其他数据集覆盖（节点级对比合并） -->
     <el-dialog v-model="mergeVisible" title="从其他数据集覆盖" width="720px" :close-on-click-modal="false">
@@ -416,12 +435,13 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup } from '@/api'
+import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup, type TestFile } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useFieldDict } from '@/composables/useFieldDict'
 import { fileTimestamp } from '@/utils/format'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
+import FilePicker from '@/components/FilePicker.vue'
 
 const store = useAppStore()
 const router = useRouter()
@@ -436,7 +456,7 @@ const loadError = ref('')
 const saving = ref(false)
 const resyncing = ref(false)
 
-const colTypes = ['string', 'int', 'bool', 'array', 'object']
+const colTypes = ['string', 'int', 'bool', 'array', 'object', 'file']
 const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === currentCase.value?.id))
 const colKeys = computed(() => (current.value?.columns || []).map((c) => c.key))
 const colLabels = computed(() => colKeys.value.map((k) => colLabel(k)))
@@ -770,6 +790,22 @@ function cancelEditRow() {
   editingRowId.value = null
   editingRowIndex.value = null
   editingRowData.value = {}
+}
+
+// ===== file 列文件选择器（值存文件中心文件 ID） =====
+const filePickerVisible = ref(false)
+const filePickerKey = ref('')
+
+function openFilePicker(key: string) {
+  filePickerKey.value = key
+  filePickerVisible.value = true
+}
+
+function onFileSelect(file: TestFile) {
+  if (filePickerKey.value) {
+    editingRowData.value[filePickerKey.value] = String(file.id)
+  }
+  filePickerKey.value = ''
 }
 
 async function saveRow() {
@@ -1296,6 +1332,16 @@ watch(() => store.currentProjectId, () => {
   font-size: 12px;
   color: var(--el-color-danger);
   margin-top: 2px;
+}
+/* file 列取值单元格：只读文件 ID + 选择/清除（与前置处理同构） */
+.file-value-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+.file-value-input {
+  flex: 1;
 }
 /* 覆盖合并弹窗 */
 .merge-hint {
