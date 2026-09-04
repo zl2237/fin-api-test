@@ -50,7 +50,7 @@ function confirm() {
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="批量执行" width="480px" align-center :close-on-click-modal="false">
+  <el-dialog v-model="visible" title="批量执行" width="560px" align-center :close-on-click-modal="false">
     <div class="batch-run-tip">
       为每个用例设置执行次数，并发数 1 = 逐个串行执行（避免并发问题），&gt;1 并行（同环境共享登录）。绑定数据集的用例每轮按数据行展开。
     </div>

@@ -37,7 +37,7 @@
           <el-button size="small" @click="load">重试</el-button>
         </div>
         <el-skeleton v-else-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id">
+        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
           <template #empty>
             <EmptyState description="暂无环境" :image-size="80">
               <el-button type="primary" @click="onCreate">+ 新建环境</el-button>
@@ -50,8 +50,8 @@
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column prop="id" label="ID" width="70" align="center" />
-          <el-table-column prop="name" label="环境" width="120" show-overflow-tooltip />
+          <el-table-column prop="id" label="ID" width="70" align="center" sortable="custom" />
+          <el-table-column prop="name" label="环境" width="120" show-overflow-tooltip sortable="custom" />
           <el-table-column prop="base_url" label="Base URL" min-width="200" show-overflow-tooltip />
           <el-table-column label="数据库" width="100" align="center">
             <template #default="{ row }">
@@ -117,6 +117,7 @@ import Sortable from 'sortablejs'
 import { Rank, WarningFilled } from '@element-plus/icons-vue'
 import { envApi, userApi, type Environment, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
+import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
@@ -129,9 +130,14 @@ const loading = ref(false)
 const loadError = ref('')
 const page = ref(1)
 const pageSize = ref(10)
+// 表头排序（sortable="custom"）：先排全量再分页切片；取消排序回到手动拖拽序
+const { sortProp, onSortChange, sorted: sortedList } = useClientSort(list, {
+  id: e => e.id,
+  name: e => e.name,
+}, () => { page.value = 1 })
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
+  return sortedList.value.slice(start, start + pageSize.value)
 })
 
 // ===== 拖拽排序（SortableJS 绑定 el-table tbody）=====
@@ -142,8 +148,8 @@ function bindSortable() {
   const tbody = tableRef.value?.$el?.querySelector?.('.el-table__body-wrapper tbody')
   if (!tbody) return
   if (sortableInst) { sortableInst.destroy(); sortableInst = null }
-  // 过滤激活时禁拖：reorder 按「过滤后顺序」重写全局 sort_order，会静默打乱未过滤数据的排序
-  if (filterCreator.value != null || filterUpdater.value != null) return
+  // 过滤/排序激活时禁拖：reorder 按显示顺序重写全局 sort_order，会静默打乱未过滤数据的排序
+  if (filterCreator.value != null || filterUpdater.value != null || sortProp.value != null) return
   sortableInst = Sortable.create(tbody, {
     handle: '.drag-handle',
     animation: 200,
@@ -246,7 +252,11 @@ async function onCopy(row: Environment) {
 
 async function onRemove(row: Environment) {
   try {
-    await ElMessageBox.confirm(`确认删除环境「${row.name}」？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除环境「${row.name}」？引用该环境的定时任务将失效，此操作不可恢复`,
+      '删除环境',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
     await envApi.remove(row.id)
     ElMessage.success('已删除')
     load()

@@ -37,7 +37,7 @@
         >
           <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
         </el-select>
-        <el-input v-model="keyword" style="width: 240px" placeholder="搜索用例名称" clearable>
+        <el-input v-model="keyword" style="width: 240px" placeholder="搜索用例（名称 / ID / 描述）" clearable>
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
       </div>
@@ -128,11 +128,12 @@
             size="small"
             stripe
             row-key="id"
+            @sort-change="onSortChange"
             @selection-change="(sel: any[]) => onSelectionChange('all', sel)"
           >
             <el-table-column type="selection" width="42" />
-            <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip>
+            <el-table-column prop="id" label="ID" width="70" sortable="custom" />
+            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
                   <el-icon class="schedule-mark"><Timer /></el-icon>
@@ -142,7 +143,7 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column label="更新时间" width="120">
+            <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
                 <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
                   <span>{{ formatRelativeTime(row.updated_at) }}</span>
@@ -155,19 +156,29 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="330" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
-                <el-button link type="primary" size="small" @click="openSchedule(row)">定时</el-button>
                 <el-tooltip :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
                 </el-tooltip>
-                <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
-                <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
+                <!-- 低频操作收纳：报告/定时/复制/删除 -->
+                <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
+                  <el-button link type="primary" size="small">
+                    更多<el-icon class="row-more-icon"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="report">查看报告</el-dropdown-item>
+                      <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
+                      <el-dropdown-item command="copy">复制用例</el-dropdown-item>
+                      <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
             </el-table-column>
           </el-table>
@@ -199,6 +210,7 @@
             size="small"
             stripe
             row-key="id"
+            @sort-change="onSortChange"
             @selection-change="(sel: any[]) => onSelectionChange(selectedRow!.key, sel)"
           >
             <el-table-column type="selection" width="42" :reserve-selection="true" />
@@ -210,8 +222,8 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip>
+            <el-table-column prop="id" label="ID" width="70" sortable="custom" />
+            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
                   <el-icon class="schedule-mark"><Timer /></el-icon>
@@ -221,7 +233,7 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column label="更新时间" width="120">
+            <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
                 <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
                   <span>{{ formatRelativeTime(row.updated_at) }}</span>
@@ -234,19 +246,29 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="330" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-button link type="primary" size="small" @click="goReport(row)">报告</el-button>
-                <el-button link type="primary" size="small" @click="openSchedule(row)">定时</el-button>
                 <el-tooltip :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
                 </el-tooltip>
-                <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
-                <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
+                <!-- 低频操作收纳：报告/定时/复制/删除 -->
+                <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
+                  <el-button link type="primary" size="small">
+                    更多<el-icon class="row-more-icon"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="report">查看报告</el-dropdown-item>
+                      <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
+                      <el-dropdown-item command="copy">复制用例</el-dropdown-item>
+                      <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
             </el-table-column>
           </el-table>
@@ -390,7 +412,6 @@
       v-model="ddVisible"
       :case-item="ddCase"
       :datasets="projectDatasets"
-      :field-dict-map="store.fieldDictMap"
       @confirm="confirmDataDrivenRun"
     />
   </div>
@@ -404,7 +425,7 @@ import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
-import { formatTime, formatRelativeTime } from '@/utils/format'
+import { formatTime, formatRelativeTime, execStatusText, fileTimestamp } from '@/utils/format'
 import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
 import GroupManageDialog from '@/components/GroupManageDialog.vue'
@@ -415,6 +436,7 @@ import BatchRunDialog from '@/components/BatchRunDialog.vue'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { debounce } from '@/utils/ui'
+import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
 
 const favicon = useFaviconStatus()
@@ -435,12 +457,26 @@ const keyword = ref('')
 
 const filteredList = computed(() => {
   if (!keyword.value) return list.value
+  // 搜索范围与 placeholder 一致：名称 / ID / 描述
   const kw = keyword.value.toLowerCase()
-  return list.value.filter(c => c.name.toLowerCase().includes(kw))
+  const kwNum = Number(keyword.value)
+  return list.value.filter(c =>
+    c.name.toLowerCase().includes(kw) ||
+    (!Number.isNaN(kwNum) && kw !== '' && c.id === kwNum) ||
+    (c.description || '').toLowerCase().includes(kw),
+  )
 })
 
+// 表头排序（sortable="custom"）：作用在过滤后的全量列表，分组/分页下游自然继承排序，
+// 避免 el-table 默认前端排序只排当前页切片的假象；取消排序回到后端 sort_order（拖拽手序）
+const { onSortChange, sorted: sortedList } = useClientSort(filteredList, {
+  id: c => c.id,
+  name: c => c.name,
+  updated_at: c => c.updated_at ?? '',
+}, (): void => tableSel.resetPages())
+
 // 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
-const tableSel = useGroupedTable(groups, toRef(store, 'currentProjectId'), 'caseList', filteredList)
+const tableSel = useGroupedTable(groups, toRef(store, 'currentProjectId'), 'caseList', sortedList)
 // 切分组勾选时提示（互斥勾选设计：不支持跨分组累计）
 setGroupSwitchNotifier(() => ElMessage.info('不支持跨分组勾选，已切换为当前分组的选择'))
 const {
@@ -485,7 +521,7 @@ const {
   tree,
   visibleGroupRows,
   itemsOf: casesOf,
-  filteredItems: filteredList,
+  filteredItems: sortedList,
   pageMap,
   pageSize,
   onRowDragEnd: onCaseRowDragEnd,
@@ -747,7 +783,7 @@ async function confirmBatchRun({ caseIds, counts, concurrency }: { caseIds: numb
     const detail = results.map((r) => {
       if (r.status === 'success') return `✓ ${r.name}：通过（${r.summary?.passed}/${r.summary?.total}）`
       if (r.status === 'failed') return `✗ ${r.name}：失败（${r.summary?.failed} 项未通过）`
-      return `! ${r.name}：${r.status}`
+      return `! ${r.name}：${execStatusText(r.status)}`
     }).join('\n')
     ElMessageBox.alert(detail, `批量执行完成：通过 ${passed}/${results.length}`, {
       confirmButtonText: '查看报告',
@@ -771,6 +807,14 @@ function goReport(row: TestCase) {
   router.push({ path: '/executions', query: { case_id: row.id } })
 }
 
+/** 行内「更多」下拉分发：低频操作收纳（见操作列注释） */
+function onRowCommand(cmd: string, row: TestCase) {
+  if (cmd === 'report') goReport(row)
+  else if (cmd === 'schedule') openSchedule(row)
+  else if (cmd === 'copy') onCopy(row)
+  else if (cmd === 'remove') onRemove(row)
+}
+
 async function onCopy(row: TestCase) {
   try {
     await caseApi.copy(row.id)
@@ -784,7 +828,11 @@ async function onCopy(row: TestCase) {
 async function onRemove(row: TestCase) {
   // 对齐 ApiManage 的删除交互：取消静默（不产生 unhandled rejection），失败有提示
   try {
-    await ElMessageBox.confirm(`确认删除用例「${row.name}」？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除用例「${row.name}」？其编排、绑定的数据集与定时任务将一并删除，此操作不可恢复`,
+      '删除用例',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
   } catch {
     return
   }
@@ -1167,6 +1215,11 @@ function onGlobalKey(e: KeyboardEvent) {
   color: var(--el-color-warning);
   margin-right: 4px;
   vertical-align: -2px;
+}
+/* 行内「更多」下拉触发按钮：与链接按钮同高，图标小箭头 */
+.row-more-icon {
+  font-size: 12px;
+  margin-left: 1px;
 }
 /* 数据集绑定弹窗 */
 .bind-tip {

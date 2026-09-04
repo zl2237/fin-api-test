@@ -127,11 +127,13 @@
             size="small"
             stripe
             row-key="id"
+            @sort-change="onSortChange"
             @selection-change="(sel: any[]) => onSelectionChange('all', sel)"
           >
             <el-table-column type="selection" width="42" />
-            <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip />
-            <el-table-column label="编码" prop="code" width="160" show-overflow-tooltip />
+            <el-table-column prop="id" label="ID" width="70" sortable="custom" />
+            <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip sortable="custom" />
+            <el-table-column label="编码" prop="code" width="160" show-overflow-tooltip sortable="custom" />
             <el-table-column label="方法" prop="method" width="80">
               <template #default="{ row }">
                 <el-tag :type="methodTag(row.method)" size="small" effect="plain">{{ row.method }}</el-tag>
@@ -185,6 +187,7 @@
             size="small"
             stripe
             row-key="id"
+            @sort-change="onSortChange"
             @selection-change="(sel: any[]) => onSelectionChange(selectedRow!.key, sel)"
           >
             <el-table-column type="selection" width="42" :reserve-selection="true" />
@@ -196,8 +199,9 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip />
-            <el-table-column label="编码" prop="code" width="160" show-overflow-tooltip />
+            <el-table-column prop="id" label="ID" width="70" sortable="custom" />
+            <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip sortable="custom" />
+            <el-table-column label="编码" prop="code" width="160" show-overflow-tooltip sortable="custom" />
             <el-table-column label="方法" prop="method" width="80">
               <template #default="{ row }">
                 <el-tag :type="methodTag(row.method)" size="small" effect="plain">{{ row.method }}</el-tag>
@@ -475,6 +479,7 @@ import { storeToRefs } from 'pinia'
 import { Rank, Upload, Folder, Search, CaretRight, WarningFilled, ArrowDown } from '@element-plus/icons-vue'
 import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
+import { useClientSort } from '@/composables/useClientSort'
 import GroupManageDialog from '@/components/GroupManageDialog.vue'
 import BatchMoveDialog from '@/components/BatchMoveDialog.vue'
 import { debounce } from '@/utils/ui'
@@ -501,8 +506,16 @@ const filteredApis = computed(() => {
   )
 })
 
+// 表头排序（sortable="custom"）：作用在过滤后的全量列表，分组/分页下游自然继承排序，
+// 避免 el-table 默认前端排序只排当前页切片的假象；取消排序回到后端 sort_order（拖拽手序）
+const { onSortChange, sorted: sortedApis } = useClientSort(filteredApis, {
+  id: a => a.id,
+  name: a => a.name,
+  code: a => a.code,
+}, (): void => tableSel.resetPages())
+
 // 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
-const tableSel = useGroupedTable(groups, currentProjectId, 'apiManage', filteredApis)
+const tableSel = useGroupedTable(groups, currentProjectId, 'apiManage', sortedApis)
 // 切分组勾选时提示（互斥勾选设计：不支持跨分组累计）
 setGroupSwitchNotifier(() => ElMessage.info('不支持跨分组勾选，已切换为当前分组的选择'))
 const {
@@ -547,7 +560,7 @@ const {
   tree,
   visibleGroupRows,
   itemsOf: apisOf,
-  filteredItems: filteredApis,
+  filteredItems: sortedApis,
   pageMap,
   pageSize,
   onRowDragEnd: onApiRowDragEnd,
@@ -876,7 +889,11 @@ async function onCopy(row: ApiDef) {
 
 async function onDelete(row: ApiDef) {
   try {
-    await ElMessageBox.confirm(`确认删除接口「${row.name}」？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除接口「${row.name}」？此操作不可恢复；若被用例编排引用，需先移除相关节点`,
+      '删除接口',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
     await apiApi.remove(row.id)
     ElMessage.success('已删除')
     await loadApis()

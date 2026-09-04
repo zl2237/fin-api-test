@@ -11,10 +11,10 @@ export const useAppStore = defineStore('app', () => {
   // 字段字典：当前项目的 {英文字段名: 中文含义} 映射
   const fieldDictMap = ref<Record<string, string>>({})
 
-  // 核心能力详情弹窗（表达式引擎 / 17 种断言）：跨组件共享，节点配置弹窗等可触发
+  // 核心能力详情弹窗（表达式引擎 / 17 种断言 / 数据集）：跨组件共享，节点配置弹窗等可触发
   const coreCapVisible = ref(false)
-  const coreCapTab = ref<'expression' | 'assertion'>('expression')
-  function openCoreCapability(tab: 'expression' | 'assertion') {
+  const coreCapTab = ref<'expression' | 'assertion' | 'dataset'>('expression')
+  function openCoreCapability(tab: 'expression' | 'assertion' | 'dataset') {
     coreCapTab.value = tab
     coreCapVisible.value = true
   }

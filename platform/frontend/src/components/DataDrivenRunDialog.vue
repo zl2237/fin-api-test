@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { datasetApi, type DataSet, type TestCase } from '@/api'
+import { useFieldDict } from '@/composables/useFieldDict'
 
 /**
  * 数据驱动执行确认面板：N 行将执行 N 次，可临时换数据集/选行。
@@ -16,14 +17,19 @@ const props = defineProps<{
   caseItem: TestCase | null
   /** 该用例名下的数据集（父视图 loadDatasets 的单一数据源，绑定弹窗共用） */
   datasets: DataSet[]
-  /** 列中文名映射（项目字段字典），缺省显 key */
-  fieldDictMap?: Record<string, string> | null
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'confirm', payload: { datasetId: number | null; rowIds: number[] }): void
 }>()
+
+// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有，含嵌套路径匹配）
+const { dictLabel } = useFieldDict()
+function colLabel(key: string) {
+  const cn = dictLabel(key)
+  return cn ? `${key}（${cn}）` : key
+}
 
 const visible = computed({
   get: () => props.modelValue,
@@ -131,10 +137,14 @@ function confirm() {
       <el-table-column
         v-for="col in columns"
         :key="col.key"
-        :label="fieldDictMap?.[col.key] || col.key"
+        :label="colLabel(col.key)"
         min-width="120"
         show-overflow-tooltip
       >
+        <template #header>
+          <span>{{ colLabel(col.key) }}</span>
+          <span v-if="col.type" class="col-type-tag">{{ col.type }}</span>
+        </template>
         <template #default="{ row }">{{ row.data?.[col.key] ?? '—' }}</template>
       </el-table-column>
     </el-table>
@@ -149,6 +159,14 @@ function confirm() {
 
 <style scoped>
 /* 原 CaseList scoped 样式迁移（bind-tip 同名类在视图侧供绑定弹窗继续使用） */
+.col-type-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  border: 1px solid var(--el-border-color);
+  border-radius: 3px;
+  padding: 0 4px;
+}
 .dd-tip {
   display: flex;
   align-items: center;

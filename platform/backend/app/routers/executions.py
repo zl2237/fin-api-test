@@ -87,12 +87,46 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     return [record for plan in plans for record in plan.records]
 
 
-@router.get("/executions", response_model=list[schemas.ExecutionRecordOut])
-def list_executions(case_id: int | None = None, project_id: int | None = None, created_by: int | None = None, limit: int = 50, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    objs = crud.list_executions(db, case_id, project_id, created_by, limit)
+@router.get("/executions", response_model=schemas.ExecutionListOut)
+def list_executions(case_id: int | None = None, project_id: int | None = None, created_by: int | None = None,
+                    limit: int = 50, offset: int = 0, case_name: str | None = None, status: str | None = None,
+                    start_time: datetime | None = None, end_time: datetime | None = None,
+                    sort_by: str = "id", order: str = "desc",
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """筛选（状态/时间范围）与排序全部服务端处理，返回 {items, total} 信封：
+    分页组件翻页/整页排序口径才正确；total 与列表同口径过滤"""
+    if sort_by not in crud.EXECUTION_SORT_FIELDS:
+        raise HTTPException(400, f"不支持的排序字段: {sort_by}")
+    if order not in ("asc", "desc"):
+        raise HTTPException(400, "order 仅支持 asc / desc")
+    objs = crud.list_executions(db, case_id=case_id, project_id=project_id, created_by=created_by,
+                                limit=limit, offset=offset, case_name=case_name, status=status,
+                                start_time=start_time, end_time=end_time, sort_by=sort_by, order=order)
+    total = crud.count_executions(db, case_id=case_id, project_id=project_id, created_by=created_by,
+                                  case_name=case_name, status=status, start_time=start_time, end_time=end_time)
     crud.fill_audit_names_batch(db, objs)
     crud.fill_exec_names(db, objs)
-    return objs
+    return {"items": objs, "total": total}
+
+
+@router.get("/executions/stats")
+def execution_stats(days: int = 7, project_id: int | None = None,
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """近 N 天执行统计（工作台用）：全量聚合口径，不受列表 200 条截断影响。
+    需注册在 /executions/{exec_id} 之前。"""
+    if days < 1 or days > 365:
+        raise HTTPException(400, "天数须在 1~365 之间")
+    since = datetime.now() - timedelta(days=days)
+    # ExecutionRecord 无 created_at，时间口径用 started_at（default=now）
+    q = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.started_at >= since)
+    if project_id is not None:
+        q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id) \
+             .filter(models.TestCase.project_id == project_id)
+    rows = q.with_entities(models.ExecutionRecord.status).all()
+    total = len(rows)
+    passed = sum(1 for (s,) in rows if s == "success")
+    rate = round(passed * 100 / total) if total else None
+    return {"count": total, "passed": passed, "rate": rate, "days": days}
 
 
 @router.delete("/executions/cleanup")

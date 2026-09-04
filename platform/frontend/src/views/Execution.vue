@@ -25,9 +25,9 @@
           <el-option v-for="u in users" :key="u.id" :label="u.name" :value="u.id" />
         </el-select>
         <el-input
-          v-model="filterCaseId"
-          style="width: 140px"
-          placeholder="用例ID"
+          v-model="filterCase"
+          style="width: 180px"
+          placeholder="用例名称 / ID"
           clearable
           @keyup.enter="onQuery"
           @clear="onQuery"
@@ -49,9 +49,7 @@
         />
         <el-button type="primary" @click="onQuery">查询</el-button>
         <el-button @click="resetFilter">重置</el-button>
-        <span class="filter-count">
-          共 {{ filteredList.length }} 条<template v-if="filteredList.length >= 200">（仅显示最近 200 条）</template>
-        </span>
+        <span class="filter-count">共 {{ total }} 条</span>
         <el-button v-if="store.user?.role === 'admin'" type="warning" plain @click="openCleanup">清理旧记录</el-button>
       </div>
     </div>
@@ -63,13 +61,14 @@
         <el-button size="small" @click="load">重试</el-button>
       </div>
       <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe size="small" row-key="id">
+      <!-- sortable="custom"：排序事件下推服务端，翻页/排序都是整页口径 -->
+      <el-table v-else :data="list" stripe size="small" row-key="id" @sort-change="onSortChange">
         <template #empty>
           <EmptyState description="暂无执行记录" :image-size="80">
             <el-button type="primary" @click="router.push('/cases')">前往用例管理执行用例</el-button>
           </EmptyState>
         </template>
-        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="id" label="ID" width="70" sortable="custom" />
         <el-table-column label="项目" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.project_name || `#${row.project_id}` || '—' }}</template>
         </el-table-column>
@@ -131,7 +130,7 @@
             {{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}
           </template>
         </el-table-column>
-        <el-table-column label="开始时间" width="120">
+        <el-table-column prop="started_at" label="开始时间" width="120" sortable="custom">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.started_at)" placement="top" popper-class="app-tip">
               <span>{{ formatRelativeTime(row.started_at) }}</span>
@@ -154,15 +153,18 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="pagination-wrap">
+      <!-- 服务端分页：limit/offset 下推，total 由后端同口径 count 返回 -->
+      <div v-if="total" class="pagination-wrap">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
-          :total="filteredList.length"
+          :total="total"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next"
           small
           background
+          @current-change="load"
+          @size-change="onSizeChange"
         />
       </div>
     </el-card>
@@ -187,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading, WarningFilled, Timer } from '@element-plus/icons-vue'
@@ -196,6 +198,7 @@ import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { formatTime, formatRelativeTime, execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
+import { useFieldDict } from '@/composables/useFieldDict'
 import EmptyState from '@/components/EmptyState.vue'
 
 const route = useRoute()
@@ -211,55 +214,42 @@ const users = ref<SimpleUser[]>([])
 const cleanupVisible = ref(false)
 const cleanupDays = ref(30)
 const cleanupLoading = ref(false)
+
+// 服务端分页：page/pageSize 下推 limit/offset，total 用后端同口径 count
 const page = ref(1)
 const pageSize = ref(10)
+const total = ref(0)
 
-// 过滤条件输入（草稿）：项目/执行人/用例ID 走后端，状态/时间范围本地兜底
+// 服务端排序：sortable="custom" 只发事件不在前端排数据，翻页/排序整页口径一致
+const sortProp = ref<'id' | 'started_at'>('id')
+const sortOrder = ref<'asc' | 'desc'>('desc')
+
+// 过滤条件输入（草稿）：全部条件下推后端过滤，保证 offset 翻页时筛选口径一致
 // 项目默认锁定当前项目，实现与环境/接口/用例一致的数据隔离
 const filterProjectId = ref<number | null>(currentProjectId.value)
 const filterExecutor = ref<number | null>(null)
-const filterCaseId = ref('')
+const filterCase = ref('')
 const filterStatus = ref('')
 const filterRange = ref<[string, string] | null>(null)
 
-// 生效条件快照：仅「查询/重置」点击时固化，load/轮询/本地过滤统一读取
+// 生效条件快照：仅「查询/重置」点击时固化，load/轮询/加载更多统一读取
 // 避免「改了输入没点查询，列表却悄悄变化」的所见非所查问题
 const applied = reactive({
   projectId: currentProjectId.value as number | null,
   executor: null as number | null,
-  caseId: '',
+  case: '',
   status: '',
   range: null as [string, string] | null,
 })
 
-const filteredList = computed(() => {
-  let r = list.value
-  if (applied.status) {
-    r = r.filter(e => e.status === applied.status)
-  }
-  if (applied.range && applied.range.length === 2) {
-    const [start, end] = applied.range
-    r = r.filter(e => {
-      const t = e.started_at ?? ''
-      return t >= start && t <= end.replace('00:00:00', '23:59:59')
-    })
-  }
-  return r
-})
-
-const pagedList = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredList.value.slice(start, start + pageSize.value)
-})
-
-// 显式查询：输入区条件快照到 applied 后统一生效（回第 1 页）
+// 显式查询：输入区条件快照到 applied 后统一生效（回到第一页）
 function onQuery() {
+  page.value = 1
   applied.projectId = filterProjectId.value
   applied.executor = filterExecutor.value
-  applied.caseId = filterCaseId.value.trim()
+  applied.case = filterCase.value.trim()
   applied.status = filterStatus.value
   applied.range = filterRange.value
-  page.value = 1
   syncQueryToUrl()
   load()
 }
@@ -269,7 +259,11 @@ function syncQueryToUrl() {
   const q: Record<string, string> = {}
   if (applied.projectId) q.project_id = String(applied.projectId)
   if (applied.executor) q.executor = String(applied.executor)
-  if (applied.caseId) q.case_id = applied.caseId
+  // 用例输入自动判定：纯数字沿用 case_id（报告页跳转链接 ?case_id=xx 兼容），名称走 case_name
+  if (applied.case) {
+    if (/^\d+$/.test(applied.case)) q.case_id = applied.case
+    else q.case_name = applied.case
+  }
   if (applied.status) q.status = applied.status
   if (applied.range && applied.range.length === 2) {
     q.start = applied.range[0]
@@ -289,7 +283,8 @@ function restoreFromQuery() {
     const n = Number(q.executor)
     if (!Number.isNaN(n)) filterExecutor.value = n
   }
-  if (q.case_id) filterCaseId.value = String(q.case_id)
+  if (q.case_id) filterCase.value = String(q.case_id)
+  else if (q.case_name) filterCase.value = String(q.case_name)
   if (q.status) filterStatus.value = String(q.status)
   if (q.start && q.end) filterRange.value = [String(q.start), String(q.end)]
 }
@@ -297,7 +292,7 @@ function restoreFromQuery() {
 function resetFilter() {
   filterProjectId.value = null
   filterExecutor.value = null
-  filterCaseId.value = ''
+  filterCase.value = ''
   filterStatus.value = ''
   filterRange.value = null
   onQuery()
@@ -309,6 +304,12 @@ function resetFilter() {
 function dsRowItems(data: Record<string, any>): [string, any][] {
   return Object.entries(data || {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
 }
+// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有，含嵌套路径匹配）
+const { dictLabel } = useFieldDict()
+function colLabel(key: string) {
+  const cn = dictLabel(key)
+  return cn ? `${key}（${cn}）` : key
+}
 // 对象/数组序列化为紧凑 JSON，避免 [object Object]
 function formatDsVal(v: any): string {
   if (typeof v === 'object') return JSON.stringify(v)
@@ -319,15 +320,30 @@ function formatDsVal(v: any): string {
 const runner = useExecutionRunner()
 let stopRefresh: (() => void) | null = null
 
-// 生效条件快照 → 列表查询参数（load 与自动刷新共用，保证两处口径一致）
-function execListParams(): { case_id?: number; project_id?: number; created_by?: number; limit?: number } | null {
+// 生效条件快照 → 列表查询参数（load / 自动刷新共用，保证两处口径一致）
+type ExecListParams = NonNullable<Parameters<typeof execApi.list>[0]>
+function execListParams(): ExecListParams | null {
   // 项目隔离：优先用生效条件中的项目，未选则回退到当前项目
   const projectId = applied.projectId ?? currentProjectId.value
   if (!projectId) return null
-  const caseId = applied.caseId ? Number(applied.caseId) : undefined
-  const params: { case_id?: number; project_id?: number; created_by?: number; limit?: number } = { limit: 200, project_id: projectId }
-  if (caseId && !Number.isNaN(caseId)) params.case_id = caseId
+  const params: ExecListParams = {
+    limit: pageSize.value,
+    offset: (page.value - 1) * pageSize.value,
+    project_id: projectId,
+    sort_by: sortProp.value,
+    order: sortOrder.value,
+  }
+  // 用例输入自动判定：纯数字按 ID 精确匹配，否则按名称模糊（后端联表 LIKE）
+  const c = applied.case
+  if (c && /^\d+$/.test(c)) params.case_id = Number(c)
+  else if (c) params.case_name = c
   if (applied.executor) params.created_by = applied.executor
+  if (applied.status) params.status = applied.status
+  if (applied.range && applied.range.length === 2) {
+    params.start_time = applied.range[0]
+    // 日期端点（00:00:00）补到当天末尾，保持闭区间口径
+    params.end_time = applied.range[1].replace('00:00:00', '23:59:59')
+  }
   return params
 }
 
@@ -336,7 +352,10 @@ function startAutoRefresh() {
   stopRefresh = runner.refreshWhileRunning(async () => {
     const params = execListParams()
     if (!params) return true // 无项目上下文：跳过本轮，继续观察
-    list.value = await execApi.list(params)
+    // 静默刷新当前页（不动 loading），running 全部结束即停
+    const res = await execApi.list(params)
+    list.value = res.items
+    total.value = res.total
     // 没有 running 记录了，停止轮询
     return list.value.some(e => e.status === 'running')
   }, { interval: 3000 })
@@ -351,12 +370,15 @@ async function load() {
   const params = execListParams()
   if (!params) {
     list.value = []
+    total.value = 0
     return
   }
   loading.value = true
   loadError.value = ''
   try {
-    list.value = await execApi.list(params)
+    const res = await execApi.list(params)
+    list.value = res.items
+    total.value = res.total
     // 存在执行中的记录则启动轮询，否则确保停止
     if (list.value.some(e => e.status === 'running')) {
       startAutoRefresh()
@@ -369,6 +391,26 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+// 换页尺寸：回到第一页（页码变化会触发 current-change → load，已在第一页则手动 load，防双发）
+function onSizeChange() {
+  if (page.value !== 1) page.value = 1
+  else load()
+}
+
+// 表头排序：下推服务端（白名单 id/started_at），取消排序回到默认 id desc
+function onSortChange({ prop, order }: { prop?: string; order?: string | null }) {
+  if (order === null) {
+    sortProp.value = 'id'
+    sortOrder.value = 'desc'
+  } else {
+    if (prop === 'started_at') sortProp.value = 'started_at'
+    else sortProp.value = 'id'
+    sortOrder.value = order === 'ascending' ? 'asc' : 'desc'
+  }
+  page.value = 1
+  load()
 }
 
 async function loadUsers() {
@@ -388,8 +430,8 @@ async function onCleanup() {
   try {
     await ElMessageBox.confirm(
       `确认删除 ${cleanupDays.value} 天前的所有执行记录？此操作不可恢复`,
-      '提示',
-      { type: 'warning' },
+      '清理旧执行记录',
+      { type: 'warning', confirmButtonText: '确认清理' },
     )
   } catch {
     return // 用户取消
@@ -414,7 +456,7 @@ onMounted(() => {
   loadUsers()
 })
 
-// 切换项目（顶栏全局上下文）时：同步草稿与生效条件并重新加载，实现项目级数据隔离
+// 切换项目（顶栏全局上下文）时：同步草稿与生效条件、回到第一页并重新加载，实现项目级数据隔离
 watch(currentProjectId, (newId) => {
   if (newId) {
     filterProjectId.value = newId
@@ -452,6 +494,7 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--app-text-muted);
 }
+/* 分页条：与其他列表页统一（右对齐、默认 10 条/页） */
 .pagination-wrap {
   display: flex;
   justify-content: flex-end;

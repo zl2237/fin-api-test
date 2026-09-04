@@ -153,7 +153,7 @@
               <el-table-column label="字段路径" min-width="180" show-overflow-tooltip>
                 <template #default="{ row }">
                   <span :class="{ 'field-added': row.status === 'added', 'field-removed': row.status === 'removed' }">
-                    {{ row.key }}
+                    {{ colLabel(row.key) }}
                   </span>
                 </template>
               </el-table-column>
@@ -234,6 +234,9 @@
         <div class="panel-title">
           请求字段配置
           <span class="panel-hint">支持点号嵌套路径，默认值支持 ${} 表达式</span>
+          <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
+            <el-icon><QuestionFilled /></el-icon> 表达式帮助
+          </el-button>
         </div>
         <FieldTable v-model="formData.fields" />
       </div>
@@ -245,10 +248,11 @@
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Upload, Search } from '@element-plus/icons-vue'
+import { ArrowLeft, Upload, Search, QuestionFilled } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import FieldTable from '@/components/FieldTable.vue'
+import { useFieldDict } from '@/composables/useFieldDict'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { storeToRefs } from 'pinia'
@@ -258,6 +262,12 @@ const router = useRouter()
 const store = useAppStore()
 const tabStore = useTabStore()
 const { currentProjectId } = storeToRefs(store)
+// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有，含嵌套路径匹配）
+const { dictLabel } = useFieldDict()
+function colLabel(key: string) {
+  const cn = dictLabel(key)
+  return cn ? `${key}（${cn}）` : key
+}
 
 const projectId = computed(() => currentProjectId.value)
 const isEdit = computed(() => !!route.params.id)
@@ -782,6 +792,11 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 12px;
   font-weight: 400;
   color: var(--app-text-muted);
+}
+.help-link {
+  margin-left: auto;
+  padding: 2px 6px;
+  font-size: 12px;
 }
 .debug-bar {
   display: flex;

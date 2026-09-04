@@ -577,6 +577,12 @@ class ExecutionRecordOut(ORMBase):
     created_by_name: str | None = None
 
 
+class ExecutionListOut(BaseModel):
+    """执行记录分页信封：items 当前页数据 + total 过滤后总数（el-pagination 计算 total 用）"""
+    items: list[ExecutionRecordOut]
+    total: int
+
+
 # ============ TestSchedule 定时任务 ============
 class TestScheduleCreate(BaseModel):
     case_id: int

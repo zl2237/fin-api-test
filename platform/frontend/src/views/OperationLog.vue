@@ -24,6 +24,17 @@
           <el-option label="用例分组" value="case_group" />
           <el-option label="数据集" value="dataset" />
         </el-select>
+        <el-date-picker
+          v-model="filterRange"
+          type="datetimerange"
+          range-separator="至"
+          start-placeholder="开始时间"
+          end-placeholder="结束时间"
+          format="YYYY-MM-DD HH:mm"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          style="width: 340px"
+          @change="load"
+        />
         <el-button @click="resetFilter">重置</el-button>
         <el-button @click="load">刷新</el-button>
         <el-button type="warning" plain @click="openCleanup">清理旧日志</el-button>
@@ -37,17 +48,17 @@
         <el-button size="small" @click="load">重试</el-button>
       </div>
       <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe size="small" row-key="id">
+      <el-table v-else :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
         <template #empty>
           <EmptyState description="暂无操作记录" :image-size="80" />
         </template>
-        <el-table-column prop="id" label="ID" width="70" align="center" />
+        <el-table-column prop="id" label="ID" width="70" align="center" sortable="custom" />
         <el-table-column label="操作人" width="120">
           <template #default="{ row }">{{ row.username || '未知' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="actionTagType(row.action)" effect="light" round size="small">
+            <el-tag :type="actionTagType(row.action)" effect="light" size="small">
               {{ actionText(row.action) }}
             </el-tag>
           </template>
@@ -57,15 +68,13 @@
         </el-table-column>
         <el-table-column prop="target_id" label="目标ID" width="80" align="center" />
         <el-table-column prop="target_name" label="目标名称" min-width="160" show-overflow-tooltip />
-        <el-table-column label="详情" min-width="160" show-overflow-tooltip>
+        <el-table-column label="详情" min-width="160">
           <template #default="{ row }">
-            <el-tooltip v-if="row.detail" :content="row.detail" placement="top" popper-class="app-tip">
-              <span>{{ row.detail }}</span>
-            </el-tooltip>
+            <span v-if="row.detail" class="cell-expand" title="点击查看完整详情" @click="openDetail(row)">{{ row.detail }}</span>
             <span v-else class="detail-empty">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作时间" width="120">
+        <el-table-column prop="created_at" label="操作时间" width="120" sortable="custom">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
               <span>{{ formatRelativeTime(row.created_at) }}</span>
@@ -86,6 +95,20 @@
         />
       </div>
     </el-card>
+
+    <!-- 操作详情对话框：完整文本 + 复制（表格内单行截断，长变更列表看不全） -->
+    <el-dialog v-model="detailVisible" title="操作详情" width="560px" align-center>
+      <div v-if="detailRow" class="detail-meta">
+        <el-tag :type="actionTagType(detailRow.action)" effect="light" size="small">{{ actionText(detailRow.action) }}</el-tag>
+        <span>{{ detailRow.username || '未知' }}</span>
+        <span class="detail-time">{{ formatTime(detailRow.created_at) }}</span>
+      </div>
+      <pre class="detail-text">{{ detailRow?.detail }}</pre>
+      <template #footer>
+        <el-button @click="copyDetail">复制</el-button>
+        <el-button type="primary" @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 清理旧日志对话框 -->
     <el-dialog v-model="cleanupVisible" title="清理旧操作日志" width="420px" align-center :close-on-click-modal="false">
@@ -112,6 +135,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { logApi, userApi, type OperationLog, type SimpleUser } from '@/api'
 import { formatTime, formatRelativeTime } from '@/utils/format'
+import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
 
 const logs = ref<OperationLog[]>([])
@@ -121,21 +145,49 @@ const users = ref<SimpleUser[]>([])
 const filterAction = ref('')
 const filterTarget = ref('')
 const filterUserId = ref<number | null>(null)
+const filterRange = ref<[string, string] | null>(null)
 const page = ref(1)
 const pageSize = ref(10)
+// 表头排序（sortable="custom"）：先排全量再分页切片，避免只排当前页的假象
+const { onSortChange, sorted: sortedLogs } = useClientSort(logs, {
+  id: l => l.id,
+  created_at: l => l.created_at ?? '',
+}, () => { page.value = 1 })
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return logs.value.slice(start, start + pageSize.value)
+  return sortedLogs.value.slice(start, start + pageSize.value)
 })
+
+// 详情对话框
+const detailVisible = ref(false)
+const detailRow = ref<OperationLog | null>(null)
+function openDetail(row: OperationLog) {
+  detailRow.value = row
+  detailVisible.value = true
+}
+async function copyDetail() {
+  if (!detailRow.value?.detail) return
+  try {
+    await navigator.clipboard.writeText(detailRow.value.detail)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
 
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const params: { action?: string; target_type?: string; user_id?: number; limit?: number } = { limit: 500 }
+    const params: { action?: string; target_type?: string; user_id?: number; limit?: number; start_time?: string; end_time?: string } = { limit: 500 }
     if (filterAction.value) params.action = filterAction.value
     if (filterTarget.value) params.target_type = filterTarget.value
     if (filterUserId.value) params.user_id = filterUserId.value
+    if (filterRange.value && filterRange.value.length === 2) {
+      params.start_time = filterRange.value[0]
+      // 日期端点（00:00:00）补到当天末尾，保持闭区间口径
+      params.end_time = filterRange.value[1].replace('00:00:00', '23:59:59')
+    }
     logs.value = await logApi.list(params)
     page.value = 1
   } catch (e: any) {
@@ -157,6 +209,7 @@ function resetFilter() {
   filterAction.value = ''
   filterTarget.value = ''
   filterUserId.value = null
+  filterRange.value = null
   load()
 }
 
@@ -196,8 +249,8 @@ async function onCleanup() {
   try {
     await ElMessageBox.confirm(
       `确认删除 ${cleanupDays.value} 天前的所有操作日志？此操作不可恢复`,
-      '提示',
-      { type: 'warning' },
+      '清理旧操作日志',
+      { type: 'warning', confirmButtonText: '确认清理' },
     )
   } catch {
     return // 用户取消
@@ -230,6 +283,37 @@ onMounted(() => {
 }
 .detail-empty {
   color: var(--app-text-muted);
+}
+/* 详情单元格可点击查看完整内容（与报告页断言值展开一致） */
+.cell-expand {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--app-border);
+}
+.cell-expand:hover {
+  color: var(--el-color-primary);
+}
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.detail-time {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+.detail-text {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
 }
 .table-tip {
   margin-top: 8px;

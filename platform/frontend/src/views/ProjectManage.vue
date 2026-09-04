@@ -43,7 +43,7 @@
           <el-button size="small" @click="load">重试</el-button>
         </div>
         <el-skeleton v-else-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id">
+        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
           <el-table-column width="36" align="center">
             <template #default>
               <el-tooltip content="拖拽排序" placement="top" popper-class="app-tip">
@@ -51,8 +51,8 @@
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="name" label="项目名称" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="id" label="ID" width="70" sortable="custom" />
+          <el-table-column prop="name" label="项目名称" min-width="160" show-overflow-tooltip sortable="custom" />
           <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip />
           <el-table-column label="当前" width="80" align="center">
             <template #default="{ row }">
@@ -65,7 +65,7 @@
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
           </el-table-column>
-          <el-table-column label="创建时间" width="120">
+          <el-table-column prop="created_at" label="创建时间" width="120" sortable="custom">
             <template #default="{ row }">
               <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
                 <span>{{ formatRelativeTime(row.created_at) }}</span>
@@ -120,6 +120,7 @@ import { Rank, WarningFilled } from '@element-plus/icons-vue'
 import { projectApi, userApi, type Project, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
+import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
@@ -131,9 +132,15 @@ const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
 const page = ref(1)
 const pageSize = ref(10)
+// 表头排序（sortable="custom"）：先排全量再分页切片；取消排序回到手动拖拽序
+const { sortProp, onSortChange, sorted: sortedList } = useClientSort(list, {
+  id: p => p.id,
+  name: p => p.name,
+  created_at: p => p.created_at ?? '',
+}, () => { page.value = 1 })
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
+  return sortedList.value.slice(start, start + pageSize.value)
 })
 
 // ===== 拖拽排序（SortableJS 绑定 el-table tbody）=====
@@ -144,8 +151,8 @@ function bindSortable() {
   const tbody = tableRef.value?.$el?.querySelector?.('.el-table__body-wrapper tbody')
   if (!tbody) return
   if (sortableInst) { sortableInst.destroy(); sortableInst = null }
-  // 过滤激活时禁拖：reorder 按「过滤后顺序」重写全局 sort_order，会静默打乱未过滤数据的排序
-  if (filterCreator.value != null || filterUpdater.value != null) return
+  // 过滤/排序激活时禁拖：reorder 按显示顺序重写全局 sort_order，会静默打乱未过滤数据的排序
+  if (filterCreator.value != null || filterUpdater.value != null || sortProp.value != null) return
   sortableInst = Sortable.create(tbody, {
     handle: '.drag-handle',
     animation: 200,
@@ -246,7 +253,11 @@ async function onSwitch(row: Project) {
 
 async function onRemove(row: Project) {
   try {
-    await ElMessageBox.confirm(`确认删除项目「${row.name}」？关联的接口/用例/环境将一并删除，此操作不可恢复`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除项目「${row.name}」？关联的接口/用例/环境将一并删除，此操作不可恢复`,
+      '删除项目',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
   } catch {
     return
   }

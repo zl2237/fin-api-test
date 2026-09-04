@@ -201,6 +201,9 @@
         <div class="section-title">
           业务变量
           <span class="section-hint">测试中可用 ${env.变量名} 引用</span>
+          <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
+            查看表达式用法
+          </el-button>
         </div>
         <KeyValueTable
           v-model="formData.variables"
@@ -541,6 +544,11 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 12px;
   font-weight: 400;
   color: var(--app-text-muted);
+}
+.help-link {
+  margin-left: auto;
+  padding: 2px 6px;
+  font-size: 12px;
 }
 .form-row {
   display: flex;

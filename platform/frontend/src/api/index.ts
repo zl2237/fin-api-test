@@ -271,7 +271,7 @@ export const userApi = {
 export type OperationLog = components['schemas']['OperationLogOut']
 
 export const logApi = {
-  list: (params?: { action?: string; target_type?: string; user_id?: number; limit?: number }) =>
+  list: (params?: { action?: string; target_type?: string; user_id?: number; limit?: number; start_time?: string; end_time?: string }) =>
     http.get<OperationLog[]>('/operation-logs', { params }).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/operation-logs/cleanup', { params: { days } }).then((r) => r.data),
 }
@@ -513,8 +513,11 @@ export const projectVersionApi = {
 
 // ============ Execution / Report ============
 export const execApi = {
-  list: (params?: { case_id?: number; project_id?: number; created_by?: number; limit?: number }) =>
-    http.get<ExecutionRecord[]>('/executions', { params }).then((r) => r.data),
+  list: (params?: { case_id?: number; project_id?: number; created_by?: number; limit?: number; offset?: number; case_name?: string; status?: string; start_time?: string; end_time?: string; sort_by?: string; order?: string }) =>
+    http.get<{ items: ExecutionRecord[]; total: number }>('/executions', { params }).then((r) => r.data),
+  // 近 N 天执行统计（工作台）：全量聚合口径，不受列表翻页截断影响
+  stats: (params?: { days?: number; project_id?: number }) =>
+    http.get<{ count: number; passed: number; rate: number | null; days: number }>('/executions/stats', { params }).then((r) => r.data),
   get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
   report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
   // 报告导出（后端组装：csv=Excel 兼容 BOM+CRLF；html=自包含单文件报告）

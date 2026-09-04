@@ -25,7 +25,7 @@
         <div class="summary-head">
           <div class="summary-title">
             <span class="title-text">执行报告 #{{ record?.id ?? '-' }}</span>
-            <el-tag :type="statusType(record?.status)" effect="light" round>
+            <el-tag :type="statusType(record?.status)" effect="light">
               {{ statusText(record?.status) }}
             </el-tag>
           </div>
@@ -155,13 +155,14 @@
                   <div class="step-title">{{ s.api_name || s.node_id || '未命名步骤' }}</div>
                   <div class="step-sub">{{ s.api_method }} {{ s.api_path }}</div>
                   <div class="step-tags">
-                    <el-tag :type="stepType(s.status)" size="small" effect="plain" round>
+                    <!-- 状态标签统一：effect=light 无圆角（与全站记录/步骤状态一致） -->
+                    <el-tag :type="stepType(s.status)" size="small" effect="light">
                       {{ stepStatusText(s.status) }}
                     </el-tag>
-                    <el-tag v-if="s.response_status" size="small" type="info" effect="plain" round>
+                    <el-tag v-if="s.response_status" size="small" type="info" effect="light">
                       HTTP {{ s.response_status }}
                     </el-tag>
-                    <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="plain" round>
+                    <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="light">
                       {{ s.response_time_ms }} ms
                     </el-tag>
                   </div>
@@ -201,7 +202,7 @@
             <el-tab-pane label="响应" name="response">
               <div class="section">
                 <div class="section-title">状态码</div>
-                <el-tag :type="httpStatusType(currentStep.response_status)" effect="light" round>
+                <el-tag :type="httpStatusType(currentStep.response_status)" effect="light">
                   {{ currentStep.response_status ?? '-' }}
                 </el-tag>
               </div>
@@ -220,7 +221,7 @@
               <el-table :data="currentStep.assertions" size="small" border :row-class-name="assertionRowClass">
                 <el-table-column label="结果" width="80">
                   <template #default="{ row }">
-                    <el-tag :type="row.result ? 'success' : 'danger'" effect="light" round size="small">
+                    <el-tag :type="row.result ? 'success' : 'danger'" effect="light" size="small">
                       {{ row.result ? '通过' : '失败' }}
                     </el-tag>
                   </template>
@@ -258,6 +259,15 @@
         <EmptyState v-else description="请选择左侧步骤查看详情" :image-size="80" />
       </el-card>
     </div>
+
+    <!-- 断言值完整查看：长 JSON 期望/实际值单元格截断难读，点击弹窗格式化展示 + 一键复制 -->
+    <el-dialog v-model="valueDialog.visible" :title="valueDialog.title" width="720px">
+      <pre class="value-pre">{{ prettyValue }}</pre>
+      <template #footer>
+        <el-button @click="valueDialog.visible = false">关闭</el-button>
+        <el-button type="primary" @click="copyValue">复制</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -272,7 +282,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
-import { execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
+import { execStatusType as statusType, execStatusText as statusText, execStatusType as stepType, execStatusText as stepStatusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 
 const route = useRoute()
@@ -331,7 +341,7 @@ const failedSteps = computed(() =>
       const failedAsserts = (s.assertions ?? []).filter((a) => !a.result)
       const why = failedAsserts.length
         ? (failedAsserts[0].message || failedAsserts[0].rule_type)
-        : (s.status || '失败')
+        : (s.status ? statusText(s.status) : '失败')
       return { ...s, index, why, failCount: failedAsserts.length }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null),
@@ -353,6 +363,41 @@ function stepNo(s: StepRecord) {
 /** 断言表行样式：失败行浅红底，扫一眼就能定位 */
 function assertionRowClass({ row }: { row: any }) {
   return row.result ? '' : 'assert-fail-row'
+}
+
+// ===== 断言值完整查看弹窗（长 JSON 不再被单元格截断） =====
+const valueDialog = ref({ visible: false, title: '', raw: '' as any })
+
+function openValue(title: string, v: any) {
+  if (v == null || v === '') return
+  valueDialog.value = { visible: true, title: `断言${title}`, raw: v }
+}
+
+/** JSON 值格式化缩进展示；普通字符串原样（保留换行） */
+const prettyValue = computed(() => {
+  const v = valueDialog.value.raw
+  if (typeof v === 'object') return JSON.stringify(v, null, 2)
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (s.startsWith('{') || s.startsWith('[')) {
+      try {
+        return JSON.stringify(JSON.parse(s), null, 2)
+      } catch {
+        // 非合法 JSON 原样展示
+      }
+    }
+    return v
+  }
+  return String(v)
+})
+
+async function copyValue() {
+  try {
+    await navigator.clipboard.writeText(prettyValue.value)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动选择复制')
+  }
 }
 
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
@@ -380,21 +425,7 @@ function formatDuration(ms: number): string {
 }
 const durationText = computed(() => formatDuration(durationMs.value))
 
-// 状态映射统一走 utils/format（execStatusType/execStatusText 的本地别名见顶部 import）
-
-function stepType(s?: string) {
-  if (s === 'success') return 'success'
-  if (s === 'running') return 'warning'
-  if (s === 'failed') return 'danger'
-  return 'info'
-}
-function stepStatusText(s?: string) {
-  if (s === 'success') return '通过'
-  if (s === 'failed') return '失败'
-  if (s === 'skipped') return '跳过'
-  if (s === 'running') return '执行中'
-  return s ?? '-'
-}
+// 状态映射统一走 utils/format（记录级与步骤级共用 execStatusType/execStatusText，含 skipped）
 
 function httpStatusType(code?: number) {
   if (code == null) return 'info'
@@ -824,6 +855,27 @@ onUnmounted(stopPolling)
   text-overflow: ellipsis;
   display: inline-block;
   max-width: 100%;
+}
+/* 可点击展开的值单元格：截断内容点击弹窗看全量 */
+.cell-expand {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--app-border);
+}
+.cell-expand:hover {
+  color: var(--el-color-primary);
+}
+.value-pre {
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  background: var(--app-hover);
+  border-radius: var(--app-radius-xs);
+  padding: 12px;
 }
 
 .config-cell {

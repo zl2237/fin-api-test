@@ -653,18 +653,57 @@ def get_execution(db: Session, exec_id: int) -> models.ExecutionRecord | None:
     return db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).first()
 
 
-def list_executions(db: Session, case_id: int | None = None, project_id: int | None = None, created_by: int | None = None, limit: int = 50) -> list[models.ExecutionRecord]:
-    """执行记录列表：支持按用例、项目（联表 case.project_id）、执行人过滤"""
+def _execution_filter_query(db: Session, case_id: int | None = None, project_id: int | None = None,
+                            created_by: int | None = None, case_name: str | None = None,
+                            status: str | None = None, start_time: datetime | None = None,
+                            end_time: datetime | None = None):
+    """执行记录过滤查询管道：list / count 共用，保证总数与列表口径一致"""
     q = db.query(models.ExecutionRecord)
     if case_id is not None:
         q = q.filter(models.ExecutionRecord.case_id == case_id)
-    if project_id is not None:
-        # 联表 TestCase 过滤 project_id
-        q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id) \
-             .filter(models.TestCase.project_id == project_id)
+    if project_id is not None or case_name:
+        # 联表 TestCase 过滤 project_id / 用例名模糊匹配
+        q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id)
+        if project_id is not None:
+            q = q.filter(models.TestCase.project_id == project_id)
+        if case_name:
+            q = q.filter(models.TestCase.name.like(f"%{case_name}%"))
     if created_by is not None:
         q = q.filter(models.ExecutionRecord.created_by == created_by)
-    return q.order_by(models.ExecutionRecord.id.desc()).limit(limit).all()
+    if status:
+        q = q.filter(models.ExecutionRecord.status == status)
+    if start_time is not None:
+        q = q.filter(models.ExecutionRecord.started_at >= start_time)
+    if end_time is not None:
+        q = q.filter(models.ExecutionRecord.started_at <= end_time)
+    return q
+
+
+# 服务端排序白名单：防任意字段名拼进 order_by
+EXECUTION_SORT_FIELDS = {"id": models.ExecutionRecord.id, "started_at": models.ExecutionRecord.started_at}
+
+
+def list_executions(db: Session, case_id: int | None = None, project_id: int | None = None,
+                    created_by: int | None = None, limit: int = 50, offset: int = 0,
+                    case_name: str | None = None, status: str | None = None,
+                    start_time: datetime | None = None, end_time: datetime | None = None,
+                    sort_by: str = "id", order: str = "desc") -> list[models.ExecutionRecord]:
+    """执行记录列表：支持按用例、项目（联表 case.project_id）、执行人、用例名（模糊）、状态、
+    开始时间范围过滤（ExecutionRecord 无 created_at，时间口径用 started_at）；
+    offset/limit 服务端翻页 + sort_by/order 服务端排序（分页组件的整页排序口径）"""
+    q = _execution_filter_query(db, case_id, project_id, created_by, case_name, status, start_time, end_time)
+    col = EXECUTION_SORT_FIELDS.get(sort_by, models.ExecutionRecord.id)
+    q = q.order_by(col.asc() if order == "asc" else col.desc())
+    return q.offset(offset).limit(limit).all()
+
+
+def count_executions(db: Session, case_id: int | None = None, project_id: int | None = None,
+                     created_by: int | None = None, case_name: str | None = None,
+                     status: str | None = None, start_time: datetime | None = None,
+                     end_time: datetime | None = None) -> int:
+    """执行记录总数（与 list 同口径过滤）：分页组件 total 用"""
+    return _execution_filter_query(db, case_id, project_id, created_by, case_name, status,
+                                   start_time, end_time).count()
 
 
 # ============ FieldDictionary 字段字典 ============
