@@ -425,7 +425,7 @@ export interface DataSetColumn {
   key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object'  // 中文名实时引用字段字典，缺失显 key
   origin?: any  // 快照原值（生成列携带）：执行时快照保真比对基准，手工列无
 }
-export interface DataSetNodeConfig {  // 节点配置快照（只读，手动重新同步）
+export interface DataSetNodeConfig {  // 节点配置快照（只读；保存用例自动同步，手动 resync 兜底）
   node_id: string; api_id?: number | null
   pre_process?: any[]; post_extract?: any[]; assertions?: any[]; wait_after_ms?: number
 }

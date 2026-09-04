@@ -129,7 +129,7 @@
               <span class="tip">列名与请求参数同名即自动覆盖；嵌套字段或跨字段引用可用 <code v-pre>${列名}</code></span>
             </div>
 
-            <!-- 节点配置快照（只读 + 手动重新同步） -->
+            <!-- 节点配置快照（只读；保存用例自动同步 + 手动兜底） -->
             <el-collapse class="snap-panel">
               <el-collapse-item>
                 <template #title>
@@ -138,7 +138,7 @@
                 </template>
                 <div class="snap-actions">
                   <el-button size="small" :loading="resyncing" @click="resyncDataset">重新同步（取用例当前编排）</el-button>
-                  <span class="tip">仅刷新快照，列 / 行数据不动；用例编排变更后需手动同步</span>
+                  <span class="tip">仅刷新快照，列 / 行数据不动；保存用例时已自动同步，此处为手动兜底</span>
                 </div>
                 <EmptyState
                   v-if="!current.node_configs?.length"
