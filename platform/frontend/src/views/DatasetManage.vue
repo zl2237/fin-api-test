@@ -29,7 +29,9 @@
           >
             <el-icon v-if="groupHasContent(row.id)" class="expand-icon" :class="{ expanded: isExpanded(row.id) }"><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
-            <span class="side-name" :title="row.name">{{ row.name }}</span>
+            <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+              <span class="side-name">{{ row.name }}</span>
+            </el-tooltip>
             <span class="side-cnt">{{ groupDatasetCount(row.id) }}</span>
           </div>
           <!-- 用例节点：选中查看其数据集 -->
@@ -42,7 +44,9 @@
           >
             <span class="expand-spacer" />
             <el-icon class="case-icon"><Document /></el-icon>
-            <span class="side-name" :title="row.name">{{ row.name }}</span>
+            <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+              <span class="side-name">{{ row.name }}</span>
+            </el-tooltip>
             <span class="side-cnt">{{ caseDatasetCount(row.id) }}</span>
           </div>
         </template>
