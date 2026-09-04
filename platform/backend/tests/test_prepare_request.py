@@ -197,3 +197,27 @@ class TestFileAndHeaders:
         _run(api, ctx=_Ctx({"token": "T1"}), headers=base)
 
         assert base == {"Authorization": "Bearer ${token}"}  # 原引用保持占位符
+
+    def test_api_headers_template_overrides_base(self):
+        """接口 headers_template 覆盖环境公共头：curl 导入的表单 Content-Type 生效，
+        不必为表单接口改环境公共头（同环境 JSON 与表单接口并存互不干扰）"""
+        api = SimpleNamespace(
+            fields=[_field("order_no", default="YHL1")], request_template={},
+            headers_template={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        parts = _run(api, headers={"Content-Type": "application/json", "X-Req": "1"})
+
+        assert parts.headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert parts.headers["X-Req"] == "1"  # 未覆盖的公共头保留
+
+    def test_api_headers_support_expression(self):
+        """headers_template 的值支持 ${} 求值（与其他 headers 同口径）"""
+        api = SimpleNamespace(
+            fields=[_field("a", default="1")], request_template={},
+            headers_template={"X-Bl": "${a}"},
+        )
+
+        parts = _run(api, ctx=_Ctx({"a": "V9"}), headers={})
+
+        assert parts.headers["X-Bl"] == "V9"

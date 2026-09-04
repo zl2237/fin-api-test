@@ -36,6 +36,12 @@ class StubClient:
             raise self._exc
         return self._resp
 
+    def post_form(self, path, data=None, timeout=None):
+        self.calls.append(("post_form", path, data, timeout))
+        if self._exc:
+            raise self._exc
+        return self._resp
+
     def post_multipart(self, path, data=None, files=None, timeout=None):
         self.calls.append(("multipart", path, data, [f[0] for f in files], timeout))
         if self._exc:
@@ -115,6 +121,44 @@ class TestSendRequestDispatch:
         # file 字段在 DB 中不存在 → files_payload 为空 → 退回 json 通道，数组体原样发出
         code, _, err = send_request(_Db(), c, _api("POST"), [{"a": 1}], file_fields=[("file1", "9")])
         assert code == 200
+        assert c.calls[0][0] == "post"
+
+
+class TestFormUrlencoded:
+    """表单接口（headers 声明 x-www-form-urlencoded）按表单编码发送。
+
+    回归场景：curl 导入声明 form 的接口（如 precheckSyncFiles.html）此前统一走
+    json= 且 headers 已有 Content-Type 时 requests 不改写，形成「form 声明 +
+    JSON 文本」的错配请求，服务端按表单解析取不到任何字段。
+    """
+
+    def test_form_headers_uses_post_form(self):
+        c = StubClient()
+        c.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        code, _, err = send_request(None, c, _api("POST"), {"order_no": "YHL1"}, timeout=7)
+        assert (code, err) == (200, None)
+        assert c.calls[0][0] == "post_form"
+        assert c.calls[0][2] == {"order_no": "YHL1"}
+
+    def test_form_array_body_takes_first_dict(self):
+        c = StubClient()
+        c.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        send_request(None, c, _api("POST"), [{"a": 1}, {"b": 2}])
+        assert c.calls[0][2] == {"a": 1}
+
+    def test_per_request_headers_used_and_restored(self):
+        """headers 参数（prepare_request 组装产物）：发送期间生效，结束恢复 client.headers"""
+        c = StubClient()
+        req_headers = {"Content-Type": "application/x-www-form-urlencoded",
+                       "Authorization": "Bearer t"}
+        send_request(None, c, _api("POST"), {"order_no": "YHL1"}, headers=req_headers)
+        assert c.calls[0][0] == "post_form"
+        # 恢复：接口级 form 头不泄漏到 client 会话头（不影响后续 JSON 接口节点）
+        assert c.headers["Content-Type"] == "application/json"
+
+    def test_json_headers_still_uses_json(self):
+        c = StubClient()
+        send_request(None, c, _api("POST"), {"a": 1}, headers={"Content-Type": "application/json"})
         assert c.calls[0][0] == "post"
 
 

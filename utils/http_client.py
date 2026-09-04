@@ -39,6 +39,14 @@ class HttpClient:
     def post(self, url: str, json: Optional[Dict] = None, timeout=10) -> Dict:
         return self._request("POST", url, json=json, timeout=timeout)
 
+    def post_form(self, url: str, data: Optional[Dict] = None, timeout=10) -> Dict:
+        """发送 application/x-www-form-urlencoded 请求（data 会被 requests 表单编码）。
+
+        调用方须保证 self.headers 的 Content-Type 是 form-urlencoded
+        （headers 已有时 requests 不会改写，与 data 编码方式一致）
+        """
+        return self._request("POST", url, data=data, timeout=timeout)
+
     def post_multipart(self, url: str, data: Optional[Dict] = None, files: Optional[list] = None, timeout=20) -> Dict:
         """发送 multipart/form-data 请求（文件上传场景）。
 
