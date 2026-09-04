@@ -79,6 +79,12 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
         record = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
         if not record:
             return  # record 已被删除，放弃执行
+        if getattr(case, "case_type", "normal") == "suite":
+            # 套件用例：分流到套件执行器（串行驱动成员链）——
+            # 手动/批量/定时三入口共用本函数，套件能力由此天然全继承
+            from ..services.suite_executor import run_suite
+            run_suite(db, case, record)
+            return
         DagExecutor(db, case, env, execution_record=record, row_vars=row_vars,
                     row_origins=row_origins,
                     node_config_overrides=node_config_overrides,
