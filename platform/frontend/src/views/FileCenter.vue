@@ -487,8 +487,13 @@ async function saveRename() {
 
 async function confirmDeleteFile(file: TestFile) {
   try {
+    // ref_count 是同内容重复上传的去重计数（同项目同 sha256 再传 +1），非用例引用：
+    // 普通文件删除即清物理文件；重复上传过的只在计数归零时才清，避免误删同内容副本
+    const consequence = (file.ref_count ?? 1) > 1
+      ? `相同内容的文件还有 ${file.ref_count - 1} 份副本，物理文件将保留至副本全部删除`
+      : '文件将同时从服务器删除'
     await ElMessageBox.confirm(
-      `确认删除「${file.name}」？引用计数 -1，归零时删除物理文件，此操作不可恢复`,
+      `确认删除「${file.name}」？${consequence}，此操作不可恢复`,
       '删除文件',
       { type: 'warning', confirmButtonText: '删除' },
     )
