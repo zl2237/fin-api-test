@@ -138,6 +138,7 @@ class EnvironmentCreate(BaseModel):
     notify_config: dict[str, Any] = {}
     variables: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
+    success_codes: str = "200"
     timeout: int = 15
     is_default: bool = False
 
@@ -150,6 +151,7 @@ class EnvironmentUpdate(BaseModel):
     notify_config: dict[str, Any] | None = None
     variables: dict[str, Any] | None = None
     common_headers: dict[str, Any] | None = None
+    success_codes: str | None = None
     timeout: int | None = None
     is_default: bool | None = None
 
@@ -169,6 +171,7 @@ class EnvironmentOut(ORMBase, AuditMixin):
     notify_config: dict[str, Any] = {}
     variables: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
+    success_codes: str = "200"
     timeout: int = 15
     is_default: bool = False
     sort_order: int = 0

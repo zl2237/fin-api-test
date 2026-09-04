@@ -24,6 +24,10 @@
           <el-form-item label="Base URL" required>
             <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" style="width: 380px" />
           </el-form-item>
+          <el-form-item label="业务成功码">
+            <el-input v-model="formData.success_codes" placeholder="200" style="width: 280px" />
+            <span class="form-hint">响应 code 命中任一即判成功，逗号分隔；ThinkPHP 系填 1 或 200,1</span>
+          </el-form-item>
           <el-form-item label="超时时间">
             <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" style="width: 140px" />
             <span class="form-hint">秒，接口请求超时时间（1-120）</span>
@@ -243,6 +247,7 @@ interface EnvFormData {
   id?: number
   name: string
   base_url: string
+  success_codes: string
   timeout: number
   is_default: boolean
   db_config: { host: string; port: number; user: string; password: string; database: string }
@@ -271,6 +276,7 @@ interface EnvFormData {
 const formData = reactive<EnvFormData>({
   name: '',
   base_url: '',
+  success_codes: '200',
   timeout: 15,
   is_default: false,
   db_config: { host: '', port: 3306, user: '', password: '', database: '' },
@@ -305,6 +311,7 @@ async function loadEnv() {
   formData.id = env.id
   formData.name = env.name
   formData.base_url = env.base_url
+  formData.success_codes = env.success_codes || '200'
   formData.timeout = env.timeout ?? 15
   formData.is_default = env.is_default
   // db_config
@@ -403,6 +410,7 @@ async function onSave() {
       project_id: currentProjectId.value!,
       name: formData.name,
       base_url: formData.base_url,
+      success_codes: formData.success_codes.trim() || '200',
       timeout: formData.timeout,
       is_default: formData.is_default,
       db_config: formData.db_config,

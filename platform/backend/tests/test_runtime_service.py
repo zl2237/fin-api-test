@@ -81,13 +81,14 @@ class FakeSession:
         return self.resp
 
 
-def _env(login_config=None, common_headers=None, base_url="http://test", db_config=None, env_id=1):
+def _env(login_config=None, common_headers=None, base_url="http://test", db_config=None, env_id=1, success_codes="200"):
     return SimpleNamespace(
         id=env_id,
         login_config=login_config if login_config is not None else {},
         common_headers=common_headers,
         base_url=base_url,
         db_config=db_config if db_config is not None else {},
+        success_codes=success_codes,
     )
 
 
@@ -128,6 +129,26 @@ class TestBuildHttpClient:
         env = _env(base_url="http://myhost:8080")
         client = build_http_client(env)
         assert client.base_url == "http://myhost:8080"
+
+    def test_success_codes_injected_from_env(self):
+        # 环境配置业务成功码 "200,1"（ThinkPHP 系）→ 注入客户端成功码集合
+        env = _env(success_codes="200,1")
+        client = build_http_client(env)
+        assert client.success_codes == {"200", "1"}
+
+    def test_missing_success_codes_defaults_200(self):
+        # 旧环境对象无 success_codes 属性 → 默认 {200}（向后兼容）
+        env = SimpleNamespace(
+            id=1, login_config={}, common_headers={}, base_url="http://test", db_config={},
+        )
+        client = build_http_client(env)
+        assert client.success_codes == {"200"}
+
+    def test_empty_success_codes_defaults_200(self):
+        # 空字符串 / None → 默认 {200}
+        for codes in ("", None):
+            client = build_http_client(_env(success_codes=codes))
+            assert client.success_codes == {"200"}
 
 
 class TestLogin:

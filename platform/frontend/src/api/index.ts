@@ -119,7 +119,7 @@ export interface Environment {
   login_config: Record<string, any>
   notify_config: Record<string, any>
   variables: Record<string, any>
-  common_headers: Record<string, any>; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
+  common_headers: Record<string, any>; success_codes?: string; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }

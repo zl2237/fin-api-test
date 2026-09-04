@@ -29,9 +29,10 @@ def _extract_by_jsonpath(data: Any, path: str) -> Any:
 
 
 def build_http_client(env) -> HttpClient:
-    """按 env 构建 HttpClient：base_url + common_headers（空则用默认 JSON 头）。"""
+    """按 env 构建 HttpClient：base_url + common_headers（空则用默认 JSON 头）+ 业务成功码。"""
     client = HttpClient(base_url=env.base_url)
     client.headers = deepcopy(env.common_headers or {}) or {"Content-Type": "application/json"}
+    client.set_success_codes(getattr(env, "success_codes", None) or "200")
     return client
 
 

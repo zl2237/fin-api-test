@@ -97,6 +97,7 @@ class Environment(Base):
     variables = Column(JSON, default=dict, comment="业务变量（与登录/通知解耦）")
     common_headers = Column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
     timeout = Column(Integer, default=15, comment="接口请求超时时间（秒）")
+    success_codes = Column(String(100), default="200", comment="业务成功码（逗号分隔，响应 code 命中任一即成功；不同系统约定不同，如 ThinkPHP 成功 code:1）")
     is_default = Column(Boolean, default=False, comment="是否为项目默认环境")
     sort_order = Column(Integer, default=0, comment="排序序号（支持拖拽排序）")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
