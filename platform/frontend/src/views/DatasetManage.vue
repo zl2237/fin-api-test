@@ -306,8 +306,9 @@
           <el-form label-position="top" size="small" @submit.prevent>
             <el-form-item v-for="col in filteredFields" :key="col.key">
               <template #label>
-                <span>{{ colLabel(col.key) }}</span>
-                <span v-if="!dictLabel(col.key)" class="col-key-raw">{{ col.key }}</span>
+                <!-- 同编排用例前置处理：原始字段名 + 字典中文名（如有） -->
+                <span>{{ col.key }}</span>
+                <span v-if="dictLabel(col.key)" class="col-cn">（{{ dictLabel(col.key) }}）</span>
                 <span class="col-type-tag">{{ col.type }}</span>
               </template>
               <el-input
@@ -1251,6 +1252,11 @@ watch(() => store.currentProjectId, () => {
 }
 .field-scroll {
   flex: 1;
+}
+.col-cn {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 .col-type-tag {
   margin-left: 6px;
