@@ -22,67 +22,46 @@
     <!-- 顶部：摘要 + 趋势图 横向并排，节省垂直空间 -->
     <div class="top-row">
       <el-card shadow="never" class="summary-card">
-        <div class="summary-head">
-          <div class="summary-title">
-            <span class="title-text">执行报告 #{{ record?.id ?? '-' }}</span>
-            <el-tag :type="statusType(record?.status)" effect="light">
-              {{ statusText(record?.status) }}
-            </el-tag>
-          </div>
-          <div class="summary-actions">
-            <el-button
-              size="small"
-              type="success"
-              :loading="rerunning"
-              :disabled="!record?.case_id || !record?.env_id"
-              @click="onRerun"
-            >
-              重新执行
-            </el-button>
-            <el-button size="small" @click="exportCsv" :disabled="!steps.length">导出 CSV</el-button>
-            <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
-            <el-button text @click="router.back()">返回</el-button>
-          </div>
+        <!-- 结论章：本页唯一 bold 处。票据审核章式 verdict（双线框 + 结论色 + 记录号） -->
+        <div :class="['verdict-stamp', verdictClass]" aria-label="执行结论">
+          <span class="stamp-text">{{ stampText }}</span>
+          <span class="stamp-id">#{{ record?.id ?? '-' }}</span>
         </div>
-        <div class="summary-grid">
-          <div class="metric">
-            <div class="metric-label">用例</div>
-            <el-tooltip :content="record?.case_name || `#${record?.case_id}` || '-'" placement="top" popper-class="app-tip">
-              <div class="metric-value">{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
-            </el-tooltip>
-          </div>
-          <div class="metric">
-            <div class="metric-label">环境</div>
-            <el-tooltip :content="record?.env_name || `#${record?.env_id}` || '-'" placement="top" popper-class="app-tip">
-              <div class="metric-value">{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
-            </el-tooltip>
-          </div>
-          <div class="metric">
-            <div class="metric-label">步骤通过 / 总数</div>
-            <div class="metric-value app-data">
-              <span class="pass">{{ passedCount }}</span>
-              <span class="sep">/</span>
-              <span>{{ totalCount }}</span>
-            </div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">断言通过 / 总数</div>
-            <div class="metric-value app-data">
-              <span class="pass">{{ assertionPassed }}</span>
+        <!-- 结论数字：断言/步骤两组分数（排障第一眼要看的两件事） -->
+        <div class="verdict-nums">
+          <div class="vnum">
+            <span class="vnum-label">断言</span>
+            <span class="vnum-value app-data">
+              <span :class="numClass">{{ assertionPassed }}</span>
               <span class="sep">/</span>
               <span>{{ assertionTotal }}</span>
-            </div>
+            </span>
           </div>
-          <div class="metric">
-            <div class="metric-label">开始时间</div>
-            <el-tooltip :content="record?.started_at ?? '-'" placement="top" popper-class="app-tip">
-              <div class="metric-value small">{{ record?.started_at ?? '-' }}</div>
-            </el-tooltip>
+          <div class="vnum-divider" aria-hidden="true"></div>
+          <div class="vnum">
+            <span class="vnum-label">步骤</span>
+            <span class="vnum-value app-data">
+              <span :class="numClass">{{ passedCount }}</span>
+              <span class="sep">/</span>
+              <span>{{ totalCount }}</span>
+            </span>
           </div>
-          <div class="metric">
-            <div class="metric-label">耗时</div>
-            <div class="metric-value app-data">{{ durationText }}</div>
-          </div>
+        </div>
+        <!-- 上下文 meta：单行小字，纯空格分隔（省略号 + title 全文） -->
+        <div class="summary-meta" :title="metaText">{{ metaText }}</div>
+        <div class="summary-actions">
+          <el-button
+            size="small"
+            type="success"
+            :loading="rerunning"
+            :disabled="!record?.case_id || !record?.env_id"
+            @click="onRerun"
+          >
+            重新执行
+          </el-button>
+          <el-button size="small" @click="exportCsv" :disabled="!steps.length">导出 CSV</el-button>
+          <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
+          <el-button text @click="router.back()">返回</el-button>
         </div>
       </el-card>
 
@@ -155,15 +134,13 @@
                   <div class="step-title">{{ s.api_name || s.node_id || '未命名步骤' }}</div>
                   <div class="step-sub">{{ s.api_method }} {{ s.api_path }}</div>
                   <div class="step-tags">
-                    <!-- 状态标签统一：effect=light 无圆角（与全站记录/步骤状态一致） -->
-                    <el-tag :type="stepType(s.status)" size="small" effect="light">
-                      {{ stepStatusText(s.status) }}
-                    </el-tag>
-                    <el-tag v-if="s.response_status" size="small" type="info" effect="light">
+                    <!-- 状态由时间轴节点色表达（去三重冗余）；tag 只承载增量信息：
+                         HTTP 码（非 2xx 升 danger 警示）与耗时（mono 机器数据） -->
+                    <el-tag v-if="s.response_status" size="small" :type="httpStatusType(s.response_status)" effect="light">
                       HTTP {{ s.response_status }}
                     </el-tag>
                     <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="light">
-                      {{ s.response_time_ms }} ms
+                      <span class="mono">{{ s.response_time_ms }} ms</span>
                     </el-tag>
                   </div>
                 </div>
@@ -283,7 +260,9 @@
                 </el-table-column>
                 <el-table-column label="实际值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span class="mono">{{ row.actual_value ?? '—' }}</span>
+                    <!-- 失败行：实际值升结论红 + 加重，与期望值形成 diff 对比强调 -->
+                    <span class="mono actual-bad" v-if="!row.result">{{ row.actual_value ?? '—' }}</span>
+                    <span v-else class="mono">{{ row.actual_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="期望值" min-width="130" show-overflow-tooltip>
@@ -328,7 +307,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
-import { execStatusType as statusType, execStatusText as statusText, execStatusType as stepType, execStatusText as stepStatusText } from '@/utils/format'
+import { execStatusType as stepType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 
 const route = useRoute()
@@ -470,6 +449,39 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(2)} s`
 }
 const durationText = computed(() => formatDuration(durationMs.value))
+
+// ===== 结论章（verdict）：状态 → 章文案/配色；执行中为静态琥珀章（不做脉冲动画） =====
+const verdictClass = computed(() => {
+  const s = record.value?.status
+  if (s === 'success') return 'is-success'
+  if (s === 'failed') return 'is-failed'
+  if (s === 'running') return 'is-running'
+  return 'is-unknown'
+})
+const stampText = computed(() => {
+  const s = record.value?.status
+  if (s === 'success') return '通过'
+  if (s === 'failed') return '未通过'
+  if (s === 'running') return '执行中'
+  return '—'
+})
+/** 结论分子配色：通过=绿、失败=红、执行中/未知=墨色 */
+const numClass = computed(() => {
+  const s = record.value?.status
+  if (s === 'success') return 'num-ok'
+  if (s === 'failed') return 'num-bad'
+  return ''
+})
+/** 上下文 meta 单行：用例 / 环境 / 开始时间 / 耗时（空格分隔，title 提供全文） */
+const metaText = computed(() => {
+  const r = record.value
+  return [
+    r?.case_name || `#${r?.case_id}` || '-',
+    r?.env_name || `#${r?.env_id}` || '-',
+    r?.started_at ?? '-',
+    durationText.value,
+  ].join('   ')
+})
 
 // 状态映射统一走 utils/format（记录级与步骤级共用 execStatusType/execStatusText，含 skipped）
 
@@ -639,7 +651,8 @@ onUnmounted(stopPolling)
   grid-template-columns: minmax(420px, 1.4fr) minmax(360px, 1fr);
   gap: 12px;
   flex-shrink: 0;
-  height: 180px;
+  /* 常规桌面宽度下与原 180px 固定高一致；结论书换行时（窄窗口）自动增高防裁切 */
+  min-height: 180px;
 }
 
 .summary-card {
@@ -653,74 +666,102 @@ onUnmounted(stopPolling)
   min-width: 0;
 }
 
-.summary-head {
+/* ===== 结论书布局：章 | 结论数字 | meta | 动作，横向一行（窄窗口自动换行防裁切） ===== */
+.summary-card :deep(.el-card__body) {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  gap: 20px;
+  height: 100%;
+}
+
+/* 结论章：票据审核章（双线框 = border 外线 + inset outline 内线），结论色经 currentColor 派生 */
+.verdict-stamp {
+  flex-shrink: 0;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 8px 12px;
+  border: 2px solid currentColor;
+  outline: 1px solid currentColor;
+  outline-offset: -7px;
+  border-radius: var(--app-radius-sm);
+}
+.verdict-stamp.is-success { color: var(--app-success-text); }
+.verdict-stamp.is-failed { color: var(--app-danger-text); }
+.verdict-stamp.is-running { color: var(--app-warn-text); }
+.verdict-stamp.is-unknown { color: var(--app-text-faint); }
+.stamp-text {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding-left: 0.12em; /* 抵消末字间距，视觉居中 */
+  line-height: 1.2;
+}
+.stamp-id {
+  font-family: var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  opacity: 0.78;
+}
+
+/* 结论数字：断言/步骤两组大号 mono 分数 */
+.verdict-nums {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.vnum {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vnum-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.vnum-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--app-text);
+  white-space: nowrap;
+}
+.vnum-value .num-ok { color: var(--app-success-text); }
+.vnum-value .num-bad { color: var(--app-danger-text); }
+.vnum-value .sep {
+  color: var(--app-text-faint);
+  font-weight: 500;
+  margin: 0 3px;
+}
+.vnum-divider {
+  width: 1px;
+  height: 44px;
+  background: var(--app-border);
+}
+
+/* 上下文 meta：占据剩余宽度，底部对齐，超长省略 */
+.summary-meta {
+  flex: 1;
+  min-width: 0;
+  align-self: flex-end;
+  padding-bottom: 4px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .summary-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.summary-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.title-text {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.summary-grid {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
-  flex: 1;
-  min-height: 0;
-  align-content: start;
-}
-
-.metric {
-  background: var(--app-hover);
-  border-radius: var(--app-radius);
-  padding: 12px 14px;
-  min-width: 0;
-}
-
-.metric-label {
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-
-.metric-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin-top: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.metric-value.small {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.metric-value .pass {
-  color: var(--app-success);
-}
-
-.metric-value .sep {
-  color: var(--app-text-faint);
-  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .body {
@@ -789,7 +830,8 @@ onUnmounted(stopPolling)
   transition: background 0.12s ease;
 }
 .fail-summary-item:hover {
-  background: color-mix(in srgb, var(--app-primary) 6%, transparent);
+  /* 失败列表的悬停保持中性底（原主色淡底会让失败语义跑色） */
+  background: var(--app-hover);
 }
 .fs-idx {
   font-size: 12px;
@@ -830,6 +872,11 @@ onUnmounted(stopPolling)
 .fail-msg {
   color: var(--el-color-danger);
   font-size: 12px;
+}
+/* 断言失败行实际值：结论红 + 加重（与期望值构成 diff 对比） */
+.actual-bad {
+  color: var(--app-danger-text);
+  font-weight: 600;
 }
 
 .steps-scroll {
