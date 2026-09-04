@@ -79,15 +79,21 @@
           :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
           @click="onSideNodeClick(row)"
         >
-          <el-icon
+          <el-tooltip
             v-if="hasChildGroups(row.groupId)"
-            class="expand-icon"
-            :class="{ expanded: isGroupExpanded(row.groupId!) }"
-            title="展开/折叠子分组"
-            @click.stop="onToggleGroup(row)"
-          ><CaretRight /></el-icon>
+            content="展开/折叠子分组"
+            placement="top"
+          >
+            <el-icon
+              class="expand-icon"
+              :class="{ expanded: isGroupExpanded(row.groupId!) }"
+              @click.stop="onToggleGroup(row)"
+            ><CaretRight /></el-icon>
+          </el-tooltip>
           <span v-else class="expand-spacer" />
-          <span class="side-name" :title="row.name">{{ row.name }}</span>
+          <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+            <span class="side-name">{{ row.name }}</span>
+          </el-tooltip>
           <span class="side-cnt">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
         </div>
         <div class="side-foot">
