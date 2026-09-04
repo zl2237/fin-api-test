@@ -9,17 +9,22 @@
 
 数据驱动（方案定案 #4）：数据集行的列名即变量名，row_vars 在初始化时
 覆盖同名环境变量进池，${列名} 全链路（默认值/前置/断言）直接可用。
+
+套件注入（测试套件）：suite_vars 为上游成员按共享变量白名单产出的快照，
+仅在套件链内生效，优先级最高（环境变量 < 数据行变量 < 套件共享值）。
+下游用例配置零改动——单独执行时无 suite_vars，行为与普通执行完全一致。
 """
 from typing import Any
 
 
 class ExecutionContext:
     def __init__(self, env_vars: dict[str, Any] = None, global_vars: dict[str, Any] = None,
-                 row_vars: dict[str, Any] = None):
+                 row_vars: dict[str, Any] = None, suite_vars: dict[str, Any] = None):
         # 环境变量在用例开始时并入统一变量池，作为初始已提取变量
         self.env_vars: dict[str, Any] = env_vars or {}
         # 数据行变量优先于同名环境变量（列名即变量名）
-        self.extracted: dict[str, Any] = {**self.env_vars, **(row_vars or {})}
+        # 套件共享变量优先于一切（上游成员产出，链语义的传递契约）
+        self.extracted: dict[str, Any] = {**self.env_vars, **(row_vars or {}), **(suite_vars or {})}
         self.global_vars: dict[str, Any] = global_vars or {}
 
     def update_extracted(self, data: dict[str, Any]):

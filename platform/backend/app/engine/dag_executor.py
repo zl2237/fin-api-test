@@ -45,13 +45,16 @@ class DagExecutor:
                  row_vars: dict[str, Any] | None = None,
                  row_origins: dict[str, Any] | None = None,
                  node_config_overrides: dict[str, dict] | None = None,
+                 suite_vars: dict[str, Any] | None = None,
                  suppress_notify: bool = False):
         self.db = db
         self.case = case
         self.env = env
         # 业务变量从 variables 读取（与登录/通知配置解耦）；
-        # 数据驱动：row_vars 为数据集行 {列key: 值}，覆盖同名环境变量进池
-        self.context = ExecutionContext(env_vars=env.variables or {}, row_vars=row_vars)
+        # 数据驱动：row_vars 为数据集行 {列key: 值}，覆盖同名环境变量进池；
+        # 套件注入：suite_vars 为上游成员白名单快照，优先级最高（单独执行不传，行为不变）
+        self.context = ExecutionContext(env_vars=env.variables or {}, row_vars=row_vars,
+                                         suite_vars=suite_vars)
         # 数据驱动批量执行时抑制逐条通知（由聚合器等全部完成后发一条汇总）
         self.suppress_notify = suppress_notify
         # 数据集行值原始引用（优先级 1）：PreProcessor 据此让非动态 set_field 让位行值

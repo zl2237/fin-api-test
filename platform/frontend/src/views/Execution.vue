@@ -73,7 +73,20 @@
           <template #default="{ row }">{{ row.project_name || `#${row.project_id}` || '—' }}</template>
         </el-table-column>
         <el-table-column label="用例" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.case_name || `#${row.case_id}` }}</template>
+          <template #default="{ row }">
+            <!-- 套件主记录：跳套件报告；套件成员记录：标注来源可回链套件主记录 -->
+            <el-tag v-if="row.summary?.suite" class="suite-tag" type="warning" effect="plain" size="small">套件</el-tag>
+            <el-tooltip v-else-if="row.suite_execution_id" :content="`套件链成员执行（主记录 #${row.suite_execution_id}）`" placement="top">
+              <el-tag
+                class="suite-tag suite-member-tag"
+                type="info"
+                effect="plain"
+                size="small"
+                @click="router.push(`/suite-reports/${row.suite_execution_id}`)"
+              >套件成员</el-tag>
+            </el-tooltip>
+            {{ row.case_name || `#${row.case_id}` }}
+          </template>
         </el-table-column>
         <el-table-column label="环境" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.env_name || `#${row.env_id}` }}</template>
@@ -149,7 +162,15 @@
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="router.push(`/reports/${row.id}`)">查看报告</el-button>
+            <!-- 套件主记录 → 套件报告（成员明细×数据行）；其余 → 普通执行报告 -->
+            <el-button
+              v-if="row.summary?.suite"
+              link
+              type="primary"
+              size="small"
+              @click="router.push(`/suite-reports/${row.id}`)"
+            >套件报告</el-button>
+            <el-button v-else link type="primary" size="small" @click="router.push(`/reports/${row.id}`)">查看报告</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -504,6 +525,13 @@ onUnmounted(() => {
 .trigger-manual {
   font-size: 12px;
   color: var(--app-text-muted);
+}
+/* 套件标识（用例列）：套件主记录 / 套件链成员两种标记；成员标记可点击回链套件报告 */
+.suite-tag {
+  margin-right: 4px;
+}
+.suite-member-tag {
+  cursor: pointer;
 }
 /* 数据行列：行号 + 首列值（hover 显示整行数据快照） */
 .ds-row-wrap {

@@ -153,11 +153,26 @@ export interface NodeConfig {
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
+  case_type?: string  // normal 普通用例 / suite 套件（成员为跨项目用例链）
+  shared_vars?: string[] | null  // 套件专用：共享变量白名单（上游产出→下游注入）
   dag_config: { nodes: any[]; edges: any[] }
   node_configs: NodeConfig[]; sort_order?: number; created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   dataset_id?: number | null  // 绑定的数据集（数据驱动），NULL=普通用例
+}
+
+// 套件成员（跨项目用例引用，逐成员独立绑定环境，串行执行）
+export interface SuiteMember {
+  id?: number
+  member_case_id: number
+  env_id: number
+  sort_order?: number
+  case_name?: string | null
+  project_id?: number | null
+  project_name?: string | null
+  env_name?: string | null
+  member_case_type?: string
 }
 export interface AssertionRecord {
   id: number; step_id: number; rule_type: string; rule_config?: any
@@ -180,6 +195,7 @@ export interface ExecutionRecord {
   project_id?: number | null; project_name?: string | null
   status: string
   started_at?: string; ended_at?: string; summary: Record<string, any>
+  suite_execution_id?: number | null  // 非空=套件链成员执行，指向套件主执行记录
   dataset_id?: number | null
   dataset_row?: { row_index: number; data: Record<string, any>; label: string } | null
   steps: StepRecord[]
@@ -385,6 +401,11 @@ export const caseApi = {
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
   exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
+  // 套件成员：按执行顺序返回（带用例/项目/环境冗余名）；PUT 整体替换（编排保存语义）
+  getMembers: (caseId: number) =>
+    http.get<SuiteMember[]>(`/testcases/${caseId}/members`).then((r) => r.data),
+  updateMembers: (caseId: number, members: { member_case_id: number; env_id: number; sort_order?: number }[]) =>
+    http.put<SuiteMember[]>(`/testcases/${caseId}/members`, { members }).then((r) => r.data),
   // 多用例组合（拼接成新用例），caseIds 顺序即拼接顺序
   combine: (caseIds: number[], name: string, groupId?: number | null) =>
     http.post<TestCase>('/testcases/combine', { case_ids: caseIds, name, group_id: groupId ?? null }).then((r) => r.data),

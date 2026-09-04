@@ -30,6 +30,28 @@ class TestVariableMerge:
         assert ctx.extracted == {"a": "row"}
 
 
+class TestSuiteVarsMerge:
+    """套件共享变量优先级：环境变量 < 数据行变量 < 套件共享值（链语义传递契约）"""
+
+    def test_suite_vars_override_everything(self):
+        ctx = ExecutionContext(env_vars={"bl_no": "ENV", "a": 1},
+                               row_vars={"bl_no": "ROW", "b": 2},
+                               suite_vars={"bl_no": "SUITE"})
+        assert ctx.extracted == {"bl_no": "SUITE", "a": 1, "b": 2}
+
+    def test_no_suite_vars_keeps_current_behavior(self):
+        """非套件链执行（单独跑用例）无注入：行为与普通执行完全一致"""
+        ctx = ExecutionContext(env_vars={"bl_no": "ENV"}, row_vars={"bl_no": "ROW"})
+        assert ctx.extracted == {"bl_no": "ROW"}
+
+    def test_executor_accepts_suite_vars(self):
+        """DagExecutor 透传套件注入：最高优先级合并进 context.extracted"""
+        env = SimpleNamespace(variables={"bl_no": "ENV_DEFAULT"})
+        executor = DagExecutor(db=SimpleNamespace(), case=SimpleNamespace(id=1), env=env,
+                               row_vars={"bl_no": "ROW"}, suite_vars={"bl_no": "SUITE"})
+        assert executor.context.extracted == {"bl_no": "SUITE"}
+
+
 class TestDagExecutorInject:
     def test_executor_accepts_row_vars(self):
         """DagExecutor 透传行值：构造即合并进 context.extracted"""

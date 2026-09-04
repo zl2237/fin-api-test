@@ -135,13 +135,14 @@
             <el-table-column prop="id" label="ID" width="70" sortable="custom" />
             <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
+                <el-tag v-if="row.case_type === 'suite'" class="suite-mark" size="small" effect="plain">套件</el-tag>
                 <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
                   <el-icon class="schedule-mark"><Timer /></el-icon>
                 </el-tooltip>{{ row.name }}
               </template>
             </el-table-column>
             <el-table-column label="节点数" width="90">
-              <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
+              <template #default="{ row }">{{ row.case_type === 'suite' ? '—' : (row.dag_config?.nodes?.length || 0) }}</template>
             </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
@@ -158,11 +159,11 @@
             </el-table-column>
             <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
+                <el-button link type="primary" size="small" @click="goDesign(row)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-tooltip :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
+                <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除 -->
@@ -225,13 +226,14 @@
             <el-table-column prop="id" label="ID" width="70" sortable="custom" />
             <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
+                <el-tag v-if="row.case_type === 'suite'" class="suite-mark" size="small" effect="plain">套件</el-tag>
                 <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
                   <el-icon class="schedule-mark"><Timer /></el-icon>
                 </el-tooltip>{{ row.name }}
               </template>
             </el-table-column>
             <el-table-column label="节点数" width="90">
-              <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
+              <template #default="{ row }">{{ row.case_type === 'suite' ? '—' : (row.dag_config?.nodes?.length || 0) }}</template>
             </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
@@ -248,11 +250,11 @@
             </el-table-column>
             <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="goDesign(row.id)">编排</el-button>
+                <el-button link type="primary" size="small" @click="goDesign(row)">编排</el-button>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-tooltip :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
+                <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除 -->
@@ -293,8 +295,17 @@
     <!-- 新建用例弹窗 -->
     <el-dialog v-model="dialogVisible" title="新建用例" width="420px" align-center :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
+        <el-form-item label="类型">
+          <el-radio-group v-model="form.case_type">
+            <el-radio value="normal">普通用例</el-radio>
+            <el-radio value="suite">测试套件</el-radio>
+          </el-radio-group>
+          <div v-if="form.case_type === 'suite'" class="type-tip">
+            套件按顺序串行执行多个用例（可跨项目），上游变量池字段可注入下游（共享变量白名单），适合跨系统业务链
+          </div>
+        </el-form-item>
         <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="创建订单-冒烟" />
+          <el-input v-model="form.name" :placeholder="form.case_type === 'suite' ? '融资全链路-套件' : '创建订单-冒烟'" />
         </el-form-item>
         <el-form-item label="分组">
           <el-tree-select
@@ -539,7 +550,7 @@ const batchRunning = ref(false)
 const batchRunVisible = ref(false)
 // 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
 const batchRunItems = ref<{ id: number; name: string }[]>([])
-const form = ref<{ name: string; group_id: number | null; description: string }>({ name: '', group_id: null, description: '' })
+const form = ref<{ case_type: string; name: string; group_id: number | null; description: string }>({ case_type: 'normal', name: '', group_id: null, description: '' })
 
 // ===== 批量移动：互斥勾选状态机在 useGroupedTable，表格实例/SortableJS 绑定在 useGroupMasterDetail =====
 const selectedCaseIds = tableSel.selectedIds
@@ -586,6 +597,10 @@ function openCombine() {
   // 按当前列表顺序排列（勾选顺序不稳定），弹窗内拖拽可再调整
   const selSet = new Set(sel)
   combineItems.value = list.value.filter(c => selSet.has(c.id))
+  // 套件是引用式编排（无 DAG 节点），不能参与节点拼接式组合
+  if (combineItems.value.some(c => c.case_type === 'suite')) {
+    return ElMessage.warning('套件不能参与组合（套件为引用式编排，请直接执行套件）')
+  }
   combineForm.value = { name: '', group_id: null }
   combineVisible.value = true
   nextTick(() => {
@@ -693,7 +708,7 @@ async function loadGroups() {
 }
 
 function openCreate() {
-  form.value = { name: '', group_id: null, description: '' }
+  form.value = { case_type: 'normal', name: '', group_id: null, description: '' }
   dialogVisible.value = true
 }
 
@@ -704,20 +719,37 @@ async function onCreate() {
     group_id: form.value.group_id,
     name: form.value.name.trim(),
     description: form.value.description,
+    case_type: form.value.case_type,
     dag_config: { nodes: [], edges: [] },
     node_configs: [],
   })
   ElMessage.success('已创建')
   dialogVisible.value = false
-  goDesign(created.id)
+  goDesign(created)
 }
 
-function goDesign(id: number) {
-  router.push(`/cases/designer/${id}`)
+// 编排入口分流：普通用例进 DAG 编排页，套件进套件编排页（成员链/白名单/执行）
+function goDesign(row: TestCase) {
+  if (row.case_type === 'suite') router.push(`/cases/suite-designer/${row.id}`)
+  else router.push(`/cases/designer/${row.id}`)
 }
 
 async function runCase(row: TestCase) {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
+  // 套件：成员逐个绑定环境，顶部环境仅作执行入参（套件主记录会对齐首成员环境）
+  if (row.case_type === 'suite') {
+    try {
+      const cur = await runner.runWithFeedback(row.id, store.currentEnvId, {
+        runningMsg: `套件「${row.name}」执行中...`,
+        maxPolls: 300,
+      })
+      router.push(`/suite-reports/${cur.id}`)
+    } catch (e: any) {
+      favicon.reset()
+      ElMessage.error(e.message || '轮询执行状态失败')
+    }
+    return
+  }
   // 数据驱动：绑定数据集的用例先弹确认面板（N 行执行 N 次，可临时换数据集/选行）
   if (row.dataset_id) {
     await openDataDrivenRun(row)
@@ -1215,6 +1247,18 @@ function onGlobalKey(e: KeyboardEvent) {
   color: var(--el-color-warning);
   margin-right: 4px;
   vertical-align: -2px;
+}
+/* 套件类型徽标（用例名称列） */
+.suite-mark {
+  margin-right: 4px;
+}
+/* 新建弹窗的类型说明（套件模式时展示） */
+.type-tip {
+  width: 100%;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.5;
+  margin-top: 4px;
 }
 /* 行内「更多」下拉触发按钮：与链接按钮同高，图标小箭头 */
 .row-more-icon {

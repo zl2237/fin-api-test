@@ -434,17 +434,21 @@ class TestCaseCreate(BaseModel):
     group_id: int | None = None
     name: str
     description: str | None = None
+    case_type: str = "normal"  # normal 普通用例 / suite 套件
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigIn] = []
+    shared_vars: list[str] | None = None  # 套件专用：共享变量白名单
 
 
 class TestCaseUpdate(BaseModel):
     group_id: int | None = None
     name: str | None = None
     description: str | None = None
+    case_type: str | None = None
     dag_config: dict[str, Any] | None = None
     node_configs: list[NodeConfigIn] | None = None
     dataset_id: int | None = None  # 绑定数据集（数据驱动）；显式传 null 解绑
+    shared_vars: list[str] | None = None  # 套件专用；显式传 null 清空
 
 
 class TestCaseOut(ORMBase):
@@ -453,15 +457,41 @@ class TestCaseOut(ORMBase):
     group_id: int | None = None
     name: str
     description: str | None = None
+    case_type: str = "normal"
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
     dataset_id: int | None = None  # 绑定的数据集（数据驱动），NULL=普通用例
+    shared_vars: list[str] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     created_by: int | None = None
     updated_by: int | None = None
     created_by_name: str | None = None
     updated_by_name: str | None = None
+
+
+class SuiteMemberIn(BaseModel):
+    """套件成员写入项：成员用例（可跨项目）+ 执行环境 + 顺序"""
+    member_case_id: int
+    env_id: int
+    sort_order: int = 0
+
+
+class SuiteMembersUpdate(BaseModel):
+    """整体替换套件成员列表（编排保存语义）"""
+    members: list[SuiteMemberIn]
+
+
+class SuiteMemberOut(BaseModel):
+    id: int
+    member_case_id: int
+    env_id: int
+    sort_order: int
+    case_name: str | None = None      # 成员用例名（冗余展示）
+    project_id: int | None = None     # 成员用例所属项目（跨项目标记）
+    project_name: str | None = None
+    env_name: str | None = None       # 绑定环境名（冗余展示）
+    member_case_type: str = "normal"  # 成员类型快照（异常引用提示）
 
 
 class CaseBatchMove(BaseModel):
@@ -578,6 +608,7 @@ class ExecutionRecordOut(ORMBase):
     summary: dict[str, Any] = {}
     dataset_id: int | None = None
     dataset_row: dict[str, Any] | None = None  # 数据驱动行快照 {row_index, data, label}
+    suite_execution_id: int | None = None  # 套件来源：非空=套件链成员执行，指向套件主记录
     steps: list[StepRecordOut] = []
     created_by: int | None = None
     created_by_name: str | None = None

@@ -591,6 +591,11 @@ async function load(silent = false) {
   }
   try {
     record.value = await execApi.report(id)
+    // 套件主记录无步骤明细，转套件报告页（成员×数据行层级视图）
+    if (record.value?.summary?.suite) {
+      router.replace(`/suite-reports/${id}`)
+      return
+    }
     if (steps.value.length && currentStepId.value == null) {
       // 默认定位首个失败步骤（排障第一诉求）；无失败则回第 1 步
       const firstFailed = steps.value.find((s) => s.status !== 'success')
