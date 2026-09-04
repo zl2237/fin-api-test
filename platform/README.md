@@ -10,7 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
-[![Tests](https://img.shields.io/badge/pytest-676_passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/pytest-730_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
@@ -19,6 +19,7 @@
 - **字段级接口配置** — 字段表维护请求体（key、类型、默认值、必填），告别手写 JSON
 - **多格式导入** — cURL / HAR / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段
 - **表达式引擎** — `${now()}` `${random_int()}` `${uuid()}` 等 12 个内置函数 + `${context.xxx}` 变量引用 + `db.query()` 内联 SQL 查询
+- **测试套件** — 跨系统用例链：`case_type='suite'` 串行执行多个成员用例（可跨项目、逐成员绑环境），共享变量白名单把上游变量池快照注入下游（环境变量 < 数据行 < 套件共享值），逐行配对 / 上游失败下游阻断 / 套件级汇总通知与专属报告
 - **17 种断言** — JSONPath / 状态码 / 耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试应对异步落库
 - **结构化报告** — 每步请求/响应/断言全量落库，后端导出 CSV（Excel 兼容）/ HTML（可打印 PDF）+ 耗时趋势图
 - **文件中心** — 分类树 + 标签 + multipart 上传，`file` 字段直接引用文件中心资源
@@ -48,7 +49,7 @@ npm install && npm run dev
 ```
 ┌─────────────────────────────────────────────────┐
 │        前端 Vue3 + Element Plus + Vue Flow        │
-│  views (18 页) ← composables                      │
+│  views (20 页) ← composables                      │
 │  useGroupedTable / useGroupMasterDetail           │
 │  useExecutionRunner / useGroupTree                │
 │       │                    ↑ 复用分组/拖拽/轮询    │
@@ -66,7 +67,8 @@ npm install && npm run dev
 │                 服务层 services/                   │
 │  execution_launcher · runtime · request_sender   │
 │  body_builder · dataset_service · scheduler      │
-│  spec_parser · report_export · notifier · files  │
+│  suite_executor · spec_parser · report_export    │
+│  notifier · files                                │
 └──────────────────────────┬──────────────────────┘
                            │ 线程池异步执行
 ┌──────────────────────────▼──────────────────────┐
@@ -129,6 +131,8 @@ cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口
 | 请求发送 | `test_request_sender.py` | 分发/multipart/异常分类 + 防平行实现守卫 |
 | 通知 | `test_notifier.py` | 门控开关/单条与聚合通知/环境查无 |
 | 拓扑排序 | `test_dag_executor_topo.py` | Kahn 排序唯一实现（执行/数据集共用） |
+| 测试套件 | `test_suite_executor.py` | 白名单注入/逐行配对/行与整体阻断/嵌套与悬空（10 用例） |
+| 变量合并 | `test_variable_merge.py` | 变量池优先级（环境变量 < 数据行 < 套件共享值） |
 | crud 域 | `test_{users,auth,executions}_domain.py` | 登录锁定/首管理员/最后管理员保护等 |
 | 数据驱动 | `test_{dataset_generate,dataset_service,row_override,execution_expand}.py` | 参数收集/快照保真过滤/三级优先级/行展开 |
 | 报告导出 | `test_report_export.py` | CSV/HTML 契约 |
