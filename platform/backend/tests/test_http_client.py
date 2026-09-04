@@ -89,6 +89,54 @@ class TestNonDictJsonResponse:
         assert called == []
 
 
+class TestSuccessCodes:
+    """业务成功码：环境可配置（不同系统约定不同），命中任一即成功。"""
+
+    def test_default_success_codes_200(self):
+        # 未配置时默认 {200}：code:1 判为业务失败（平台原约定）
+        with pytest.raises(BusinessError):
+            _client(FakeRawResponse(json_value={"code": 1, "msg": "获取成功"})).get("/x")
+
+    def test_configured_codes_accept_code_1(self):
+        # 配置 "200,1"（ThinkPHP 系）后 code:1 通过——修复点
+        c = _client(FakeRawResponse(json_value={"code": 1, "msg": "获取成功"}))
+        c.set_success_codes("200,1")
+        assert c.get("/x") == {"code": 1, "msg": "获取成功"}
+
+    def test_configured_code_still_rejects_others(self):
+        c = _client(FakeRawResponse(json_value={"code": 0, "msg": "失败"}))
+        c.set_success_codes("200,1")
+        with pytest.raises(BusinessError) as ei:
+            c.get("/x")
+        assert ei.value.code == 0
+
+    def test_int_code_matches_string_config(self):
+        # 响应 code 为 int 1，配置为字符串 "1"：归一化字符串比较命中
+        c = _client(FakeRawResponse(json_value={"code": 1}))
+        c.set_success_codes("1")
+        assert c.get("/x") == {"code": 1}
+
+    def test_list_input_supported(self):
+        c = HttpClient()
+        c.set_success_codes([200, 1, 0])
+        assert c.success_codes == {"200", "1", "0"}
+
+    def test_whitespace_and_empty_parts_ignored(self):
+        c = HttpClient()
+        c.set_success_codes(" 200 , 1 ,")
+        assert c.success_codes == {"200", "1"}
+
+    def test_none_or_empty_keeps_current(self):
+        c = HttpClient()
+        c.set_success_codes(None)
+        assert c.success_codes == {"200"}
+        c.set_success_codes("")
+        assert c.success_codes == {"200"}
+        c.set_success_codes("1")
+        c.set_success_codes(" , ")  # 全空部分：保持现值不覆盖
+        assert c.success_codes == {"1"}
+
+
 class TestAuthExpireGuard:
     def test_dict_code_405_triggers_refresh(self):
         # dict 且 code==405 → 鉴权失效 → 回调刷新后重试成功
