@@ -145,7 +145,7 @@
           <section class="panel guide-panel">
             <header class="panel-head"><h3>上手指南</h3></header>
             <div class="guide-links">
-              <el-button text type="primary" @click="openGuide">五步上手流程</el-button>
+              <el-button text type="primary" @click="openGuide">六步上手流程</el-button>
               <el-button text type="primary" @click="store.openCoreCapability('expression')">表达式语法</el-button>
               <el-button text type="primary" @click="store.openCoreCapability('assertion')">17 种断言</el-button>
             </div>

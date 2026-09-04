@@ -80,9 +80,9 @@
 
         <!-- 三行直陈能力（无卡片无图标框，工具感文案） -->
         <ul class="brand-points">
-          <li>画布拖拽编排接口流程，双击节点配断言</li>
-          <li>JSONPath / 状态码 / 数据库交叉校验，17 种断言</li>
-          <li>cURL 粘贴、HAR 抓包、Swagger 文档批量导入</li>
+          <li>cURL / HAR / Swagger 一键导入，画布拖拽编排成链</li>
+          <li>数据集参数化驱动，一行数据执行一次</li>
+          <li>套件跨系统串联用例，上游变量自动注入下游</li>
         </ul>
       </div>
 
