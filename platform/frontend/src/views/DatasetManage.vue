@@ -20,25 +20,24 @@
     <div v-loading="loading" class="group-layout">
       <aside class="group-side">
         <template v-for="row in sideRows" :key="row.kind === 'group' ? `g${row.id}` : `c${row.id}`">
-          <!-- 分组节点：折叠/展开组内用例 -->
+          <!-- 分组节点：折叠/展开组内用例（样式与接口/用例页左树同规格） -->
           <div
             v-if="row.kind === 'group'"
-            class="side-node group-row"
-            :style="{ paddingLeft: 8 + row.depth * 14 + 'px' }"
+            class="side-node"
+            :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
             @click="toggleGroup(row.id)"
           >
             <el-icon v-if="groupHasContent(row.id)" class="expand-icon" :class="{ expanded: isExpanded(row.id) }"><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
-            <el-icon class="group-icon"><Folder /></el-icon>
             <span class="side-name">{{ row.name }}</span>
-            <span class="side-cnt">{{ groupDatasetCount(row.id) }} 集</span>
+            <span class="side-cnt">{{ groupDatasetCount(row.id) }}</span>
           </div>
           <!-- 用例节点：选中查看其数据集 -->
           <div
             v-else
             class="side-node"
             :class="{ on: currentCase?.id === row.id }"
-            :style="{ paddingLeft: 8 + row.depth * 14 + 'px' }"
+            :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
             @click="selectCaseById(row.id)"
           >
             <span class="expand-spacer" />
@@ -399,7 +398,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CaretRight, Document, Folder, Grid, WarningFilled } from '@element-plus/icons-vue'
+import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
 import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useAppStore } from '@/stores'
@@ -998,6 +997,8 @@ watch(() => store.currentProjectId, () => {
   cursor: pointer;
   user-select: none;
   color: var(--app-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 .side-node:hover {
   background: var(--app-hover);
@@ -1022,10 +1023,6 @@ watch(() => store.currentProjectId, () => {
 .side-node.on .side-cnt {
   color: var(--app-primary);
 }
-.group-icon {
-  font-size: 16px;
-  color: var(--app-primary);
-}
 .case-icon {
   font-size: 14px;
   color: var(--app-text-faint);
@@ -1033,20 +1030,17 @@ watch(() => store.currentProjectId, () => {
 .side-node.on .case-icon {
   color: var(--app-primary);
 }
-.group-row {
-  color: var(--app-text);
-  font-weight: 500;
-}
 .expand-icon {
-  font-size: 12px;
-  transition: transform 0.15s;
-  color: var(--app-text-faint);
+  font-size: 14px;
+  transition: transform 0.18s ease;
+  color: var(--app-text-muted);
+  cursor: pointer;
 }
 .expand-icon.expanded {
   transform: rotate(90deg);
 }
 .expand-spacer {
-  width: 12px;
+  width: 14px;
   flex-shrink: 0;
 }
 .group-main {
