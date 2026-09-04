@@ -39,6 +39,9 @@ platform/backend/.env
 *.har
 *.openapi.json
 
+# 文件中心物理存储（内容寻址落盘，不入版本库；路径可被 .env UPLOAD_ROOT 覆盖）
+platform/backend/uploads/
+
 # 前端构建产物与依赖
 platform/frontend/node_modules/
 platform/frontend/dist/
