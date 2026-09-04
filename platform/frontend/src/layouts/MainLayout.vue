@@ -198,8 +198,9 @@
               <el-icon><FullScreen /></el-icon>
             </el-button>
           </el-tooltip>
-          <el-dropdown trigger="click" @command="onThemeCommand">
-            <el-tooltip :content="themeLabel" placement="top" popper-class="app-tip">
+          <!-- tooltip 必须包在 dropdown 外层：嵌在 dropdown 插槽内会与其触发器事件克隆互相覆盖，导致点击弹不出下拉 -->
+          <el-tooltip :content="themeLabel" placement="top" popper-class="app-tip">
+            <el-dropdown trigger="click" @command="onThemeCommand">
               <el-button text>
                 <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
                 <el-icon>
@@ -208,24 +209,24 @@
                   <Moon v-else />
                 </el-icon>
               </el-button>
-            </el-tooltip>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">
-                  <el-icon><Sunny /></el-icon>浅色
-                  <el-icon v-if="store.theme === 'light'" class="theme-check"><Check /></el-icon>
-                </el-dropdown-item>
-                <el-dropdown-item command="dark" :class="{ 'theme-checked': store.theme === 'dark' }">
-                  <el-icon><Moon /></el-icon>深色
-                  <el-icon v-if="store.theme === 'dark'" class="theme-check"><Check /></el-icon>
-                </el-dropdown-item>
-                <el-dropdown-item command="auto" :class="{ 'theme-checked': store.theme === 'auto' }">
-                  <el-icon><Monitor /></el-icon>跟随系统
-                  <el-icon v-if="store.theme === 'auto'" class="theme-check"><Check /></el-icon>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">
+                    <el-icon><Sunny /></el-icon>浅色
+                    <el-icon v-if="store.theme === 'light'" class="theme-check"><Check /></el-icon>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="dark" :class="{ 'theme-checked': store.theme === 'dark' }">
+                    <el-icon><Moon /></el-icon>深色
+                    <el-icon v-if="store.theme === 'dark'" class="theme-check"><Check /></el-icon>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="auto" :class="{ 'theme-checked': store.theme === 'auto' }">
+                    <el-icon><Monitor /></el-icon>跟随系统
+                    <el-icon v-if="store.theme === 'auto'" class="theme-check"><Check /></el-icon>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </el-tooltip>
           <el-dropdown trigger="click" @command="onUserCommand">
             <span class="user-chip">
               <img
