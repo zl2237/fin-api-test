@@ -702,10 +702,11 @@ onUnmounted(stopPolling)
   line-height: 1.2;
 }
 .stamp-id {
+  /* 记录号无需语义色：中性 muted 全对比度（原 accent 78% 透明仅 ~3:1） */
   font-family: var(--app-font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
-  opacity: 0.78;
+  color: var(--app-text-muted);
 }
 
 /* 结论数字：断言/步骤两组大号 mono 分数 */

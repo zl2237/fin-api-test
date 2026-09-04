@@ -534,11 +534,12 @@ watch(
   min-width: 168px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.dag-node.m-get { --node-accent: var(--app-success); }
-.dag-node.m-post { --node-accent: var(--app-primary); }
-.dag-node.m-put { --node-accent: var(--app-warn-accent); }
-.dag-node.m-delete { --node-accent: var(--app-danger); }
-.dag-node.m-other { --node-accent: var(--app-text-faint); }
+/* 色轨/淡底用 accent；文字必须用加深文字变体（小号粗体需 4.5:1，accent 原色仅 2.2-3.5:1） */
+.dag-node.m-get { --node-accent: var(--app-success); --node-accent-text: color-mix(in srgb, var(--app-success-text) 78%, black); }
+.dag-node.m-post { --node-accent: var(--app-primary); --node-accent-text: var(--app-primary); }
+.dag-node.m-put { --node-accent: var(--app-warn-accent); --node-accent-text: color-mix(in srgb, var(--app-warn-text) 70%, black); }
+.dag-node.m-delete { --node-accent: var(--app-danger); --node-accent-text: var(--app-danger-text); }
+.dag-node.m-other { --node-accent: var(--app-text-faint); --node-accent-text: var(--app-text-muted); }
 /* hover 反馈：预判可点击（双击开配置），cursor 提示交互 */
 .dag-node:hover {
   border-color: color-mix(in srgb, var(--app-primary) 55%, var(--app-border));
@@ -587,7 +588,8 @@ watch(
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: var(--node-accent, var(--app-text-muted));
+  /* 文字用加深变体保证 4.5:1；淡底仍用 accent 原色 */
+  color: var(--node-accent-text, var(--app-text-muted));
   background: color-mix(in srgb, var(--node-accent, var(--app-text-muted)) 12%, transparent);
   padding: 1px 5px;
   border-radius: var(--app-radius-xs);
@@ -623,7 +625,7 @@ watch(
   font-size: 10.5px;
   color: var(--app-text-muted);
 }
-.node-badge.badge-assert { color: var(--app-success-text); }
+.node-badge.badge-assert { color: color-mix(in srgb, var(--app-success-text) 80%, black); }
 .node-badge.badge-extract { color: var(--app-primary); }
 :deep(.dag-handle) {
   width: 12px;

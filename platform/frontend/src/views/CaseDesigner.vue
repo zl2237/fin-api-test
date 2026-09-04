@@ -781,8 +781,8 @@ watch(() => store.currentProjectId, async () => {
   font-size: 12px;
   color: var(--app-text-muted);
   padding: 0 4px;
-  /* 快捷键提示降噪：默认半透明，悬停全亮（熟练后不再干扰视线，新手 hover 即读） */
-  opacity: 0.55;
+  /* 快捷键提示降噪折衷：0.85（纯辅助信息，hover 全亮；0.55 版本有效对比过低） */
+  opacity: 0.85;
   transition: opacity 0.15s ease;
 }
 .canvas-hint:hover {
