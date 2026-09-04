@@ -209,11 +209,27 @@ class DagExecutor:
             ))
             return False, 0
 
-        # 1. 组装请求（三级优先级与编排顺序统一在 prepare_request，见其模块注释）
-        parts = prepare_request(api, config, context=self.context,
-                                row_vars=self.row_vars, row_origins=self.row_origins,
-                                base_headers=self.http_client.headers,
-                                db_client=self.db_client)
+        # 1. 组装请求（三级优先级与编排顺序统一在 prepare_request，见其模块注释）；
+        # 前置处理 exec_sql 执行失败等组装期异常在这里兜底为失败步骤（原因可见），
+        # 避免异常冒泡到 execute() 导致本节点无步骤记录
+        try:
+            parts = prepare_request(api, config, context=self.context,
+                                    row_vars=self.row_vars, row_origins=self.row_origins,
+                                    base_headers=self.http_client.headers,
+                                    db_client=self.db_client)
+        except Exception as e:
+            self.sink.record_step(StepResult(
+                execution_id=execution_id, node_id=node_id,
+                api_name=api.name, api_path=api.path, api_method=api.method,
+                request_headers={}, request_body={},
+                response_status=0, response_body={"error": f"请求组装/前置处理失败: {e}"},
+                response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
+                status="failed",
+                pre_process=(config.pre_process if config else None) or None,
+                post_extract=(config.post_extract if config else None) or None,
+                extracted_vars={},
+            ))
+            return False, 0
         body, headers, file_fields = parts.body, parts.headers, parts.file_fields
 
         # 2. 发送请求（file_fields 非空时走 multipart 通道）

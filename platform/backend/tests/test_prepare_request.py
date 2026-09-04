@@ -6,6 +6,8 @@
 """
 from types import SimpleNamespace
 
+import pytest
+
 from app.engine.prepare_request import prepare_request
 
 
@@ -116,6 +118,52 @@ class TestAssemblyOrder:
         parts = _run(api, config)
 
         assert parts.body == {"src": "FROM_CASE", "dst": "FROM_CASE"}
+
+
+class TestExecSql:
+    """前置处理 exec_sql：请求前执行 SQL 造数（如节点执行前先 INSERT 一条依赖数据）。
+
+    ${} 引用统一变量池（context.extracted + 前序 set_field 同步值），
+    转义与 post_extract 的 db 提取同一实现（inject_sql_vars）。"""
+
+    def _run_sql(self, ctx, actions, sqls):
+        fake_db = SimpleNamespace(execute=lambda sql: sqls.append(sql))
+        api = _api([_field("bl_no", default="B1")])
+        return prepare_request(api, _config(actions), context=ctx,
+                               row_vars=None, row_origins=None,
+                               base_headers={}, db_client=fake_db)
+
+    def test_exec_sql_with_vars(self):
+        """${} 注入：字符串单引号转义包裹 / int 直接替换 / 未定义变量保留原样"""
+        sqls = []
+        ctx = _Ctx({"bl_no": "BL'001", "teu": 2})
+        self._run_sql(ctx, [{"type": "exec_sql",
+                             "sql": "INSERT INTO t (bl_no, teu, memo) VALUES (${bl_no}, ${teu}, ${missing})"}],
+                      sqls)
+        assert sqls == ["INSERT INTO t (bl_no, teu, memo) VALUES ('BL''001', 2, '${missing}')"]
+
+    def test_exec_sql_sees_set_field_synced_vars(self):
+        """同批前序 set_field 求值结果同步到变量池，exec_sql 可引用"""
+        sqls = []
+        self._run_sql(_Ctx(), [
+            {"type": "set_field", "path": "bl_no", "value": "BL-SET"},
+            {"type": "exec_sql", "sql": "INSERT INTO t (bl_no) VALUES (${bl_no})"},
+        ], sqls)
+        assert sqls == ["INSERT INTO t (bl_no) VALUES ('BL-SET')"]
+
+    def test_exec_sql_no_db_client_raises(self):
+        """环境未配置数据库连接 → RuntimeError（上层兜底为失败步骤，原因可见）"""
+        api = _api([])
+        with pytest.raises(RuntimeError, match="数据库连接"):
+            prepare_request(api, _config([{"type": "exec_sql", "sql": "SELECT 1"}]),
+                            context=_Ctx(), row_vars=None, row_origins=None,
+                            base_headers={}, db_client=None)
+
+    def test_exec_sql_empty_skipped(self):
+        """空 SQL（前端表格空行占位）→ 跳过不炸"""
+        sqls = []
+        self._run_sql(_Ctx(), [{"type": "exec_sql", "sql": "   "}], sqls)
+        assert sqls == []
 
 
 class TestFileAndHeaders:

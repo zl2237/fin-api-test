@@ -3,17 +3,20 @@
     <el-table :data="modelValue" size="small" border empty-text="暂无预处理，点击「添加」开始配置">
       <el-table-column label="类型" width="140">
         <template #default="{ row }">
-          <el-select v-model="row.type" size="small" style="width: 100%">
+          <el-select v-model="row.type" size="small" style="width: 100%" @change="onTypeChange(row)">
             <el-option label="设置字段" value="set_field" />
             <el-option label="新增字段" value="add_field" />
             <el-option label="删除字段" value="delete_field" />
             <el-option label="遍历赋值" value="iterate_set" />
+            <el-option label="执行 SQL" value="exec_sql" />
           </el-select>
         </template>
       </el-table-column>
       <el-table-column :label="pathLabel" min-width="220">
         <template #default="{ row }">
+          <span v-if="row.type === 'exec_sql'" class="muted">—</span>
           <el-select
+            v-else
             v-model="row.path"
             size="small"
             filterable
@@ -39,7 +42,15 @@
       </el-table-column>
       <el-table-column label="值（支持 ${}）" min-width="240">
         <template #default="{ row }">
-          <div v-if="row.type !== 'delete_field' && isFileField(row.path)" class="file-value-cell">
+          <el-input
+            v-if="row.type === 'exec_sql'"
+            v-model="row.sql"
+            size="small"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            placeholder="INSERT INTO t_order (bl_no) VALUES (${bl_no}) — ${} 可引用上下文变量"
+          />
+          <div v-else-if="row.type !== 'delete_field' && isFileField(row.path)" class="file-value-cell">
             <el-input
               :model-value="row.value ? `#${row.value}` : ''"
               size="small"
@@ -184,6 +195,15 @@ function add() {
   const next = [...props.modelValue, { type: 'set_field', path: '', value: '' }]
   emit('update:modelValue', next)
 }
+
+// 类型切换清理：切到 exec_sql 后 path 不再使用，清空避免残留值占用字段可选集
+function onTypeChange(row: any) {
+  if (row.type === 'exec_sql') {
+    row.path = ''
+    if (row.sql == null) row.sql = ''
+  }
+}
+
 function remove(idx: number) {
   const next = [...props.modelValue]
   next.splice(idx, 1)

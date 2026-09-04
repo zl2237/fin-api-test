@@ -289,7 +289,11 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     收集口径与三级取值优先级一致（数据集 = 除动态绑定外的所有字段集合）：
     - API 字段默认值：顶层 key（无点号）、非空、不含 ${}（上游提取注入属动态，不收）；
       file 字段同样成列（值是文件中心文件 ID，列 type=file，行编辑器渲染文件选择器，
-      执行时经 pop_file_fields_from_body 剥离走 multipart，链路无缝）
+      执行时经 pop_file_fields_from_body 剥离走 multipart，链路无缝）；
+      GET 接口例外：空值 query 参数（可选过滤条件）也成列——执行时行值为空不覆盖
+      （apply_row_overrides 跳过空值），用户填值才启用该参数，天然参数化语义；
+      但 key 不符 _COL_KEY_RE（如 curl 导入的 search_time[date] 带方括号）跳过：
+      列名即变量名，无法引用也无法行值覆盖（stats.invalid 计数提示）
     - 前置处理 set_field/add_field：path 顶层、value 不含 ${}；
       同节点同 key 时 set_field 覆盖默认值（执行顺序在组装之后，最终生效值为准）
     - set_field/add_field 顶层 path 的 value 含 ${}（运行时动态注入，如 [${audit_id}]）
@@ -309,7 +313,8 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     key_types: dict = {}   # key -> 字段类型（file 需透传到列定义，行编辑器据此渲染文件选择器）
     dynamic_keys = set()   # 被 ${} 动态注入的顶层 key：运行时表达式生效，不可作数据列
     conflicts = []
-    stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0, "nested": 0, "empty": 0}
+    stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0,
+             "nested": 0, "empty": 0, "invalid": 0}
 
     cfg_by_node = {c.node_id: c for c in node_configs}
     for node_id in _topo_node_ids(getattr(case, "dag_config", None)):
@@ -323,6 +328,8 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
 
         # key -> field_type：pre_process 路径的 file 字段值同为文件 ID，需识别类型
         api_field_types = {f.key: (f.field_type or "string") for f in (getattr(api, "fields", None) or []) if f.key}
+        # GET 的 query 参数：空值（可选过滤条件）也成列，用户填值才启用（执行层空行值不覆盖）
+        is_get = str(getattr(api, "method", "") or "").upper() == "GET"
 
         node_vals: dict = {}  # 本节点最终生效值：默认值 → set_field 覆盖
         node_types: dict = {}  # 本节点 key -> 字段类型
@@ -332,9 +339,18 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
             if "." in f.key:
                 stats["nested"] += 1
                 continue
+            # 列名即变量名（_COL_KEY_RE）：curl 导入的 GET query 原始参数名可能含
+            # 方括号（如 search_time[date]），无法作变量名也无法行值覆盖 → 跳过保真执行
+            if not _COL_KEY_RE.match(f.key):
+                stats["invalid"] += 1
+                continue
             raw = f.default_value
             if raw is None or (isinstance(raw, str) and not raw.strip()):
-                stats["empty"] += 1
+                if not is_get:
+                    stats["empty"] += 1
+                    continue
+                node_vals[f.key] = ""
+                node_types[f.key] = f.field_type or "string"
                 continue
             if isinstance(raw, str) and "${" in raw:
                 stats["dynamic"] += 1
@@ -350,6 +366,9 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
                 continue  # 空行占位（前端表格留空）非有效动作
             if "." in path:
                 stats["nested"] += 1
+                continue
+            if not _COL_KEY_RE.match(path):
+                stats["invalid"] += 1
                 continue
             if isinstance(val, str) and "${" in val:
                 # 动态注入（如 [${audit_id}]）：运行时由表达式求值，不是数据列；

@@ -169,7 +169,7 @@ export interface StepRecord {
   request_headers?: any; request_body?: any; response_status?: number
   response_body?: any; response_time_ms?: number
   started_at?: string; ended_at?: string; status?: string
-  pre_process?: { type?: string; path?: string; value?: any }[] | null
+  pre_process?: { type?: string; path?: string; value?: any; sql?: string }[] | null
   post_extract?: Record<string, any>[] | null
   extracted_vars?: Record<string, any> | null
   assertions: AssertionRecord[]
@@ -466,7 +466,7 @@ export const datasetApi = {
   generate: (caseId: number, name?: string) =>
     http.post<{
       dataset: DataSet
-      stats: { nodes: number; columns: number; dynamic: number; nested: number; empty: number; conflicts: { key: string; values: any[] }[] }
+      stats: { nodes: number; columns: number; dynamic: number; nested: number; empty: number; invalid: number; conflicts: { key: string; values: any[] }[] }
     }>('/datasets/generate', { case_id: caseId, name: name || undefined }).then((r) => r.data),
   // 行操作
   listRows: (id: number) => http.get<DataSetRow[]>(`/datasets/${id}/rows`).then((r) => r.data),
