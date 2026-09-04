@@ -1,5 +1,6 @@
 """curl_parser 模块单测：验证 cURL 命令解析为预览项的正确性。"""
 from app.engine.curl_parser import _split_curl_commands, parse_curl_to_previews
+from app.engine.har_parser import previews_to_api_create
 
 
 class TestSplitCurlCommands:
@@ -149,6 +150,35 @@ class TestParseCurlToPreviews:
         previews, errors = parse_curl_to_previews(text)
         assert len(errors) == 0
         assert previews[0]["path"] == "/api/list"
+
+
+class TestImportContentTypePersisted:
+    """导入落库：curl 声明的 Content-Type 必须进接口 headers_template——
+    执行/调试链路据此分流表单/JSON 编码（form 接口 json 发送服务端解析不出字段）"""
+
+    def _create(self, curl_text):
+        previews, _ = parse_curl_to_previews(curl_text)
+        to_create, _skipped = previews_to_api_create(previews, project_id=1, group_id=None, existing_codes=set())
+        return to_create[0][0]
+
+    def test_form_urlencoded_persisted(self):
+        api = self._create(
+            "curl -X POST 'http://host/api/precheck' "
+            "-H 'Content-Type: application/x-www-form-urlencoded' "
+            "--data-raw 'order_no=YHL1'"
+        )
+        assert api.headers_template == {"Content-Type": "application/x-www-form-urlencoded"}
+
+    def test_json_content_type_persisted(self):
+        api = self._create(
+            "curl -X POST 'http://host/api/order' "
+            "-H 'Content-Type: application/json' -d '{\"bl_no\":\"BL1\"}'"
+        )
+        assert api.headers_template == {"Content-Type": "application/json"}
+
+    def test_get_without_body_empty_headers(self):
+        api = self._create("curl 'http://host/api/list?page=1'")
+        assert api.headers_template == {}
 
     def test_form_urlencoded_body_fields(self):
         # x-www-form-urlencoded：按键值对拆解为 body 字段，键值 URL 解码

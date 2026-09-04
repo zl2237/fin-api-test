@@ -73,11 +73,16 @@ class DagExecutor:
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
                       file_fields: list[tuple[str, str]] | None = None) -> tuple[int, Any, str | None]:
-        """委托共享发送器（与单接口调试同一实现），返回 (status_code, response_body, error_msg)"""
+        """委托共享发送器（与单接口调试同一实现），返回 (status_code, response_body, error_msg)。
+
+        headers 为 prepare_request 组装产物（环境公共头 + 接口 headers_template 覆盖 +
+        ${} 求值），发送期间临时替换 client.headers 使接口级 Content-Type 真正生效
+        （表单接口据此走表单编码），发完恢复。
+        """
         # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
         timeout = getattr(self.env, "timeout", None) or 15
         return send_request(self.db, self.http_client, api, body,
-                            file_fields=file_fields, timeout=timeout)
+                            file_fields=file_fields, timeout=timeout, headers=headers)
 
     # ---------- 执行入口 ----------
     def execute(self) -> models.ExecutionRecord:

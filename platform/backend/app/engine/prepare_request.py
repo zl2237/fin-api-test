@@ -57,7 +57,10 @@ def prepare_request(api, config, *, context, row_vars, row_origins,
         config.pre_process if config else None)
     if node_row_vars:
         body = apply_row_overrides(body, node_row_vars)
-    headers = deepcopy(base_headers or {})
+    # headers：环境公共头 + 接口 headers_template 覆盖（curl/HAR 导入的 Content-Type
+    # 在此生效，如 x-www-form-urlencoded 表单接口不必改环境公共头）
+    headers = {**deepcopy(base_headers or {}),
+               **deepcopy(getattr(api, "headers_template", None) or {})}
 
     # PreProcessor 持有 db_client，使 set_field 的值能通过 ${db.query_value(...)} 从 DB 取值
     preprocessor = PreProcessor(context.to_dict(), db_client, row_vars=node_row_vars)

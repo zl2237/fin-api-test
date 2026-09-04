@@ -65,15 +65,28 @@ def close_multipart_files(files_payload: list) -> None:
             pass
 
 
+def _is_form_urlencoded(headers: dict) -> bool:
+    """headers 声明 Content-Type 为 x-www-form-urlencoded（curl 导入的表单接口）"""
+    ct = (headers or {}).get("Content-Type") or (headers or {}).get("content-type") or ""
+    return "x-www-form-urlencoded" in ct.lower()
+
+
 def send_request(db, client, api, body: Any,
                  file_fields: list[tuple[str, str]] | None = None,
-                 timeout: int = 15) -> tuple[int, Any, str | None]:
+                 timeout: int = 15,
+                 headers: dict | None = None) -> tuple[int, Any, str | None]:
     """发送一次接口请求。返回 (status_code, response_body, error_msg)。
 
     :param file_fields: file 类型字段列表 [(field_name, file_id), ...]
                         非空时构建 multipart 请求，文件从文件中心按 file_id 取
+    :param headers: 本次请求的 headers（prepare_request 组装产物：环境公共头 +
+                    接口 headers_template 覆盖 + ${} 求值）。None 用 client.headers。
+                    发送期间临时替换 client.headers，结束恢复（不污染登录态等会话头）
     """
     files_payload: list = []
+    saved_client_headers = client.headers if headers is not None else None
+    if headers is not None:
+        client.headers = headers
     try:
         if api.method.upper() == "GET":
             # 数组请求体（is_array_body）取首元素作 query 参数，
@@ -104,8 +117,19 @@ def send_request(db, client, api, body: Any,
                     )
                 finally:
                     client.headers = saved_headers
+            elif _is_form_urlencoded(client.headers):
+                # 无有效文件可发 + 表单接口：按声明编码发送（与下方 POST 主分支同口径）
+                form_data = body[0] if isinstance(body, list) and body and isinstance(body[0], dict) else body
+                resp = client.post_form(api.path, data=form_data, timeout=timeout)
             else:
                 resp = client.post(api.path, json=body, timeout=timeout)
+        elif _is_form_urlencoded(client.headers):
+            # 表单接口（curl 导入声明 x-www-form-urlencoded）：必须用表单编码发送。
+            # 此前统一走 json= 且 headers 已声明 form 时 requests 不会改写 Content-Type，
+            # 形成「form 声明 + JSON 文本」的错配请求，服务端按表单解析取不到任何字段
+            # （如 precheckSyncFiles.html 的 order_no）。数组请求体取首元素（与 GET/multipart 同口径）
+            form_data = body[0] if isinstance(body, list) and body and isinstance(body[0], dict) else body
+            resp = client.post_form(api.path, data=form_data, timeout=timeout)
         else:
             resp = client.post(api.path, json=body, timeout=timeout)
         # HttpClient 成功返回即 HTTP 200 且业务码 200
@@ -139,3 +163,5 @@ def send_request(db, client, api, body: Any,
     finally:
         if files_payload:
             close_multipart_files(files_payload)
+        if saved_client_headers is not None:
+            client.headers = saved_client_headers

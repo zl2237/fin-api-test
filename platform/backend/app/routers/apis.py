@@ -461,6 +461,11 @@ def debug_api(
             # login() 已包装"登录失败："前缀，此处只透传原文，避免双重前缀
             return _debug_response(api, method, {}, {}, 0, {"error": str(e)}, started_at, start_ts, login_failed=True)
 
+        # 接口 headers_template 覆盖环境公共头（curl/HAR 导入的 Content-Type 在调试
+        # 时同样生效，表单接口走表单编码——与 DAG 执行链路口径一致）
+        client.headers = {**(client.headers or {}),
+                          **(deepcopy(api.headers_template) or {})}
+
         # 构建请求体：body_override 优先，否则用 fields 组装
         if data.body_override is not None:
             body = deepcopy(data.body_override)
