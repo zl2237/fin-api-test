@@ -99,18 +99,9 @@ npm install && npm run dev
 
 ## 前后端类型单一事实来源
 
-后端 Pydantic schema 经 `scripts/export_openapi.py` 导出 OpenAPI JSON，
-前端生成 TS 类型消费（含全部 Out 契约，字段漂移在编译期暴露）：
-
-```bash
-npm run gen:api    # platform/frontend 下执行：导出 schema → 生成 src/types/api.gen.ts
-```
-
-审计字段（created/updated × by/name）由 `schemas.AuditMixin` 单一声明，7 个 Out schema 继承。
-响应类型优先取生成物别名（User/Project/ApiGroup/CaseGroup/OperationLog/FieldDictionary/
-FileCategory/TestFile 等）；嵌套结构生成物退化为 unknown 的与承载领域 union 的仍手写，
-原因注明在 `api/index.ts` 类型段头部。错误契约显式化：拦截器把一切失败规整为导出的
-`ApiError`（message 必为后端 detail），视图 catch 只读 `e.message`。
+后端 Pydantic schema → `npm run gen:api` 生成 `src/types/api.gen.ts` 供前端消费，字段漂移在 vue-tsc 编译期暴露。
+审计字段由 `schemas.AuditMixin` 单一声明，7 个 Out schema 继承；生成物退化为 unknown 的嵌套结构仍手写，原因见 `api/index.ts` 类型段头注释。
+错误契约显式化：拦截器把一切失败规整为 `ApiError`（message 必为后端 detail），视图 catch 只读 `e.message`。
 
 ## Testing
 
@@ -138,29 +129,9 @@ cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口
 | 报告导出 | `test_report_export.py` | CSV/HTML 契约 |
 | schema | `test_audit_mixin.py` | 审计字段继承 + Out 契约 |
 
-## Expression & Assertion
-
-```yaml
-# 字段默认值、set_field、断言 expected 均可用表达式
-order_id: ${random_int(min=1, max=999999)}
-bl_no: ${generate_bl_no(prefix='smoke')}
-sign: ${md5(s='${context.token}_${timestamp()}')}
-
-# 断言示例：DB 值 = 响应 JSONPath 取值（交叉校验，支持重试）
-- type: db_vs_jsonpath_equals
-  sql: "SELECT status FROM sys_order WHERE bl_no=${bl_no}"
-  path: $.data.status
-  retry_count: 3
-  retry_interval: 2
-```
-
-完整 12 函数清单与 17 断言类型详见 [Swagger 文档](http://127.0.0.1:8000/docs) 与 `app/engine/`。
-
 ## Tech Stack
 
-**后端** · FastAPI · SQLAlchemy 2.0 · Pydantic 2 · Alembic · jsonpath-ng · PyMySQL
-
-**前端** · Vue 3.5 · Element Plus · Vue Flow · Vue Router · Pinia · Vite · openapi-typescript
+FastAPI · SQLAlchemy 2.0 · Pydantic 2 · Alembic · PyMySQL ｜ Vue 3.5 · Element Plus · Vue Flow · Pinia · Vite · openapi-typescript
 
 ## FAQ
 
