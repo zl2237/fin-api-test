@@ -242,6 +242,23 @@ class TestCollectCaseParams:
         assert [c["key"] for c in out["columns"]] == ["bl_no"]
         assert out["stats"]["invalid"] == 2
 
+    def test_empty_default_file_field_collected(self):
+        """空默认值 file 字段也成列（type=file，值空=未选文件）。
+
+        curl 导入 multipart 的 file part 默认值恒为空，不能被「空值跳过」
+        排除——用户在数据集行里经文件选择器选了文件才上传（与 GET 空值
+        过滤条件同语义）；非 file 的 POST 空默认值仍跳过"""
+        case = _case([("n1", 7)])
+        apis = {7: _api([_field("id_card", "", ftype="file"),
+                         _field("bl_no", "B1"), _field("memo", "")])}
+        out = svc.collect_case_params(case, [_cfg("n1", 7)], apis)
+        cols = {c["key"]: c for c in out["columns"]}
+        assert cols["id_card"]["type"] == "file"
+        assert cols["id_card"]["origin"] == ""
+        assert out["row"]["id_card"] == ""
+        assert "memo" not in cols  # POST 非 file 空默认值仍跳过
+        assert out["stats"]["empty"] == 1
+
     def test_empty_set_field_path_skipped(self):
         """set_field 空 path（前端表格空行占位）→ 跳过不炸、不生成空名列"""
         case = _case([("n1", 7)])

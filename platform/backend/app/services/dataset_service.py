@@ -346,7 +346,11 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
                 continue
             raw = f.default_value
             if raw is None or (isinstance(raw, str) and not raw.strip()):
-                if not is_get:
+                # 空默认值的三类例外也成列（值空=未启用，用户在数据集行里填值才生效）：
+                # - GET 空值 query（可选过滤条件）
+                # - file 字段（curl 导入 multipart 的 file part 默认值恒为空；
+                #   空=未选文件，用户在数据集行里经文件选择器选了才上传）
+                if not is_get and f.field_type != "file":
                     stats["empty"] += 1
                     continue
                 node_vals[f.key] = ""
