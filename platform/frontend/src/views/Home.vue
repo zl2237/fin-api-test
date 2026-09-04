@@ -60,9 +60,11 @@
           <header class="panel-head">
             <h3>最近执行</h3>
             <div class="panel-tools">
-              <el-button text size="small" title="刷新" aria-label="刷新" @click="loadHome">
-                <el-icon><Refresh /></el-icon>
-              </el-button>
+              <el-tooltip content="刷新" placement="top" popper-class="app-tip">
+                <el-button text size="small" aria-label="刷新" @click="loadHome">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+              </el-tooltip>
               <el-button text type="primary" size="small" @click="router.push('/executions')">
                 全部记录<el-icon class="go-icon"><ArrowRight /></el-icon>
               </el-button>
@@ -97,12 +99,18 @@
               <span :class="['exec-dot', `is-${r.status}`]">
                 <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
               </span>
-              <span class="exec-name" :title="r.case_name || `#${r.case_id}`">{{ r.case_name || `#${r.case_id}` }}</span>
-              <span class="exec-env" :title="r.env_name || `环境#${r.env_id}`">{{ r.env_name || `环境#${r.env_id}` }}</span>
+              <el-tooltip :content="r.case_name || `#${r.case_id}`" placement="top" popper-class="app-tip">
+                <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
+              </el-tooltip>
+              <el-tooltip :content="r.env_name || `环境#${r.env_id}`" placement="top" popper-class="app-tip">
+                <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
+              </el-tooltip>
               <span class="exec-summary" :class="`is-${r.status}`">
                 {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
               </span>
-              <span class="exec-time" :title="formatTime(r.started_at)">{{ formatRelativeTime(r.started_at) }}</span>
+              <el-tooltip :content="formatTime(r.started_at)" placement="top" popper-class="app-tip">
+                <span class="exec-time">{{ formatRelativeTime(r.started_at) }}</span>
+              </el-tooltip>
             </button>
           </div>
         </section>
@@ -117,7 +125,9 @@
             <div v-if="!recentCases.length" class="quick-empty">还没有用例，去 <el-button text type="primary" size="small" @click="router.push('/cases')">创建第一个</el-button></div>
             <ul v-else class="quick-list">
               <li v-for="c in recentCases" :key="c.id" class="quick-row">
-                <span class="quick-name" :title="c.name">{{ c.name }}</span>
+                <el-tooltip :content="c.name" placement="top" popper-class="app-tip">
+                  <span class="quick-name">{{ c.name }}</span>
+                </el-tooltip>
                 <el-button
                   link
                   type="primary"

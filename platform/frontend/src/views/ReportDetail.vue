@@ -47,11 +47,15 @@
         <div class="summary-grid">
           <div class="metric">
             <div class="metric-label">用例</div>
-            <div class="metric-value" :title="record?.case_name || `#${record?.case_id}` || '-'">{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
+            <el-tooltip :content="record?.case_name || `#${record?.case_id}` || '-'" placement="top" popper-class="app-tip">
+              <div class="metric-value">{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
+            </el-tooltip>
           </div>
           <div class="metric">
             <div class="metric-label">环境</div>
-            <div class="metric-value" :title="record?.env_name || `#${record?.env_id}` || '-'">{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
+            <el-tooltip :content="record?.env_name || `#${record?.env_id}` || '-'" placement="top" popper-class="app-tip">
+              <div class="metric-value">{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
+            </el-tooltip>
           </div>
           <div class="metric">
             <div class="metric-label">步骤通过 / 总数</div>
@@ -71,7 +75,9 @@
           </div>
           <div class="metric">
             <div class="metric-label">开始时间</div>
-            <div class="metric-value small" :title="record?.started_at ?? '-'">{{ record?.started_at ?? '-' }}</div>
+            <el-tooltip :content="record?.started_at ?? '-'" placement="top" popper-class="app-tip">
+              <div class="metric-value small">{{ record?.started_at ?? '-' }}</div>
+            </el-tooltip>
           </div>
           <div class="metric">
             <div class="metric-label">耗时</div>
@@ -97,7 +103,9 @@
         @click="jumpToStep(fs)"
       >
         <span class="fs-idx">#{{ fs.index + 1 }}</span>
-        <span class="fs-name" :title="fs.api_name || fs.node_id || '未命名步骤'">{{ fs.api_name || fs.node_id || '未命名步骤' }}</span>
+        <el-tooltip :content="fs.api_name || fs.node_id || '未命名步骤'" placement="top" popper-class="app-tip">
+          <span class="fs-name">{{ fs.api_name || fs.node_id || '未命名步骤' }}</span>
+        </el-tooltip>
         <span class="fs-why">{{ fs.why }}</span>
         <span class="fs-count">{{ fs.failCount }} 条断言失败</span>
       </div>

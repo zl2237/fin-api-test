@@ -29,7 +29,7 @@
           >
             <el-icon v-if="groupHasContent(row.id)" class="expand-icon" :class="{ expanded: isExpanded(row.id) }"><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
-            <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+            <el-tooltip :content="row.name" placement="top" popper-class="app-tip" :disabled="row.name.length <= 12">
               <span class="side-name">{{ row.name }}</span>
             </el-tooltip>
             <span class="side-cnt">{{ groupDatasetCount(row.id) }}</span>
@@ -44,7 +44,7 @@
           >
             <span class="expand-spacer" />
             <el-icon class="case-icon"><Document /></el-icon>
-            <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+            <el-tooltip :content="row.name" placement="top" popper-class="app-tip" :disabled="row.name.length <= 12">
               <span class="side-name">{{ row.name }}</span>
             </el-tooltip>
             <span class="side-cnt">{{ caseDatasetCount(row.id) }}</span>
@@ -91,7 +91,9 @@
             <div class="main-head">
               <span class="main-title">{{ current.name }}</span>
               <span class="group-count">{{ current.rows?.length ?? 0 }}</span>
-              <span class="main-sub" :title="colKeys.join('、')">列：{{ colLabels.join('、') || '（未定义）' }}</span>
+              <el-tooltip :content="colKeys.join('、')" placement="top" popper-class="app-tip">
+                <span class="main-sub">列：{{ colLabels.join('、') || '（未定义）' }}</span>
+              </el-tooltip>
               <div class="main-actions">
                 <el-button size="small" @click="copyDataset">复制</el-button>
                 <el-button size="small" @click="openEdit(current)">编辑列定义</el-button>
@@ -192,9 +194,15 @@
             <div class="col-list">
               <div v-for="(col, i) in form.columns" :key="i" class="col-row">
                 <el-input v-model="col.key" placeholder="key（变量名）" style="width: 220px" />
-                <span class="col-dict" :title="dictLabel(col.key) ? '来自字段字典' : '字典缺失，列头将显示 key'">
-                  {{ dictLabel(col.key) || '（字典缺失 → 显 key）' }}
-                </span>
+                <el-tooltip
+                  :content="dictLabel(col.key) ? '来自字段字典' : '字典缺失，列头将显示 key'"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <span class="col-dict">
+                    {{ dictLabel(col.key) || '（字典缺失 → 显 key）' }}
+                  </span>
+                </el-tooltip>
                 <el-select v-model="col.type" style="width: 110px">
                   <el-option v-for="t in colTypes" :key="t" :label="t" :value="t" />
                 </el-select>
@@ -373,7 +381,9 @@
             <el-table-column prop="api_name" label="相同节点（接口）" min-width="140" />
             <el-table-column label="涉及列" min-width="300">
               <template #default="{ row }">
-                <span class="merge-cols" :title="row.columns.join('、')">{{ row.columns.join('、') }}</span>
+                <el-tooltip :content="row.columns.join('、')" placement="top" popper-class="app-tip">
+                  <span class="merge-cols">{{ row.columns.join('、') }}</span>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>

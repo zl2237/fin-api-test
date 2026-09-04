@@ -16,7 +16,8 @@
         </svg>
       </div>
       <!-- 品牌区可点击回首页（首页即工作台：最近执行+统计+快速执行） -->
-      <router-link to="/home" class="brand brand-link" title="回到首页" aria-label="回到首页">
+      <el-tooltip content="回到首页" placement="top" popper-class="app-tip">
+        <router-link to="/home" class="brand brand-link" aria-label="回到首页">
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -41,7 +42,8 @@
           </svg>
         </span>
         <span v-if="!collapsed" class="brand-text">fin-api-test</span>
-      </router-link>
+        </router-link>
+      </el-tooltip>
       <el-menu
         :default-active="menuActive"
         router
@@ -91,19 +93,33 @@
       <div class="sidebar-foot">
         <div class="avatar-ripple">
           <!-- 用户本人头像：tooltip 显示用户名（开发者署名见登录页页脚） -->
-          <img
+          <el-tooltip
             v-if="currentAvatar"
-            :src="currentAvatar"
-            width="36"
-            height="36"
-            class="dev-avatar"
-            :alt="store.user?.name || store.user?.username || '用户'"
-            :title="store.user?.name || store.user?.username || '当前用户'"
-          />
-          <div v-else class="dev-avatar dev-avatar-fallback" :title="store.user?.name || store.user?.username || '当前用户'">
-            {{ fallbackInitial }}
-          </div>
-          <div v-if="avatarUploading" class="avatar-uploading" title="头像上传中…">…</div>
+            :content="store.user?.name || store.user?.username || '当前用户'"
+            placement="top"
+            popper-class="app-tip"
+          >
+            <img
+              :src="currentAvatar"
+              width="36"
+              height="36"
+              class="dev-avatar"
+              :alt="store.user?.name || store.user?.username || '用户'"
+            />
+          </el-tooltip>
+          <el-tooltip
+            v-else
+            :content="store.user?.name || store.user?.username || '当前用户'"
+            placement="top"
+            popper-class="app-tip"
+          >
+            <div class="dev-avatar dev-avatar-fallback">
+              {{ fallbackInitial }}
+            </div>
+          </el-tooltip>
+          <el-tooltip v-if="avatarUploading" content="头像上传中…" placement="top" popper-class="app-tip">
+            <div class="avatar-uploading">…</div>
+          </el-tooltip>
         </div>
       </div>
     </el-aside>
@@ -111,9 +127,11 @@
     <el-container>
       <el-header class="topbar">
         <div class="topbar-left">
-          <el-button text class="collapse-btn" :title="collapsed ? '展开侧边栏' : '收起侧边栏'" :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
-            <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
-          </el-button>
+          <el-tooltip :content="collapsed ? '展开侧边栏' : '收起侧边栏'" placement="top" popper-class="app-tip">
+            <el-button text class="collapse-btn" :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
+              <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-breadcrumb :separator-icon="ArrowRight" class="topbar-breadcrumb">
             <el-breadcrumb-item :to="{ path: '/' }">
               <el-icon><HomeFilled /></el-icon>
@@ -144,17 +162,24 @@
             />
           </el-select>
           <!-- 项目管理入口：低频配置不占侧栏，归宿是项目选择器旁（规范 interaction-guidelines §1） -->
-          <el-button text title="项目管理" @click="router.push('/projects')">
-            <el-icon><Folder /></el-icon>管理
-          </el-button>
-          <el-button
+          <el-tooltip content="项目管理" placement="top" popper-class="app-tip">
+            <el-button text @click="router.push('/projects')">
+              <el-icon><Folder /></el-icon>管理
+            </el-button>
+          </el-tooltip>
+          <el-tooltip
             v-if="store.currentProjectId"
-            text
-            title="项目版本管理"
-            @click="versionVisible = true"
+            content="项目版本管理"
+            placement="top"
+            popper-class="app-tip"
           >
-            <el-icon><DataLine /></el-icon>版本
-          </el-button>
+            <el-button
+              text
+              @click="versionVisible = true"
+            >
+              <el-icon><DataLine /></el-icon>版本
+            </el-button>
+          </el-tooltip>
           <el-select
             v-model="store.currentEnvId"
             placeholder="选择环境"
@@ -168,18 +193,22 @@
               :value="e.id"
             />
           </el-select>
-          <el-button text :title="isFullscreen ? '退出全屏' : '进入全屏'" @click="toggleFullscreen">
-            <el-icon><FullScreen /></el-icon>
-          </el-button>
-          <el-dropdown trigger="click" @command="onThemeCommand">
-            <el-button text :title="themeLabel">
-              <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
-              <el-icon>
-                <Monitor v-if="store.theme === 'auto'" />
-                <Sunny v-else-if="store.theme === 'light'" />
-                <Moon v-else />
-              </el-icon>
+          <el-tooltip :content="isFullscreen ? '退出全屏' : '进入全屏'" placement="top" popper-class="app-tip">
+            <el-button text @click="toggleFullscreen">
+              <el-icon><FullScreen /></el-icon>
             </el-button>
+          </el-tooltip>
+          <el-dropdown trigger="click" @command="onThemeCommand">
+            <el-tooltip :content="themeLabel" placement="top" popper-class="app-tip">
+              <el-button text>
+                <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
+                <el-icon>
+                  <Monitor v-if="store.theme === 'auto'" />
+                  <Sunny v-else-if="store.theme === 'light'" />
+                  <Moon v-else />
+                </el-icon>
+              </el-button>
+            </el-tooltip>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">

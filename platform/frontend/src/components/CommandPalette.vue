@@ -33,8 +33,12 @@
       >
         <el-icon class="cmd-item-icon"><component :is="iconComp(item.type)" /></el-icon>
         <div class="cmd-item-main">
-          <div class="cmd-item-title" :title="item.title">{{ item.title }}</div>
-          <div class="cmd-item-sub" :title="item.sub">{{ item.sub }}</div>
+          <el-tooltip :content="item.title" placement="top" popper-class="app-tip">
+            <div class="cmd-item-title">{{ item.title }}</div>
+          </el-tooltip>
+          <el-tooltip :content="item.sub" placement="top" popper-class="app-tip">
+            <div class="cmd-item-sub">{{ item.sub }}</div>
+          </el-tooltip>
         </div>
         <el-tag size="small" type="info" effect="plain" round>{{ item.kindLabel }}</el-tag>
       </div>

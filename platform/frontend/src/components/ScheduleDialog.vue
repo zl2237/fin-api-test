@@ -158,9 +158,11 @@ async function onRemoveSchedule(s: TestSchedule) {
     class="schedule-dialog"
   >
     <template #header>
-      <span class="schedule-dialog-title" :title="`定时任务 · ${caseItem?.name || ''}`">
-        定时任务 · {{ caseItem?.name || '' }}
-      </span>
+      <el-tooltip :content="`定时任务 · ${caseItem?.name || ''}`" placement="top" popper-class="app-tip">
+        <span class="schedule-dialog-title">
+          定时任务 · {{ caseItem?.name || '' }}
+        </span>
+      </el-tooltip>
     </template>
     <!-- 已配置的定时任务列表 -->
     <div v-if="schedules.length" class="schedule-list">
@@ -168,10 +170,14 @@ async function onRemoveSchedule(s: TestSchedule) {
         <div class="schedule-info">
           <span class="schedule-desc">{{ describeSchedule(s) }}</span>
           <span class="schedule-env">{{ s.env_name || `环境#${s.env_id}` }}</span>
-          <span
-            class="schedule-next"
-            :title="s.next_run_at ? formatTime(s.next_run_at) : ''"
-          >{{ s.next_run_at ? `下次 ${formatRelativeTime(s.next_run_at)}` : '未排期' }}</span>
+          <el-tooltip
+            :content="s.next_run_at ? formatTime(s.next_run_at) : ''"
+            :disabled="!s.next_run_at"
+            placement="top"
+            popper-class="app-tip"
+          >
+            <span class="schedule-next">{{ s.next_run_at ? `下次 ${formatRelativeTime(s.next_run_at)}` : '未排期' }}</span>
+          </el-tooltip>
         </div>
         <div class="schedule-ops">
           <el-tooltip :content="s.enabled ? '停用定时' : '启用定时'" placement="top">

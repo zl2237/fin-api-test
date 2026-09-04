@@ -53,7 +53,9 @@
         </el-table-column>
         <el-table-column label="创建时间" width="110">
           <template #default="{ row }">
-            <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+            <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
+              <span>{{ formatRelativeTime(row.created_at) }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="创建人" width="90" align="center">

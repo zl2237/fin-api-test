@@ -46,7 +46,9 @@
         <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id">
           <el-table-column width="36" align="center">
             <template #default>
-              <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+              <el-tooltip content="拖拽排序" placement="top" popper-class="app-tip">
+                <el-icon class="drag-handle"><Rank /></el-icon>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column prop="id" label="ID" width="70" />
@@ -65,7 +67,9 @@
           </el-table-column>
           <el-table-column label="创建时间" width="120">
             <template #default="{ row }">
-              <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+              <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
+                <span>{{ formatRelativeTime(row.created_at) }}</span>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="260" fixed="right">

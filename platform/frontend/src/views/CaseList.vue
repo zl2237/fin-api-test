@@ -92,7 +92,7 @@
             ><CaretRight /></el-icon>
           </el-tooltip>
           <span v-else class="expand-spacer" />
-          <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+          <el-tooltip :content="row.name" placement="top" popper-class="app-tip" :disabled="row.name.length <= 12">
             <span class="side-name">{{ row.name }}</span>
           </el-tooltip>
           <span class="side-cnt">{{ row.isUngrouped ? casesOf(null).length : countCasesWithDescendants(row.groupId!) }}</span>
@@ -144,7 +144,9 @@
             </el-table-column>
             <el-table-column label="更新时间" width="120">
               <template #default="{ row }">
-                <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+                <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
+                  <span>{{ formatRelativeTime(row.updated_at) }}</span>
+                </el-tooltip>
               </template>
             </el-table-column>
             <el-table-column label="创建人" width="100" align="center">
@@ -203,7 +205,9 @@
             <el-table-column width="36" align="center">
               <template #default>
                 <!-- 父分组视图是跨组聚合列表，顺序无持久化语义，不提供拖拽 -->
-                <el-icon v-if="!isSubtreeView" class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+                <el-tooltip v-if="!isSubtreeView" content="拖拽排序" placement="top" popper-class="app-tip">
+                  <el-icon class="drag-handle"><Rank /></el-icon>
+                </el-tooltip>
               </template>
             </el-table-column>
             <el-table-column prop="id" label="ID" width="70" />
@@ -219,7 +223,9 @@
             </el-table-column>
             <el-table-column label="更新时间" width="120">
               <template #default="{ row }">
-                <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+                <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
+                  <span>{{ formatRelativeTime(row.updated_at) }}</span>
+                </el-tooltip>
               </template>
             </el-table-column>
             <el-table-column label="创建人" width="100" align="center">
@@ -318,8 +324,12 @@
       <div class="combine-tip">拖拽调整拼接顺序（自上而下依次执行）；组合将复制生成新用例，不影响原用例。前段提取的变量后段可直接引用。</div>
       <div ref="combineListRef" class="combine-list">
         <div v-for="c in combineItems" :key="c.id" class="combine-item">
-          <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
-          <span class="combine-name" :title="c.name">{{ c.name }}</span>
+          <el-tooltip content="拖拽排序" placement="top" popper-class="app-tip">
+            <el-icon class="drag-handle"><Rank /></el-icon>
+          </el-tooltip>
+          <el-tooltip :content="c.name" placement="top" popper-class="app-tip">
+            <span class="combine-name">{{ c.name }}</span>
+          </el-tooltip>
           <span class="combine-nodes">{{ c.dag_config?.nodes?.length || 0 }} 节点</span>
         </div>
       </div>

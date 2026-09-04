@@ -61,7 +61,9 @@ function confirm() {
     </div>
     <div class="batch-run-list">
       <div v-for="it in items" :key="it.id" class="batch-run-row">
-        <span class="batch-run-name" :title="it.name">{{ it.name }}</span>
+        <el-tooltip :content="it.name" placement="top" popper-class="app-tip">
+          <span class="batch-run-name">{{ it.name }}</span>
+        </el-tooltip>
         <span class="batch-run-count-label">执行次数</span>
         <el-input-number v-model="counts[it.id]" :min="1" :max="9999" size="small" />
       </div>

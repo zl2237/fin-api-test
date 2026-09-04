@@ -91,7 +91,7 @@
             ><CaretRight /></el-icon>
           </el-tooltip>
           <span v-else class="expand-spacer" />
-          <el-tooltip :content="row.name" placement="top" :disabled="row.name.length <= 12">
+          <el-tooltip :content="row.name" placement="top" popper-class="app-tip" :disabled="row.name.length <= 12">
             <span class="side-name">{{ row.name }}</span>
           </el-tooltip>
           <span class="side-cnt">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
@@ -191,7 +191,9 @@
             <el-table-column width="36" align="center">
               <template #default>
                 <!-- 父分组视图是跨组聚合列表，顺序无持久化语义，不提供拖拽 -->
-                <el-icon v-if="!isSubtreeView" class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+                <el-tooltip v-if="!isSubtreeView" content="拖拽排序" placement="top" popper-class="app-tip">
+                  <el-icon class="drag-handle"><Rank /></el-icon>
+                </el-tooltip>
               </template>
             </el-table-column>
             <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip />
