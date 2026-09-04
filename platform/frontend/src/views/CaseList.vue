@@ -88,7 +88,7 @@
             @click.stop="onToggleGroup(row)"
           ><CaretRight /></el-icon>
           <span v-else class="expand-spacer" />
-          <span class="side-name">{{ row.name }}</span>
+          <span class="side-name" :title="row.name">{{ row.name }}</span>
           <span class="side-cnt">{{ row.isUngrouped ? casesOf(null).length : countCasesWithDescendants(row.groupId!) }}</span>
         </div>
         <div class="side-foot">
