@@ -26,8 +26,8 @@ def _field(key, default=None, ftype="string", label=None):
     return SimpleNamespace(key=key, field_type=ftype, default_value=default, label=label)
 
 
-def _api(fields, api_id=7):
-    return SimpleNamespace(id=api_id, fields=fields, request_template={})
+def _api(fields, api_id=7, method="POST"):
+    return SimpleNamespace(id=api_id, fields=fields, request_template={}, method=method)
 
 
 def _cfg(node_id, api_id, pre=None, post=None, asserts=None, wait=0):
@@ -206,6 +206,41 @@ class TestCollectCaseParams:
         col = next(c for c in out["columns"] if c["key"] == "id_card")
         assert col["type"] == "file"
         assert col["origin"] == "35"
+
+    def test_get_empty_query_collected(self):
+        """GET 的 query 参数空值（可选过滤条件）也成列：用户填值才启用该过滤。
+
+        curl 导入 GET 接口的 query 参数保留空值（接口 156 有 70 个大多为空），
+        POST 的空默认值仍跳过（对 POST 空值发字段无意义）"""
+        case = _case([("n1", 7)])
+        apis = {7: _api([_field("bl_no", ""), _field("voy", "V1")], method="GET")}
+        out = svc.collect_case_params(case, [_cfg("n1", 7)], apis)
+        cols = {c["key"]: c for c in out["columns"]}
+        assert cols["bl_no"]["type"] == "string" and cols["bl_no"]["origin"] == ""
+        assert out["row"]["bl_no"] == "" and out["row"]["voy"] == "V1"
+        assert out["stats"]["empty"] == 0
+
+    def test_get_empty_col_semantics_on_execute(self):
+        """GET 空值列的执行侧语义（快照保真过滤 + 空行值不覆盖，两端配套）：
+        未编辑（行值 "" == origin）→ 应用空值，apply_row_overrides 跳过 = 字段保持空（不启用过滤）；
+        用户填值（行值 != origin）→ 无条件覆盖，过滤条件启用"""
+        api = _api([_field("bl_no", "")], method="GET")
+        out = svc.filter_row_vars_for_node({"bl_no": ""}, {"bl_no": ""}, api, [])
+        assert out == {"bl_no": ""}
+        out2 = svc.filter_row_vars_for_node({"bl_no": "BL9"}, {"bl_no": ""}, api, [])
+        assert out2 == {"bl_no": "BL9"}
+
+    def test_invalid_key_skipped(self):
+        """key 不符列名规则（curl 导入的 GET query 原始参数名含方括号）→ 跳过（stats.invalid）。
+
+        列名即变量名（仅字母/数字/下划线），方括号 key 无法引用也无法行值覆盖，
+        成列反而触发 create_dataset 校验 400——GET 空值成列后此类字段首次暴露"""
+        case = _case([("n1", 7)])
+        apis = {7: _api([_field("search_time[date]", "", ), _field("bl_no", "B1")], method="GET")}
+        cfg = _cfg("n1", 7, pre=[{"type": "set_field", "path": "filter[name]", "value": "x"}])
+        out = svc.collect_case_params(case, [cfg], apis)
+        assert [c["key"] for c in out["columns"]] == ["bl_no"]
+        assert out["stats"]["invalid"] == 2
 
     def test_empty_set_field_path_skipped(self):
         """set_field 空 path（前端表格空行占位）→ 跳过不炸、不生成空名列"""

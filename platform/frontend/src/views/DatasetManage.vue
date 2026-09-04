@@ -706,6 +706,15 @@ async function confirmGenerate() {
   try {
     const { dataset, stats } = await datasetApi.generate(genCaseId.value, genName.value.trim() || undefined)
     ElMessage.success(`已生成「${dataset.name}」：${stats.columns} 列 · 扫描 ${stats.nodes} 节点 · 含 1 行原值快照`)
+    // 未成列的参数提示（动态/嵌套/列名不合法），列数与接口字段数对不上时可解释
+    const skipped = [
+      stats.dynamic ? `${stats.dynamic} 个动态绑定（表达式注入）` : '',
+      stats.nested ? `${stats.nested} 个嵌套路径` : '',
+      stats.invalid ? `${stats.invalid} 个列名不合法（如含方括号）` : '',
+    ].filter(Boolean)
+    if (skipped.length) {
+      ElMessage.info(`另有 ${skipped.join('、')} 未成列，执行时保持原配置`)
+    }
     if (stats.conflicts?.length) {
       const keys = stats.conflicts.slice(0, 5).map((c) => c.key).join('、')
       ElMessage.info(`${stats.conflicts.length} 个参数跨节点取值不同，已取首节点值成列：${keys}${stats.conflicts.length > 5 ? '…' : ''}`)

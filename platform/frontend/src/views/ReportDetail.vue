@@ -192,10 +192,13 @@
                 <template v-if="currentStep.pre_process?.length">
                   <div v-for="(p, i) in currentStep.pre_process" :key="i" class="pre-item">
                     <el-tag size="small" type="info" effect="light">{{ preTypeText(p.type) }}</el-tag>
-                    <span class="mono">{{ p.path || '—' }}</span>
-                    <template v-if="p.type !== 'delete_field'">
-                      <span class="muted">=</span>
-                      <span class="mono pre-val">{{ preValueText(p.value) }}</span>
+                    <span v-if="p.type === 'exec_sql'" class="mono pre-val pre-sql">{{ p.sql || '—' }}</span>
+                    <template v-else>
+                      <span class="mono">{{ p.path || '—' }}</span>
+                      <template v-if="p.type !== 'delete_field'">
+                        <span class="muted">=</span>
+                        <span class="mono pre-val">{{ preValueText(p.value) }}</span>
+                      </template>
                     </template>
                   </div>
                 </template>
@@ -484,6 +487,7 @@ const PRE_TYPE_TEXT: Record<string, string> = {
   add_field: '新增字段',
   delete_field: '删除字段',
   iterate_set: '遍历赋值',
+  exec_sql: '执行 SQL',
 }
 
 function preTypeText(t?: string) {
@@ -941,6 +945,12 @@ onUnmounted(stopPolling)
   color: var(--app-text);
   max-width: 420px;
   vertical-align: middle;
+}
+
+/* 前置 SQL 原文（单行长 SQL 自动换行） */
+.pre-sql {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 

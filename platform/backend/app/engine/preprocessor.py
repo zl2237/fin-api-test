@@ -6,12 +6,13 @@
 - delete_field    删除字段
 - add_field       新增字段（与 set_field 等价，语义区分）
 - iterate_set     遍历列表，为每个元素设置字段（费用录入的 unique_id 关联）
+- exec_sql        执行 SQL（INSERT/UPDATE/DELETE 等准备工作），支持 ${} 引用上下文变量
 """
 import time
 from copy import deepcopy
 from typing import Any
 
-from .expression import ExpressionEngine
+from .expression import ExpressionEngine, inject_sql_vars
 
 
 def get_nested_value(data: Any, path: str) -> Any:
@@ -95,6 +96,7 @@ class PreProcessor:
 
     def __init__(self, context: dict[str, Any], db_client=None, row_vars: dict[str, Any] = None):
         self.expr = ExpressionEngine(context, db_client=db_client)
+        self.db_client = db_client
         # 数据集行值（原始引用，区别于 context 池中被覆盖过的值）：
         # 非动态字段的行值压制 set_field 原值；空值（None/""，单元格未配置）剔除
         # = 未配置让位下一优先级，set_field 恢复表达式求值（如 [${audit_id}]）
@@ -156,6 +158,21 @@ class PreProcessor:
 
             elif action_type == "delete_field":
                 delete_nested_value(body, action["path"])
+
+            elif action_type == "exec_sql":
+                # 请求前执行 SQL（INSERT/UPDATE/DELETE 等数据准备工作）。
+                # ${} 引用统一变量池（环境变量 + 后置提取 + 前序 set_field 同步值），
+                # 字符串值防注入转义（与 post_extract 的 db 提取同一实现）。
+                # 执行失败抛异常 → 该节点产出失败步骤（原因可见），与断言失败口径一致。
+                sql = action.get("sql") or ""
+                if not sql.strip():
+                    continue
+                if not self.db_client:
+                    raise RuntimeError("环境未配置数据库连接，无法执行前置 SQL")
+                vars_pool = dict(self.expr.context.get("extracted", {}) or {})
+                if extracted is not None:
+                    vars_pool.update(extracted)
+                self.db_client.execute(inject_sql_vars(sql, vars_pool))
 
             elif action_type == "sleep":
                 seconds = self.expr.evaluate(action.get("seconds", 0))
