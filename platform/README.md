@@ -161,10 +161,7 @@ sign: ${md5(s='${context.token}_${timestamp()}')}
 ## FAQ
 
 - **uvicorn 无 access log** — `alembic/env.py` 的 `fileConfig()` 需设 `disable_existing_loggers=False`
-- **admin 被强制跳转改密页** — 预期行为，迁移标记旧库 admin `must_change_password=True`，改密即恢复
 - **路由切换后页面空白** — 顶层 `<router-view>` 不可加 `:key="route.path"`，会触发 MainLayout 重挂载丢状态
-- **后端模块 import 报 `No module named 'utils'`** — 先 `from .. import path_setup`（把仓库根注入 sys.path）；
-  若本机装过 `pr_study` editable 包会遮蔽同名 `utils`，注意 venv 隔离
 
 ## License
 
