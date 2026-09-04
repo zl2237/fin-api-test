@@ -198,6 +198,12 @@
               <el-icon><FullScreen /></el-icon>
             </el-button>
           </el-tooltip>
+          <!-- 常驻帮助入口：coreCap 三 tab（表达式/断言/数据集）随手可查 -->
+          <el-tooltip content="帮助（表达式 / 断言 / 数据集）" placement="top" popper-class="app-tip">
+            <el-button text aria-label="帮助" @click="store.openCoreCapability('expression')">
+              <el-icon><QuestionFilled /></el-icon>
+            </el-button>
+          </el-tooltip>
           <!-- tooltip 必须包在 dropdown 外层：嵌在 dropdown 插槽内会与其触发器事件克隆互相覆盖，导致点击弹不出下拉 -->
           <el-tooltip :content="themeLabel" placement="top" popper-class="app-tip">
             <el-dropdown trigger="click" @command="onThemeCommand">
@@ -334,10 +340,10 @@
   <!-- 全局命令面板（Ctrl+K） -->
   <CommandPalette ref="cmdPaletteRef" />
 
-  <!-- 核心能力详情弹窗：表达式引擎 / 17 种断言（状态来自全局 store，跨组件可触发） -->
+  <!-- 核心能力详情弹窗：表达式引擎 / 17 种断言 / 数据集（状态来自全局 store，跨组件可触发） -->
   <el-dialog
     v-model="store.coreCapVisible"
-    :title="store.coreCapTab === 'expression' ? '表达式引擎 · 内置函数与变量' : '17 种断言规则 · 用法示例'"
+    :title="coreCapTitle"
     width="860px"
     align-center
     class="corecap-dialog"
@@ -465,6 +471,80 @@
           </div>
         </div>
       </el-tab-pane>
+
+      <!-- ========== 数据驱动 · 数据集 ========== -->
+      <el-tab-pane label="数据驱动 · 数据集" name="dataset">
+        <div class="corecap-intro">
+          数据集 = 同一用例的多组参数。用例绑定数据集后，执行一次会按数据行展开为 N 次执行；
+          每行执行时同名列覆盖请求参数，嵌套字段用点号路径，跨列引用用 <code>${列名}</code>。
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">核心概念</div>
+          <div class="corecap-cards">
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">列 key = 请求参数名</code>
+                <span class="corecap-desc">同名即自动覆盖写死的参数值</span>
+              </div>
+              <div class="corecap-example">示例：列 <code>order_id</code> 覆盖请求体中的 <code>order_id</code></div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">a.b.c / a.0.b</code>
+                <span class="corecap-desc">点号写嵌套对象与数组下标</span>
+              </div>
+              <div class="corecap-example">示例：<code>to_customer.put_amount</code>、<code>supplier.0.order_id</code></div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">${列名}</code>
+                <span class="corecap-desc">跨字段引用同行的其他列值</span>
+              </div>
+              <div class="corecap-example">示例：默认值 <code>${bl_no}-A</code> 拼接同行的运单号</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">节点配置快照</code>
+                <span class="corecap-desc">执行按快照跑；保存用例自动同步，执行前检测过期可一键同步</span>
+              </div>
+              <div class="corecap-example">场景：改了编排忘了同步 → 执行确认面板会提示 drift</div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">工作流</div>
+          <div class="corecap-cards">
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">从用例生成</code>
+                <span class="corecap-desc">扫描用例写死的请求参数成列，附 1 行原值快照</span>
+              </div>
+              <div class="corecap-example">入口：数据集页 → 选中用例 → 「从用例生成」</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">绑定</code>
+                <span class="corecap-desc">用例私有数据集，在用例行内「数据」入口绑定/更换/解绑</span>
+              </div>
+              <div class="corecap-example">跨用例复用：在数据集页复制一份再改</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">执行确认面板</code>
+                <span class="corecap-desc">绑定后执行弹出：临时换数据集、勾选部分行、快照过期一键同步</span>
+              </div>
+              <div class="corecap-example">N 行 = N 次执行（并行，并发上限 4）</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">Excel/CSV 导入</code>
+                <span class="corecap-desc">先解析预览（列对齐告警）再确认替换全部行；可导出 xlsx</span>
+              </div>
+              <div class="corecap-example">适合批量造数与外部数据回灌</div>
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
     <template #footer>
       <el-button type="primary" @click="store.setCoreCapVisible(false)">关闭</el-button>
@@ -483,7 +563,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -497,6 +577,14 @@ const store = useAppStore()
 const tabStore = useTabStore()
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
+
+// 核心能力弹窗标题按 tab 映射（三个 tab 后不再用内联三元）
+const CORE_CAP_TITLES: Record<string, string> = {
+  expression: '表达式引擎 · 内置函数与变量',
+  assertion: '17 种断言规则 · 用法示例',
+  dataset: '数据驱动 · 数据集用法',
+}
+const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CAP_TITLES.expression)
 
 // 侧边菜单项（与模板 el-menu-item index 一一对应；项目管理为低频配置，入口在顶栏项目选择器旁）
 const MENU_PATHS = [

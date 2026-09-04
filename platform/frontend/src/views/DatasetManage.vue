@@ -130,7 +130,10 @@
             <div class="row-ops">
               <el-button size="small" @click="addRow">+ 添加一行</el-button>
               <el-button size="small" type="danger" plain @click="clearRows">清空全部行</el-button>
-              <span class="tip">列名与请求参数同名即自动覆盖；嵌套字段或跨字段引用可用 <code v-pre>${列名}</code></span>
+              <span class="tip">
+                列名与请求参数同名即自动覆盖；嵌套字段或跨字段引用可用 <code v-pre>${列名}</code>
+                <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
+              </span>
             </div>
 
             <!-- 节点配置快照（只读；保存用例自动同步 + 手动兜底） -->
@@ -249,7 +252,7 @@
     </el-dialog>
 
     <!-- 快照明细（只读 JSON） -->
-    <el-dialog v-model="snapVisible" :title="`节点 ${snapViewing?.node_id || ''} 配置快照（只读）`" width="640px">
+    <el-dialog v-model="snapVisible" :title="`节点 ${snapViewing?.node_id || ''} 配置快照（只读）`" width="720px">
       <pre class="snap-json">{{ snapJson }}</pre>
       <template #footer>
         <el-button @click="snapVisible = false">关闭</el-button>
@@ -257,7 +260,7 @@
     </el-dialog>
 
     <!-- 导入预览确认 -->
-    <el-dialog v-model="previewVisible" title="导入预览" width="720px">
+    <el-dialog v-model="previewVisible" title="导入预览" width="720px" align-center :close-on-click-modal="false">
       <el-alert
         v-for="(w, i) in previewWarnings"
         :key="i"
@@ -305,9 +308,8 @@
           <el-form label-position="top" size="small" @submit.prevent>
             <el-form-item v-for="col in filteredFields" :key="col.key">
               <template #label>
-                <!-- 同编排用例前置处理：原始字段名 + 字典中文名（如有） -->
-                <span>{{ col.key }}</span>
-                <span v-if="dictLabel(col.key)" class="col-cn">（{{ dictLabel(col.key) }}）</span>
+                <!-- 全站统一约定：原始字段名 + 字典中文名（如有） -->
+                <span>{{ colLabel(col.key) }}</span>
                 <span class="col-type-tag">{{ col.type }}</span>
               </template>
               <el-input
@@ -381,8 +383,8 @@
             <el-table-column prop="api_name" label="相同节点（接口）" min-width="140" />
             <el-table-column label="涉及列" min-width="300">
               <template #default="{ row }">
-                <el-tooltip :content="row.columns.join('、')" placement="top" popper-class="app-tip">
-                  <span class="merge-cols">{{ row.columns.join('、') }}</span>
+                <el-tooltip :content="row.columns.map(colLabel).join('、')" placement="top" popper-class="app-tip">
+                  <span class="merge-cols">{{ row.columns.map(colLabel).join('、') }}</span>
                 </el-tooltip>
               </template>
             </el-table-column>
@@ -411,14 +413,19 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
 import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useFieldDict } from '@/composables/useFieldDict'
+import { fileTimestamp } from '@/utils/format'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
+const router = useRouter()
+const { dictLabel } = useFieldDict()
 const cases = ref<TestCase[]>([])
 const groups = ref<CaseGroup[]>([])
 const datasets = ref<DataSet[]>([])
@@ -486,12 +493,11 @@ function selectCaseById(id: number) {
   if (c) selectCase(c)
 }
 
-// 列中文名实时引用项目字段字典，缺失显 key
-function dictLabel(key: string) {
-  return store.fieldDictMap?.[key] || ''
-}
+// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有）。
+// dictLabel 来自 useFieldDict（含嵌套路径完整/末段/父级段匹配），不再本地弱化重写。
 function colLabel(key: string) {
-  return dictLabel(key) || key
+  const cn = dictLabel(key)
+  return cn ? `${key}（${cn}）` : key
 }
 function caseDatasetCount(caseId: number) {
   return datasets.value.filter((d) => d.case_id === caseId).length
@@ -688,6 +694,22 @@ async function confirmGenerate() {
     await load()
     currentCase.value = cases.value.find((c) => c.id === genCaseId.value) || currentCase.value
     current.value = caseDatasets.value.find((d) => d.id === dataset.id) || current.value
+    // 回程引导：绑定数据集的链路在本页断头（从用例「数据」入口跳来生成后需自行折返）。
+    // 仅目标用例尚未绑定数据集时提示，避免打扰纯数据集维护流程。
+    const genCase = cases.value.find((c) => c.id === genCaseId.value)
+    if (genCase && !genCase.dataset_id) {
+      try {
+        await ElMessageBox.confirm(
+          `「${dataset.name}」已生成。若从用例的「数据」绑定入口跳来，可返回用例列表完成绑定`,
+          '返回用例继续绑定？',
+          { type: 'info', confirmButtonText: '返回用例列表', cancelButtonText: '留在此页' },
+        )
+        router.push('/cases')
+        ElMessage.info('在目标用例行内点「数据」，选择刚生成的数据集完成绑定')
+      } catch {
+        // 留在数据集页继续维护
+      }
+    }
   } catch (e: any) {
     ElMessage.error(e.message || '生成失败')
   } finally {
@@ -803,7 +825,17 @@ async function addRow() {
 async function removeRow(row: any) {
   if (!current.value) return
   try {
+    await ElMessageBox.confirm(
+      `确认删除第 ${row.row_index} 行数据？此操作不可恢复`,
+      '删除数据行',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
     await datasetApi.removeRow(current.value.id, row.id)
+    ElMessage.success('已删除')
     await load()
   } catch (e: any) {
     ElMessage.error(e.message || '删除失败')
@@ -888,7 +920,7 @@ async function exportRows() {
     const blob = await datasetApi.exportRows(current.value.id)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    const stamp = fileTimestamp()
     link.href = url
     link.download = `${current.value.name}_${stamp}.xlsx`
     link.click()
@@ -1158,6 +1190,11 @@ watch(() => store.currentProjectId, () => {
   color: var(--app-text-muted);
   font-size: 12px;
 }
+.tip .help-link {
+  padding: 2px 6px;
+  font-size: 12px;
+  margin-left: 4px;
+}
 .col-row {
   display: flex;
   gap: 8px;
@@ -1246,11 +1283,6 @@ watch(() => store.currentProjectId, () => {
 }
 .field-scroll {
   flex: 1;
-}
-.col-cn {
-  margin-left: 4px;
-  font-size: 12px;
-  color: var(--app-text-muted);
 }
 .col-type-tag {
   margin-left: 6px;

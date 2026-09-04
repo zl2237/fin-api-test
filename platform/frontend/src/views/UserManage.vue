@@ -27,15 +27,15 @@
         <el-button size="small" @click="load">重试</el-button>
       </div>
       <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
-      <el-table v-else :data="pagedList" stripe size="small">
+      <el-table v-else :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
         <template #empty>
           <EmptyState description="暂无用户" :image-size="80">
             <el-button type="primary" @click="openCreate">+ 新建用户</el-button>
           </EmptyState>
         </template>
-        <el-table-column prop="id" label="ID" width="60" align="center" />
-        <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="name" label="显示名" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="id" label="ID" width="60" align="center" sortable="custom" />
+        <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip sortable="custom" />
+        <el-table-column prop="name" label="显示名" min-width="100" show-overflow-tooltip sortable="custom" />
         <el-table-column label="部门" min-width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.department || '—' }}</template>
         </el-table-column>
@@ -51,7 +51,7 @@
             <el-tag v-else type="info" effect="plain" round size="small">普通成员</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" width="110">
+        <el-table-column prop="created_at" label="创建时间" width="110" sortable="custom">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
               <span>{{ formatRelativeTime(row.created_at) }}</span>
@@ -150,7 +150,7 @@
     </el-drawer>
 
     <!-- 重置密码对话框 -->
-    <el-dialog v-model="passwordVisible" title="重置密码" width="360px" align-center>
+    <el-dialog v-model="passwordVisible" title="重置密码" width="420px" align-center :close-on-click-modal="false">
       <el-form ref="passwordFormRef" :model="passwordForm" :rules="passwordRules" label-width="80px">
         <el-form-item label="用户名">{{ passwordTarget?.username }}</el-form-item>
         <el-form-item label="新密码" prop="password">
@@ -174,6 +174,7 @@ import { userApi, type User } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { formatTime, formatRelativeTime } from '@/utils/format'
+import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
 
 const router = useRouter()
@@ -199,9 +200,16 @@ const users = computed(() => {
   if (filterDepartment.value) r = r.filter(u => (u.department || '').trim() === filterDepartment.value)
   return r
 })
+// 表头排序（sortable="custom"）：先排全量再分页切片；取消排序回到接口默认序
+const { onSortChange, sorted: sortedUsers } = useClientSort(users, {
+  id: u => u.id,
+  username: u => u.username,
+  name: u => u.name ?? '',
+  created_at: u => u.created_at ?? '',
+}, () => { page.value = 1 })
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return users.value.slice(start, start + pageSize.value)
+  return sortedUsers.value.slice(start, start + pageSize.value)
 })
 
 function filterLocal() {
@@ -397,7 +405,11 @@ async function onPasswordReset() {
 
 async function onDelete(row: User) {
   try {
-    await ElMessageBox.confirm(`确认删除用户「${row.username}」？此操作不可恢复`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除用户「${row.username}」？此操作不可恢复`,
+      '删除用户',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
     await userApi.remove(row.id)
     ElMessage.success('已删除')
     await load()

@@ -67,7 +67,8 @@
 
     <template #footer>
       <el-button @click="$emit('update:visible', false)">取消</el-button>
-      <el-button type="primary" @click="onSave">保存配置</el-button>
+      <!-- 双层保存语义：此处仅应用到画布，持久化需再点画布右上「保存用例」 -->
+      <el-button type="primary" @click="onSave">应用配置</el-button>
     </template>
   </el-drawer>
 </template>
@@ -130,7 +131,7 @@ function onSave() {
   }
   emit('save', JSON.parse(JSON.stringify(draft.value)))
   emit('update:visible', false)
-  ElMessage.success('配置已保存（点右上角「保存用例」持久化）')
+  ElMessage.success('已应用到画布；点右上角「保存用例」持久化')
 }
 </script>
 

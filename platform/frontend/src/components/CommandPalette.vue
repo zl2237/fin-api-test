@@ -15,7 +15,7 @@
         v-model="keyword"
         class="cmd-input"
         aria-label="全局搜索"
-        placeholder="搜索用例 / 接口 / 项目，或输入命令"
+        placeholder="搜索用例 / 接口 / 数据集 / 环境 / 文件 / 字典，或输入命令"
         @keydown.down.prevent="moveDown"
         @keydown.up.prevent="moveUp"
         @keydown.enter.prevent="onEnter"
@@ -55,8 +55,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Share, Connection, Folder, Document } from '@element-plus/icons-vue'
-import { caseApi, apiApi, projectApi, type TestCase, type ApiDef, type Project } from '@/api'
+import { Search, Share, Connection, Folder, Document, Coin, Monitor, Paperclip, Notebook } from '@element-plus/icons-vue'
+import {
+  caseApi, apiApi, projectApi, datasetApi, envApi, fileApi, dictApi,
+  type TestCase, type ApiDef, type Project, type DataSet, type Environment, type TestFile, type FieldDictionary,
+} from '@/api'
 import { useAppStore } from '@/stores'
 import { fuzzyMatch } from '@/utils/fuzzy'
 import { toPinyinInitials } from '@/utils/pinyin'
@@ -73,8 +76,12 @@ const activeIdx = ref(0)
 const cases = ref<TestCase[]>([])
 const apis = ref<ApiDef[]>([])
 const projects = ref<Project[]>([])
+const datasets = ref<DataSet[]>([])
+const envs = ref<Environment[]>([])
+const files = ref<TestFile[]>([])
+const dicts = ref<FieldDictionary[]>([])
 
-type ItemType = 'case' | 'api' | 'project' | 'nav'
+type ItemType = 'case' | 'api' | 'project' | 'dataset' | 'env' | 'file' | 'dict' | 'nav'
 interface CmdItem {
   key: string
   type: ItemType
@@ -85,7 +92,11 @@ interface CmdItem {
 }
 
 function iconComp(type: ItemType) {
-  return { case: Share, api: Connection, project: Folder, nav: Document }[type]
+  return {
+    case: Share, api: Connection, project: Folder,
+    dataset: Coin, env: Monitor, file: Paperclip, dict: Notebook,
+    nav: Document,
+  }[type]
 }
 
 /**
@@ -142,6 +153,43 @@ const results = computed<CmdItem[]>(() => {
     const score = scoreMatch(kw, item.title, item.sub)
     if (!kw || score >= 0) scored.push({ item, score })
   }
+  // 项目内资源：数据集 / 环境 / 文件 / 字典（命中即跳对应管理页）
+  for (const d of datasets.value) {
+    const item: CmdItem = {
+      key: 'ds-' + d.id, type: 'dataset', title: d.name,
+      sub: `数据集 #${d.id}`, kindLabel: '数据集',
+      action: () => { router.push('/datasets'); close() }
+    }
+    const score = scoreMatch(kw, item.title, item.sub)
+    if (!kw || score >= 0) scored.push({ item, score })
+  }
+  for (const v of envs.value) {
+    const item: CmdItem = {
+      key: 'env-' + v.id, type: 'env', title: v.name,
+      sub: `环境 #${v.id}`, kindLabel: '环境',
+      action: () => { router.push('/envs'); close() }
+    }
+    const score = scoreMatch(kw, item.title, item.sub)
+    if (!kw || score >= 0) scored.push({ item, score })
+  }
+  for (const f of files.value) {
+    const item: CmdItem = {
+      key: 'file-' + f.id, type: 'file', title: f.name,
+      sub: '文件', kindLabel: '文件',
+      action: () => { router.push('/files'); close() }
+    }
+    const score = scoreMatch(kw, item.title, item.sub)
+    if (!kw || score >= 0) scored.push({ item, score })
+  }
+  for (const d of dicts.value) {
+    const item: CmdItem = {
+      key: 'dict-' + d.id, type: 'dict', title: `${d.key}（${d.label}）`,
+      sub: '字段字典', kindLabel: '字典',
+      action: () => { router.push('/dictionary'); close() }
+    }
+    const score = scoreMatch(kw, item.title, d.key, d.label)
+    if (!kw || score >= 0) scored.push({ item, score })
+  }
   // 导航快捷项（首页置顶；顺序与侧边栏一致：工作流在前、准备项与管理沉底）
   const navs: { title: string; path: string }[] = [
     { title: '首页', path: '/home' },
@@ -190,12 +238,21 @@ function onOpened() {
 async function loadAll() {
   if (!store.currentProjectId) return
   try {
-    const [cs, as] = await Promise.all([
+    // 四类新数据源独立兜底：任一失败不影响其余搜索范围
+    const [cs, as, dss, vs, fs, ds2] = await Promise.all([
       caseApi.list(store.currentProjectId),
       apiApi.list(store.currentProjectId),
+      datasetApi.list({ project_id: store.currentProjectId }).catch(() => []),
+      envApi.list(store.currentProjectId).catch(() => []),
+      fileApi.list(store.currentProjectId).catch(() => []),
+      dictApi.list(store.currentProjectId).catch(() => []),
     ])
     cases.value = cs
     apis.value = as
+    datasets.value = dss
+    envs.value = vs
+    files.value = fs
+    dicts.value = ds2
   } catch { /* ignore */ }
 }
 
@@ -213,10 +270,11 @@ function open() {
 }
 
 function onGlobalKey(e: KeyboardEvent) {
-  // Ctrl+K / Cmd+K 打开
+  // Ctrl+K / Cmd+K 切换：已打开时再按为关闭，避免重复 open 重置关键词的「叠感」
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
-    open()
+    if (visible.value) close()
+    else open()
     return
   }
   // Esc 关闭（el-dialog 默认支持，这里只处理输入框焦点态）

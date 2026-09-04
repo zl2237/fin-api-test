@@ -171,7 +171,7 @@ import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores'
 import { apiApi, caseApi, execApi } from '@/api'
 import type { ExecutionRecord, TestCase } from '@/api'
-import { formatTime, formatRelativeTime, execStatusText as statusText } from '@/utils/format'
+import { formatTime, formatRelativeTime, execStatusText as statusText, execStatusType as statusTagType } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
 import HomeGuideDrawer from '@/components/HomeGuideDrawer.vue'
 
@@ -198,32 +198,25 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-// 7 天执行量与通过率（口径与执行记录页一致：最近 200 条本地过滤）
-const weekStats = computed(() => {
-  const now = Date.now()
-  const week = recentExecs.value.filter(r => r.started_at && now - new Date(r.started_at).getTime() < 7 * 864e5)
-  const done = week.filter(r => r.status === 'success' || r.status === 'failed')
-  const passed = week.filter(r => r.status === 'success').length
-  return {
-    count: week.length,
-    rate: done.length ? Math.round((passed / done.length) * 1000) / 10 : null,
-  }
-})
+// 7 天执行量与通过率：走 stats 聚合接口（全量口径，不受最近列表截断影响）
+const weekStats = ref<{ count: number; rate: number | null }>({ count: 0, rate: null })
 
 async function loadHome() {
   if (!store.currentProjectId) return
   loading.value = true
   loadError.value = ''
   try {
-    const [apis, cases, execs] = await Promise.all([
+    const [apis, cases, execs, stats] = await Promise.all([
       apiApi.list(store.currentProjectId),
       caseApi.list(store.currentProjectId),
       execApi.list({ project_id: store.currentProjectId, limit: 200 }),
+      execApi.stats({ days: 7, project_id: store.currentProjectId }),
     ])
     apiCount.value = apis.length
     caseCount.value = cases.length
     recentCases.value = cases.slice(0, 3)
-    recentExecs.value = execs.slice(0, 8)
+    recentExecs.value = execs.items.slice(0, 8)
+    weekStats.value = { count: stats.count, rate: stats.rate }
   } catch (e: any) {
     loadError.value = e?.message || '加载失败'
   } finally {
@@ -304,11 +297,6 @@ function openGuide() {
   gap: 6px;
   flex-wrap: wrap;
 }
-.last-status { font-weight: 600; }
-.last-status.is-success { color: var(--app-success-text); }
-.last-status.is-failed { color: var(--app-danger-text); }
-.last-status.is-running { color: var(--app-warn-text); }
-
 .welcome-art { flex-shrink: 0; width: 150px; height: 100px; }
 .dag-node {
   fill: color-mix(in srgb, var(--app-primary) 8%, var(--app-card-solid));

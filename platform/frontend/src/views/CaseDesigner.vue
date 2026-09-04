@@ -96,7 +96,10 @@
             {{ linkMode ? linkHint : '连线模式' }}
           </el-button>
           <el-button :loading="splitScanning" :disabled="!caseData.id" @click="onSplit">拆分选中</el-button>
-          <el-button type="primary" :loading="saving" @click="onSave">保存用例</el-button>
+          <!-- dirty 圆点提示：抽屉「应用配置」只写内存，此处按钮才是持久化（双层保存语义可视化） -->
+          <el-button type="primary" :class="{ 'save-dirty': dirty }" :loading="saving" @click="onSave">
+            保存用例<span v-if="dirty" class="dirty-dot" aria-hidden="true" />
+          </el-button>
           <el-button type="success" :loading="running" @click="onRun">执行</el-button>
         </div>
       </div>
@@ -735,6 +738,26 @@ watch(() => store.currentProjectId, async () => {
   font-size: 12px;
   color: var(--app-text-muted);
   padding: 0 4px;
+}
+/* 保存按钮未保存标记：呼吸圆点 + 轻微描边强调，保存完成即消失 */
+.dirty-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  margin-left: 6px;
+  animation: dirty-pulse 1.2s ease-in-out infinite;
+}
+.save-dirty {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-warning) 45%, transparent);
+}
+@keyframes dirty-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dirty-dot { animation: none; opacity: 1; }
 }
 :deep(.canvas-wrap .dag-canvas) {
   flex: 1;

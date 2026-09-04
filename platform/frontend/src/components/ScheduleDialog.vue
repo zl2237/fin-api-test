@@ -134,7 +134,11 @@ async function onRunSchedule(s: TestSchedule) {
 
 async function onRemoveSchedule(s: TestSchedule) {
   try {
-    await ElMessageBox.confirm(`确认删除定时任务「${describeSchedule(s)}」？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除定时任务「${describeSchedule(s)}」？删除后将不再自动执行，此操作不可恢复`,
+      '删除定时任务',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
   } catch {
     return
   }
