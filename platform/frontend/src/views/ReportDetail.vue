@@ -13,6 +13,16 @@
         <el-icon class="is-loading"><Loading /></el-icon>
       </template>
     </el-alert>
+    <!-- 执行级错误横幅：登录失败/环境异常等无步骤产出的失败，原因只在 summary.error -->
+    <el-alert
+      v-if="record?.status === 'failed' && record.summary?.error"
+      class="exec-error-banner"
+      type="error"
+      :closable="false"
+      show-icon
+    >
+      <template #title>执行失败原因：{{ record.summary.error }}</template>
+    </el-alert>
     <!-- 页面级加载失败：内联错误块 + 重试（详情页失败后不能只剩空壳） -->
     <div v-if="loadError" class="app-load-error">
       <el-icon><WarningFilled /></el-icon>

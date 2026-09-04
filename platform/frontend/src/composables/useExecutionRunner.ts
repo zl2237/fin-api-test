@@ -101,7 +101,9 @@ export function useExecutionRunner() {
         ElMessage.warning('执行超时，请到执行记录查看结果')
       } else {
         favicon.failed()
-        ElMessage.warning(`执行失败：${cur.summary?.failed ?? 0} 项未通过`)
+        // 登录失败/环境异常等执行级错误直接带原因，用户无需进报告页排查
+        const reason = cur.summary?.error ? `（${cur.summary.error}）` : ''
+        ElMessage.warning(`执行失败：${cur.summary?.failed ?? 0} 项未通过${reason}`)
       }
       return cur
     } catch (e) {
