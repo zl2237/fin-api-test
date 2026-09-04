@@ -115,7 +115,6 @@
               >
                 <template #header>
                   <span>{{ colLabel(col.key) }}</span>
-                  <span v-if="!dictLabel(col.key)" class="col-key-raw">{{ col.key }}</span>
                 </template>
                 <template #default="{ row }">{{ fmtCell(row.data?.[col.key]) }}</template>
               </el-table-column>
@@ -1158,11 +1157,6 @@ watch(() => store.currentProjectId, () => {
 .tip {
   color: var(--app-text-muted);
   font-size: 12px;
-}
-.col-key-raw {
-  margin-left: 4px;
-  font-size: 11px;
-  color: var(--app-text-faint);
 }
 .col-row {
   display: flex;
