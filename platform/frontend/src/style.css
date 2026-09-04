@@ -523,3 +523,10 @@ h3,
 .page-title {
   text-wrap: balance;
 }
+/* 悬浮提示统一走 el-tooltip + popper-class="app-tip"：限宽自动换行，长内容不横贯屏幕 */
+.app-tip {
+  max-width: min(420px, 80vw);
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
+}

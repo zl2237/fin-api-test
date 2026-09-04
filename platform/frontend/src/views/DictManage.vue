@@ -54,7 +54,9 @@
           </el-table-column>
           <el-table-column label="更新时间" width="120">
             <template #default="{ row }">
-              <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+              <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
+                <span>{{ formatRelativeTime(row.updated_at) }}</span>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="130" fixed="right">

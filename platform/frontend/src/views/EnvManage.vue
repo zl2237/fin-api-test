@@ -45,7 +45,9 @@
           </template>
           <el-table-column width="36" align="center">
             <template #default>
-              <el-icon class="drag-handle" title="拖拽排序"><Rank /></el-icon>
+              <el-tooltip content="拖拽排序" placement="top" popper-class="app-tip">
+                <el-icon class="drag-handle"><Rank /></el-icon>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column prop="id" label="ID" width="70" align="center" />

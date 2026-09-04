@@ -133,12 +133,16 @@
         </el-table-column>
         <el-table-column label="开始时间" width="120">
           <template #default="{ row }">
-            <span :title="formatTime(row.started_at)">{{ formatRelativeTime(row.started_at) }}</span>
+            <el-tooltip :content="formatTime(row.started_at)" placement="top" popper-class="app-tip">
+              <span>{{ formatRelativeTime(row.started_at) }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="结束时间" width="120">
           <template #default="{ row }">
-            <span :title="formatTime(row.ended_at)">{{ formatRelativeTime(row.ended_at) }}</span>
+            <el-tooltip :content="formatTime(row.ended_at)" placement="top" popper-class="app-tip">
+              <span>{{ formatRelativeTime(row.ended_at) }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="执行人" width="100" align="center">

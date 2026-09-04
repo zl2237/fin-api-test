@@ -59,13 +59,17 @@
         <el-table-column prop="target_name" label="目标名称" min-width="160" show-overflow-tooltip />
         <el-table-column label="详情" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.detail" :title="row.detail">{{ row.detail }}</span>
+            <el-tooltip v-if="row.detail" :content="row.detail" placement="top" popper-class="app-tip">
+              <span>{{ row.detail }}</span>
+            </el-tooltip>
             <span v-else class="detail-empty">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作时间" width="120">
           <template #default="{ row }">
-            <span :title="formatTime(row.created_at)">{{ formatRelativeTime(row.created_at) }}</span>
+            <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
+              <span>{{ formatRelativeTime(row.created_at) }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
