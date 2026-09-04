@@ -203,6 +203,9 @@ class DagExecutor:
                 response_status=0, response_body={"error": "节点未绑定接口或配置缺失"},
                 response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
                 status="failed",
+                pre_process=(config.pre_process if config else None) or None,
+                post_extract=(config.post_extract if config else None) or None,
+                extracted_vars={},
             ))
             return False, 0
 
@@ -218,6 +221,7 @@ class DagExecutor:
         elapsed = int((time.time() - start_ts) * 1000)
 
         # 3. 后置提取（支持从响应或 DB 提取变量到上下文）
+        extracted: dict = {}
         if config and config.post_extract and response_data is not None:
             # 注入当前已提取变量，供 source=db 的 SQL 引用
             self.extractor.set_extracted_vars(self.context.extracted)
@@ -247,6 +251,9 @@ class DagExecutor:
             ),
             response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
             status="success" if step_passed else "failed",
+            pre_process=(config.pre_process if config else None) or None,
+            post_extract=(config.post_extract if config else None) or None,
+            extracted_vars=extracted,
             assertions=[
                 AssertionResult(
                     type=ar["type"], rule_config=ar, passed=ar["pass"],

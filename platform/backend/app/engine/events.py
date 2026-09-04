@@ -40,6 +40,9 @@ class StepResult:
     ended_at: datetime
     status: str  # success / failed
     assertions: list[AssertionResult] = field(default_factory=list)
+    pre_process: list[dict[str, Any]] | None = None  # 前置处理快照
+    post_extract: list[dict[str, Any]] | None = None  # 后置提取规则快照
+    extracted_vars: dict[str, Any] | None = None  # 后置提取实际结果 {name: value}
 
 
 class ExecutionSink(Protocol):
@@ -66,6 +69,8 @@ class DbSink:
             response_time_ms=result.response_time_ms,
             started_at=result.started_at, ended_at=result.ended_at,
             status=result.status,
+            pre_process=result.pre_process, post_extract=result.post_extract,
+            extracted_vars=result.extracted_vars,
         )
         self.db.add(step)
         self.db.commit()

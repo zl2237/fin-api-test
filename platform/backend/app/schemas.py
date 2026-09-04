@@ -554,6 +554,9 @@ class StepRecordOut(ORMBase):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     status: str | None = None
+    pre_process: list[dict[str, Any]] | None = None  # 前置处理快照（旧报告无此列时为 null）
+    post_extract: list[dict[str, Any]] | None = None  # 后置提取规则快照
+    extracted_vars: dict[str, Any] | None = None  # 后置提取实际结果
     assertions: list[AssertionRecordOut] = []
 
 
@@ -704,7 +707,7 @@ class FileOut(ORMBase, AuditMixin):
 class DataSetColumnIn(BaseModel):
     """列定义：key 即执行时变量名（校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）"""
     key: str
-    type: str = "string"  # string/int/bool/array/object
+    type: str = "string"  # string/int/bool/array/object/file（file=文件中心文件 ID）
     # 快照原值（从用例生成的列携带）：执行时快照保真的比对基准
     # （同名异值列只作用于"节点配置值 == origin"的节点）；手工列/用户不传则为空
     origin: Any = None

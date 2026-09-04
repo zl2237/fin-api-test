@@ -169,6 +169,9 @@ export interface StepRecord {
   request_headers?: any; request_body?: any; response_status?: number
   response_body?: any; response_time_ms?: number
   started_at?: string; ended_at?: string; status?: string
+  pre_process?: { type?: string; path?: string; value?: any }[] | null
+  post_extract?: Record<string, any>[] | null
+  extracted_vars?: Record<string, any> | null
   assertions: AssertionRecord[]
 }
 export interface ExecutionRecord {
@@ -422,7 +425,7 @@ export const scheduleApi = {
 
 // ============ DataSet 数据集（数据驱动测试，用例私有 1:N） ============
 export interface DataSetColumn {
-  key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object'  // 中文名实时引用字段字典，缺失显 key
+  key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object' | 'file'  // file=文件中心文件 ID；中文名实时引用字段字典，缺失显 key
   origin?: any  // 快照原值（生成列携带）：执行时快照保真比对基准，手工列无
 }
 export interface DataSetNodeConfig {  // 节点配置快照（只读；保存用例自动同步，手动 resync 兜底）
