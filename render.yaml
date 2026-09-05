@@ -5,7 +5,7 @@ services:
     name: fin-api-test
     runtime: docker
     dockerfilePath: ./platform/Dockerfile # 相对仓库根
-    dockerContext: ./platform
+    dockerContext: . # 仓库根：镜像内需包含 utils/ 等仓库根模块，且目录层级与仓库一致
     plan: free
     region: singapore # 离中国大陆最近的可用节点
     healthCheckPath: /docs
