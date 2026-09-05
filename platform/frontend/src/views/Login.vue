@@ -145,15 +145,6 @@
             {{ activeTab === 'login' ? '登 录' : '注 册' }}
           </el-button>
         </el-form>
-
-        <Transition name="field-collapse">
-          <div v-if="activeTab === 'register'" class="field-wrap">
-            <div class="hint">
-              密码要求：至少 8 位，必须同时包含字母和数字<br>
-              首个注册用户自动成为管理员，其余为普通成员
-            </div>
-          </div>
-        </Transition>
       </div>
     </main>
   </div>
