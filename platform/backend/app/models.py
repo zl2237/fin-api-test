@@ -97,6 +97,7 @@ class Environment(Base):
     variables = Column(JSON, default=dict, comment="业务变量（与登录/通知解耦）")
     common_headers = Column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
     timeout = Column(Integer, default=15, comment="接口请求超时时间（秒）")
+    success_codes = Column(String(100), default="200", comment="业务成功码（逗号分隔，响应 code 命中任一即成功；不同系统约定不同，如 ThinkPHP 成功 code:1）")
     is_default = Column(Boolean, default=False, comment="是否为项目默认环境")
     sort_order = Column(Integer, default=0, comment="排序序号（支持拖拽排序）")
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")
@@ -190,6 +191,10 @@ class TestCase(Base):
     group_id = Column(Integer, ForeignKey("case_groups.id"), nullable=True, comment="所属分组ID，NULL 表示未分组")
     name = Column(String(200), nullable=False, comment="用例名称")
     description = Column(Text, comment="用例描述")
+    case_type = Column(String(20), nullable=False, default="normal", server_default="normal",
+                       comment="用例类型：normal 普通 DAG 用例 / suite 套件（成员为其他用例的跨系统链）")
+    shared_vars = Column(JSON, nullable=True,
+                         comment="套件专用：共享变量白名单 [\"bl_no\", ...]，上游成员结束时按名单快照注入下游")
     dag_config = Column(JSON, nullable=False, comment="DAG 配置：{nodes: [...], edges: [...]}")
     sort_order = Column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
     dataset_id = Column(Integer, ForeignKey("data_sets.id"), nullable=True,
@@ -203,6 +208,26 @@ class TestCase(Base):
     group = relationship("CaseGroup", back_populates="cases")
     node_configs = relationship("CaseNodeConfig", back_populates="case", cascade="all, delete-orphan")
     executions = relationship("ExecutionRecord", back_populates="case", cascade="all, delete-orphan")
+    members = relationship("SuiteMember", back_populates="suite", foreign_keys="SuiteMember.suite_case_id",
+                           cascade="all, delete-orphan", order_by="SuiteMember.sort_order")
+
+
+class SuiteMember(Base):
+    """套件成员：套件用例 → 成员用例的有序引用（可跨项目）。每成员独立绑定环境；串行执行。"""
+    __tablename__ = "suite_members"
+
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    suite_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True,
+                           comment="宿主套件用例ID")
+    member_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False,
+                            comment="成员用例ID（可跨项目引用，删除成员用例时级联清理本行）")
+    env_id = Column(Integer, ForeignKey("environments.id"), nullable=False,
+                    comment="该成员执行所用环境ID（跨系统各用各的）")
+    sort_order = Column(Integer, default=0, comment="执行顺序（0 起，串行）")
+
+    suite = relationship("TestCase", back_populates="members", foreign_keys=[suite_case_id])
+    member_case = relationship("TestCase", foreign_keys=[member_case_id])
+    env = relationship("Environment")
 
 
 class DataSet(Base):
@@ -278,6 +303,9 @@ class ExecutionRecord(Base):
                         comment="执行时使用的数据集ID（快照解耦：纯溯源编号，无外键，数据集可删；数据以 dataset_row 为准）")
     dataset_row = Column(JSON, nullable=True,
                          comment="该次执行对应的数据行快照：{row_index, data, label}，不回写不更新")
+    suite_execution_id = Column(Integer, nullable=True, index=True,
+                                comment="套件来源：非空表示本记录是套件链中某成员的一次执行，"
+                                        "指向套件主执行记录ID；普通执行为 NULL")
     created_by = Column(Integer, nullable=True, comment="执行人 user_id")
 
     case = relationship("TestCase", back_populates="executions")
@@ -301,6 +329,9 @@ class StepRecord(Base):
     started_at = Column(DateTime, comment="步骤开始时间")
     ended_at = Column(DateTime, comment="步骤结束时间")
     status = Column(String(20), comment="步骤状态：success 成功 / failed 失败")
+    pre_process = Column(JSON, comment="前置处理快照：[{type, path, value}]")
+    post_extract = Column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")
+    extracted_vars = Column(JSON, comment="后置提取实际结果：{name: value}")
 
     execution = relationship("ExecutionRecord", back_populates="steps")
     assertions = relationship("AssertionRecord", back_populates="step", cascade="all, delete-orphan")

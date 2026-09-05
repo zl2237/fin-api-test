@@ -1,5 +1,6 @@
 """curl_parser 模块单测：验证 cURL 命令解析为预览项的正确性。"""
 from app.engine.curl_parser import _split_curl_commands, parse_curl_to_previews
+from app.engine.har_parser import previews_to_api_create
 
 
 class TestSplitCurlCommands:
@@ -134,3 +135,112 @@ class TestParseCurlToPreviews:
         previews, errors = parse_curl_to_previews(text)
         assert len(previews) == 0
         assert len(errors) >= 1
+
+    def test_backtick_wrapped_url_cleaned(self):
+        # markdown/聊天工具复制的 cURL，URL 外层常带成对反引号，应剥离后再解析
+        text = "curl --url '`http://host/api/login`' -H 'Content-Type: application/json' -d '{\"u\":1}'"
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        assert previews[0]["path"] == "/api/login"
+        assert previews[0]["url"] == "http://host/api/login"
+
+    def test_backtick_wrapped_bare_url_cleaned(self):
+        # 裸 URL 位置（无 --url）同样清洗
+        text = "curl '`http://host/api/list`'"
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        assert previews[0]["path"] == "/api/list"
+
+
+class TestImportContentTypePersisted:
+    """导入落库：curl 声明的 Content-Type 必须进接口 headers_template——
+    执行/调试链路据此分流表单/JSON 编码（form 接口 json 发送服务端解析不出字段）"""
+
+    def _create(self, curl_text):
+        previews, _ = parse_curl_to_previews(curl_text)
+        to_create, _skipped = previews_to_api_create(previews, project_id=1, group_id=None, existing_codes=set())
+        return to_create[0][0]
+
+    def test_form_urlencoded_persisted(self):
+        api = self._create(
+            "curl -X POST 'http://host/api/precheck' "
+            "-H 'Content-Type: application/x-www-form-urlencoded' "
+            "--data-raw 'order_no=YHL1'"
+        )
+        assert api.headers_template == {"Content-Type": "application/x-www-form-urlencoded"}
+
+    def test_json_content_type_persisted(self):
+        api = self._create(
+            "curl -X POST 'http://host/api/order' "
+            "-H 'Content-Type: application/json' -d '{\"bl_no\":\"BL1\"}'"
+        )
+        assert api.headers_template == {"Content-Type": "application/json"}
+
+    def test_get_without_body_empty_headers(self):
+        api = self._create("curl 'http://host/api/list?page=1'")
+        assert api.headers_template == {}
+
+    def test_form_urlencoded_body_fields(self):
+        # x-www-form-urlencoded：按键值对拆解为 body 字段，键值 URL 解码
+        text = """curl --url 'http://host/admin/Home/Public/index' \\
+        -H 'Content-Type: application/x-www-form-urlencoded' \\
+        --data-raw 'data%5Busername%5D=yhxzl&data%5Bpassword%5D=zl179178%40%40%40&data%5Bremember%5D=0'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        p = previews[0]
+        assert p["method"] == "POST"
+        assert p["content_type"] == "application/x-www-form-urlencoded"
+        field_map = {f["key"]: f for f in p["fields"]}
+        assert field_map["data[username]"]["default_value"] == "yhxzl"
+        # %40 解码为 @
+        assert field_map["data[password]"]["default_value"] == "zl179178@@@"
+        assert field_map["data[remember]"]["default_value"] == "0"
+
+
+class TestMultipartFormdata:
+    def test_chrome_data_raw_multipart(self):
+        # Chrome「Copy as cURL」的 multipart 完整报文（--data-raw $'...\r\n...'）：
+        # 文本 part 与文件 part 都应提取为 body 字段
+        text = r"""curl --url 'https://fin.example.com/api/order/orderDocument/uploadOrderDocument' \
+  -H 'Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryabc' \
+  --data-raw $'------WebKitFormBoundaryabc\r\nContent-Disposition: form-data; name="order_id"\r\n\r\n351258043645689856\r\n------WebKitFormBoundaryabc\r\nContent-Disposition: form-data; name="document_type"\r\n\r\nDECLARATION\r\n------WebKitFormBoundaryabc\r\nContent-Disposition: form-data; name="file"; filename="报关单.pdf"\r\nContent-Type: application/pdf\r\n\r\n\r\n------WebKitFormBoundaryabc--\r\n'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        p = previews[0]
+        assert p["method"] == "POST"
+        field_map = {f["key"]: f for f in p["fields"]}
+        # 文本 part：实际值作默认值
+        assert field_map["order_id"]["field_type"] == "string"
+        assert field_map["order_id"]["default_value"] == "351258043645689856"
+        assert field_map["document_type"]["default_value"] == "DECLARATION"
+        # 文件 part：file 字段，默认值留空（运行时从文件中心选）
+        assert field_map["file"]["field_type"] == "file"
+        assert field_map["file"]["default_value"] == ""
+
+    def test_form_flag_multipart(self):
+        # -F/--form 形式：@ 文件 → file 字段；键值对 → string 字段
+        text = """curl 'http://host/api/upload' -F 'order_id=123' -F 'file=@报关单.pdf'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        p = previews[0]
+        assert p["method"] == "POST"
+        assert p["content_type"] == "multipart/form-data"
+        field_map = {f["key"]: f for f in p["fields"]}
+        assert field_map["order_id"]["field_type"] == "string"
+        assert field_map["order_id"]["default_value"] == "123"
+        assert field_map["file"]["field_type"] == "file"
+
+    def test_multipart_without_boundary_no_crash(self):
+        # Content-Type 声明 multipart 但无 boundary：静默跳过，不产出字段也不报错
+        text = """curl 'http://host/api/upload' -H 'Content-Type: multipart/form-data' -d 'xxx'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        assert previews[0]["fields"] == []
+
+    def test_multipart_lf_line_endings(self):
+        # 报文用 \n（而非 \r\n）换行的 ANSI-C 字面转义，同样应解析
+        text = r"""curl 'http://host/api/upload' -H 'Content-Type: multipart/form-data; boundary=BB' --data-raw $'--BB\nContent-Disposition: form-data; name="a"\n\n1\n--BB--\n'"""
+        previews, errors = parse_curl_to_previews(text)
+        assert len(errors) == 0
+        field_map = {f["key"]: f for f in previews[0]["fields"]}
+        assert field_map["a"]["default_value"] == "1"

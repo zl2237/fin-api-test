@@ -6,39 +6,39 @@
     'Liberation Mono', 'Courier New', monospace;
 }
 
-/* ===== 亮色主题（默认） ===== */
+/* ===== 亮色主题（默认）「测试蓝图」视觉语言：实底面板 + 发丝线 + 近直角 ===== */
 :root {
-  /* 圆角阶梯 */
-  --app-radius-xs: 4px;
-  --app-radius-sm: 8px;
-  --app-radius: 12px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 16px;
+  /* 圆角阶梯：近直角系统（工程面板，拒绝通用大圆角） */
+  --app-radius-xs: 2px;
+  --app-radius-sm: 3px;
+  --app-radius: 3px;
+  --app-radius-md: 3px;
+  --app-radius-lg: 4px;
 
-  /* 表面与背景 */
-  --app-bg: #f5f5f7;
-  --app-sidebar: rgba(255, 255, 255, 0.72);
-  --app-card: rgba(255, 255, 255, 0.72);
+  /* 表面与背景：实底（去毛玻璃），冷灰图纸底 */
+  --app-bg: #f4f6f9;
+  --app-sidebar: #ffffff;
+  --app-card: #ffffff;
   --app-card-solid: #ffffff;
-  --app-canvas-bg: #fafafa;
-  --app-input-bg: #f0f0f5;
-  --app-hover: rgba(0, 0, 0, 0.04);
-  --app-active: rgba(0, 122, 255, 0.08);
-  --app-chip-bg: rgba(0, 113, 227, 0.08);
-  --app-tag-bg: #e8e8ed;
+  --app-canvas-bg: #f8f9fb;
+  --app-input-bg: #eef1f6;
+  --app-hover: rgba(28, 34, 48, 0.045);
+  --app-active: rgba(15, 114, 133, 0.09);
+  --app-chip-bg: rgba(15, 114, 133, 0.09);
+  --app-tag-bg: #e9edf4;
 
-  /* 边框与分割 */
-  --app-border: rgba(0, 0, 0, 0.08);
+  /* 边框与分割：发丝线（实色，替代透明度描边） */
+  --app-border: #e2e6ee;
 
-  /* 文字 */
-  --app-text: #1d1d1f;
-  --app-text-muted: #6e6e73;
-  --app-text-faint: #aeaeb2;
+  /* 文字：冷墨色阶 */
+  --app-text: #1c2230;
+  --app-text-muted: #5c6470;
+  --app-text-faint: #9aa1ad;
   --app-text-inverse: #ffffff;
 
-  /* 主色与点缀 */
-  --app-primary: #0071e3;
-  --app-primary-light: #42a1ff;
+  /* 主色与点缀：「审计青」金融终端墨青谱系（弃用借用的 Apple 蓝） */
+  --app-primary: #0f7285;
+  --app-primary-light: #3fa8bc;
   --app-warn-accent: #ff9500;
 
   /* 状态色（前景） */
@@ -54,57 +54,71 @@
   --app-danger-text: #d32f2f;
 
   /* 浮层 */
-  --app-tooltip-bg: rgba(0, 0, 0, 0.75);
+  --app-tooltip-bg: rgba(28, 34, 48, 0.92);
 
-  /* 阴影 */
-  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
-  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.06);
+  /* 阴影：单层低扩散，带底色色相（去 AI 式双层柔影） */
+  --app-shadow-sm: 0 1px 2px rgba(28, 34, 48, 0.06);
+  --app-shadow-lg: 0 4px 16px rgba(28, 34, 48, 0.08);
 
-  /* 发光环（选中态） */
-  --app-glow-primary: 0 0 0 2px rgba(0, 113, 227, 0.2);
+  /* 发光环（选中态/焦点环，功能性反馈，非装饰） */
+  --app-glow-primary: 0 0 0 2px rgba(15, 114, 133, 0.22);
   --app-glow-success: 0 0 0 3px rgba(52, 199, 89, 0.3);
 
-  /* 滚动条 */
-  --app-scrollbar-thumb: rgba(128, 128, 128, 0.4);
+  /* 票据切角（签名形状：主按钮/激活项右上 45° 切口，隐喻账票边缘） */
+  --app-chamfer: 8px;
 
-  /* Element Plus 对齐 */
-  --el-color-primary: #0071e3;
+  /* 蓝图网格（品牌母题：工程制图纸纹理，用于深色品牌面） */
+  --app-grid-line: rgba(255, 255, 255, 0.055);
+  --app-grid-line-strong: rgba(255, 255, 255, 0.09);
+  --app-grid-size: 24px;
+
+  /* 滚动条 */
+  --app-scrollbar-thumb: rgba(128, 138, 152, 0.45);
+
+  /* Element Plus 对齐：主色 + 全量派生变体（hover/禁用跟随，color-mix 自动衍生，修复只改主色导致 hover 偏出厂蓝的问题） */
+  --el-color-primary: #0f7285;
+  --el-color-primary-light-3: color-mix(in srgb, #0f7285 70%, white);
+  --el-color-primary-light-5: color-mix(in srgb, #0f7285 50%, white);
+  --el-color-primary-light-7: color-mix(in srgb, #0f7285 30%, white);
+  --el-color-primary-light-8: color-mix(in srgb, #0f7285 20%, white);
+  --el-color-primary-light-9: color-mix(in srgb, #0f7285 10%, white);
+  --el-color-primary-dark-2: color-mix(in srgb, #0f7285 80%, black);
   --el-border-radius-base: var(--app-radius-sm);
 }
 
-/* ===== 暗色主题 ===== */
+/* ===== 暗色主题（与亮色成对定义） ===== */
 html.dark {
-  /* 圆角阶梯（与亮色一致） */
-  --app-radius-xs: 4px;
-  --app-radius-sm: 8px;
-  --app-radius: 12px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 16px;
+  /* 圆角阶梯（与亮色一致：近直角系统） */
+  --app-radius-xs: 2px;
+  --app-radius-sm: 3px;
+  --app-radius: 3px;
+  --app-radius-md: 3px;
+  --app-radius-lg: 4px;
 
-  /* 表面与背景 */
-  --app-bg: #1c1c1e;
-  --app-sidebar: rgba(28, 28, 30, 0.72);
-  --app-card: rgba(44, 44, 46, 0.72);
-  --app-card-solid: #2c2c2e;
-  --app-canvas-bg: #2c2c2e;
-  --app-input-bg: #3a3a3c;
-  --app-hover: rgba(255, 255, 255, 0.06);
-  --app-active: rgba(10, 132, 255, 0.18);
-  --app-chip-bg: rgba(10, 132, 255, 0.16);
-  --app-tag-bg: #3a3a3c;
+  /* 表面与背景：实底分层（去毛玻璃） */
+  --app-bg: #14171c;
+  --app-sidebar: #171b21;
+  --app-card: #1d2128;
+  --app-card-solid: #1d2128;
+  --app-canvas-bg: #191d24;
+  --app-input-bg: #262b34;
+  --app-hover: rgba(232, 234, 239, 0.06);
+  --app-active: rgba(56, 195, 214, 0.18);
+  --app-chip-bg: rgba(56, 195, 214, 0.14);
+  --app-tag-bg: #2a2f3a;
 
-  /* 边框与分割 */
-  --app-border: rgba(255, 255, 255, 0.12);
+  /* 边框与分割：发丝线 */
+  --app-border: #2a2f3a;
 
   /* 文字 */
-  --app-text: #f5f5f7;
-  --app-text-muted: #98989d;
-  --app-text-faint: #636366;
-  --app-text-inverse: #1c1c1e;
+  --app-text: #e8eaef;
+  --app-text-muted: #9aa3b2;
+  --app-text-faint: #5f6875;
+  --app-text-inverse: #14171c;
 
   /* 主色与点缀 */
-  --app-primary: #0a84ff;
-  --app-primary-light: #64b4ff;
+  --app-primary: #38c3d6;
+  --app-primary-light: #7bdcea;
   --app-warn-accent: #ff9f0a;
 
   /* 状态色（前景） */
@@ -120,21 +134,31 @@ html.dark {
   --app-danger-text: #ff453a;
 
   /* 浮层 */
-  --app-tooltip-bg: rgba(255, 255, 255, 0.88);
+  --app-tooltip-bg: rgba(255, 255, 255, 0.92);
 
-  /* 阴影 */
-  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --app-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+  /* 阴影：单层低扩散（与亮色同构） */
+  --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --app-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.45);
 
   /* 发光环（选中态） */
-  --app-glow-primary: 0 0 0 2px rgba(10, 132, 255, 0.35);
+  --app-glow-primary: 0 0 0 2px rgba(56, 195, 214, 0.35);
   --app-glow-success: 0 0 0 3px rgba(48, 209, 88, 0.35);
+
+  /* 蓝图网格 */
+  --app-grid-line: rgba(255, 255, 255, 0.05);
+  --app-grid-line-strong: rgba(255, 255, 255, 0.08);
 
   /* 滚动条 */
   --app-scrollbar-thumb: rgba(200, 200, 200, 0.3);
 
-  /* Element Plus 对齐 */
-  --el-color-primary: #0a84ff;
+  /* Element Plus 对齐：暗色变体（亮色主色混黑，保持与亮色主题同源） */
+  --el-color-primary: #38c3d6;
+  --el-color-primary-light-3: color-mix(in srgb, #0f7285 70%, white);
+  --el-color-primary-light-5: color-mix(in srgb, #0f7285 50%, white);
+  --el-color-primary-light-7: color-mix(in srgb, #0f7285 30%, white);
+  --el-color-primary-light-8: color-mix(in srgb, #0f7285 20%, white);
+  --el-color-primary-light-9: color-mix(in srgb, #0f7285 10%, white);
+  --el-color-primary-dark-2: color-mix(in srgb, #38c3d6 80%, black);
   color-scheme: dark;
 }
 
@@ -158,12 +182,36 @@ body {
   transition: background 0.25s ease, color 0.25s ease;
 }
 
-/* 等宽文本统一入口：用于 JSON 预览、SQL、断言值等 */
+/* 等宽文本统一入口：用于 JSON 预览、SQL、断言值等（表格数字对齐） */
 .app-mono,
 pre,
 code,
 kbd {
   font-family: var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 机器数据排版：ID / 耗时 / 计数 / URL / 方法签统一等宽 + 表格数字 =====
+   测试平台的数据身份：一眼区分「人读的文案」与「机器产生的数据」 */
+.app-data {
+  font-family: var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
+}
+
+/* ===== 蓝图网格（品牌母题）：工程制图纸纹理，铺在深色品牌面上 ===== */
+.app-blueprint {
+  background-image:
+    linear-gradient(var(--app-grid-line-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
+  background-size:
+    var(--app-grid-size) var(--app-grid-size),
+    var(--app-grid-size) var(--app-grid-size),
+    calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6),
+    calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6);
+  background-position: -1px -1px;
 }
 
 /* 统一圆角：所有卡片、面板、输入框遵循一致圆角 */
@@ -178,6 +226,28 @@ kbd {
 
 .el-button {
   border-radius: var(--app-radius-sm) !important;
+}
+
+/* ===== 票据切角签名：主操作按钮右上 45° 切口 =====
+   形状锁三档规则：面板近直角 2-4px / 主操作切角 / 头像与状态徽章圆 */
+.el-button--primary {
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--app-chamfer)) 0,
+    100% var(--app-chamfer),
+    100% 100%,
+    0 100%
+  );
+}
+/* 物理按压反馈：主按钮按下位移 1px（触觉反馈，瞬时无过渡） */
+.el-button--primary:active {
+  transform: translateY(1px);
+}
+
+/* 状态标签印章感：加字重（通过/失败等结论值是审计「章」，非装饰文案） */
+.el-tag {
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .el-input__wrapper,
@@ -309,7 +379,6 @@ html.dark .el-table__header-wrapper th.el-table__cell {
   gap: 8px 12px;
   padding: 12px 20px;
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
 }
 .page-head .head-left,
@@ -430,4 +499,34 @@ html.dark .el-table__header-wrapper th.el-table__cell {
 /* 暗色模式适配 */
 html.dark .el-dialog__header::after {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-primary-light) 50%, transparent) 30%, color-mix(in srgb, var(--app-primary) 50%, transparent) 70%, transparent);
+}
+
+/* ===== Vercel Web Interface Guidelines 修正（触控/滚动链/标题排版） ===== */
+/* 触控：可点元素消除 300ms 双击缩放延迟 */
+button,
+[role='button'],
+.el-button,
+.el-link {
+  touch-action: manipulation;
+}
+/* 弹层滚动链：弹窗/抽屉内滚动不穿透到底层页面 */
+.el-dialog,
+.el-drawer,
+.el-message-box,
+.el-select__popper.el-popper {
+  overscroll-behavior: contain;
+}
+/* 标题孤字换行防护 */
+h1,
+h2,
+h3,
+.page-title {
+  text-wrap: balance;
+}
+/* 悬浮提示统一走 el-tooltip + popper-class="app-tip"：限宽自动换行，长内容不横贯屏幕 */
+.app-tip {
+  max-width: min(420px, 80vw);
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
 }

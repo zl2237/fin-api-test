@@ -5,7 +5,8 @@
 """
 from types import SimpleNamespace
 
-from app.services.body_builder import build_request_body, parse_field_value, set_nested
+from app.engine.preprocessor import set_nested_value
+from app.services.body_builder import build_request_body, parse_field_value
 
 
 def _field(key, default_value="", field_type="string"):
@@ -116,24 +117,32 @@ class TestParseFieldValue:
         assert parse_field_value("hello", "string") == "hello"
 
 
-class TestSetNested:
+class TestSetNestedValue:
+    """嵌套设值统一后的语义（build_request_body 与编排 set_field 共用）"""
+
     def test_simple_key(self):
         d = {}
-        set_nested(d, "a", 1)
+        set_nested_value(d, "a", 1)
         assert d == {"a": 1}
 
     def test_nested_path(self):
         d = {}
-        set_nested(d, "a.b.c", 1)
+        set_nested_value(d, "a.b.c", 1)
         assert d == {"a": {"b": {"c": 1}}}
 
     def test_overwrite_non_dict_intermediate(self):
         # 中间节点是非 dict 字符串，应被替换为 dict
         d = {"a": "x"}
-        set_nested(d, "a.b", 1)
+        set_nested_value(d, "a.b", 1)
         assert d == {"a": {"b": 1}}
 
     def test_existing_dict_intermediate_preserved(self):
         d = {"a": {"existing": 1}}
-        set_nested(d, "a.b", 2)
+        set_nested_value(d, "a.b", 2)
         assert d == {"a": {"existing": 1, "b": 2}}
+
+    def test_list_index_into_existing_list(self):
+        # 统一实现的既有语义：数字路径段只索引已存在的列表（与编排 set_field 同一行为）
+        d = {"items": [{"name": "a"}]}
+        set_nested_value(d, "items.0.name", "b")
+        assert d == {"items": [{"name": "b"}]}

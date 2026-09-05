@@ -14,6 +14,8 @@ import json
 from copy import deepcopy
 from typing import Any
 
+from ..engine.preprocessor import set_nested_value
+
 
 def build_request_body(api) -> Any:
     """按 api.fields 组装请求体；无 fields 时回退 request_template。"""
@@ -30,8 +32,8 @@ def build_request_body(api) -> Any:
             continue
         # 解析默认值：支持 JSON（array/object 类型）、表达式、纯字符串
         val = parse_field_value(f.default_value, f.field_type)
-        # 按点号路径设置到嵌套 dict
-        set_nested(body, f.key, val)
+        # 按点号路径设置到嵌套结构（含列表下标，与编排 set_field 同一实现）
+        set_nested_value(body, f.key, val)
     return [body] if is_array_body else body
 
 
@@ -44,7 +46,7 @@ def parse_field_value(raw: str | None, field_type: str) -> Any:
     - int → 转整数，失败保留原值
     - bool → 按常见真值字符串判定
     - string → 保留原值（含 ${...} 表达式由后续 preprocessor 求值）
-    - file → 原样保留（值是 file_id 字符串，由 extract_file_fields 提取）
+    - file → 原样保留（值是 file_id 字符串，由 pop_file_fields_from_body 剥离）
     """
     if raw is None or raw == "":
         return "" if field_type == "string" else None
@@ -68,17 +70,6 @@ def parse_field_value(raw: str | None, field_type: str) -> Any:
         return raw.lower() in ("true", "1", "yes")
     # file / string 类型，保留原值
     return raw
-
-
-def set_nested(target: dict[str, Any], path: str, value: Any) -> None:
-    """按点号路径设置嵌套 dict 值。"""
-    keys = path.split(".")
-    cur = target
-    for k in keys[:-1]:
-        if k not in cur or not isinstance(cur[k], dict):
-            cur[k] = {}
-        cur = cur[k]
-    cur[keys[-1]] = value
 
 
 def apply_row_overrides(body: Any, row_vars: dict[str, Any] | None) -> Any:
@@ -105,26 +96,6 @@ def apply_row_overrides(body: Any, row_vars: dict[str, Any] | None) -> Any:
             if k in target and not (isinstance(target[k], str) and "${" in target[k]):
                 target[k] = v
     return body
-
-
-def extract_file_fields(api) -> list[tuple[str, str]]:
-    """提取接口中 file 类型字段的 (path, file_id) 列表。
-
-    返回值供 dag_executor 构建 multipart files 参数：
-    - path：字段路径（如 'id_card' 或 'to_customer.id_card'），作为 multipart 字段名
-    - file_id：文件中心文件 ID（字符串），用于查询物理文件
-    """
-    fields = getattr(api, "fields", None) or []
-    result: list[tuple[str, str]] = []
-    for f in fields:
-        if not f.key or f.field_type != "file":
-            continue
-        val = (f.default_value or "").strip()
-        if not val or "${" in val:
-            # 空值或表达式（file 类型暂不支持表达式注入）跳过
-            continue
-        result.append((f.key, val))
-    return result
 
 
 def pop_file_fields_from_body(body: Any, api) -> tuple[Any, list[tuple[str, str]]]:

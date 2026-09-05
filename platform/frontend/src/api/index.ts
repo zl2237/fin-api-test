@@ -75,8 +75,8 @@ http.interceptors.response.use(
       }
     }
     // blob 请求（文件下载/导出）失败时 body 是 Blob，需读文本后解析出后端 detail；
-    // 解析完再统一 reject，保证调用方 catch 到的仍是 Error(msg)
-    const rejectWithMsg = (msg: string) => Promise.reject(new Error(msg))
+    // 解析完再统一 reject，保证调用方 catch 到的仍是 ApiError
+    const rejectWithMsg = (msg: string) => Promise.reject(new ApiError(msg, status))
     const data = error?.response?.data
     if (typeof Blob !== 'undefined' && data instanceof Blob && data.type.includes('json')) {
       return data.text().then((txt: string) => {
@@ -92,32 +92,38 @@ http.interceptors.response.use(
   },
 )
 
+// ============ ApiError 契约 ============
+// 拦截器把一切失败（HTTP 错误/blob 响应/网络错误）规整为 ApiError：
+// message 必为后端 detail（缺失时回退 axios message / '请求失败'）。
+// 调用方 catch 只读 e.message，不要再写 e?.response?.data?.detail 之类的对冲解析。
+export class ApiError extends Error {
+  /** HTTP 状态码；无响应（网络错误/超时）时为 undefined */
+  status?: number
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 // ============ 类型 ============
-export interface User {
-  id: number; username: string; name?: string; role: string; must_change_password?: boolean; created_at?: string
-  phone?: string | null; email?: string | null; department?: string | null
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-  has_avatar?: boolean
-}
-export interface Project {
-  id: number; name: string; description?: string; sort_order?: number; created_at?: string
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-}
+// 响应类型优先取 OpenAPI 生成物别名（npm run gen:api，后端 Pydantic 为单一事实源）。
+// 仍手写的接口分两类：嵌套结构在生成物中退化为 unknown（Environment/ApiDef/TestCase/
+// NodeConfig/记录族/DataSet 族/版本族——视图需要更强的领域形状），或手写 union 承载
+// 领域约束（TestSchedule 的 schedule_type、DataSetColumn 的 type）；待后端模型细化后分批换。
+export type User = components['schemas']['UserOut']
+export type Project = components['schemas']['ProjectOut']
 export interface Environment {
   id: number; project_id: number; name: string; base_url: string
   db_config: Record<string, any>
   login_config: Record<string, any>
   notify_config: Record<string, any>
   variables: Record<string, any>
-  common_headers: Record<string, any>; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
+  common_headers: Record<string, any>; success_codes?: string; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
-export interface ApiGroup {
-  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
-}
+export type ApiGroup = components['schemas']['ApiGroupOut']
 export interface ApiField {
   id?: number; api_id?: number
   key: string; label?: string; field_type: string; required: boolean
@@ -139,9 +145,7 @@ export interface HarPreviewItem {
   fields: HarPreviewField[]; is_array_body: boolean; content_type: string
   _selected?: boolean  // 前端勾选状态
 }
-export interface CaseGroup {
-  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number; created_at?: string
-}
+export type CaseGroup = components['schemas']['CaseGroupOut']
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
   pre_process: any[]; post_extract: any[]; assertions: any[]
@@ -149,11 +153,26 @@ export interface NodeConfig {
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
+  case_type?: string  // normal 普通用例 / suite 套件（成员为跨项目用例链）
+  shared_vars?: string[] | null  // 套件专用：共享变量白名单（上游产出→下游注入）
   dag_config: { nodes: any[]; edges: any[] }
   node_configs: NodeConfig[]; sort_order?: number; created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   dataset_id?: number | null  // 绑定的数据集（数据驱动），NULL=普通用例
+}
+
+// 套件成员（跨项目用例引用，逐成员独立绑定环境，串行执行）
+export interface SuiteMember {
+  id?: number
+  member_case_id: number
+  env_id: number
+  sort_order?: number
+  case_name?: string | null
+  project_id?: number | null
+  project_name?: string | null
+  env_name?: string | null
+  member_case_type?: string
 }
 export interface AssertionRecord {
   id: number; step_id: number; rule_type: string; rule_config?: any
@@ -165,6 +184,9 @@ export interface StepRecord {
   request_headers?: any; request_body?: any; response_status?: number
   response_body?: any; response_time_ms?: number
   started_at?: string; ended_at?: string; status?: string
+  pre_process?: { type?: string; path?: string; value?: any; sql?: string }[] | null
+  post_extract?: Record<string, any>[] | null
+  extracted_vars?: Record<string, any> | null
   assertions: AssertionRecord[]
 }
 export interface ExecutionRecord {
@@ -173,6 +195,7 @@ export interface ExecutionRecord {
   project_id?: number | null; project_name?: string | null
   status: string
   started_at?: string; ended_at?: string; summary: Record<string, any>
+  suite_execution_id?: number | null  // 非空=套件链成员执行，指向套件主执行记录
   dataset_id?: number | null
   dataset_row?: { row_index: number; data: Record<string, any>; label: string } | null
   steps: StepRecord[]
@@ -264,20 +287,10 @@ export const userApi = {
 }
 
 // ============ 操作日志（仅管理员） ============
-export interface OperationLog {
-  id: number
-  user_id: number | null
-  username: string | null
-  action: string
-  target_type: string
-  target_id: number | null
-  target_name: string | null
-  detail: string | null
-  created_at: string | null
-}
+export type OperationLog = components['schemas']['OperationLogOut']
 
 export const logApi = {
-  list: (params?: { action?: string; target_type?: string; user_id?: number; limit?: number }) =>
+  list: (params?: { action?: string; target_type?: string; user_id?: number; limit?: number; start_time?: string; end_time?: string }) =>
     http.get<OperationLog[]>('/operation-logs', { params }).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/operation-logs/cleanup', { params: { days } }).then((r) => r.data),
 }
@@ -382,11 +395,17 @@ export const caseApi = {
   execute: (caseId: number, envId: number, opts?: { dataset_id?: number | null; row_ids?: number[] }) =>
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`,
       { case_id: caseId, env_id: envId, dataset_id: opts?.dataset_id ?? undefined, row_ids: opts?.row_ids ?? undefined }).then((r) => r.data),
-  batchExecute: (caseIds: number[], envId: number, counts?: number[]) =>
-    http.post<ExecutionRecord[]>('/testcases/batch-execute', { case_ids: caseIds, env_id: envId, counts }).then((r) => r.data),
+  batchExecute: (caseIds: number[], envId: number, counts?: number[], concurrency: number = 4) =>
+    http.post<ExecutionRecord[]>('/testcases/batch-execute',
+      { case_ids: caseIds, env_id: envId, counts, concurrency }).then((r) => r.data),
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
   exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
+  // 套件成员：按执行顺序返回（带用例/项目/环境冗余名）；PUT 整体替换（编排保存语义）
+  getMembers: (caseId: number) =>
+    http.get<SuiteMember[]>(`/testcases/${caseId}/members`).then((r) => r.data),
+  updateMembers: (caseId: number, members: { member_case_id: number; env_id: number; sort_order?: number }[]) =>
+    http.put<SuiteMember[]>(`/testcases/${caseId}/members`, { members }).then((r) => r.data),
   // 多用例组合（拼接成新用例），caseIds 顺序即拼接顺序
   combine: (caseIds: number[], name: string, groupId?: number | null) =>
     http.post<TestCase>('/testcases/combine', { case_ids: caseIds, name, group_id: groupId ?? null }).then((r) => r.data),
@@ -427,10 +446,10 @@ export const scheduleApi = {
 
 // ============ DataSet 数据集（数据驱动测试，用例私有 1:N） ============
 export interface DataSetColumn {
-  key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object'  // 中文名实时引用字段字典，缺失显 key
+  key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object' | 'file'  // file=文件中心文件 ID；中文名实时引用字段字典，缺失显 key
   origin?: any  // 快照原值（生成列携带）：执行时快照保真比对基准，手工列无
 }
-export interface DataSetNodeConfig {  // 节点配置快照（只读，手动重新同步）
+export interface DataSetNodeConfig {  // 节点配置快照（只读；保存用例自动同步，手动 resync 兜底）
   node_id: string; api_id?: number | null
   pre_process?: any[]; post_extract?: any[]; assertions?: any[]; wait_after_ms?: number
 }
@@ -457,7 +476,8 @@ export const datasetApi = {
   remove: (id: number) => http.delete(`/datasets/${id}`),
   // 复制：列/行/节点配置快照全量深拷贝，归属同用例
   copy: (id: number) => http.post<DataSet>(`/datasets/${id}/copy`).then((r) => r.data),
-  // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）
+  // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）。
+  // 保存用例（编排有改动）时后端已自动同步全部绑定数据集，此为手动兜底入口
   resync: (id: number) =>
     http.post<{ message: string; nodes: number }>(`/datasets/${id}/resync`).then((r) => r.data),
   // 快照过期检测：节点配置快照 vs 用例当前编排 的字段级差异
@@ -467,7 +487,7 @@ export const datasetApi = {
   generate: (caseId: number, name?: string) =>
     http.post<{
       dataset: DataSet
-      stats: { nodes: number; columns: number; dynamic: number; nested: number; empty: number; conflicts: { key: string; values: any[] }[] }
+      stats: { nodes: number; columns: number; dynamic: number; nested: number; empty: number; invalid: number; conflicts: { key: string; values: any[] }[] }
     }>('/datasets/generate', { case_id: caseId, name: name || undefined }).then((r) => r.data),
   // 行操作
   listRows: (id: number) => http.get<DataSetRow[]>(`/datasets/${id}/rows`).then((r) => r.data),
@@ -517,8 +537,11 @@ export const projectVersionApi = {
 
 // ============ Execution / Report ============
 export const execApi = {
-  list: (params?: { case_id?: number; project_id?: number; created_by?: number; limit?: number }) =>
-    http.get<ExecutionRecord[]>('/executions', { params }).then((r) => r.data),
+  list: (params?: { case_id?: number; project_id?: number; created_by?: number; limit?: number; offset?: number; case_name?: string; status?: string; start_time?: string; end_time?: string; sort_by?: string; order?: string }) =>
+    http.get<{ items: ExecutionRecord[]; total: number }>('/executions', { params }).then((r) => r.data),
+  // 近 N 天执行统计（工作台）：全量聚合口径，不受列表翻页截断影响
+  stats: (params?: { days?: number; project_id?: number }) =>
+    http.get<{ count: number; passed: number; rate: number | null; days: number }>('/executions/stats', { params }).then((r) => r.data),
   get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
   report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
   // 报告导出（后端组装：csv=Excel 兼容 BOM+CRLF；html=自包含单文件报告）
@@ -528,12 +551,7 @@ export const execApi = {
 }
 
 // ============ FieldDictionary 字段字典 ============
-export interface FieldDictionary {
-  id: number; project_id: number; key: string; label: string
-  created_at?: string; updated_at?: string
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-}
+export type FieldDictionary = components['schemas']['FieldDictionaryOut']
 
 export const dictApi = {
   list: (projectId: number, keyword?: string) =>
@@ -550,19 +568,8 @@ export const dictApi = {
 }
 
 // ============ FileCenter 文件中心 ============
-export interface FileCategory {
-  id: number; project_id: number; parent_id?: number | null; name: string; sort_order: number
-  created_at?: string; created_by?: number | null; created_by_name?: string | null
-}
-
-export interface TestFile {
-  id: number; project_id: number; category_id?: number | null
-  name: string; original_name: string; content_type: string; size: number
-  sha256: string; storage_path: string; ref_count: number
-  created_at?: string; updated_at?: string
-  created_by?: number | null; updated_by?: number | null
-  created_by_name?: string | null; updated_by_name?: string | null
-}
+export type FileCategory = components['schemas']['FileCategoryOut']
+export type TestFile = components['schemas']['FileOut']
 
 export const fileApi = {
   // 文件 CRUD

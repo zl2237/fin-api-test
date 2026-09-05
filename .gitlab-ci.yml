@@ -161,23 +161,51 @@ deploy:
     url: http://192.168.22.106
 
 # ===========================================================================
-# 4. 企微通知（无论成功/失败都执行）
+# 4. 企微通知（成功/失败双任务，GitLab when 语义保证互斥）
 #    notify 只需 curl 发 webhook，不需要 SSH；用 CI 内置变量代替 git log。
 #    alpine 默认 UTC 无时区，需安装 tzdata 让 TZ='Asia/Shanghai' 生效。
 # ===========================================================================
-notify-wecom:
+# 双任务判定：全部成功 → notify-success；任一失败 → notify-failure（附失败 job 日志摘要）。
+# when 必须写在 rules 条目内：job 定义了 rules 时，job 级 when 会被 GitLab 忽略
+#（rules 未指定 when 时默认 on_success，on_failure 写在 job 级将永远不生效）。
+# 不再用 CI_PIPELINE_STATUS 判成败：notify 任务自身也在流水线内，它启动时流水线
+# 状态恒为 running（failed 要等所有任务结束才落定），旧单任务据此永远报成功。
+notify-success:
   stage: notify
   image: alpine:latest
-  needs:
-    - job: backend-lint
-      optional: true
-    - job: frontend-lint
-      optional: true
-    - job: frontend-build
-      optional: true
-    - job: deploy
-      optional: true
-  when: always
+  script:
+    - sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
+    - apk add --no-cache curl tzdata jq
+    - |
+      NL=$(printf '\n')
+      COMMIT_MSG=$(printf '%s' "${CI_COMMIT_MESSAGE}" | head -n 1)
+      AUTHOR="${GITLAB_USER_NAME}"
+      SHORT_SHA="${CI_COMMIT_SHORT_SHA}"
+      BRANCH="${CI_COMMIT_BRANCH}"
+      PIPELINE_URL="${CI_PIPELINE_URL}"
+      PROJECT_URL="${CI_PROJECT_URL}"
+      TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
+
+      MARKDOWN="## fin-api-test 部署通知  ✅ 成功${NL}"
+      MARKDOWN="${MARKDOWN}> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)${NL}"
+      MARKDOWN="${MARKDOWN}> **分支**：$BRANCH${NL}"
+      MARKDOWN="${MARKDOWN}> **提交**：$SHORT_SHA - $COMMIT_MSG${NL}"
+      MARKDOWN="${MARKDOWN}> **提交者**：$AUTHOR${NL}"
+      MARKDOWN="${MARKDOWN}> **时间**：$TIMESTAMP${NL}"
+      MARKDOWN="${MARKDOWN}> **流水线**：[查看详情]($PIPELINE_URL)${NL}"
+
+      # jq 构造 JSON，避免消息含引号/换行时打爆 payload
+      PAYLOAD=$(jq -n --arg md "$MARKDOWN" '{msgtype:"markdown",markdown:{content:$md}}')
+      curl -s -X POST "$WECOM_WEBHOOK" \
+        -H 'Content-Type: application/json' \
+        -d "$PAYLOAD"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
+
+notify-failure:
+  stage: notify
+  image: alpine:latest
   script:
     - sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
     - apk add --no-cache curl tzdata jq
@@ -189,41 +217,32 @@ notify-wecom:
       # 企微 markdown 会把 "\n" 渲染成转义的 n，导致换行变 "n" 粘行
       NL=$(printf '\n')
       FAIL_SECTION=""
-      if [ "$CI_PIPELINE_STATUS" = "failed" ]; then
-        API_BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
-        if [ -n "$GITLAB_API_TOKEN" ]; then
-          AUTH_H="PRIVATE-TOKEN: $GITLAB_API_TOKEN"
-        else
-          AUTH_H="Job-Token: $CI_JOB_TOKEN"
-        fi
-        JOBS_JSON=$(curl -s -H "$AUTH_H" "$API_BASE/pipelines/$CI_PIPELINE_ID/jobs" || true)
-        FAILED_JOBS=$(echo "$JOBS_JSON" | jq -r '.[]? | select(.status=="failed") | "\(.id)|\(.name)"' 2>/dev/null || true)
-        if [ -n "$FAILED_JOBS" ]; then
-          FAIL_SECTION="${NL}> **失败原因摘要**：${NL}"
-          for line in $FAILED_JOBS; do
-            JID="${line%%|*}"; JNAME="${line##*|}"
-            # 取日志尾部 300 行中的错误行（最多 6 行），防通知超长
-            # （引号转义交给 jq --arg，无需手动替换）
-            REASON=$(curl -s -H "$AUTH_H" "$API_BASE/jobs/$JID/trace" 2>/dev/null \
-              | tail -n 300 | grep -iE "error|failed|exception|traceback|✗" | tail -n 6 \
-              | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//' | head -c 800)
-            if [ -n "$REASON" ]; then
-              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】${NL}> \`\`\`${NL}${REASON}${NL}\`\`\`${NL}"
-            else
-              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）${NL}"
-            fi
-          done
-        fi
+      API_BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
+      if [ -n "$GITLAB_API_TOKEN" ]; then
+        AUTH_H="PRIVATE-TOKEN: $GITLAB_API_TOKEN"
+      else
+        AUTH_H="Job-Token: $CI_JOB_TOKEN"
+      fi
+      JOBS_JSON=$(curl -s -H "$AUTH_H" "$API_BASE/pipelines/$CI_PIPELINE_ID/jobs" || true)
+      FAILED_JOBS=$(echo "$JOBS_JSON" | jq -r '.[]? | select(.status=="failed") | "\(.id)|\(.name)"' 2>/dev/null || true)
+      if [ -n "$FAILED_JOBS" ]; then
+        FAIL_SECTION="${NL}> **失败原因摘要**：${NL}"
+        for line in $FAILED_JOBS; do
+          JID="${line%%|*}"; JNAME="${line##*|}"
+          # 取日志尾部 300 行中的错误行（最多 6 行），防通知超长
+          # （引号转义交给 jq --arg，无需手动替换）
+          REASON=$(curl -s -H "$AUTH_H" "$API_BASE/jobs/$JID/trace" 2>/dev/null \
+            | tail -n 300 | grep -iE "error|failed|exception|traceback|✗" | tail -n 6 \
+            | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//' | head -c 800)
+          if [ -n "$REASON" ]; then
+            FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】${NL}> \`\`\`${NL}${REASON}${NL}\`\`\`${NL}"
+          else
+            FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）${NL}"
+          fi
+        done
       fi
     - |
-      # notify 是最后一个 stage，运行时前置 stage 的 job 状态已确定：
-      #   有 job 失败 → CI_PIPELINE_STATUS=failed
-      #   全部成功   → CI_PIPELINE_STATUS=running（notify 自身还在跑）
-      if [ "$CI_PIPELINE_STATUS" = "failed" ]; then
-        PIPELINE_STATUS="❌ 失败"
-      else
-        PIPELINE_STATUS="✅ 成功"
-      fi
+      # on_failure 任务只在有 job 失败时被调度，状态写死，不再判流水线变量
       # 用 CI 内置变量取提交信息，不依赖 git 命令（alpine 镜像未装 git）；
       # 只取首行——完整 message 含 body 多行换行，会打断 markdown 引用块
       COMMIT_MSG=$(printf '%s' "${CI_COMMIT_MESSAGE}" | head -n 1)
@@ -234,7 +253,7 @@ notify-wecom:
       PROJECT_URL="${CI_PROJECT_URL}"
       TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
 
-      MARKDOWN="## fin-api-test 部署通知  $PIPELINE_STATUS${NL}"
+      MARKDOWN="## fin-api-test 部署通知  ❌ 失败${NL}"
       MARKDOWN="${MARKDOWN}> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)${NL}"
       MARKDOWN="${MARKDOWN}> **分支**：$BRANCH${NL}"
       MARKDOWN="${MARKDOWN}> **提交**：$SHORT_SHA - $COMMIT_MSG${NL}"
@@ -250,3 +269,4 @@ notify-wecom:
         -d "$PAYLOAD"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+      when: on_failure

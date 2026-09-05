@@ -139,6 +139,14 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
         except ValueError as e:
             raise HTTPException(400, str(e))
     obj = crud.update_testcase(db, obj, data, user.id)
+    # 编排有改动时自动同步绑定数据集的节点配置快照（省去数据集页手动 resync）；
+    # 同步失败不影响用例保存——快照过期仍可 drift 检测兜底并手动 resync
+    if {"node_configs", "dag_config"} & data.model_fields_set:
+        from ..services.dataset_service import sync_case_datasets
+        try:
+            sync_case_datasets(db, obj.id)
+        except Exception as e:
+            print(f"[保存用例] 自动同步数据集节点配置快照失败（忽略）: {e}")
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj
@@ -174,6 +182,69 @@ def copy(case_id: int, db: Session = Depends(get_db), user: models.User = Depend
     crud.fill_audit_names(db, new_obj)
     crud.log_operation(db, user, "copy", "testcase", new_obj.id, new_obj.name)
     return new_obj
+
+
+# ============ 套件成员（case_type=suite 专用） ============
+def _member_out(db: Session, m: models.SuiteMember) -> schemas.SuiteMemberOut:
+    """ORM 成员行 → 带 用例名/项目/环境名 的展示 DTO（引用悬空时名称置空不炸）"""
+    out = schemas.SuiteMemberOut(
+        id=m.id, member_case_id=m.member_case_id, env_id=m.env_id,
+        sort_order=m.sort_order)
+    mc = crud.get_testcase(db, m.member_case_id)
+    if mc:
+        out.case_name = mc.name
+        out.project_id = mc.project_id
+        project = crud.get_project(db, mc.project_id)
+        out.project_name = project.name if project else None
+        out.member_case_type = getattr(mc, "case_type", "normal")
+    env = crud.get_environment(db, m.env_id)
+    out.env_name = env.name if env else None
+    return out
+
+
+@router.get("/{case_id}/members", response_model=list[schemas.SuiteMemberOut])
+def list_members(case_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """套件成员列表（按执行顺序），带用例/项目/环境冗余名"""
+    case = crud.get_testcase(db, case_id)
+    if not case:
+        raise HTTPException(404, "用例不存在")
+    members = (db.query(models.SuiteMember)
+               .filter(models.SuiteMember.suite_case_id == case_id)
+               .order_by(models.SuiteMember.sort_order, models.SuiteMember.id).all())
+    return [_member_out(db, m) for m in members]
+
+
+@router.put("/{case_id}/members", response_model=list[schemas.SuiteMemberOut])
+def replace_members(case_id: int, data: schemas.SuiteMembersUpdate,
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """整体替换套件成员（编排保存语义）。校验：宿主是套件、成员存在且非套件（禁嵌套）、
+    环境存在、不得引用自身；sort_order 按提交顺序重排（0 起）。"""
+    case = crud.get_testcase(db, case_id)
+    if not case:
+        raise HTTPException(404, "用例不存在")
+    if getattr(case, "case_type", "normal") != "suite":
+        raise HTTPException(400, "只有套件类型的用例才能配置成员")
+    for item in data.members:
+        if item.member_case_id == case_id:
+            raise HTTPException(400, "套件成员不能引用套件自身")
+        mc = crud.get_testcase(db, item.member_case_id)
+        if not mc:
+            raise HTTPException(400, f"成员用例不存在: {item.member_case_id}")
+        if getattr(mc, "case_type", "normal") == "suite":
+            raise HTTPException(400, f"套件不能嵌套套件：{mc.name}")
+        if not crud.get_environment(db, item.env_id):
+            raise HTTPException(400, f"成员 {mc.name} 绑定的环境不存在: {item.env_id}")
+    db.query(models.SuiteMember).filter(models.SuiteMember.suite_case_id == case_id).delete()
+    for idx, item in enumerate(data.members):
+        db.add(models.SuiteMember(suite_case_id=case_id, member_case_id=item.member_case_id,
+                                  env_id=item.env_id, sort_order=idx))
+    db.commit()
+    crud.log_operation(db, user, "update", "testcase", case_id,
+                       f"套件成员保存（{len(data.members)} 个）")
+    members = (db.query(models.SuiteMember)
+               .filter(models.SuiteMember.suite_case_id == case_id)
+               .order_by(models.SuiteMember.sort_order, models.SuiteMember.id).all())
+    return [_member_out(db, m) for m in members]
 
 
 @router.post("/{case_id}/scan-split")

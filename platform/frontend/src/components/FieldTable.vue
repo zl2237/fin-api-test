@@ -8,11 +8,7 @@
       </el-table-column>
       <el-table-column label="中文名" width="150">
         <template #default="{ row }">
-          <el-input
-            v-model="row.label"
-            size="small"
-            :placeholder="dictLabel(row.key) || '订单ID'"
-          />
+          <el-input v-model="row.label" size="small" placeholder="订单ID" />
           <div v-if="!row.label && dictLabel(row.key)" class="dict-hint">字典: {{ dictLabel(row.key) }}</div>
         </template>
       </el-table-column>

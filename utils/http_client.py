@@ -17,6 +17,23 @@ class HttpClient:
         self.session = requests.Session()
         self.headers: Dict[str, str] = {}
         self._token_refresh_callback: Optional[Callable[[], None]] = None
+        # 业务成功码集合（响应 code 命中任一即成功）：不同系统约定不同
+        # （物流系统 200 / ThinkPHP 系 1 / 部分系统 0），由环境配置注入，默认平台约定 200
+        self.success_codes: set = {"200"}
+
+    def set_success_codes(self, codes) -> None:
+        """配置业务成功码集合，兼容 '200,1' 字符串 / list / 单值；空值忽略保持现值"""
+        if codes is None:
+            return
+        if isinstance(codes, str):
+            parts = codes.split(",")
+        elif isinstance(codes, (list, tuple, set)):
+            parts = list(codes)
+        else:
+            parts = [codes]
+        normalized = {str(p).strip() for p in parts if str(p).strip() != ""}
+        if normalized:
+            self.success_codes = normalized
 
     def set_header(self, key: str, value: str):
         """设置单个请求头"""
@@ -38,6 +55,14 @@ class HttpClient:
 
     def post(self, url: str, json: Optional[Dict] = None, timeout=10) -> Dict:
         return self._request("POST", url, json=json, timeout=timeout)
+
+    def post_form(self, url: str, data: Optional[Dict] = None, timeout=10) -> Dict:
+        """发送 application/x-www-form-urlencoded 请求（data 会被 requests 表单编码）。
+
+        调用方须保证 self.headers 的 Content-Type 是 form-urlencoded
+        （headers 已有时 requests 不会改写，与 data 编码方式一致）
+        """
+        return self._request("POST", url, data=data, timeout=timeout)
 
     def post_multipart(self, url: str, data: Optional[Dict] = None, files: Optional[list] = None, timeout=20) -> Dict:
         """发送 multipart/form-data 请求（文件上传场景）。
@@ -120,17 +145,23 @@ class HttpClient:
         if resp.status_code not in (200,):
             raise HttpStatusError(resp.status_code, full_url, resp_text)
 
-        # JSON解析失败
-        if resp_json is None:
+        # JSON解析失败 / 非对象 JSON（如 ThinkPHP 裸标量响应 "-404"、JSON 数组）
+        # 无法从中读业务码，与"解析失败"同等对待：原文交回上层（断言/调试展示）判定
+        if not isinstance(resp_json, dict):
             raise JsonParseError(full_url, resp_text)
 
-        # 业务码异常（启用，符合你的架构规划）
-        if resp_json.get("code") != 200:
+        # 业务码异常：仅当响应携带 code 且不在环境配置的成功码集合时判定
+        # （平台默认 {200}；环境 success_codes 可适配不同系统约定，如 ThinkPHP 成功 code:1）。
+        # code 缺失/为 null（如 ThinkPHP 系统成功响应 {"code":null,...}）时无约定
+        # 可依，不视为业务失败，原样返回交断言裁决
+        code = resp_json.get("code")
+        if code is not None and str(code).strip() not in self.success_codes:
             raise BusinessError(
-                code=resp_json.get("code"),
+                code=code,
                 msg=resp_json.get("msg", ""),
                 url=full_url,
-                resp_text=resp_text
+                resp_text=resp_text,
+                resp_json=resp_json
             )
 
         return resp_json

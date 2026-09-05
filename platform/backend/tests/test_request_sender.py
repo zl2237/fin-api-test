@@ -9,6 +9,8 @@
 """
 from types import SimpleNamespace
 
+import json
+
 import pytest
 from utils.exceptions import AuthError, BusinessError, HttpStatusError, HttpTimeoutError
 
@@ -34,6 +36,12 @@ class StubClient:
             raise self._exc
         return self._resp
 
+    def post_form(self, path, data=None, timeout=None):
+        self.calls.append(("post_form", path, data, timeout))
+        if self._exc:
+            raise self._exc
+        return self._resp
+
     def post_multipart(self, path, data=None, files=None, timeout=None):
         self.calls.append(("multipart", path, data, [f[0] for f in files], timeout))
         if self._exc:
@@ -53,6 +61,13 @@ class TestSendRequestDispatch:
         assert data == {"ok": 1}
         assert c.calls[0][0] == "get"
         assert c.calls[0][2] == {"a": 1}
+
+    def test_get_array_body_takes_first_dict_as_params(self):
+        """数组请求体 GET：params 取首元素，避免 list 传 requests.params 触发解包异常"""
+        c = StubClient(resp={"ok": 1})
+        code, _, err = send_request(None, c, _api("GET"), [{"a": 1, "b": 2}], timeout=7)
+        assert (code, err) == (200, None)
+        assert c.calls[0][2] == {"a": 1, "b": 2}
 
     def test_post_uses_json(self):
         c = StubClient()
@@ -109,6 +124,44 @@ class TestSendRequestDispatch:
         assert c.calls[0][0] == "post"
 
 
+class TestFormUrlencoded:
+    """表单接口（headers 声明 x-www-form-urlencoded）按表单编码发送。
+
+    回归场景：curl 导入声明 form 的接口（如 precheckSyncFiles.html）此前统一走
+    json= 且 headers 已有 Content-Type 时 requests 不改写，形成「form 声明 +
+    JSON 文本」的错配请求，服务端按表单解析取不到任何字段。
+    """
+
+    def test_form_headers_uses_post_form(self):
+        c = StubClient()
+        c.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        code, _, err = send_request(None, c, _api("POST"), {"order_no": "YHL1"}, timeout=7)
+        assert (code, err) == (200, None)
+        assert c.calls[0][0] == "post_form"
+        assert c.calls[0][2] == {"order_no": "YHL1"}
+
+    def test_form_array_body_takes_first_dict(self):
+        c = StubClient()
+        c.headers["Content-Type"] = "application/x-www-form-urlencoded"
+        send_request(None, c, _api("POST"), [{"a": 1}, {"b": 2}])
+        assert c.calls[0][2] == {"a": 1}
+
+    def test_per_request_headers_used_and_restored(self):
+        """headers 参数（prepare_request 组装产物）：发送期间生效，结束恢复 client.headers"""
+        c = StubClient()
+        req_headers = {"Content-Type": "application/x-www-form-urlencoded",
+                       "Authorization": "Bearer t"}
+        send_request(None, c, _api("POST"), {"order_no": "YHL1"}, headers=req_headers)
+        assert c.calls[0][0] == "post_form"
+        # 恢复：接口级 form 头不泄漏到 client 会话头（不影响后续 JSON 接口节点）
+        assert c.headers["Content-Type"] == "application/json"
+
+    def test_json_headers_still_uses_json(self):
+        c = StubClient()
+        send_request(None, c, _api("POST"), {"a": 1}, headers={"Content-Type": "application/json"})
+        assert c.calls[0][0] == "post"
+
+
 class TestSendRequestErrorTaxonomy:
     def test_http_status_error_keeps_status(self):
         c = StubClient(exc=HttpStatusError(502, "/order", "bad gateway"))
@@ -116,11 +169,28 @@ class TestSendRequestErrorTaxonomy:
         assert code == 502
         assert "error" in data and err
 
-    def test_business_error_returns_200_with_code(self):
-        c = StubClient(exc=BusinessError(40001, "余额不足", "/order", "{}"))
+    def test_business_error_returns_200_with_real_body(self):
+        # 业务码异常：HTTP 200，响应体返回真实原文（调试展示/断言取值），error 保留说明
+        real = {"code": 40001, "msg": "余额不足", "data": {"id": 7}}
+        c = StubClient(exc=BusinessError(40001, "余额不足", "/order", json.dumps(real)))
         code, data, err = send_request(None, c, _api(), {})
         assert code == 200
-        assert data["code"] == 40001 and data["msg"] == "余额不足"
+        assert data == real
+        assert "40001" in err
+
+    def test_business_error_prefers_parsed_resp_json(self):
+        # resp_text 被截断时优先用已解析的完整 resp_json（如超 2000 字符的大响应）
+        real = {"code": None, "auth": {"c1": {"search_btn": True}}}
+        c = StubClient(exc=BusinessError(None, "", "/order", "截断的半截 JSON", resp_json=real))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 200
+        assert data == real
+
+    def test_business_error_non_json_body_falls_back_to_text(self):
+        c = StubClient(exc=BusinessError(40001, "x", "/order", "not json"))
+        code, data, err = send_request(None, c, _api(), {})
+        assert code == 200
+        assert data == {"text": "not json"}
 
     @pytest.mark.parametrize("exc", [
         AuthError("/order", "未登录"),

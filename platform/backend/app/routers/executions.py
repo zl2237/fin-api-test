@@ -7,14 +7,19 @@ from .. import crud, models, schemas
 from ..auth import get_current_user
 from ..crud import executions as exec_domain
 from ..database import get_db
-from ..engine.runner import (
-    submit_batch_aggregate_notify,
-    submit_batch_execution,
-    submit_execution,
-)
-from ..services import dataset_service
+from ..services.execution_launcher import build_launch_plan, commit_launch
 
 router = APIRouter(prefix="/api", tags=["执行"])
+
+# 并发数上限：防止误配置过大打爆线程与目标系统
+MAX_CONCURRENCY = 16
+# 单用例执行次数上限：放开到 9999（防手滑输天文数字刷爆记录表，正常用例远达不到）
+MAX_RUN_COUNT = 9999
+
+
+def _validate_concurrency(concurrency: int) -> None:
+    if concurrency < 1 or concurrency > MAX_CONCURRENCY:
+        raise HTTPException(400, f"并发数须在 1~{MAX_CONCURRENCY} 之间")
 
 
 @router.post("/testcases/{case_id}/execute", response_model=schemas.ExecutionRecordOut)
@@ -33,101 +38,95 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
     try:
-        plan = dataset_service.plan_case_expansion(db, case, dataset_id=data.dataset_id,
-                                                   row_ids=data.row_ids)
+        plan = build_launch_plan(db, case, data.env_id, user.id,
+                                 dataset_id=data.dataset_id, row_ids=data.row_ids)
     except ValueError as e:
         raise HTTPException(400, str(e))
-
-    # 多行数据驱动批量 → 抑制逐条通知，聚合器等全部完成发一条汇总
-    aggregate = len(plan) > 1 and plan[0]["dataset_id"] is not None
-    first = None
-    group_ids = []
-    for item in plan:
-        record = exec_domain.create_execution(db, case_id=case_id, env_id=data.env_id, user_id=user.id,
-                                              dataset_id=item["dataset_id"], dataset_row=item["row"])
-        crud.fill_audit_names(db, record)
-        crud.fill_exec_names(db, record)
-        # 提交到后台线程池执行（非阻塞）；行数据作为变量注入（列名即变量名），
-        # overrides 为数据集节点配置快照（场景包：命中节点整块替换用例编排）
-        submit_execution(case_id, data.env_id, record.id,
-                         row_vars=(item["row"] or {}).get("data"),
-                         row_origins=item.get("origins"),
-                         node_config_overrides=item["overrides"], suppress_notify=aggregate)
-        group_ids.append(record.id)
-        first = first or record
-    if aggregate:
-        submit_batch_aggregate_notify(group_ids, case_id, data.env_id,
-                                      plan[0]["dataset_id"], case.name)
-    return first
+    _validate_concurrency(data.concurrency)
+    commit_launch([plan], data.env_id, concurrency=data.concurrency)
+    return plan.records[0]
 
 
 @router.post("/testcases/batch-execute", response_model=list[schemas.ExecutionRecordOut])
 def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """批量执行多个用例（并行）：为每个用例创建 running 状态的执行记录并立即返回，
-    后台线程池并行执行（并发上限 4，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
+    """批量执行多个用例：为每个用例创建 running 状态的执行记录并立即返回，
+    后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
+    缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
     数据驱动：绑定数据集的用例按数据行展开，展开条目与普通条目一并平铺提交；
     展开多条的用例失败聚合成一条通知。
     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。"""
     if not data.case_ids:
         raise HTTPException(400, "请至少选择一个用例")
-    # 次数参数校验：长度对齐 + 区间约束（上限 20 防误操作刷爆线程池与记录表）
+    _validate_concurrency(data.concurrency)
+    # 次数参数校验：长度对齐 + 下界 1（上限仅防手滑，正常压测循环也够用）
     if data.counts is None:
         counts = [1] * len(data.case_ids)
     else:
         if len(data.counts) != len(data.case_ids):
             raise HTTPException(400, "counts 长度必须与 case_ids 一致")
-        if any(c < 1 or c > 20 for c in data.counts):
-            raise HTTPException(400, "执行次数须在 1~20 之间")
+        if any(c < 1 or c > MAX_RUN_COUNT for c in data.counts):
+            raise HTTPException(400, f"执行次数须在 1~{MAX_RUN_COUNT} 之间")
         counts = data.counts
     env = crud.get_environment(db, data.env_id)
     if not env:
         raise HTTPException(404, f"环境不存在: {data.env_id}")
 
-    records, flat_case_ids, rows_vars, rows_origins, overrides_list, suppress_flags = [], [], [], [], [], []
-    aggregate_groups = []  # (execution_ids, case_id, dataset_id, case_name)
+    plans = []
     for case_id, run_count in zip(data.case_ids, counts):
         case = crud.get_testcase(db, case_id)
         if not case:
             raise HTTPException(404, f"用例不存在: {case_id}")
         try:
-            plan = dataset_service.plan_case_expansion(db, case)
+            plans.append(build_launch_plan(db, case, data.env_id, user.id,
+                                           run_count=run_count))
         except ValueError as e:
             raise HTTPException(400, f"用例 {case.name}: {e}")
-        group_ids = []
-        aggregate = len(plan) > 1 and plan[0]["dataset_id"] is not None
-        # 同一用例按执行次数重复提交（同轮次的数据行展开 plan 一致，复用一次规划结果）
-        for _ in range(run_count):
-            for item in plan:
-                record = exec_domain.create_execution(db, case_id=case_id, env_id=data.env_id, user_id=user.id,
-                                                      dataset_id=item["dataset_id"], dataset_row=item["row"])
-                records.append(record)
-                flat_case_ids.append(case_id)
-                rows_vars.append((item["row"] or {}).get("data"))
-                rows_origins.append(item.get("origins"))
-                overrides_list.append(item["overrides"])
-                suppress_flags.append(aggregate)
-                group_ids.append(record.id)
-        if aggregate:
-            aggregate_groups.append((group_ids, case_id, plan[0]["dataset_id"], case.name))
 
-    for record in records:
-        crud.fill_audit_names(db, record)
-        crud.fill_exec_names(db, record)
-
-    # 提交批量并行执行（非阻塞，线程池并发上限 4）
-    submit_batch_execution([r.id for r in records], flat_case_ids, data.env_id,
-                           rows_vars, rows_origins, overrides_list, suppress_flags)
-    for group_ids, case_id, dataset_id, case_name in aggregate_groups:
-        submit_batch_aggregate_notify(group_ids, case_id, data.env_id, dataset_id, case_name)
-    return records
+    # 全部用例平铺进一个批次专用线程池（并发数 = concurrency，1 即串行）
+    commit_launch(plans, data.env_id, concurrency=data.concurrency)
+    return [record for plan in plans for record in plan.records]
 
 
-@router.get("/executions", response_model=list[schemas.ExecutionRecordOut])
-def list_executions(case_id: int | None = None, project_id: int | None = None, created_by: int | None = None, limit: int = 50, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    objs = crud.list_executions(db, case_id, project_id, created_by, limit)
+@router.get("/executions", response_model=schemas.ExecutionListOut)
+def list_executions(case_id: int | None = None, project_id: int | None = None, created_by: int | None = None,
+                    limit: int = 50, offset: int = 0, case_name: str | None = None, status: str | None = None,
+                    start_time: datetime | None = None, end_time: datetime | None = None,
+                    sort_by: str = "id", order: str = "desc",
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """筛选（状态/时间范围）与排序全部服务端处理，返回 {items, total} 信封：
+    分页组件翻页/整页排序口径才正确；total 与列表同口径过滤"""
+    if sort_by not in crud.EXECUTION_SORT_FIELDS:
+        raise HTTPException(400, f"不支持的排序字段: {sort_by}")
+    if order not in ("asc", "desc"):
+        raise HTTPException(400, "order 仅支持 asc / desc")
+    objs = crud.list_executions(db, case_id=case_id, project_id=project_id, created_by=created_by,
+                                limit=limit, offset=offset, case_name=case_name, status=status,
+                                start_time=start_time, end_time=end_time, sort_by=sort_by, order=order)
+    total = crud.count_executions(db, case_id=case_id, project_id=project_id, created_by=created_by,
+                                  case_name=case_name, status=status, start_time=start_time, end_time=end_time)
     crud.fill_audit_names_batch(db, objs)
     crud.fill_exec_names(db, objs)
-    return objs
+    return {"items": objs, "total": total}
+
+
+@router.get("/executions/stats")
+def execution_stats(days: int = 7, project_id: int | None = None,
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """近 N 天执行统计（工作台用）：全量聚合口径，不受列表 200 条截断影响。
+    需注册在 /executions/{exec_id} 之前。"""
+    if days < 1 or days > 365:
+        raise HTTPException(400, "天数须在 1~365 之间")
+    since = datetime.now() - timedelta(days=days)
+    # ExecutionRecord 无 created_at，时间口径用 started_at（default=now）
+    q = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.started_at >= since)
+    if project_id is not None:
+        q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id) \
+             .filter(models.TestCase.project_id == project_id)
+    rows = q.with_entities(models.ExecutionRecord.status).all()
+    total = len(rows)
+    passed = sum(1 for (s,) in rows if s == "success")
+    rate = round(passed * 100 / total) if total else None
+    return {"count": total, "passed": passed, "rate": rate, "days": days}
 
 
 @router.delete("/executions/cleanup")

@@ -14,18 +14,28 @@
       <Controls />
       <MiniMap />
       <template #node-default="props">
-        <div class="dag-node" :class="{
+        <div class="dag-node" :class="[methodClass(props.data.api_method), {
           selected: props.selected,
           'is-new': newNodeIds.includes(props.id),
           'link-source': linkSourceId === props.id,
           'link-target': linkMode && linkSourceId && linkSourceId !== props.id
-        }">
+        }]">
           <!-- 源连接点（右侧） -->
           <Handle id="source" type="source" :position="Position.Right" class="dag-handle source-handle" />
           <!-- 目标连接点（左侧） -->
           <Handle id="target" type="target" :position="Position.Left" class="dag-handle target-handle" />
-          <div class="dag-node-title">{{ props.data.label || props.id }}</div>
-          <div class="dag-node-sub">{{ props.data.api_method }} {{ props.data.api_path }}</div>
+          <!-- 接线卡头：method 色签（复用全站四色映射）+ 节点名 -->
+          <div class="dag-node-head">
+            <span class="dag-node-method">{{ (props.data.api_method || '?').toUpperCase() }}</span>
+            <span class="dag-node-title" :title="props.data.label || props.id">{{ props.data.label || props.id }}</span>
+          </div>
+          <div v-if="props.data.api_path" class="dag-node-sub">{{ props.data.api_path }}</div>
+          <!-- 配置徽标行：断言/提取/等待（真实配置计数；未配置任何项则整行不渲染，未配置节点更矮更素） -->
+          <div v-if="hasBadges(props.id)" class="dag-node-badges">
+            <span v-if="badgeOf(props.id).assertions" class="node-badge badge-assert" title="断言数">✓{{ badgeOf(props.id).assertions }}</span>
+            <span v-if="badgeOf(props.id).extracts" class="node-badge badge-extract" title="提取数">→{{ badgeOf(props.id).extracts }}</span>
+            <span v-if="badgeOf(props.id).waitMs" class="node-badge" title="执行后等待">{{ badgeOf(props.id).waitMs }}ms</span>
+          </div>
         </div>
       </template>
     </VueFlow>
@@ -51,7 +61,13 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { ElMessage } from 'element-plus'
 
-const props = defineProps<{ nodes: any[]; edges: any[] }>()
+const props = defineProps<{
+  nodes: any[]
+  edges: any[]
+  /** 节点配置摘要（CaseDesigner 渲染层只读派生，不进入持久化 payload）：
+   *  断言/提取计数与执行后等待，用于节点徽标行展示编排覆盖情况 */
+  configSummary?: Record<string, { assertions: number; extracts: number; waitMs: number }>
+}>()
 const emit = defineEmits<{
   (e: 'update:nodes', v: any[]): void
   (e: 'update:edges', v: any[]): void
@@ -85,6 +101,25 @@ const linkSourceId = ref<string | null>(null)
 
 // 新加入节点的 ID 集合（用于高亮区分，约 3.6s 后自动移除）
 const newNodeIds = ref<string[]>([])
+
+// ===== 接线卡：method 语义色类（复用接口管理四色映射 GET绿/POST青/PUT琥珀/DELETE红） =====
+function methodClass(m?: string): string {
+  const u = (m || '').toUpperCase()
+  if (u === 'GET') return 'm-get'
+  if (u === 'POST') return 'm-post'
+  if (u === 'PUT') return 'm-put'
+  if (u === 'DELETE') return 'm-delete'
+  return 'm-other'
+}
+/** 节点配置摘要（缺省零值） */
+function badgeOf(id: string) {
+  return props.configSummary?.[id] ?? { assertions: 0, extracts: 0, waitMs: 0 }
+}
+/** 任一配置存在才渲染徽标行 */
+function hasBadges(id: string) {
+  const b = badgeOf(id)
+  return !!(b.assertions || b.extracts || b.waitMs)
+}
 
 // 剪贴板：存放 Ctrl+C 复制的节点信息（含原始 ID，用于粘贴时克隆 config）
 const clipboard = ref<{ id: string; data: any; label: string; position: { x: number; y: number } }[]>([])
@@ -489,14 +524,22 @@ watch(
 }
 .dag-node {
   position: relative;
-  padding: 10px 18px;
+  padding: 9px 12px;
   border-radius: var(--app-radius-sm);
   background: var(--app-card-solid);
   border: 1px solid var(--app-border);
+  /* 接线卡：左 method 语义色轨（--node-accent 由 m-get/m-post/... 类驱动） */
+  border-left: 3px solid var(--node-accent, var(--app-border));
   box-shadow: var(--app-shadow-sm);
-  min-width: 150px;
+  min-width: 168px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+/* 色轨/淡底用 accent；文字必须用加深文字变体（小号粗体需 4.5:1，accent 原色仅 2.2-3.5:1） */
+.dag-node.m-get { --node-accent: var(--app-success); --node-accent-text: color-mix(in srgb, var(--app-success-text) 78%, black); }
+.dag-node.m-post { --node-accent: var(--app-primary); --node-accent-text: var(--app-primary); }
+.dag-node.m-put { --node-accent: var(--app-warn-accent); --node-accent-text: color-mix(in srgb, var(--app-warn-text) 70%, black); }
+.dag-node.m-delete { --node-accent: var(--app-danger); --node-accent-text: var(--app-danger-text); }
+.dag-node.m-other { --node-accent: var(--app-text-faint); --node-accent-text: var(--app-text-muted); }
 /* hover 反馈：预判可点击（双击开配置），cursor 提示交互 */
 .dag-node:hover {
   border-color: color-mix(in srgb, var(--app-primary) 55%, var(--app-border));
@@ -519,6 +562,11 @@ watch(
     box-shadow: 0 0 0 10px color-mix(in srgb, var(--app-success) 10%, transparent), var(--app-shadow-sm);
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .dag-node.is-new {
+    animation: none;
+  }
+}
 .dag-node.link-source {
   border-color: var(--app-success);
   box-shadow: var(--app-glow-success);
@@ -527,20 +575,58 @@ watch(
   border-color: var(--app-primary);
   box-shadow: var(--app-glow-primary);
 }
+.dag-node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* method 色签：mono 大写 + 语义色淡底（与左侧色轨同源） */
+.dag-node-method {
+  flex-shrink: 0;
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  /* 文字用加深变体保证 4.5:1；淡底仍用 accent 原色 */
+  color: var(--node-accent-text, var(--app-text-muted));
+  background: color-mix(in srgb, var(--node-accent, var(--app-text-muted)) 12%, transparent);
+  padding: 1px 5px;
+  border-radius: var(--app-radius-xs);
+}
 .dag-node-title {
   font-weight: 600;
   font-size: 13px;
   color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dag-node-sub {
+  font-family: var(--app-font-mono);
   font-size: 11px;
   color: var(--app-text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 190px;
 }
+/* 配置徽标行：真实配置计数（断言绿/提取青/等待灰），未配置不渲染 */
+.dag-node-badges {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--app-border);
+}
+.node-badge {
+  font-family: var(--app-font-mono);
+  font-size: 10.5px;
+  color: var(--app-text-muted);
+}
+.node-badge.badge-assert { color: color-mix(in srgb, var(--app-success-text) 80%, black); }
+.node-badge.badge-extract { color: var(--app-primary); }
 :deep(.dag-handle) {
   width: 12px;
   height: 12px;

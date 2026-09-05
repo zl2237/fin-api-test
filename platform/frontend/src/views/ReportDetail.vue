@@ -9,9 +9,19 @@
       show-icon
     >
       <template #title>
-        用例执行中，每 {{ POLL_MS / 1000 }} 秒自动刷新…
+        用例执行中，每 3 秒自动刷新…
         <el-icon class="is-loading"><Loading /></el-icon>
       </template>
+    </el-alert>
+    <!-- 执行级错误横幅：登录失败/环境异常等无步骤产出的失败，原因只在 summary.error -->
+    <el-alert
+      v-if="record?.status === 'failed' && record.summary?.error"
+      class="exec-error-banner"
+      type="error"
+      :closable="false"
+      show-icon
+    >
+      <template #title>执行失败原因：{{ record.summary.error }}</template>
     </el-alert>
     <!-- 页面级加载失败：内联错误块 + 重试（详情页失败后不能只剩空壳） -->
     <div v-if="loadError" class="app-load-error">
@@ -22,134 +32,51 @@
     <!-- 顶部：摘要 + 趋势图 横向并排，节省垂直空间 -->
     <div class="top-row">
       <el-card shadow="never" class="summary-card">
-        <div class="summary-head">
-          <div class="summary-title">
-            <span class="title-text">执行报告 #{{ record?.id ?? '-' }}</span>
-            <el-tag :type="statusType(record?.status)" effect="light" round>
-              {{ statusText(record?.status) }}
-            </el-tag>
+        <!-- 结论章：本页唯一 bold 处。票据审核章式 verdict（双线框 + 结论色 + 记录号） -->
+        <div :class="['verdict-stamp', verdictClass]" aria-label="执行结论">
+          <span class="stamp-text">{{ stampText }}</span>
+          <span class="stamp-id">#{{ record?.id ?? '-' }}</span>
+        </div>
+        <!-- 结论数字：断言/步骤两组分数（排障第一眼要看的两件事） -->
+        <div class="verdict-nums">
+          <div class="vnum">
+            <span class="vnum-label">断言</span>
+            <span class="vnum-value app-data">
+              <span :class="numClass">{{ assertionPassed }}</span>
+              <span class="sep">/</span>
+              <span>{{ assertionTotal }}</span>
+            </span>
           </div>
-          <div class="summary-actions">
-            <el-button
-              size="small"
-              type="success"
-              :loading="rerunning"
-              :disabled="!record?.case_id || !record?.env_id"
-              @click="onRerun"
-            >
-              重新执行
-            </el-button>
-            <el-button size="small" @click="exportCsv" :disabled="!steps.length">导出 CSV</el-button>
-            <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
-            <el-button text @click="router.back()">返回</el-button>
+          <div class="vnum-divider" aria-hidden="true"></div>
+          <div class="vnum">
+            <span class="vnum-label">步骤</span>
+            <span class="vnum-value app-data">
+              <span :class="numClass">{{ passedCount }}</span>
+              <span class="sep">/</span>
+              <span>{{ totalCount }}</span>
+            </span>
           </div>
         </div>
-        <div class="summary-grid">
-          <div class="metric">
-            <div class="metric-label">用例</div>
-            <div class="metric-value" :title="record?.case_name || `#${record?.case_id}` || '-'">{{ record?.case_name || `#${record?.case_id}` || '-' }}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">环境</div>
-            <div class="metric-value" :title="record?.env_name || `#${record?.env_id}` || '-'">{{ record?.env_name || `#${record?.env_id}` || '-' }}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">步骤通过 / 总数</div>
-            <div class="metric-value">
-              <span class="pass">{{ passedCountUp }}</span>
-              <span class="sep">/</span>
-              <span>{{ totalCountUp }}</span>
-            </div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">断言通过 / 总数</div>
-            <div class="metric-value">
-              <span class="pass">{{ assertionPassedUp }}</span>
-              <span class="sep">/</span>
-              <span>{{ assertionTotalUp }}</span>
-            </div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">开始时间</div>
-            <div class="metric-value small" :title="record?.started_at ?? '-'">{{ record?.started_at ?? '-' }}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">耗时</div>
-            <div class="metric-value">{{ durationUp }}</div>
-          </div>
+        <!-- 上下文 meta：单行小字，纯空格分隔（省略号 + title 全文） -->
+        <div class="summary-meta" :title="metaText">{{ metaText }}</div>
+        <div class="summary-actions">
+          <el-button
+            size="small"
+            type="success"
+            :loading="rerunning"
+            :disabled="!record?.case_id || !record?.env_id"
+            @click="onRerun"
+          >
+            重新执行
+          </el-button>
+          <el-button size="small" @click="exportCsv" :disabled="!steps.length">导出 CSV</el-button>
+          <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
+          <el-button text @click="router.back()">返回</el-button>
         </div>
       </el-card>
 
-      <!-- 各步骤响应耗时趋势图（纯 SVG，零依赖） -->
-      <el-card v-if="steps.length" shadow="never" class="trend-card" @mouseleave="hideTrendTip">
-        <div class="trend-head">
-          <span class="trend-title">步骤响应耗时趋势</span>
-          <span class="trend-sub">单位 ms · 最大值 {{ trendMax }} ms · 平均 {{ trendAvg }} ms · 悬浮/点击节点查看步骤</span>
-        </div>
-        <!-- vector-effect 等比保护：none 拉伸会把数据点拉成椭圆、轴文字变形 -->
-        <svg class="trend-svg" :viewBox="`0 0 ${trendWidth} ${trendHeight}`" preserveAspectRatio="none">
-          <!-- 网格线 -->
-          <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" vector-effect="non-scaling-stroke" />
-          <!-- Y 轴刻度 -->
-          <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
-          <!-- 面积填充（渐变，描线入场时同步淡入） -->
-          <polygon v-if="trendDots.length >= 2" :points="areaPoints" class="trend-area" :class="{ drawn: trendDrawn }" :fill="'url(#trend-grad)'" />
-          <defs>
-            <linearGradient id="trend-grad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="var(--app-primary)" stop-opacity="0.22" />
-              <stop offset="100%" stop-color="var(--app-primary)" stop-opacity="0.02" />
-            </linearGradient>
-          </defs>
-          <!-- 折线（描线入场：stroke-dashoffset 从总长滚到 0） -->
-          <polyline
-            ref="trendLineRef"
-            :points="trendPoints"
-            fill="none"
-            class="trend-line"
-            :class="{ drawn: trendDrawn }"
-            stroke-width="2"
-            stroke-linejoin="round"
-            stroke-linecap="round"
-            vector-effect="non-scaling-stroke"
-          />
-          <!-- 数据点（点击跳转对应步骤；X 轴标签超过 12 个抽稀防挤压） -->
-          <g v-for="(p, i) in trendDots" :key="i">
-            <circle
-              :cx="p.x"
-              :cy="p.y"
-              :r="hoveredTrend === i ? 5.5 : 3.5"
-              :class="steps[i].status === 'success' ? 'dot-ok' : 'dot-err'"
-              class="trend-dot"
-              @mouseenter="showTrendTip($event, i)"
-              @mousemove="moveTrendTip($event)"
-              @mouseleave="hideTrendTip"
-              @click="currentStepId = steps[i].id"
-            />
-          </g>
-          <text
-            v-for="(p, i) in trendDots"
-            v-show="trendLabelVisible(i)"
-            :key="'x'+i"
-            :x="p.x"
-            :y="trendHeight - 4"
-            font-size="10"
-            class="axis-text"
-            text-anchor="middle"
-          >{{ i + 1 }}</text>
-        </svg>
-        <!-- 悬浮提示框 -->
-        <div v-show="hoveredTrend !== null" class="trend-tip" :style="{ left: tipPos.x + 'px', top: tipPos.y + 'px' }">
-          <div class="trend-tip-name">{{ tipContent.name }}</div>
-          <div class="trend-tip-row">
-            <span class="trend-tip-label">耗时</span>
-            <span class="trend-tip-value">{{ tipContent.value }} ms</span>
-          </div>
-          <div class="trend-tip-row">
-            <span class="trend-tip-label">状态</span>
-            <span :class="tipContent.status === 'success' ? 'trend-tip-ok' : 'trend-tip-err'">{{ tipContent.status === 'success' ? '通过' : '失败' }}</span>
-          </div>
-        </div>
-      </el-card>
+      <!-- 各步骤响应耗时趋势图（展示组件：props 步骤列表，select 事件回传步骤 ID） -->
+      <StepTrendChart v-if="steps.length" :steps="steps" @select="currentStepId = $event" />
     </div>
 
     <!-- 失败摘要卡：与导出 HTML 报告同构（仅失败时渲染，点击跳转对应步骤） -->
@@ -165,7 +92,9 @@
         @click="jumpToStep(fs)"
       >
         <span class="fs-idx">#{{ fs.index + 1 }}</span>
-        <span class="fs-name" :title="fs.api_name || fs.node_id || '未命名步骤'">{{ fs.api_name || fs.node_id || '未命名步骤' }}</span>
+        <el-tooltip :content="fs.api_name || fs.node_id || '未命名步骤'" placement="top" popper-class="app-tip">
+          <span class="fs-name">{{ fs.api_name || fs.node_id || '未命名步骤' }}</span>
+        </el-tooltip>
         <span class="fs-why">{{ fs.why }}</span>
         <span class="fs-count">{{ fs.failCount }} 条断言失败</span>
       </div>
@@ -215,14 +144,13 @@
                   <div class="step-title">{{ s.api_name || s.node_id || '未命名步骤' }}</div>
                   <div class="step-sub">{{ s.api_method }} {{ s.api_path }}</div>
                   <div class="step-tags">
-                    <el-tag :type="stepType(s.status)" size="small" effect="plain" round>
-                      {{ stepStatusText(s.status) }}
-                    </el-tag>
-                    <el-tag v-if="s.response_status" size="small" type="info" effect="plain" round>
+                    <!-- 状态由时间轴节点色表达（去三重冗余）；tag 只承载增量信息：
+                         HTTP 码（非 2xx 升 danger 警示）与耗时（mono 机器数据） -->
+                    <el-tag v-if="s.response_status" size="small" :type="httpStatusType(s.response_status)" effect="light">
                       HTTP {{ s.response_status }}
                     </el-tag>
-                    <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="plain" round>
-                      {{ s.response_time_ms }} ms
+                    <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="light">
+                      <span class="mono">{{ s.response_time_ms }} ms</span>
                     </el-tag>
                   </div>
                 </div>
@@ -247,6 +175,23 @@
           <el-tabs v-model="activeTab" class="detail-tabs">
             <el-tab-pane label="请求" name="request">
               <div class="section">
+                <div class="section-title">前置处理 ({{ currentStep.pre_process?.length || 0 }})</div>
+                <template v-if="currentStep.pre_process?.length">
+                  <div v-for="(p, i) in currentStep.pre_process" :key="i" class="pre-item">
+                    <el-tag size="small" type="info" effect="light">{{ preTypeText(p.type) }}</el-tag>
+                    <span v-if="p.type === 'exec_sql'" class="mono pre-val pre-sql">{{ p.sql || '—' }}</span>
+                    <template v-else>
+                      <span class="mono">{{ p.path || '—' }}</span>
+                      <template v-if="p.type !== 'delete_field'">
+                        <span class="muted">=</span>
+                        <span class="mono pre-val">{{ preValueText(p.value) }}</span>
+                      </template>
+                    </template>
+                  </div>
+                </template>
+                <EmptyState v-else description="无前置处理" :image-size="40" />
+              </div>
+              <div class="section">
                 <div class="section-title">请求头</div>
                 <VueJsonPretty v-if="currentStep.request_headers" :data="currentStep.request_headers" />
                 <EmptyState v-else description="无请求头" :image-size="40" />
@@ -261,7 +206,7 @@
             <el-tab-pane label="响应" name="response">
               <div class="section">
                 <div class="section-title">状态码</div>
-                <el-tag :type="httpStatusType(currentStep.response_status)" effect="light" round>
+                <el-tag :type="httpStatusType(currentStep.response_status)" effect="light">
                   {{ currentStep.response_status ?? '-' }}
                 </el-tag>
               </div>
@@ -276,11 +221,40 @@
               </div>
             </el-tab-pane>
 
+            <el-tab-pane :label="`提取 (${currentStep.post_extract?.length || 0})`" name="extract">
+              <template v-if="currentStep.post_extract?.length">
+                <el-table :data="currentStep.post_extract" size="small" border>
+                  <el-table-column label="变量名" min-width="110">
+                    <template #default="{ row }">
+                      <span class="mono">{{ row.name || '—' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="来源" width="80">
+                    <template #default="{ row }">{{ extractSourceText(row.source) }}</template>
+                  </el-table-column>
+                  <el-table-column label="规则" min-width="240" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <span class="mono">{{ extractRuleText(row) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="提取结果" min-width="180" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <span v-if="extractActual(row.name) !== undefined" class="mono pre-val">
+                        {{ preValueText(extractActual(row.name)) }}
+                      </span>
+                      <span v-else class="muted">未提取到</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </template>
+              <EmptyState v-else description="该步骤无提取规则" :image-size="60" />
+            </el-tab-pane>
+
             <el-tab-pane :label="`断言 (${currentStep.assertions.length})`" name="assertions">
               <el-table :data="currentStep.assertions" size="small" border :row-class-name="assertionRowClass">
                 <el-table-column label="结果" width="80">
                   <template #default="{ row }">
-                    <el-tag :type="row.result ? 'success' : 'danger'" effect="light" round size="small">
+                    <el-tag :type="row.result ? 'success' : 'danger'" effect="light" size="small">
                       {{ row.result ? '通过' : '失败' }}
                     </el-tag>
                   </template>
@@ -296,7 +270,9 @@
                 </el-table-column>
                 <el-table-column label="实际值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span class="mono">{{ row.actual_value ?? '—' }}</span>
+                    <!-- 失败行：实际值升结论红 + 加重，与期望值形成 diff 对比强调 -->
+                    <span class="mono actual-bad" v-if="!row.result">{{ row.actual_value ?? '—' }}</span>
+                    <span v-else class="mono">{{ row.actual_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="期望值" min-width="130" show-overflow-tooltip>
@@ -318,20 +294,31 @@
         <EmptyState v-else description="请选择左侧步骤查看详情" :image-size="80" />
       </el-card>
     </div>
+
+    <!-- 断言值完整查看：长 JSON 期望/实际值单元格截断难读，点击弹窗格式化展示 + 一键复制 -->
+    <el-dialog v-model="valueDialog.visible" :title="valueDialog.title" width="720px">
+      <pre class="value-pre">{{ prettyValue }}</pre>
+      <template #footer>
+        <el-button @click="valueDialog.visible = false">关闭</el-button>
+        <el-button type="primary" @click="copyValue">复制</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading, Search, CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
+import StepTrendChart from '@/components/StepTrendChart.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
-import { useCountUp } from '@/composables/useCountUp'
+import { execStatusType as stepType, execStatusText as statusText } from '@/utils/format'
+import { useExecutionRunner } from '@/composables/useExecutionRunner'
 
 const route = useRoute()
 const router = useRouter()
@@ -389,7 +376,7 @@ const failedSteps = computed(() =>
       const failedAsserts = (s.assertions ?? []).filter((a) => !a.result)
       const why = failedAsserts.length
         ? (failedAsserts[0].message || failedAsserts[0].rule_type)
-        : (s.status || '失败')
+        : (s.status ? statusText(s.status) : '失败')
       return { ...s, index, why, failCount: failedAsserts.length }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null),
@@ -413,6 +400,41 @@ function assertionRowClass({ row }: { row: any }) {
   return row.result ? '' : 'assert-fail-row'
 }
 
+// ===== 断言值完整查看弹窗（长 JSON 不再被单元格截断） =====
+const valueDialog = ref({ visible: false, title: '', raw: '' as any })
+
+function openValue(title: string, v: any) {
+  if (v == null || v === '') return
+  valueDialog.value = { visible: true, title: `断言${title}`, raw: v }
+}
+
+/** JSON 值格式化缩进展示；普通字符串原样（保留换行） */
+const prettyValue = computed(() => {
+  const v = valueDialog.value.raw
+  if (typeof v === 'object') return JSON.stringify(v, null, 2)
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (s.startsWith('{') || s.startsWith('[')) {
+      try {
+        return JSON.stringify(JSON.parse(s), null, 2)
+      } catch {
+        // 非合法 JSON 原样展示
+      }
+    }
+    return v
+  }
+  return String(v)
+})
+
+async function copyValue() {
+  try {
+    await navigator.clipboard.writeText(prettyValue.value)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动选择复制')
+  }
+}
+
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
 const totalCount = computed(() => steps.value.length)
 
@@ -426,12 +448,8 @@ const assertionPassed = computed(() =>
   )
 )
 
-// ===== 摘要数字 count-up 滚动（数据加载完成后从 0 滚到目标值） =====
-const passedCountUp = useCountUp(computed(() => passedCount.value))
-const totalCountUp = useCountUp(computed(() => totalCount.value))
-const assertionPassedUp = useCountUp(computed(() => assertionPassed.value))
-const assertionTotalUp = useCountUp(computed(() => assertionTotal.value))
-// 耗时滚动：毫秒数值滚动 + 同款格式化（<1s 显示整数 ms，否则秒两位小数）
+// 摘要指标：排障工具页数据即显（不做 count-up 滚动演出）
+// 耗时格式化：<1s 显示整数 ms，否则秒两位小数
 const durationMs = computed(() => {
   if (!record.value?.started_at || !record.value?.ended_at) return 0
   return new Date(record.value.ended_at).getTime() - new Date(record.value.started_at).getTime()
@@ -440,155 +458,42 @@ function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`
   return `${(ms / 1000).toFixed(2)} s`
 }
-const durationUp = useCountUp(durationMs, 800, formatDuration)
+const durationText = computed(() => formatDuration(durationMs.value))
 
-// ===== 步骤耗时趋势图（纯 SVG） =====
-const trendWidth = 720
-const trendHeight = 160
-const trendPadding = { top: 16, right: 20, bottom: 20, left: 40 }
-
-const trendValues = computed(() =>
-  steps.value.map(s => s.response_time_ms ?? 0)
-)
-
-const trendMax = computed(() => {
-  const m = Math.max(...trendValues.value, 1)
-  // 向上取整到 10 的倍数，便于刻度
-  return Math.ceil(m / 10) * 10
+// ===== 结论章（verdict）：状态 → 章文案/配色；执行中为静态琥珀章（不做脉冲动画） =====
+const verdictClass = computed(() => {
+  const s = record.value?.status
+  if (s === 'success') return 'is-success'
+  if (s === 'failed') return 'is-failed'
+  if (s === 'running') return 'is-running'
+  return 'is-unknown'
 })
-
-const trendAvg = computed(() => {
-  if (!trendValues.value.length) return 0
-  return Math.round(trendValues.value.reduce((a, b) => a + b, 0) / trendValues.value.length)
-})
-
-const trendGrids = computed(() => {
-  const grids: { y: number; x1: number; x2: number; label: string }[] = []
-  const gridSteps = 4
-  const usableH = trendHeight - trendPadding.top - trendPadding.bottom
-  for (let i = 0; i <= gridSteps; i++) {
-    const y = trendPadding.top + (usableH * i) / gridSteps
-    const val = Math.round(trendMax.value * (1 - i / gridSteps))
-    grids.push({ y, x1: trendPadding.left, x2: trendWidth - trendPadding.right, label: String(val) })
-  }
-  return grids
-})
-
-const trendDots = computed(() => {
-  const vals = trendValues.value
-  if (!vals.length) return []
-  const usableW = trendWidth - trendPadding.left - trendPadding.right
-  const usableH = trendHeight - trendPadding.top - trendPadding.bottom
-  const max = trendMax.value || 1
-  return vals.map((v, i) => {
-    const x = trendPadding.left + (vals.length === 1 ? usableW / 2 : (usableW * i) / (vals.length - 1))
-    const y = trendPadding.top + usableH * (1 - v / max)
-    return { x, y, value: v }
-  })
-})
-
-const trendPoints = computed(() =>
-  trendDots.value.map(p => `${p.x},${p.y}`).join(' ')
-)
-
-// 面积多边形：折线点 + 底边闭合（左右落到基线）
-const areaPoints = computed(() => {
-  const dots = trendDots.value
-  if (dots.length < 2) return ''
-  const base = trendHeight - trendPadding.bottom
-  const first = dots[0]
-  const last = dots[dots.length - 1]
-  return `${first.x},${base} ${dots.map(p => `${p.x},${p.y}`).join(' ')} ${last.x},${base}`
-})
-
-// ===== 描线入场：steps 数据就位后，dashoffset 从总长动画到 0（从左向右画出折线） =====
-const trendLineRef = ref<SVGPolylineElement | null>(null)
-const trendDrawn = ref(false)
-watch(trendPoints, async (pts) => {
-  if (!pts) return
-  await nextTick()
-  const el = trendLineRef.value
-  if (!el) return
-  const total = el.getTotalLength ? el.getTotalLength() : 0
-  if (!total) {
-    trendDrawn.value = true
-    return
-  }
-  // 重置后触发 CSS transition 完成描线；减少动画偏好时 CSS 侧直接置 0 跳过
-  trendDrawn.value = false
-  el.style.strokeDasharray = String(total)
-  el.style.strokeDashoffset = String(total)
-  // 强制回流使起始状态生效
-  void el.getBoundingClientRect()
-  requestAnimationFrame(() => {
-    trendDrawn.value = true
-  })
-}, { immediate: true })
-
-// ===== 趋势图悬浮提示 =====
-const hoveredTrend = ref<number | null>(null)
-const tipPos = ref({ x: 0, y: 0 })
-const tipContent = ref({ name: '', value: 0, status: '' })
-
-function showTrendTip(e: MouseEvent, i: number) {
-  hoveredTrend.value = i
-  const s = steps.value[i]
-  tipContent.value = {
-    name: s.api_name || s.node_id || '未命名步骤',
-    value: trendValues.value[i] ?? 0,
-    status: s.status || '',
-  }
-  moveTrendTip(e)
-}
-function moveTrendTip(e: MouseEvent) {
-  const card = (e.currentTarget as SVGElement).closest('.trend-card') as HTMLElement | null
-  if (!card) return
-  const rect = card.getBoundingClientRect()
-  let x = e.clientX - rect.left + 14
-  let y = e.clientY - rect.top + 14
-  // 防止提示框溢出容器右侧/底部
-  if (x + 180 > rect.width) x = e.clientX - rect.left - 190
-  if (y + 90 > rect.height) y = e.clientY - rect.top - 100
-  tipPos.value = { x, y }
-}
-function hideTrendTip() {
-  hoveredTrend.value = null
-}
-
-/** X 轴标签抽稀：步骤多时按步长隔行显示，避免标签挤成一排 */
-function trendLabelVisible(i: number) {
-  const total = trendDots.value.length
-  if (total <= 12) return true
-  const step = Math.ceil(total / 12)
-  return i % step === 0
-}
-
-function statusType(s?: string) {
-  if (s === 'success') return 'success'
-  if (s === 'running') return 'warning'
-  if (s == null) return 'info' // 加载中/加载失败不再是红色标签 + '-'
-  return 'danger'
-}
-function statusText(s?: string) {
+const stampText = computed(() => {
+  const s = record.value?.status
   if (s === 'success') return '通过'
+  if (s === 'failed') return '未通过'
   if (s === 'running') return '执行中'
-  if (s === 'failed') return '失败'
-  return s ?? '-'
-}
+  return '—'
+})
+/** 结论分子配色：通过=绿、失败=红、执行中/未知=墨色 */
+const numClass = computed(() => {
+  const s = record.value?.status
+  if (s === 'success') return 'num-ok'
+  if (s === 'failed') return 'num-bad'
+  return ''
+})
+/** 上下文 meta 单行：用例 / 环境 / 开始时间 / 耗时（空格分隔，title 提供全文） */
+const metaText = computed(() => {
+  const r = record.value
+  return [
+    r?.case_name || `#${r?.case_id}` || '-',
+    r?.env_name || `#${r?.env_id}` || '-',
+    r?.started_at ?? '-',
+    durationText.value,
+  ].join('   ')
+})
 
-function stepType(s?: string) {
-  if (s === 'success') return 'success'
-  if (s === 'running') return 'warning'
-  if (s === 'failed') return 'danger'
-  return 'info'
-}
-function stepStatusText(s?: string) {
-  if (s === 'success') return '通过'
-  if (s === 'failed') return '失败'
-  if (s === 'skipped') return '跳过'
-  if (s === 'running') return '执行中'
-  return s ?? '-'
-}
+// 状态映射统一走 utils/format（记录级与步骤级共用 execStatusType/execStatusText，含 skipped）
 
 function httpStatusType(code?: number) {
   if (code == null) return 'info'
@@ -596,6 +501,50 @@ function httpStatusType(code?: number) {
   // 接口测试语义：非 2xx 即请求层面失败（原 4xx 归 warning 与失败层级冲突）
   if (code >= 400) return 'danger'
   return 'info'
+}
+
+// ===== 前置处理 / 后置提取展示辅助（文案与 PreProcessTable 配置端一致） =====
+const PRE_TYPE_TEXT: Record<string, string> = {
+  set_field: '设置字段',
+  add_field: '新增字段',
+  delete_field: '删除字段',
+  iterate_set: '遍历赋值',
+  exec_sql: '执行 SQL',
+}
+
+function preTypeText(t?: string) {
+  return (t && PRE_TYPE_TEXT[t]) || t || '—'
+}
+
+/** 快照值为执行时规则原文：字符串原样（可含 ${} 引用），对象/数组 JSON 化 */
+function preValueText(v: any): string {
+  if (v == null) return '—'
+  if (typeof v === 'string') return v
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
+}
+
+function extractSourceText(s?: string) {
+  return s === 'db' ? '数据库' : '响应'
+}
+
+/** db 规则展示 SQL + 取值字段；response 规则展示 JSONPath */
+function extractRuleText(r: any): string {
+  if (r?.source === 'db') {
+    const sql = r.sql || '—'
+    return r.field ? `${sql} → ${r.field}` : sql
+  }
+  return r?.json_path || '—'
+}
+
+/** 从实际提取结果中取变量值；undefined 表示未提取到（规则失败或值缺失） */
+function extractActual(name?: string) {
+  if (!name) return undefined
+  const vars = currentStep.value?.extracted_vars
+  return vars && Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : undefined
 }
 
 function stepTimeText(s: StepRecord) {
@@ -636,25 +585,23 @@ async function downloadExport(format: 'csv' | 'html', okMsg: string) {
   }
 }
 
-// running 态轮询间隔（与执行列表页一致的节奏）
-const POLL_MS = 3000
-let pollTimer: ReturnType<typeof setTimeout> | null = null
+// running 态轮询：单次触发静默刷新，load 内部再决定是否续排（保持原递归语义）
+const runner = useExecutionRunner()
+let stopRefresh: (() => void) | null = null
 
 function stopPolling() {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
-  }
+  stopRefresh?.()
+  stopRefresh = null
 }
 
 /** running 态自动轮询直到出结果；终态即停（含页面失活兜底） */
 function schedulePollIfRunning() {
   stopPolling()
   if (record.value?.status !== 'running') return
-  pollTimer = setTimeout(async () => {
+  stopRefresh = runner.refreshWhileRunning(async () => {
     await load(true)
-    schedulePollIfRunning()
-  }, POLL_MS)
+    return false // load(true) 完成后会再调 schedulePollIfRunning，由它决定续排与否
+  }, { interval: 3000 })
 }
 
 async function load(silent = false) {
@@ -666,6 +613,11 @@ async function load(silent = false) {
   }
   try {
     record.value = await execApi.report(id)
+    // 套件主记录无步骤明细，转套件报告页（成员×数据行层级视图）
+    if (record.value?.summary?.suite) {
+      router.replace(`/suite-reports/${id}`)
+      return
+    }
     if (steps.value.length && currentStepId.value == null) {
       // 默认定位首个失败步骤（排障第一诉求）；无失败则回第 1 步
       const firstFailed = steps.value.find((s) => s.status !== 'success')
@@ -709,219 +661,118 @@ onUnmounted(stopPolling)
   grid-template-columns: minmax(420px, 1.4fr) minmax(360px, 1fr);
   gap: 12px;
   flex-shrink: 0;
-  height: 180px;
+  /* 常规桌面宽度下与原 180px 固定高一致；结论书换行时（窄窗口）自动增高防裁切 */
+  min-height: 180px;
 }
 
 .summary-card {
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-radius: var(--app-radius-lg);
   overflow: hidden;
 }
 
 .trend-card {
-  position: relative;
-  background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-radius: var(--app-radius-lg);
+  /* 趋势图样式已随 StepTrendChart 组件内聚；此处仅保留 top-row 栅格占位所需的最小样式 */
+  min-width: 0;
+}
+
+/* ===== 结论书布局：章 | 结论数字 | meta | 动作，横向一行（窄窗口自动换行防裁切） ===== */
+.summary-card :deep(.el-card__body) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  gap: 20px;
+  height: 100%;
+}
+
+/* 结论章：票据审核章（双线框 = border 外线 + inset outline 内线），结论色经 currentColor 派生 */
+.verdict-stamp {
+  flex-shrink: 0;
+  width: 96px;
   display: flex;
   flex-direction: column;
-  overflow: visible;
-}
-
-.trend-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.trend-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.trend-sub {
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-
-.trend-svg {
-  width: 100%;
-  height: 130px;
-  display: block;
-}
-
-/* SVG 趋势图主题色（覆盖 presentation attribute） */
-.trend-svg .grid-line {
-  stroke: var(--app-border);
-}
-.trend-svg .axis-text {
-  fill: var(--app-text-muted);
-}
-.trend-svg .trend-line {
-  stroke: var(--app-primary);
-  /* 描线入场：dasharray/offset 由脚本按总长设置，drawn 后过渡到 0 */
-  transition: stroke-dashoffset 1.1s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.trend-svg .trend-line.drawn {
-  stroke-dashoffset: 0 !important;
-}
-/* 减少动画偏好：跳过描线直接显示 */
-@media (prefers-reduced-motion: reduce) {
-  .trend-svg .trend-line {
-    transition: none;
-  }
-  .trend-svg .trend-line.drawn {
-    stroke-dashoffset: 0 !important;
-  }
-}
-/* 面积填充：随描线完成淡入 */
-.trend-svg .trend-area {
-  opacity: 0;
-  transition: opacity 0.6s ease 0.5s;
-}
-.trend-svg .trend-area.drawn {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .trend-svg .trend-area {
-    opacity: 1;
-    transition: none;
-  }
-}
-.trend-svg .dot-ok {
-  fill: var(--app-success);
-}
-.trend-svg .dot-err {
-  fill: var(--app-danger);
-}
-.trend-svg .trend-dot {
-  cursor: pointer;
-  transition: r 0.15s ease;
-  filter: drop-shadow(0 0 0 transparent);
-}
-.trend-svg .trend-dot:hover {
-  filter: drop-shadow(0 0 4px currentColor);
-}
-
-/* 悬浮提示框 */
-.trend-tip {
-  position: absolute;
-  z-index: 20;
-  min-width: 160px;
-  max-width: 260px;
-  padding: 10px 12px;
-  background: var(--app-card);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-  pointer-events: none;
-  animation: trend-tip-in 0.12s ease;
-}
-@keyframes trend-tip-in {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.trend-tip-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin-bottom: 6px;
-  word-break: break-all;
-}
-.trend-tip-row {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12px;
-  line-height: 1.6;
+  gap: 2px;
+  padding: 14px 8px 12px;
+  border: 2px solid currentColor;
+  outline: 1px solid currentColor;
+  outline-offset: -7px;
+  border-radius: var(--app-radius-sm);
 }
-.trend-tip-label {
-  color: var(--app-text-muted);
+.verdict-stamp.is-success { color: var(--app-success-text); }
+.verdict-stamp.is-failed { color: var(--app-danger-text); }
+.verdict-stamp.is-running { color: var(--app-warn-text); }
+.verdict-stamp.is-unknown { color: var(--app-text-faint); }
+.stamp-text {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding-left: 0.12em; /* 抵消末字间距，视觉居中 */
+  line-height: 1.2;
 }
-.trend-tip-value {
+.stamp-id {
+  /* 记录号无需语义色：中性 muted 全对比度（原 accent 78% 透明仅 ~3:1） */
   font-family: var(--app-font-mono);
-  color: var(--app-primary);
-  font-weight: 500;
-}
-.trend-tip-ok {
-  color: var(--app-success);
-}
-.trend-tip-err {
-  color: var(--app-danger);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--app-text-muted);
 }
 
-.summary-head {
+/* 结论数字：断言/步骤两组大号 mono 分数 */
+.verdict-nums {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 24px;
+}
+.vnum {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vnum-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.vnum-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--app-text);
+  white-space: nowrap;
+}
+.vnum-value .num-ok { color: var(--app-success-text); }
+.vnum-value .num-bad { color: var(--app-danger-text); }
+.vnum-value .sep {
+  color: var(--app-text-faint);
+  font-weight: 500;
+  margin: 0 3px;
+}
+.vnum-divider {
+  width: 1px;
+  height: 44px;
+  background: var(--app-border);
+}
+
+/* 上下文 meta：占据剩余宽度，底部对齐，超长省略 */
+.summary-meta {
+  flex: 1;
+  min-width: 0;
+  align-self: flex-end;
+  padding-bottom: 4px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .summary-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.summary-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.title-text {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.summary-grid {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
-  flex: 1;
-  min-height: 0;
-  align-content: start;
-}
-
-.metric {
-  background: var(--app-hover);
-  border-radius: var(--app-radius);
-  padding: 12px 14px;
-  min-width: 0;
-}
-
-.metric-label {
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-
-.metric-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin-top: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.metric-value.small {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.metric-value .pass {
-  color: var(--app-success);
-}
-
-.metric-value .sep {
-  color: var(--app-text-faint);
-  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .body {
@@ -936,7 +787,6 @@ onUnmounted(stopPolling)
 .steps-card,
 .detail-card {
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-radius: var(--app-radius-lg);
   display: flex;
   flex-direction: column;
@@ -991,7 +841,8 @@ onUnmounted(stopPolling)
   transition: background 0.12s ease;
 }
 .fail-summary-item:hover {
-  background: color-mix(in srgb, var(--app-primary) 6%, transparent);
+  /* 失败列表的悬停保持中性底（原主色淡底会让失败语义跑色） */
+  background: var(--app-hover);
 }
 .fs-idx {
   font-size: 12px;
@@ -1032,6 +883,11 @@ onUnmounted(stopPolling)
 .fail-msg {
   color: var(--el-color-danger);
   font-size: 12px;
+}
+/* 断言失败行实际值：结论红 + 加重（与期望值构成 diff 对比） */
+.actual-bad {
+  color: var(--app-danger-text);
+  font-weight: 600;
 }
 
 .steps-scroll {
@@ -1139,6 +995,28 @@ onUnmounted(stopPolling)
   margin-bottom: 6px;
 }
 
+/* 前置处理动作行：标签 + path = 值（值可含 ${} 引用，规则原文快照） */
+.pre-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  flex-wrap: wrap;
+}
+
+.pre-val {
+  color: var(--app-text);
+  max-width: 420px;
+  vertical-align: middle;
+}
+
+/* 前置 SQL 原文（单行长 SQL 自动换行） */
+.pre-sql {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+
 .muted {
   color: var(--app-text-muted);
   font-size: 12px;
@@ -1152,6 +1030,27 @@ onUnmounted(stopPolling)
   text-overflow: ellipsis;
   display: inline-block;
   max-width: 100%;
+}
+/* 可点击展开的值单元格：截断内容点击弹窗看全量 */
+.cell-expand {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--app-border);
+}
+.cell-expand:hover {
+  color: var(--el-color-primary);
+}
+.value-pre {
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  background: var(--app-hover);
+  border-radius: var(--app-radius-xs);
+  padding: 12px;
 }
 
 .config-cell {

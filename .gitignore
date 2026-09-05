@@ -39,6 +39,9 @@ platform/backend/.env
 *.har
 *.openapi.json
 
+# 文件中心物理存储（内容寻址落盘，不入版本库；路径可被 .env UPLOAD_ROOT 覆盖）
+platform/backend/uploads/
+
 # 前端构建产物与依赖
 platform/frontend/node_modules/
 platform/frontend/dist/
@@ -76,3 +79,11 @@ skills-lock.json
 
 # 数据集迁移前备份（一次性产物，不入库）
 platform/backend/backup_*.json
+
+# 本地学习/文档目录（个人笔记，不入库）
+learn/
+docs/
+
+# 本地依赖/缓存（云部署验证临时安装，勿提交）
+.deps/
+.npm-cache/

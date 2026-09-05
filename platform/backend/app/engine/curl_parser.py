@@ -15,7 +15,8 @@
     2. 提取 URL → path（去掉 protocol://host）
     3. -X / --request 指定方法，缺省按 -d 有无推断 POST/GET
     4. -H / --header 解析请求头（仅用于识别 Content-Type，不导入 header 字段）
-    5. -d / --data / --data-raw / --data-binary 解析请求体（仅 application/json）
+    5. -d / --data / --data-raw / --data-binary 解析请求体
+       （application/json 解析为结构化字段；x-www-form-urlencoded 按键值对拆解）
     6. query 参数从 URL 解析，有值才导入
     7. 请求体字段全部作为 body 字段导入（带实际值作为默认值）
 
@@ -30,6 +31,9 @@ from urllib.parse import parse_qs, urlparse
 # cURL 数据参数，命中其一即认为该 token 后跟请求体
 _DATA_FLAGS = {"-d", "--data", "--data-raw", "--data-binary", "--data-ascii"}
 
+# cURL 表单参数（-F 'name=value' / -F 'file=@本地路径'），multipart 专用
+_FORM_FLAGS = {"-F", "--form"}
+
 
 def _preprocess_ansi_c_quoting(text: str) -> str:
     """预处理 bash 的 $'...' ANSI-C quoting 语法。
@@ -39,6 +43,14 @@ def _preprocess_ansi_c_quoting(text: str) -> str:
     内部的 \\u0021 / \\n / \\t 等转义序列原样保留，后续 json.loads 能正确解析。
     """
     return re.sub(r"\$'", "'", text)
+
+def _clean_url(token: str) -> str:
+    """剥离 URL 外层成对的反引号（从 markdown/聊天工具复制 cURL 时的常见残留）。"""
+    t = token.strip()
+    while len(t) >= 2 and t.startswith("`") and t.endswith("`"):
+        t = t[1:-1].strip()
+    return t
+
 
 # 非业务 HTTP 方法，跳过
 _SKIP_METHODS = {"OPTIONS", "HEAD", "CONNECT", "TRACE"}
@@ -65,12 +77,12 @@ def _split_curl_commands(text: str) -> list[str]:
         if not stripped:
             # 空行：结束当前命令
             if current:
-                commands.append(" ".join(current))
+                commands.append("\n".join(current))
                 current = []
             continue
         # 以 curl 开头（忽略前导空白）且当前已有命令积累 → 新命令起点
         if stripped.lower().startswith("curl ") and current:
-            commands.append(" ".join(current))
+            commands.append("\n".join(current))
             current = [stripped]
         elif stripped.lower().startswith("curl "):
             current = [stripped]
@@ -79,7 +91,7 @@ def _split_curl_commands(text: str) -> list[str]:
                 current.append(stripped)
             # 非 curl 开头且无积累 → 忽略（注释/说明文字）
     if current:
-        commands.append(" ".join(current))
+        commands.append("\n".join(current))
     return commands
 
 
@@ -100,6 +112,7 @@ def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
     url = ""
     headers: dict[str, str] = {}
     body_text = ""
+    form_items: list[str] = []
 
     i = 1
     while i < len(tokens):
@@ -111,9 +124,11 @@ def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
                 i += 2
                 continue
         elif tok in ("--url",):
-            # --url 'https://...' 显式指定 URL
+            # --url 'https://...' 显式指定 URL（清洗反引号残留并校验合法性）
             if i + 1 < len(tokens):
-                url = tokens[i + 1]
+                candidate = _clean_url(tokens[i + 1])
+                if not url and _looks_like_url(candidate):
+                    url = candidate
                 i += 2
                 continue
         elif tok in ("-H", "--header"):
@@ -130,6 +145,12 @@ def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
                 body_text = tokens[i + 1]
                 i += 2
                 continue
+        elif tok in _FORM_FLAGS:
+            # -F 'name=value' / -F 'file=@本地路径'
+            if i + 1 < len(tokens):
+                form_items.append(tokens[i + 1])
+                i += 2
+                continue
         elif tok in ("--compressed", "-k", "--insecure", "-L", "--location", "-v", "--verbose", "-s", "--silent"):
             # 常见无参数标志，跳过
             i += 1
@@ -144,18 +165,20 @@ def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
                 i += 1
             continue
         else:
-            # 非 flag token → 视为 URL（取第一个）
-            if not url and _looks_like_url(tok):
-                url = tok
+            # 非 flag token → 视为 URL（取第一个；清洗反引号残留后校验）
+            if not url:
+                candidate = _clean_url(tok)
+                if _looks_like_url(candidate):
+                    url = candidate
 
         i += 1
 
     if not url:
         return None, "未识别到 URL"
 
-    # 方法缺省推断：有 body 默认 POST，否则 GET
+    # 方法缺省推断：有 body 或 -F 表单项默认 POST，否则 GET
     if not method:
-        method = "POST" if body_text else "GET"
+        method = "POST" if body_text or form_items else "GET"
 
     if method in _SKIP_METHODS:
         return None, f"跳过非业务方法 {method}"
@@ -192,8 +215,51 @@ def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
             content_type = hv
             break
     # 无 Content-Type 头但有 body，默认尝试按 JSON 解析
-    if body_text:
-        if "json" in content_type.lower() or not content_type:
+    if body_text or form_items:
+        ct_lower = content_type.lower()
+        if "multipart" in ct_lower or form_items:
+            # multipart/form-data：Chrome「Copy as cURL」把完整报文放进 --data-raw，
+            # 按 boundary 拆 part；-F 表单项另行合并。Content-Type 缺省时补全
+            _parse_multipart_body(body_text, content_type, fields, seen_keys)
+            for item in form_items:
+                name, eq, value = item.partition("=")
+                if not eq or not name or name in seen_keys:
+                    continue
+                if value.startswith("@"):
+                    # -F 'file=@报关单.pdf'：文件上传字段（默认值留空，运行时从文件中心选）
+                    fields.append({
+                        "key": name,
+                        "field_type": "file",
+                        "default_value": "",
+                        "in": "body",
+                        "required": False,
+                    })
+                else:
+                    fields.append({
+                        "key": name,
+                        "field_type": "string",
+                        "default_value": value,
+                        "in": "body",
+                        "required": False,
+                    })
+                seen_keys.add(name)
+            if not content_type:
+                content_type = "multipart/form-data"
+        elif "urlencoded" in ct_lower:
+            # application/x-www-form-urlencoded：按 a=1&b=2 拆解为 body 字段（键值均 URL 解码）
+            for name, values in parse_qs(body_text, keep_blank_values=True).items():
+                if name in seen_keys:
+                    continue
+                value = values[0] if values else ""
+                fields.append({
+                    "key": name,
+                    "field_type": "string",
+                    "default_value": str(value),
+                    "in": "body",
+                    "required": False,
+                })
+                seen_keys.add(name)
+        elif "json" in ct_lower or not content_type:
             try:
                 body = json.loads(body_text)
                 if isinstance(body, list) and body:
@@ -226,6 +292,60 @@ def _parse_single_curl(cmd: str) -> tuple[dict[str, Any] | None, str | None]:
 def _looks_like_url(token: str) -> bool:
     """判断 token 是否像 URL（http(s):// 或以 / 开头的路径）"""
     return token.startswith("http://") or token.startswith("https://") or token.startswith("/")
+
+
+def _unescape_newlines(text: str) -> str:
+    """把 $'...' ANSI-C 引号遗留的字面 \\r\\n / \\n 转义还原为真实换行。
+
+    shlex 不解释单引号内的反斜杠，Chrome 复制的 --data-raw multipart 报文里
+    \\r\\n 是字面量，需先还原才能按行拆分 part 头与内容。
+    """
+    return text.replace("\\r\\n", "\r\n").replace("\\n", "\n").replace("\\r", "\r")
+
+
+def _parse_multipart_body(body_text: str, content_type: str,
+                          fields: list[dict[str, Any]], seen_keys: set) -> None:
+    """解析 multipart/form-data 请求体（Chrome「Copy as cURL」的 --data-raw 完整报文）。
+
+    文本 part 提取为 string 字段（实际值作默认值）；带 filename 的 part 是文件，
+    提取为 file 字段（默认值留空——运行时从文件中心按 file_id 取文件上传）。
+    无 body 或解析不出 boundary 时静默跳过，不产生字段。
+    """
+    if not body_text:
+        return
+    m = re.search(r'boundary=("?)([^";]+)\1', content_type)
+    if not m:
+        return
+    body = _unescape_newlines(body_text)
+    delimiter = "--" + m.group(2)
+    for part in body.split(delimiter):
+        part = part.lstrip("\r\n")
+        if not part or part.startswith("--"):
+            continue  # 首个 delimiter 之前的空段与结尾的 "--"
+        # part 头与内容以空行分隔
+        if "\r\n\r\n" in part:
+            head, _, value = part.partition("\r\n\r\n")
+        elif "\n\n" in part:
+            head, _, value = part.partition("\n\n")
+        else:
+            continue
+        disposition = next(
+            (ln for ln in head.replace("\r\n", "\n").split("\n")
+             if ln.lower().startswith("content-disposition:")),
+            "",
+        )
+        name_m = re.search(r'name="([^"]*)"', disposition)
+        if not name_m or name_m.group(1) in seen_keys:
+            continue
+        is_file = 'filename="' in disposition
+        fields.append({
+            "key": name_m.group(1),
+            "field_type": "file" if is_file else "string",
+            "default_value": "" if is_file else value.rstrip("\r\n"),
+            "in": "body",
+            "required": False,
+        })
+        seen_keys.add(name_m.group(1))
 
 
 def _infer_field_type(value: Any) -> str:

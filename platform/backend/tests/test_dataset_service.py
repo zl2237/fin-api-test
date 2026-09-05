@@ -363,3 +363,71 @@ class TestCaseBinding:
                           return_value=SimpleNamespace(id=7, project_id=1, case_id=2)):
             with pytest.raises(ValueError, match="其他用例|隔离"):
                 svc.validate_binding(_fake_db(), case, 7)
+
+
+# ============ 保存用例自动同步快照（sync_case_datasets） ============
+
+def _cfg(node_id, api_id=None, assertions=None):
+    """CaseNodeConfig 替身"""
+    return SimpleNamespace(node_id=node_id, api_id=api_id,
+                           pre_process=[], post_extract=[],
+                           assertions=assertions or [], wait_after_ms=0)
+
+
+class TestSyncCaseDatasets:
+    def _db(self, datasets, cfgs, case):
+        """query 链替身：DataSet 查询 → 绑定数据集；CaseNodeConfig 查询 → 当前编排"""
+
+        def fake_query(model):
+            if model is models.DataSet:
+                return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(all=lambda: datasets))
+            if model is models.CaseNodeConfig:
+                return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(all=lambda: cfgs))
+            return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(all=lambda: []))
+
+        committed = []
+        with patch.object(svc.crud, "get_testcase", return_value=case):
+            db = SimpleNamespace(query=fake_query, commit=lambda: committed.append(True))
+            return svc.sync_case_datasets(db, case_id=case.id), committed
+
+    def test_sync_updates_all_bound_datasets(self):
+        """两个数据集绑定同用例：全部拿到最新快照（各自独立深拷贝）"""
+        case = SimpleNamespace(id=1, dag_config={"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": []})
+        ds1 = SimpleNamespace(id=11, case_id=1, node_configs=[])
+        ds2 = SimpleNamespace(id=12, case_id=1, node_configs=[])
+        cfgs = [_cfg("n1", api_id=100, assertions=[{"type": "json_path_equals"}]), _cfg("n2")]
+        n, committed = self._db([ds1, ds2], cfgs, case)
+        assert n == 2
+        assert committed == [True]
+        for ds in (ds1, ds2):
+            assert [c["node_id"] for c in ds.node_configs] == ["n1", "n2"]
+            assert ds.node_configs[0]["api_id"] == 100
+            assert ds.node_configs[0]["assertions"][0]["type"] == "json_path_equals"
+        # 各数据集快照是独立对象：改一个不影响另一个
+        ds1.node_configs[0]["api_id"] = 999
+        assert ds2.node_configs[0]["api_id"] == 100
+
+    def test_sync_ignores_nodes_removed_from_dag(self):
+        """快照只含 dag 中存在的节点（用例删了 n2，快照不再带 n2）"""
+        case = SimpleNamespace(id=1, dag_config={"nodes": [{"id": "n1"}], "edges": []})
+        ds = SimpleNamespace(id=11, case_id=1, node_configs=[])
+        cfgs = [_cfg("n1"), _cfg("n2")]  # n2 的配置行仍在，但 dag 已删节点
+        n, _ = self._db([ds], cfgs, case)
+        assert n == 1
+        assert [c["node_id"] for c in ds.node_configs] == ["n1"]
+
+    def test_sync_without_datasets_returns_zero(self):
+        """未绑定数据集：返回 0，不触发 commit（保存用例照常）"""
+        case = SimpleNamespace(id=1, dag_config={"nodes": [], "edges": []})
+        n, committed = self._db([], [], case)
+        assert n == 0
+        assert committed == []
+
+    def test_sync_case_missing_returns_zero(self):
+        """用例已不存在：返回 0 不抛（调用方刚保存过用例，防御分支）"""
+        def fake_query(model):
+            return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(all=lambda: [SimpleNamespace(id=11)]))
+
+        with patch.object(svc.crud, "get_testcase", return_value=None):
+            db = SimpleNamespace(query=fake_query, commit=lambda: None)
+            assert svc.sync_case_datasets(db, case_id=1) == 0

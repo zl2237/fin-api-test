@@ -42,19 +42,26 @@
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else :data="pagedList" stripe size="small" row-key="id">
-          <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="key" label="字段名（英文）" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="label" label="中文名" min-width="180" show-overflow-tooltip />
+        <el-table v-else :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
+          <template #empty>
+            <EmptyState :description="hasActiveFilter ? '没有匹配的字典，试试调整筛选条件' : '暂无字段字典'" :image-size="80">
+              <el-button v-if="!hasActiveFilter" type="primary" @click="openCreate">新增字典</el-button>
+            </EmptyState>
+          </template>
+          <el-table-column prop="id" label="ID" width="70" sortable="custom" />
+          <el-table-column prop="key" label="字段名（英文）" min-width="200" show-overflow-tooltip sortable="custom" />
+          <el-table-column prop="label" label="中文名" min-width="180" show-overflow-tooltip sortable="custom" />
           <el-table-column label="创建人" width="100" align="center">
             <template #default="{ row }">{{ row.created_by_name || '—' }}</template>
           </el-table-column>
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
           </el-table-column>
-          <el-table-column label="更新时间" width="120">
+          <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
             <template #default="{ row }">
-              <span :title="formatTime(row.updated_at)">{{ formatRelativeTime(row.updated_at) }}</span>
+              <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
+                <span>{{ formatRelativeTime(row.updated_at) }}</span>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="130" fixed="right">
@@ -94,8 +101,8 @@
       </template>
     </el-dialog>
 
-    <!-- 批量导入弹窗 -->
-    <el-dialog v-model="batchVisible" title="批量导入字典" width="620px" align-center :close-on-click-modal="false">
+    <!-- 批量导入弹窗（宽度归档：420 / 560 / 720 三档） -->
+    <el-dialog v-model="batchVisible" title="批量导入字典" width="560px" align-center :close-on-click-modal="false">
       <el-alert type="info" :closable="false" style="margin-bottom: 12px">
         <div class="batch-guide">
           <div class="guide-title">导入格式说明</div>
@@ -135,6 +142,8 @@ import { dictApi, userApi, type FieldDictionary, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { debounce } from '@/utils/ui'
 import { formatTime, formatRelativeTime } from '@/utils/format'
+import { useClientSort } from '@/composables/useClientSort'
+import EmptyState from '@/components/EmptyState.vue'
 
 const store = useAppStore()
 const list = ref<FieldDictionary[]>([])
@@ -146,6 +155,9 @@ const filterUpdater = ref<number | null>(null)
 const page = ref(1)
 const pageSize = ref(10)
 
+// 空态文案区分：无数据（引导新增） vs 有筛选无匹配（引导调整条件）
+const hasActiveFilter = computed(() => !!(keyword.value || filterCreator.value || filterUpdater.value))
+
 // 客户端全量列表：创建人/更新人直接本地过滤（服务端 list 仅支持 keyword）
 const filteredList = computed(() => {
   return list.value.filter(d =>
@@ -154,9 +166,17 @@ const filteredList = computed(() => {
   )
 })
 
+// 表头排序（sortable="custom"）：先排全量再分页切片；取消排序回到接口默认序
+const { onSortChange, sorted: sortedList } = useClientSort(filteredList, {
+  id: d => d.id,
+  key: d => d.key,
+  label: d => d.label ?? '',
+  updated_at: d => d.updated_at ?? '',
+}, () => { page.value = 1 })
+
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return filteredList.value.slice(start, start + pageSize.value)
+  return sortedList.value.slice(start, start + pageSize.value)
 })
 
 async function load() {
@@ -230,7 +250,11 @@ async function onSave() {
 
 async function onRemove(row: FieldDictionary) {
   try {
-    await ElMessageBox.confirm(`确认删除字段「${row.key}」的字典映射？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除「${row.key}」的字典映射？删除后相关位置仅显示字段英文名，此操作不可恢复`,
+      '删除字典映射',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
   } catch {
     return
   }

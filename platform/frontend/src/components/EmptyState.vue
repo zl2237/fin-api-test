@@ -39,9 +39,6 @@
       <!-- 虚线表示「空」 -->
       <line x1="42" y1="62" x2="78" y2="62" class="es-stroke-primary" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.5" />
       <line x1="48" y1="72" x2="72" y2="72" class="es-stroke-primary" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.35" />
-      <!-- 右上角小圆点装饰 -->
-      <circle cx="92" cy="28" r="3" class="es-fill-success" opacity="0.8" />
-      <circle cx="100" cy="34" r="2" class="es-fill-primary" opacity="0.5" />
     </svg>
     <p v-if="description" class="empty-state-desc">{{ description }}</p>
     <div v-if="$slots.default" class="empty-state-actions">
@@ -74,21 +71,10 @@ const gradId = 'es-' + useId()
   justify-content: center;
   padding: 24px 12px;
   gap: 8px;
-  /* 一次性入场：整块淡入 + 上移 + 轻微放大 */
-  animation: es-enter 0.45s cubic-bezier(0.25, 0.8, 0.25, 1) both;
+  /* 静态呈现：空态在工具页高频出现，不做入场演出 */
 }
 .empty-state-illust {
   flex-shrink: 0;
-}
-@keyframes es-enter {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 .empty-state-desc {
   margin: 0;
@@ -107,12 +93,6 @@ const gradId = 'es-' + useId()
 .es-stroke-primary {
   stroke: var(--app-primary);
 }
-.es-fill-primary {
-  fill: var(--app-primary);
-}
-.es-fill-success {
-  fill: var(--app-success);
-}
 /* 文件夹前片：实底卡色，遮住后片渐变形成层次 */
 .es-fill-card {
   fill: var(--app-card-solid);
@@ -121,14 +101,5 @@ const gradId = 'es-' + useId()
   display: flex;
   gap: 8px;
   margin-top: 4px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .empty-state,
-  .empty-state-illust {
-    animation: none;
-  }
-  .empty-state:hover .empty-state-illust {
-    transform: none;
-  }
 }
 </style>
