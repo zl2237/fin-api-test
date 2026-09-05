@@ -89,14 +89,6 @@
               :value="e.id"
             />
           </el-select>
-          <el-button @click="onAutoLayout">自动布局</el-button>
-          <el-button
-            :type="linkMode ? 'warning' : 'default'"
-            @click="onToggleLinkMode"
-          >
-            {{ linkMode ? linkHint : '连线模式' }}
-          </el-button>
-          <el-button :loading="splitScanning" :disabled="!caseData.id" @click="onSplit">拆分选中</el-button>
           <!-- dirty 圆点提示：抽屉「应用配置」只写内存，此处按钮才是持久化（双层保存语义可视化） -->
           <el-button type="primary" :class="{ 'save-dirty': dirty }" :loading="saving" @click="onSave">
             保存用例<span v-if="dirty" class="dirty-dot" aria-hidden="true" />
@@ -178,7 +170,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Connection, CaretRight, Search } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection, CaretRight, Search, Grid, Share, Scissor, Loading } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
@@ -753,6 +745,60 @@ watch(() => store.currentProjectId, async () => {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  position: relative; /* 浮动工具条定位基准 */
+}
+/* 画布浮动工具条：贴画布右上角（自动布局/连线/拆分），顶栏因此只留主流程四件 */
+.canvas-float-bar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6; /* 画布内容之上；低于节点配置抽屉/弹窗 */
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--app-card-solid);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  box-shadow: var(--app-shadow-sm);
+}
+.float-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--app-text-muted);
+  border-radius: var(--app-radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+}
+.float-btn:hover {
+  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
+  color: var(--app-primary);
+}
+/* 连线模式激活：琥珀语义（沿用原 warning 按钮含义），文字色加深保对比度 */
+.float-btn.active {
+  background: color-mix(in srgb, var(--app-warn-accent) 20%, transparent);
+  color: color-mix(in srgb, var(--app-warn-text) 80%, black);
+}
+.float-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.float-btn:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
+}
+.float-btn .spin {
+  animation: float-spin 1s linear infinite;
+}
+@keyframes float-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-btn .spin { animation: none; }
 }
 .canvas-toolbar {
   display: flex;
