@@ -83,3 +83,7 @@ platform/backend/backup_*.json
 # 本地学习/文档目录（个人笔记，不入库）
 learn/
 docs/
+
+# 本地依赖/缓存（云部署验证临时安装，勿提交）
+.deps/
+.npm-cache/

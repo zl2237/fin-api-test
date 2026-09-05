@@ -17,9 +17,12 @@ load_dotenv()
 
 import os
 import sys
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import auth as auth_module
 from . import models
@@ -134,8 +137,15 @@ def _ensure_default_admin():
         db.close()
 
 
-@app.get("/")
+# 前端构建产物（platform/frontend/dist）：存在则由本服务同源托管，前端 /api 相对路径直接生效，无需 CORS
+_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+_HAS_FRONTEND = (_FRONTEND_DIST / "index.html").is_file()
+
+
+@app.get("/", include_in_schema=_HAS_FRONTEND is False)
 def root():
+    if _HAS_FRONTEND:
+        return FileResponse(_FRONTEND_DIST / "index.html")
     return {"name": "fin-api-test 平台", "docs": "/docs"}
 
 
@@ -156,6 +166,23 @@ app.include_router(reports.router)
 app.include_router(field_dictionaries.router)
 app.include_router(files.router)
 app.include_router(files.category_router)
+
+
+if _HAS_FRONTEND:
+    # 静态资源（vite 产物默认在 dist/assets）用 StaticFiles 获得 ETag/304
+    _assets_dir = _FRONTEND_DIST / "assets"
+    if _assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        """前端 history 路由兜底：命中的静态文件直接返回，其余一律回 index.html"""
+        if full_path:
+            candidate = _FRONTEND_DIST / full_path
+            # 防路径穿越：解析后必须仍在 dist 目录内
+            if candidate.is_file() and _FRONTEND_DIST in candidate.resolve().parents:
+                return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIST / "index.html")
 
 
 if __name__ == "__main__":
