@@ -1,5 +1,5 @@
 pytest==9.0.3
-requests==2.33.0
+requests==2.34.2
 pymysql==1.1.1
 PyYAML==6.0.1
 pytest-html==4.0.2
