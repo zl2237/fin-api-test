@@ -38,9 +38,20 @@ def _build_mysql_url() -> URL:
 
 DATABASE_URL = _build_mysql_url()
 
+
+def _connect_args() -> dict:
+    """TiDB Cloud 等 TLS-only 云数据库：DB_SSL=true 时启用系统 CA 校验的 TLS 连接"""
+    if os.getenv("DB_SSL", "").strip().lower() in {"1", "true", "yes"}:
+        import ssl
+
+        return {"ssl": ssl.create_default_context()}
+    return {}
+
+
 # MySQL 连接池配置：避免长连接被 server 端断开（wait_timeout 默认 8h，这里 1h 主动回收）
 engine = create_engine(
     DATABASE_URL,
+    connect_args=_connect_args(),
     pool_pre_ping=True,      # 取连接前 ping 一下，失效则重建
     pool_recycle=3600,       # 1 小时回收
     pool_size=10,            # 连接池大小
@@ -84,9 +95,14 @@ def init_db():
     alembic_cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
     existing_tables = set(inspect(engine).get_table_names())
 
-    if existing_tables and "alembic_version" not in existing_tables:
-        # 旧库迁移：已有表但未纳入 Alembic 管理，标记当前为 head
+    if not existing_tables:
+        # 全新库：初始迁移本身即 create_all 全量建表（等于当前模型），
+        # 后续增量迁移对其必然重复加列，因此直接建表并 stamp head 跳过迁移链
+        Base.metadata.create_all(engine)
+        command.stamp(alembic_cfg, "head")
+    elif "alembic_version" not in existing_tables:
+        # 旧库迁移：已有表但未纳入 Alembic 管理，标记当前为 head，不执行 DDL
         command.stamp(alembic_cfg, "head")
     else:
-        # 全新库或已迁移库：执行迁移
+        # 已迁移库：执行增量迁移
         command.upgrade(alembic_cfg, "head")

@@ -1,0 +1,27 @@
+# Render Blueprint 配置
+# 使用：Render 控制台 → New → Blueprint → 选择本仓库，创建时填入 TiDB 连接参数
+services:
+  - type: web
+    name: fin-api-test
+    runtime: docker
+    dockerfilePath: ./platform/Dockerfile # 相对仓库根
+    dockerContext: . # 仓库根：镜像内需包含 utils/ 等仓库根模块，且目录层级与仓库一致
+    plan: free
+    region: singapore # 离中国大陆最近的可用节点
+    healthCheckPath: /docs
+    autoDeploy: true # push 到 main 自动部署
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true # Render 自动生成随机密钥
+      - key: DB_SSL
+        value: "true" # TiDB Serverless 强制 TLS
+      - key: DB_HOST # 以下为 TiDB Serverless 连接参数，创建 Blueprint 时填写
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false

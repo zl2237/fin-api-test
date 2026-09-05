@@ -1,0 +1,23 @@
+# Docker 构建上下文 = 仓库根，此文件加速构建并避免本地环境泄漏进镜像
+platform/frontend/node_modules
+platform/frontend/dist
+platform/frontend/.vite
+platform/frontend/openapi.json
+platform/frontend/design
+platform/backend/.env
+platform/backend/.vendor
+platform/backend/uploads
+platform/backend/tests
+platform/backend/backup_*.json
+venv/
+.venv/
+.deps/
+.npm-cache/
+**/__pycache__
+**/.pytest_cache
+.git
+docs
+learn
+report
+logs
+screenshots
