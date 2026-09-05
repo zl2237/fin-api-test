@@ -15,6 +15,9 @@
   --app-radius-md: 3px;
   --app-radius-lg: 4px;
 
+  /* 顶栏高度（MainLayout .topbar 与全局抽屉偏移共用，单一事实源） */
+  --app-topbar-h: 52px;
+
   /* 表面与背景：实底（去毛玻璃），冷灰图纸底 */
   --app-bg: #f4f6f9;
   --app-sidebar: #ffffff;
@@ -212,6 +215,23 @@ kbd {
     calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6),
     calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6);
   background-position: -1px -1px;
+}
+
+/* ===== 抽屉（全站 4 个 el-drawer 统一）：顶栏之下展开 + 头身紧凑 =====
+   修复两个问题：
+   1. EP 默认 header margin-bottom 32px → 标题与内容间大段死区
+   2. 抽屉满视口高（盖住顶栏区域）→ 视觉上"比侧边栏还高且顶部空一截" */
+.el-overlay .el-drawer {
+  top: var(--app-topbar-h);
+  height: calc(100% - var(--app-topbar-h));
+}
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--app-border);
+}
+.el-drawer__body {
+  padding: 16px 20px;
 }
 
 /* 统一圆角：所有卡片、面板、输入框遵循一致圆角 */
