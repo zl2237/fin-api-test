@@ -105,6 +105,42 @@
         @nodes-pasted="onNodesPasted"
         @link-mode-change="onLinkModeChange"
       />
+      <!-- 画布浮动工具条：自动布局/连线/拆分（44e6d3b 样式与逻辑已在，此处补录遗漏的 DOM） -->
+      <div class="canvas-float-bar" role="toolbar" aria-label="画布工具">
+        <el-tooltip content="自动布局：整理节点与连线走向" popper-class="app-tip" placement="left" :show-after="300">
+          <button type="button" class="float-btn" aria-label="自动布局" @click="onAutoLayout">
+            <el-icon><Grid /></el-icon>
+          </button>
+        </el-tooltip>
+        <el-tooltip
+          :content="linkMode ? linkHint : '连线模式：依次点击源节点和目标节点'"
+          popper-class="app-tip"
+          placement="left"
+          :show-after="300"
+        >
+          <button
+            type="button"
+            :class="['float-btn', { active: linkMode }]"
+            :aria-pressed="linkMode"
+            aria-label="连线模式"
+            @click="onToggleLinkMode"
+          >
+            <el-icon><Share /></el-icon>
+          </button>
+        </el-tooltip>
+        <el-tooltip content="拆分选中节点为独立用例（子流程）" popper-class="app-tip" placement="left" :show-after="300">
+          <button
+            type="button"
+            class="float-btn"
+            :disabled="!caseData.id || splitScanning"
+            aria-label="拆分选中节点"
+            @click="onSplit"
+          >
+            <el-icon v-if="splitScanning" class="spin"><Loading /></el-icon>
+            <el-icon v-else><Scissor /></el-icon>
+          </button>
+        </el-tooltip>
+      </div>
       <div class="canvas-hint">
         提示：点击接口添加节点；单击选中、双击或 Enter 打开配置；Delete 删除选中节点；Ctrl+C/V 复制粘贴；Ctrl+S 保存用例；双击连线删除。
       </div>
@@ -802,8 +838,10 @@ watch(() => store.currentProjectId, async () => {
 }
 .canvas-toolbar {
   display: flex;
+  flex-wrap: wrap; /* 平板窄视口：左右两组换行而非溢出裁剪 */
   align-items: center;
   justify-content: space-between;
+  gap: 8px 12px;
   background: var(--app-card);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
@@ -811,13 +849,27 @@ watch(() => store.currentProjectId, async () => {
 }
 .toolbar-left {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
+/* 允许收缩（覆盖模板内联 260px 的刚性），窄屏降至 min-width */
+.toolbar-left :deep(.el-input) {
+  flex: 0 1 260px;
+  min-width: 140px;
+}
 .toolbar-right {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+.toolbar-right :deep(.el-select) {
+  flex: 0 1 160px;
+  min-width: 128px;
+}
+.dirty-tip {
+  white-space: nowrap;
 }
 .dirty-tip {
   font-size: 12px;
