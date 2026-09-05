@@ -206,19 +206,21 @@ function trendLabelVisible(i: number) {
   margin-bottom: 8px;
 }
 
-/* compact 模式：嵌入摘要横带的迷你尺寸 */
+/* compact 模式：嵌入摘要横带的迷你尺寸（容器硬定高 68px，内部垂直居中不越界） */
 .trend-card.compact {
   background: transparent;
   border: none;
   box-shadow: none;
   min-width: 0;
+  height: 100%;
+  justify-content: center;
 }
 .trend-card.compact :deep(.el-card__body) {
   padding: 0;
 }
 .trend-head.is-compact {
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   white-space: nowrap;
 }
 .trend-head.is-compact .trend-title {
@@ -228,7 +230,7 @@ function trendLabelVisible(i: number) {
   font-size: 11px;
 }
 .trend-card.compact .trend-svg {
-  height: 46px;
+  height: 40px;
 }
 
 .trend-title {
