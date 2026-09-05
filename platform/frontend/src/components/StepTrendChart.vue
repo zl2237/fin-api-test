@@ -1,17 +1,17 @@
 <template>
   <!-- 各步骤响应耗时趋势图（纯 SVG，零依赖）；从 ReportDetail 提取的展示组件：
        输入仅 steps，输出仅 select(stepId)，悬浮/抽稀等全部内聚 -->
-  <el-card shadow="never" class="trend-card" @mouseleave="hideTrendTip">
-    <div class="trend-head">
-      <span class="trend-title">步骤响应耗时趋势</span>
-      <span class="trend-sub">单位 ms，最大 {{ trendMax }} ms，平均 {{ trendAvg }} ms；悬浮或点击节点查看步骤</span>
+  <el-card shadow="never" :class="['trend-card', { compact }]" @mouseleave="hideTrendTip">
+    <div class="trend-head" :class="{ 'is-compact': compact }">
+      <span class="trend-title">{{ compact ? '耗时趋势' : '步骤响应耗时趋势' }}</span>
+      <span class="trend-sub">{{ compact ? `最大 ${trendMax} · 平均 ${trendAvg} ms` : `单位 ms，最大 ${trendMax} ms，平均 ${trendAvg} ms；悬浮或点击节点查看步骤` }}</span>
     </div>
     <!-- vector-effect 等比保护：none 拉伸会把数据点拉成椭圆、轴文字变形 -->
-    <svg class="trend-svg" :viewBox="`0 0 ${trendWidth} ${trendHeight}`" preserveAspectRatio="none">
+    <svg class="trend-svg" :viewBox="`0 0 ${geo.w} ${geo.h}`" preserveAspectRatio="none">
       <!-- 网格线 -->
       <line v-for="g in trendGrids" :key="g.y" :x1="g.x1" :y1="g.y" :x2="g.x2" :y2="g.y" stroke="currentColor" class="grid-line" stroke-width="1" vector-effect="non-scaling-stroke" />
-      <!-- Y 轴刻度 -->
-      <text v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
+      <!-- Y 轴刻度（compact 模式空间不足，隐藏；精确值由悬浮提示承载） -->
+      <text v-if="!compact" v-for="g in trendGrids" :key="'t'+g.y" :x="4" :y="g.y - 2" font-size="10" class="axis-text">{{ g.label }}</text>
       <!-- 面积填充（静态呈现：排障工具页不做入场演出） -->
       <polygon v-if="trendDots.length >= 2" :points="areaPoints" class="trend-area" :fill="'url(#trend-grad)'" />
       <defs>
@@ -35,7 +35,7 @@
         <circle
           :cx="p.x"
           :cy="p.y"
-          :r="hoveredTrend === i ? 5.5 : 3.5"
+          :r="hoveredTrend === i ? 5.5 : (compact ? 2.8 : 3.5)"
           :class="steps[i].status === 'success' ? 'dot-ok' : 'dot-err'"
           class="trend-dot"
           @mouseenter="showTrendTip($event, i)"
@@ -44,17 +44,19 @@
           @click="emit('select', steps[i].id)"
         />
       </g>
-      <!-- X 轴标签（超过 12 个抽稀防挤压） -->
-      <text
-        v-for="(p, i) in trendDots"
-        v-show="trendLabelVisible(i)"
-        :key="'x'+i"
-        :x="p.x"
-        :y="trendHeight - 4"
-        font-size="10"
-        class="axis-text"
-        text-anchor="middle"
-      >{{ i + 1 }}</text>
+      <!-- X 轴标签（超过 12 个抽稀防挤压；compact 模式隐藏） -->
+      <template v-if="!compact">
+        <text
+          v-for="(p, i) in trendDots"
+          v-show="trendLabelVisible(i)"
+          :key="'x'+i"
+          :x="p.x"
+          :y="geo.h - 4"
+          font-size="10"
+          class="axis-text"
+          text-anchor="middle"
+        >{{ i + 1 }}</text>
+      </template>
     </svg>
     <!-- 悬浮提示框 -->
     <div v-show="hoveredTrend !== null" class="trend-tip" :style="{ left: tipPos.x + 'px', top: tipPos.y + 'px' }">
@@ -78,6 +80,8 @@ import type { StepRecord } from '@/api'
 const props = defineProps<{
   /** 报告步骤列表（按执行顺序），图表只读消费 */
   steps: StepRecord[]
+  /** 紧凑模式：嵌入摘要横带的小尺寸 sparkline（隐藏轴标签，悬浮提示保留） */
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -85,10 +89,12 @@ const emit = defineEmits<{
   select: [stepId: number]
 }>()
 
-// ===== 画布几何 =====
-const trendWidth = 720
-const trendHeight = 160
-const trendPadding = { top: 16, right: 20, bottom: 20, left: 40 }
+// ===== 画布几何（compact 模式用小 viewBox + 窄边距，随尺寸一起换算坐标） =====
+const geo = computed(() =>
+  props.compact
+    ? { w: 720, h: 64, pad: { top: 8, right: 8, bottom: 8, left: 8 } }
+    : { w: 720, h: 160, pad: { top: 16, right: 20, bottom: 20, left: 40 } }
+)
 
 const trendValues = computed(() =>
   props.steps.map(s => s.response_time_ms ?? 0)
@@ -107,12 +113,12 @@ const trendAvg = computed(() => {
 
 const trendGrids = computed(() => {
   const grids: { y: number; x1: number; x2: number; label: string }[] = []
-  const gridSteps = 4
-  const usableH = trendHeight - trendPadding.top - trendPadding.bottom
+  const gridSteps = props.compact ? 2 : 4
+  const usableH = geo.value.h - geo.value.pad.top - geo.value.pad.bottom
   for (let i = 0; i <= gridSteps; i++) {
-    const y = trendPadding.top + (usableH * i) / gridSteps
+    const y = geo.value.pad.top + (usableH * i) / gridSteps
     const val = Math.round(trendMax.value * (1 - i / gridSteps))
-    grids.push({ y, x1: trendPadding.left, x2: trendWidth - trendPadding.right, label: String(val) })
+    grids.push({ y, x1: geo.value.pad.left, x2: geo.value.w - geo.value.pad.right, label: String(val) })
   }
   return grids
 })
@@ -120,12 +126,12 @@ const trendGrids = computed(() => {
 const trendDots = computed(() => {
   const vals = trendValues.value
   if (!vals.length) return []
-  const usableW = trendWidth - trendPadding.left - trendPadding.right
-  const usableH = trendHeight - trendPadding.top - trendPadding.bottom
+  const usableW = geo.value.w - geo.value.pad.left - geo.value.pad.right
+  const usableH = geo.value.h - geo.value.pad.top - geo.value.pad.bottom
   const max = trendMax.value || 1
   return vals.map((v, i) => {
-    const x = trendPadding.left + (vals.length === 1 ? usableW / 2 : (usableW * i) / (vals.length - 1))
-    const y = trendPadding.top + usableH * (1 - v / max)
+    const x = geo.value.pad.left + (vals.length === 1 ? usableW / 2 : (usableW * i) / (vals.length - 1))
+    const y = geo.value.pad.top + usableH * (1 - v / max)
     return { x, y, value: v }
   })
 })
@@ -138,7 +144,7 @@ const trendPoints = computed(() =>
 const areaPoints = computed(() => {
   const dots = trendDots.value
   if (dots.length < 2) return ''
-  const base = trendHeight - trendPadding.bottom
+  const base = geo.value.h - geo.value.pad.bottom
   const first = dots[0]
   const last = dots[dots.length - 1]
   return `${first.x},${base} ${dots.map(p => `${p.x},${p.y}`).join(' ')} ${last.x},${base}`
@@ -198,6 +204,33 @@ function trendLabelVisible(i: number) {
   align-items: baseline;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+/* compact 模式：嵌入摘要横带的迷你尺寸（容器硬定高 68px，内部垂直居中不越界） */
+.trend-card.compact {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  min-width: 0;
+  height: 100%;
+  justify-content: center;
+}
+.trend-card.compact :deep(.el-card__body) {
+  padding: 0;
+}
+.trend-head.is-compact {
+  gap: 8px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+}
+.trend-head.is-compact .trend-title {
+  font-size: 12px;
+}
+.trend-head.is-compact .trend-sub {
+  font-size: 11px;
+}
+.trend-card.compact .trend-svg {
+  height: 40px;
 }
 
 .trend-title {
