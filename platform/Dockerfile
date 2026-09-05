@@ -20,8 +20,10 @@ WORKDIR /workspace
 COPY platform/backend/requirements.txt ./platform/backend/requirements.txt
 RUN pip install --no-cache-dir -r platform/backend/requirements.txt
 COPY platform/backend/ ./platform/backend/
-# 平台后端复用的仓库根工具包（expression/request_sender/runtime_service/dag_executor）
+# 平台后端复用的仓库根工具包（expression/request_sender/runtime_service/dag_executor 引 utils；
+# runtime_service 与环境测试连接延迟 import db.db_client，需一并打包）
 COPY utils/ ./utils/
+COPY db/ ./db/
 COPY --from=frontend /build/dist ./platform/frontend/dist
 EXPOSE 8000
 # 单 worker：定时调度器为 in-process，多 worker 会重复调度；PORT 由 Render 注入
