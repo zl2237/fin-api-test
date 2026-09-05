@@ -10,7 +10,7 @@ APScheduler>=3.10,<4
 # 登录验证码 OCR 识别（ddddocr）；缺失时自动降级跳过验证码识别
 ddddocr>=1.5.5
 # 验证码图预处理（二值化放大，识别率翻倍）；缺失时降级原图直读
-Pillow>=10.0.0
+Pillow>=12.3.0
 # 复用现有项目的能力（requests/pymysql/pyyaml 已在根 requirements.txt）
 requests>=2.33.0
 pymysql>=1.1.1
