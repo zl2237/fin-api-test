@@ -2,6 +2,7 @@
 
 > 面向金融业务系统的 API 自动化测试框架 · pytest 驱动 · 多环境 · 数据库校验 · 链路编排
 
+[![CI](https://github.com/zl2237/fin-api-test/actions/workflows/ci.yml/badge.svg)](https://github.com/zl2237/fin-api-test/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![pytest](https://img.shields.io/badge/pytest-9.0.3-green.svg)](https://pytest.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)

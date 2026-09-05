@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions 讨论区
+    url: https://github.com/zl2237/fin-api-test/discussions
+    about: 使用问题、经验分享与想法讨论请发这里（Questions / Show and tell / Ideas）
