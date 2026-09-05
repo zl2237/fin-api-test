@@ -29,35 +29,37 @@
       <span>{{ loadError }}</span>
       <el-button size="small" @click="load()">重试</el-button>
     </div>
-    <!-- 顶部：摘要 + 趋势图 横向并排，节省垂直空间 -->
-    <div class="top-row">
-      <el-card shadow="never" class="summary-card">
-        <!-- 结论章：本页唯一 bold 处。票据审核章式 verdict（双线框 + 结论色 + 记录号） -->
-        <div :class="['verdict-stamp', verdictClass]" aria-label="执行结论">
-          <span class="stamp-text">{{ stampText }}</span>
-          <span class="stamp-id">#{{ record?.id ?? '-' }}</span>
+    <!-- 顶部：紧凑摘要横带（结论 + 分数 + 迷你趋势 + meta/动作），垂直空间让给下方工作区 -->
+    <el-card shadow="never" class="summary-card">
+      <!-- 结论章：本页唯一 bold 处。票据审核章式 verdict（双线框 + 结论色 + 记录号） -->
+      <div :class="['verdict-stamp', verdictClass]" aria-label="执行结论">
+        <span class="stamp-text">{{ stampText }}</span>
+        <span class="stamp-id">#{{ record?.id ?? '-' }}</span>
+      </div>
+      <!-- 结论数字：断言/步骤两组分数（排障第一眼要看的两件事） -->
+      <div class="verdict-nums">
+        <div class="vnum">
+          <span class="vnum-label">断言</span>
+          <span class="vnum-value app-data">
+            <span :class="numClass">{{ assertionPassed }}</span>
+            <span class="sep">/</span>
+            <span>{{ assertionTotal }}</span>
+          </span>
         </div>
-        <!-- 结论数字：断言/步骤两组分数（排障第一眼要看的两件事） -->
-        <div class="verdict-nums">
-          <div class="vnum">
-            <span class="vnum-label">断言</span>
-            <span class="vnum-value app-data">
-              <span :class="numClass">{{ assertionPassed }}</span>
-              <span class="sep">/</span>
-              <span>{{ assertionTotal }}</span>
-            </span>
-          </div>
-          <div class="vnum-divider" aria-hidden="true"></div>
-          <div class="vnum">
-            <span class="vnum-label">步骤</span>
-            <span class="vnum-value app-data">
-              <span :class="numClass">{{ passedCount }}</span>
-              <span class="sep">/</span>
-              <span>{{ totalCount }}</span>
-            </span>
-          </div>
+        <div class="vnum-divider" aria-hidden="true"></div>
+        <div class="vnum">
+          <span class="vnum-label">步骤</span>
+          <span class="vnum-value app-data">
+            <span :class="numClass">{{ passedCount }}</span>
+            <span class="sep">/</span>
+            <span>{{ totalCount }}</span>
+          </span>
         </div>
-        <!-- 上下文 meta：单行小字，纯空格分隔（省略号 + title 全文） -->
+      </div>
+      <!-- 迷你趋势：横带内 sparkline（悬浮提示/点击选步骤与全尺寸版一致） -->
+      <StepTrendChart v-if="steps.length" :steps="steps" compact class="summary-trend" @select="currentStepId = $event" />
+      <!-- 右侧：上下文 meta + 动作 -->
+      <div class="summary-side">
         <div class="summary-meta" :title="metaText">{{ metaText }}</div>
         <div class="summary-actions">
           <el-button
@@ -73,11 +75,8 @@
           <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
           <el-button text @click="router.back()">返回</el-button>
         </div>
-      </el-card>
-
-      <!-- 各步骤响应耗时趋势图（展示组件：props 步骤列表，select 事件回传步骤 ID） -->
-      <StepTrendChart v-if="steps.length" :steps="steps" @select="currentStepId = $event" />
-    </div>
+      </div>
+    </el-card>
 
     <!-- 失败摘要卡：与导出 HTML 报告同构（仅失败时渲染，点击跳转对应步骤） -->
     <el-card v-if="failedSteps.length" shadow="never" class="fail-summary">
@@ -655,49 +654,36 @@ onUnmounted(stopPolling)
   min-height: 0;
 }
 
-/* 顶部摘要 + 趋势图 横向并排，高度固定不随内容变化 */
-.top-row {
-  display: grid;
-  grid-template-columns: minmax(420px, 1.4fr) minmax(360px, 1fr);
-  gap: 12px;
-  flex-shrink: 0;
-  /* 常规桌面宽度下与原 180px 固定高一致；结论书换行时（窄窗口）自动增高防裁切 */
-  min-height: 180px;
-}
-
+/* ===== 摘要横带：紧凑单行（窄窗口自动换行防裁切），高度最小化，垂直空间让给工作区 ===== */
 .summary-card {
   background: var(--app-card);
   border-radius: var(--app-radius-lg);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
-.trend-card {
-  /* 趋势图样式已随 StepTrendChart 组件内聚；此处仅保留 top-row 栅格占位所需的最小样式 */
-  min-width: 0;
-}
-
-/* ===== 结论书布局：章 | 结论数字 | meta | 动作，横向一行（窄窗口自动换行防裁切） ===== */
 .summary-card :deep(.el-card__body) {
-  display: flex;
+  /* grid 四列定死：章 | 分数 | 迷你趋势(弹性) | meta/动作。不用 flex-wrap——
+     上一版 flex-basis 与换行叠加把趋势卡拉伸到 260px，撑爆横带挤死工作区 */
+  display: grid;
+  grid-template-columns: auto auto minmax(200px, 1fr) auto;
   align-items: center;
-  flex-wrap: wrap;
-  row-gap: 8px;
-  gap: 20px;
-  height: 100%;
+  column-gap: 18px;
+  padding: 10px 16px;
 }
 
 /* 结论章：票据审核章（双线框 = border 外线 + inset outline 内线），结论色经 currentColor 派生 */
 .verdict-stamp {
   flex-shrink: 0;
-  width: 96px;
+  width: 74px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 14px 8px 12px;
+  gap: 1px;
+  padding: 8px 6px 7px;
   border: 2px solid currentColor;
   outline: 1px solid currentColor;
-  outline-offset: -7px;
+  outline-offset: -5px;
   border-radius: var(--app-radius-sm);
 }
 .verdict-stamp.is-success { color: var(--app-success-text); }
@@ -705,7 +691,7 @@ onUnmounted(stopPolling)
 .verdict-stamp.is-running { color: var(--app-warn-text); }
 .verdict-stamp.is-unknown { color: var(--app-text-faint); }
 .stamp-text {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.12em;
   padding-left: 0.12em; /* 抵消末字间距，视觉居中 */
@@ -715,28 +701,28 @@ onUnmounted(stopPolling)
   /* 记录号无需语义色：中性 muted 全对比度（原 accent 78% 透明仅 ~3:1） */
   font-family: var(--app-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--app-text-muted);
 }
 
-/* 结论数字：断言/步骤两组大号 mono 分数 */
+/* 结论数字：断言/步骤两组 mono 分数 */
 .verdict-nums {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
 }
 .vnum {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 .vnum-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--app-text-muted);
 }
 .vnum-value {
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
   line-height: 1.1;
   color: var(--app-text);
@@ -747,20 +733,46 @@ onUnmounted(stopPolling)
 .vnum-value .sep {
   color: var(--app-text-faint);
   font-weight: 500;
-  margin: 0 3px;
+  margin: 0 2px;
 }
 .vnum-divider {
   width: 1px;
-  height: 44px;
+  height: 30px;
   background: var(--app-border);
 }
 
-/* 上下文 meta：占据剩余宽度，底部对齐，超长省略 */
-.summary-meta {
-  flex: 1;
+/* 迷你趋势：硬定高 68px（head 19 + svg 40 + 呼吸），杜绝任何子项把横带撑高 */
+.summary-trend {
+  height: 68px;
   min-width: 0;
-  align-self: flex-end;
-  padding-bottom: 4px;
+  border-left: 1px solid var(--app-border);
+  border-right: 1px solid var(--app-border);
+  padding: 0 14px;
+}
+
+/* 窄窗口：趋势降级隐藏（信息非关键），其余三列照常 */
+@media (max-width: 1280px) {
+  .summary-card :deep(.el-card__body) {
+    grid-template-columns: auto auto auto;
+  }
+  .summary-trend {
+    display: none;
+  }
+}
+
+/* 右侧列：meta（上）+ 动作（下） */
+.summary-side {
+  justify-self: end;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* 上下文 meta：单行小字（省略号 + title 全文） */
+.summary-meta {
+  max-width: 360px;
   font-size: 12px;
   color: var(--app-text-muted);
   white-space: nowrap;
