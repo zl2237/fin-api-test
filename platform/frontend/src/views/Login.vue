@@ -398,13 +398,6 @@ async function onSubmit() {
   font-weight: 600;
   letter-spacing: 1px;
 }
-.hint {
-  margin-top: 16px;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  text-align: center;
-  line-height: 1.6;
-}
 /* 注册密码实时合规提示（前置到输入框旁） */
 .pwd-rule-hint {
   margin-top: 4px;
