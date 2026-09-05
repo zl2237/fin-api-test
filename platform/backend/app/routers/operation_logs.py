@@ -22,11 +22,13 @@ def list_logs(
     action: str | None = None,
     target_type: str | None = None,
     user_id: int | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
     _admin: models.User = Depends(_require_admin),
 ):
-    """查询操作日志（仅 admin），支持按操作类型、目标类型、操作人筛选，默认最近100条"""
+    """查询操作日志（仅 admin），支持按操作类型、目标类型、操作人、时间范围筛选，默认最近100条"""
     q = db.query(models.OperationLog)
     if action:
         q = q.filter(models.OperationLog.action == action)
@@ -34,6 +36,10 @@ def list_logs(
         q = q.filter(models.OperationLog.target_type == target_type)
     if user_id:
         q = q.filter(models.OperationLog.user_id == user_id)
+    if start_time:
+        q = q.filter(models.OperationLog.created_at >= start_time)
+    if end_time:
+        q = q.filter(models.OperationLog.created_at <= end_time)
     return q.order_by(models.OperationLog.id.desc()).limit(limit).all()
 
 

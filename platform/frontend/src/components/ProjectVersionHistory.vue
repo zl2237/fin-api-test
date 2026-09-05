@@ -182,16 +182,13 @@ import {
 } from '@/api'
 import { formatTime } from '@/utils/format'
 
-const props = defineProps<{ modelValue: boolean; projectId: number | null }>()
+const props = defineProps<{ projectId: number | null }>()
 const emit = defineEmits<{
-  'update:modelValue': [val: boolean]
   rollback: []
 }>()
 
-const visible = computed({
-  get: () => props.modelValue,
-  set: (v) => emit('update:modelValue', v),
-})
+/** 弹窗显隐：defineModel 双向绑定（Vue 3.4+，替代手写 modelValue + computed get/set 样板） */
+const visible = defineModel<boolean>({ default: false })
 
 const versions = ref<ProjectVersionListItem[]>([])
 const loading = ref(false)
@@ -213,7 +210,7 @@ async function loadVersions() {
       baseId.value = versions.value[1].id
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载版本列表失败')
+    ElMessage.error(e.message || '加载版本列表失败')
   } finally {
     loading.value = false
   }
@@ -246,7 +243,7 @@ async function onCreate() {
     createVisible.value = false
     await loadVersions()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     creating.value = false
   }
@@ -269,7 +266,7 @@ async function onRollback(row: ProjectVersionListItem) {
     emit('rollback')
     visible.value = false
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '回滚失败')
+    ElMessage.error(e.message || '回滚失败')
   }
 }
 
@@ -291,7 +288,7 @@ async function onDelete(row: ProjectVersionListItem) {
     if (targetId.value === row.id) targetId.value = null
     await loadVersions()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -344,7 +341,7 @@ async function onDiff() {
       .map(s => s.key)
     diffVisible.value = true
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '对比失败')
+    ElMessage.error(e.message || '对比失败')
   } finally {
     diffLoading.value = false
   }
@@ -476,7 +473,7 @@ function onShowFieldDiff(sectionKey: string, item: { key: string; base: any; tar
 
 .pv-diff-body {
   background: var(--app-hover);
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
   font-size: 12px;
   line-height: 1.6;

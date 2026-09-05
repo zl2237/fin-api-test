@@ -3,17 +3,20 @@
     <el-table :data="modelValue" size="small" border empty-text="暂无预处理，点击「添加」开始配置">
       <el-table-column label="类型" width="140">
         <template #default="{ row }">
-          <el-select v-model="row.type" size="small" style="width: 100%">
+          <el-select v-model="row.type" size="small" style="width: 100%" @change="onTypeChange(row)">
             <el-option label="设置字段" value="set_field" />
             <el-option label="新增字段" value="add_field" />
             <el-option label="删除字段" value="delete_field" />
             <el-option label="遍历赋值" value="iterate_set" />
+            <el-option label="执行 SQL" value="exec_sql" />
           </el-select>
         </template>
       </el-table-column>
       <el-table-column :label="pathLabel" min-width="220">
         <template #default="{ row }">
+          <span v-if="row.type === 'exec_sql'" class="muted">—</span>
           <el-select
+            v-else
             v-model="row.path"
             size="small"
             filterable
@@ -39,7 +42,15 @@
       </el-table-column>
       <el-table-column label="值（支持 ${}）" min-width="240">
         <template #default="{ row }">
-          <div v-if="row.type !== 'delete_field' && isFileField(row.path)" class="file-value-cell">
+          <el-input
+            v-if="row.type === 'exec_sql'"
+            v-model="row.sql"
+            size="small"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            placeholder="INSERT INTO t_order (bl_no) VALUES (${bl_no}) — ${} 可引用上下文变量"
+          />
+          <div v-else-if="row.type !== 'delete_field' && isFileField(row.path)" class="file-value-cell">
             <el-input
               :model-value="row.value ? `#${row.value}` : ''"
               size="small"
@@ -104,15 +115,6 @@ function tryParseJson(s: any): any {
   }
 }
 
-function pickArrayItemLabel(item: any): string {
-  if (!item || typeof item !== 'object') return ''
-  const keys = ['supplier_name', 'name', 'label', 'service_item_name', 'order_sub_no', 'title']
-  for (const k of keys) {
-    if (item[k] && typeof item[k] === 'string') return item[k]
-  }
-  return ''
-}
-
 // 从示例值推断字段类型（用于嵌套字段，顶层字段直接用 ApiField.field_type）
 function inferType(v: any): string {
   if (v === null || v === undefined) return 'null'
@@ -123,21 +125,23 @@ function inferType(v: any): string {
   return 'string'
 }
 
-function collectKeys(obj: any, base: string, out: { value: string; label: string }[], depth = 0): void {
+// 展开嵌套字段：label 统一为「路径（字典中文名，如有）[类型]」。
+// canonBase 为去掉数组下标的规范路径（如 supplier.0.order_id → supplier.order_id），
+// 传入 dictLabel 后可按 完整路径/末段/父级段 智能命中字典，使非顶层字段也能解析中文名。
+function collectKeys(obj: any, base: string, canonBase: string, out: FieldOption[], depth = 0): void {
   if (depth > 2) return
   if (Array.isArray(obj)) {
     if (obj.length === 0) return
     obj.forEach((item, idx) => {
       if (item && typeof item === 'object') {
-        const itemLabel = pickArrayItemLabel(item)
         for (const [k, v] of Object.entries(item)) {
           const childPath = `${base}.${idx}.${k}`
+          const childCanon = `${canonBase}.${k}`
           const t = inferType(v)
-          // 优先用数组项的业务标签，其次查项目字典
-          const cn = itemLabel || dictLabel(k)
-          const lbl = cn ? `${base}.${idx}.${k}（${cn}）[${t}]` : `${base}.${idx}.${k} [${t}]`
+          const cn = dictLabel(childCanon)
+          const lbl = cn ? `${childPath}（${cn}）[${t}]` : `${childPath} [${t}]`
           out.push({ value: childPath, label: lbl })
-          if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+          if (v && typeof v === 'object') collectKeys(v, childPath, childCanon, out, depth + 1)
         }
       }
     })
@@ -145,10 +149,10 @@ function collectKeys(obj: any, base: string, out: { value: string; label: string
     for (const [k, v] of Object.entries(obj)) {
       const childPath = `${base}.${k}`
       const t = inferType(v)
-      const cn = dictLabel(k)
-      const lbl = cn ? `${base}.${k}（${cn}）[${t}]` : `${base}.${k} [${t}]`
+      const cn = dictLabel(childPath)
+      const lbl = cn ? `${childPath}（${cn}）[${t}]` : `${childPath} [${t}]`
       out.push({ value: childPath, label: lbl })
-      if (v && typeof v === 'object') collectKeys(v, childPath, out, depth + 1)
+      if (v && typeof v === 'object') collectKeys(v, childPath, childPath, out, depth + 1)
     }
   }
 }
@@ -162,7 +166,7 @@ const fieldOptions = computed<FieldOption[]>(() => {
     opts.push({ value: f.key, label })
     if (f.field_type === 'array' || f.field_type === 'object') {
       const parsed = tryParseJson(f.default_value)
-      if (parsed) collectKeys(parsed, f.key, opts)
+      if (parsed) collectKeys(parsed, f.key, f.key, opts)
     }
   }
   return opts
@@ -191,6 +195,15 @@ function add() {
   const next = [...props.modelValue, { type: 'set_field', path: '', value: '' }]
   emit('update:modelValue', next)
 }
+
+// 类型切换清理：切到 exec_sql 后 path 不再使用，清空避免残留值占用字段可选集
+function onTypeChange(row: any) {
+  if (row.type === 'exec_sql') {
+    row.path = ''
+    if (row.sql == null) row.sql = ''
+  }
+}
+
 function remove(idx: number) {
   const next = [...props.modelValue]
   next.splice(idx, 1)

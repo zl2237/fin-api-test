@@ -11,7 +11,7 @@
               </marker>
             </defs>
             <!-- 产品图标：DAG 节点汇聚 → 断言对勾（与 favicon 同构的白色版） -->
-            <rect width="32" height="32" rx="7" fill="rgba(255,255,255,0.16)" />
+            <rect width="32" height="32" rx="2" fill="rgba(255,255,255,0.16)" />
             <g stroke="#fff" stroke-width="1" fill="none" stroke-linecap="round">
               <path d="M7.4 9 L11 12" marker-end="url(#loginBrandArrow)" />
               <path d="M16 7.6 L16 11.5" marker-end="url(#loginBrandArrow)" />
@@ -28,7 +28,7 @@
           <span class="brand-name">fin-api-test</span>
         </div>
         <h1 class="brand-title">接口自动化测试平台</h1>
-        <p class="brand-slogan">DAG 可视化编排 · 17 种断言 · 一键执行报告</p>
+        <p class="brand-slogan app-mono">DAG 可视化编排，17 种断言，一键执行报告</p>
 
         <!-- 静态 DAG 品牌大图：本产品视觉识别符（画布同构，无动画） -->
         <svg class="brand-dag" viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img"
@@ -46,43 +46,43 @@
           <path d="M330 148 C 370 148, 380 226, 425 230" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" marker-end="url(#dagArrow)" />
           <!-- 上游接口节点 -->
           <g>
-            <rect x="28" y="46" width="82" height="48" rx="10" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
+            <rect x="28" y="46" width="82" height="48" rx="2" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
             <text x="69" y="67" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">POST</text>
             <text x="69" y="83" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/login</text>
           </g>
           <g>
-            <rect x="28" y="126" width="82" height="48" rx="10" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
+            <rect x="28" y="126" width="82" height="48" rx="2" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
             <text x="69" y="147" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">POST</text>
             <text x="69" y="163" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/orders</text>
           </g>
           <!-- 失败链路节点 -->
           <g>
-            <rect x="28" y="206" width="82" height="48" rx="10" fill="rgba(255,120,110,0.12)" stroke="rgba(255,120,110,0.8)" stroke-width="1.2" />
+            <rect x="28" y="206" width="82" height="48" rx="2" fill="rgba(255,120,110,0.12)" stroke="rgba(255,120,110,0.8)" stroke-width="1.2" />
             <text x="69" y="227" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">GET</text>
             <text x="69" y="243" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/refund</text>
           </g>
           <!-- 汇聚断言节点（产品核心：17 种校验） -->
           <g>
-            <rect x="250" y="118" width="80" height="60" rx="10" fill="rgba(255,255,255,0.16)" stroke="#fff" stroke-width="1.3" />
+            <rect x="250" y="118" width="80" height="60" rx="2" fill="rgba(255,255,255,0.16)" stroke="#fff" stroke-width="1.3" />
             <path d="M272 148 l7 8 l14 -16" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
             <text x="290" y="171" text-anchor="middle" fill="rgba(255,255,255,0.6)" font-size="9">17 断言</text>
           </g>
           <!-- 下游结果节点 -->
           <g>
-            <rect x="425" y="42" width="34" height="44" rx="9" fill="rgba(110,220,150,0.16)" stroke="rgba(110,220,150,0.85)" stroke-width="1.2" />
+            <rect x="425" y="42" width="34" height="44" rx="2" fill="rgba(110,220,150,0.16)" stroke="rgba(110,220,150,0.85)" stroke-width="1.2" />
             <path d="M435 60 l5 6 l10 -12" stroke="rgba(110,220,150,1)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
           </g>
           <g>
-            <rect x="425" y="208" width="34" height="44" rx="9" fill="rgba(255,120,110,0.14)" stroke="rgba(255,120,110,0.85)" stroke-width="1.2" />
+            <rect x="425" y="208" width="34" height="44" rx="2" fill="rgba(255,120,110,0.14)" stroke="rgba(255,120,110,0.85)" stroke-width="1.2" />
             <path d="M434 224 l12 12 M446 224 l-12 12" stroke="rgba(255,120,110,1)" stroke-width="2" stroke-linecap="round" />
           </g>
         </svg>
 
         <!-- 三行直陈能力（无卡片无图标框，工具感文案） -->
         <ul class="brand-points">
-          <li>画布拖拽编排接口流程，双击节点配断言</li>
-          <li>JSONPath / 状态码 / 数据库交叉校验，17 种断言</li>
-          <li>cURL 粘贴、HAR 抓包、Swagger 文档批量导入</li>
+          <li>cURL / HAR / Swagger 一键导入，画布拖拽编排成链</li>
+          <li>数据集参数化驱动，一行数据执行一次</li>
+          <li>套件跨系统串联用例，上游变量自动注入下游</li>
         </ul>
       </div>
 
@@ -107,10 +107,27 @@
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSubmit">
           <el-form-item label="用户名" prop="username">
-            <el-input v-model="form.username" placeholder="请输入用户名" :prefix-icon="User" size="large" />
+            <el-input
+              v-model="form.username"
+              name="username"
+              autocomplete="username"
+              :spellcheck="false"
+              placeholder="请输入用户名"
+              :prefix-icon="User"
+              size="large"
+            />
           </el-form-item>
           <el-form-item label="密码" prop="password">
-            <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" size="large" />
+            <el-input
+              v-model="form.password"
+              type="password"
+              show-password
+              name="password"
+              :autocomplete="activeTab === 'login' ? 'current-password' : 'new-password'"
+              placeholder="请输入密码"
+              :prefix-icon="Lock"
+              size="large"
+            />
             <!-- 规则提示前置到输入框旁（注册态/focus 可见），不再是提交失败后才发现规则 -->
             <div v-if="activeTab === 'register'" class="pwd-rule-hint">
               至少 8 位，同时包含字母和数字
@@ -227,37 +244,34 @@ async function onSubmit() {
   overflow: hidden;
 }
 
-/* ===== 左侧品牌展示区 ===== */
+/* ===== 左侧品牌展示区：实底深墨青 + 蓝图网格（工程制图纸，替代渐变光晕） ===== */
 .brand-panel {
   position: relative;
   flex: 1;
   min-width: 0;
-  background: linear-gradient(135deg, #1a2b4a 0%, color-mix(in srgb, var(--app-primary) 45%, #1a2b4a) 60%, var(--app-primary) 100%);
+  background: #0e2a33;
   display: flex;
   flex-direction: column;
   justify-content: center;
   padding: 60px 56px;
   overflow: hidden;
 }
-/* 背景光晕装饰 */
+/* 蓝图网格：主网格 24px + 细分格 4px（品牌母题：测试画布的工程底纹） */
 .brand-panel::before {
   content: '';
   position: absolute;
-  top: -20%;
-  right: -10%;
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 70%);
-  pointer-events: none;
-}
-.brand-panel::after {
-  content: '';
-  position: absolute;
-  bottom: -15%;
-  left: -10%;
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--app-success) 10%, transparent) 0%, transparent 70%);
+  inset: 0;
+  background-image:
+    linear-gradient(var(--app-grid-line-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
+  background-size:
+    var(--app-grid-size) var(--app-grid-size),
+    var(--app-grid-size) var(--app-grid-size),
+    calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6),
+    calc(var(--app-grid-size) / 6) calc(var(--app-grid-size) / 6);
+  background-position: -1px -1px;
   pointer-events: none;
 }
 
@@ -318,15 +332,17 @@ async function onSubmit() {
   line-height: 1.6;
   opacity: 0.85;
 }
+/* 能力列表标记：DAG 节点方框（与画布节点同构，替代实心圆点） */
 .brand-points li::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 9px;
+  top: 8px;
   width: 7px;
   height: 7px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.45);
+  border: 1.2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 1px;
+  background: transparent;
 }
 
 .brand-footer {
@@ -351,12 +367,12 @@ async function onSubmit() {
 .form-card {
   width: 100%;
   max-width: 360px;
-  /* 容器感：卡片底色 + 细边框 + 柔和阴影 + 内边距（无入场动画：登录是工具页） */
+  /* 实底面板 + 发丝线 + 单层低阴影（工程面板语言，无入场动画：登录是工具页） */
   padding: 32px 28px;
-  background: var(--app-card);
+  background: var(--app-card-solid);
   border: 1px solid var(--app-border);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(15, 30, 60, 0.08), 0 1px 3px rgba(15, 30, 60, 0.04);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-lg);
 }
 .card-header {
   margin-bottom: 28px;
@@ -378,7 +394,7 @@ async function onSubmit() {
 .submit-btn {
   width: 100%;
   margin-top: 4px;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   font-weight: 600;
   letter-spacing: 1px;
 }

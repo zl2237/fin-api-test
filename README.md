@@ -8,7 +8,7 @@
 
 金融业务接口链路长、状态流转复杂、强依赖落库校验。本项目把"登录鉴权 → 接口调用 → 业务编排 → 数据校验"串联成一套开箱即用的骨架，让用例代码只关心业务本身。
 
-> 可视化平台版本（DAG 拖拽编排 + 结构化报告）位于 [`platform/`](./platform/README.md)，与命令行版本共享底层能力。
+> 可视化 Web 平台版本见 [`platform/`](./platform/README.md)。
 
 ## Features
 
@@ -77,7 +77,12 @@ def test_fee_add(api_factory, db_factory, env_config):
 
 ## Visual Platform
 
-同时提供一套 Web 测试平台（[`platform/`](./platform/README.md)）：FastAPI + Vue3 + DAG 拖拽编排 + 结构化报告 + 用户权限 + 并发执行。
+同时提供一套 Web 测试平台（FastAPI + Vue3），与命令行版本共享底层能力：
+
+- 平台说明与快速上手：[platform/README.md](./platform/README.md)
+- 架构详解与学习指南：[docs/项目架构详解与学习指南.md](./docs/项目架构详解与学习指南.md)
+- 深模块词汇表（单一实现约定）：[docs/CONTEXT.md](./docs/CONTEXT.md)
+- 后端 730 个 fake-db 单测 + 前端 vue-tsc 全量类型检查，CI 与 pre-commit 同口径
 
 ## License
 

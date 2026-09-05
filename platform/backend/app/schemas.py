@@ -138,6 +138,7 @@ class EnvironmentCreate(BaseModel):
     notify_config: dict[str, Any] = {}
     variables: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
+    success_codes: str = "200"
     timeout: int = 15
     is_default: bool = False
 
@@ -150,6 +151,7 @@ class EnvironmentUpdate(BaseModel):
     notify_config: dict[str, Any] | None = None
     variables: dict[str, Any] | None = None
     common_headers: dict[str, Any] | None = None
+    success_codes: str | None = None
     timeout: int | None = None
     is_default: bool | None = None
 
@@ -169,6 +171,7 @@ class EnvironmentOut(ORMBase, AuditMixin):
     notify_config: dict[str, Any] = {}
     variables: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
+    success_codes: str = "200"
     timeout: int = 15
     is_default: bool = False
     sort_order: int = 0
@@ -431,17 +434,21 @@ class TestCaseCreate(BaseModel):
     group_id: int | None = None
     name: str
     description: str | None = None
+    case_type: str = "normal"  # normal 普通用例 / suite 套件
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigIn] = []
+    shared_vars: list[str] | None = None  # 套件专用：共享变量白名单
 
 
 class TestCaseUpdate(BaseModel):
     group_id: int | None = None
     name: str | None = None
     description: str | None = None
+    case_type: str | None = None
     dag_config: dict[str, Any] | None = None
     node_configs: list[NodeConfigIn] | None = None
     dataset_id: int | None = None  # 绑定数据集（数据驱动）；显式传 null 解绑
+    shared_vars: list[str] | None = None  # 套件专用；显式传 null 清空
 
 
 class TestCaseOut(ORMBase):
@@ -450,15 +457,41 @@ class TestCaseOut(ORMBase):
     group_id: int | None = None
     name: str
     description: str | None = None
+    case_type: str = "normal"
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
     dataset_id: int | None = None  # 绑定的数据集（数据驱动），NULL=普通用例
+    shared_vars: list[str] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     created_by: int | None = None
     updated_by: int | None = None
     created_by_name: str | None = None
     updated_by_name: str | None = None
+
+
+class SuiteMemberIn(BaseModel):
+    """套件成员写入项：成员用例（可跨项目）+ 执行环境 + 顺序"""
+    member_case_id: int
+    env_id: int
+    sort_order: int = 0
+
+
+class SuiteMembersUpdate(BaseModel):
+    """整体替换套件成员列表（编排保存语义）"""
+    members: list[SuiteMemberIn]
+
+
+class SuiteMemberOut(BaseModel):
+    id: int
+    member_case_id: int
+    env_id: int
+    sort_order: int
+    case_name: str | None = None      # 成员用例名（冗余展示）
+    project_id: int | None = None     # 成员用例所属项目（跨项目标记）
+    project_name: str | None = None
+    env_name: str | None = None       # 绑定环境名（冗余展示）
+    member_case_type: str = "normal"  # 成员类型快照（异常引用提示）
 
 
 class CaseBatchMove(BaseModel):
@@ -514,14 +547,18 @@ class ExecutionCreate(BaseModel):
     env_id: int
     dataset_id: int | None = None  # 执行时临时换数据集（不改用例绑定）
     row_ids: list[int] | None = None  # 仅执行选中的数据行（单行手动执行=逐条通知）
+    # 并发执行数：1=逐个串行（一个结束再下一个，避免并发问题），默认 4
+    concurrency: int = 4
 
 
 class BatchExecutionCreate(BaseModel):
-    """批量执行：串行执行多个用例，一个结束执行下一个"""
+    """批量执行：多个用例并行执行，并发数可配（1=串行，一个结束再下一个）"""
     case_ids: list[int]
     env_id: int
     # 每个用例的执行次数（与 case_ids 一一对应，缺省全部为 1）；如 A 跑 3 次、B 跑 1 次
     counts: list[int] | None = None
+    # 并发执行数：1=逐个串行（避免并发问题）；>1 按需并行，默认 4
+    concurrency: int = 4
 
 
 class AssertionRecordOut(ORMBase):
@@ -550,6 +587,9 @@ class StepRecordOut(ORMBase):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     status: str | None = None
+    pre_process: list[dict[str, Any]] | None = None  # 前置处理快照（旧报告无此列时为 null）
+    post_extract: list[dict[str, Any]] | None = None  # 后置提取规则快照
+    extracted_vars: dict[str, Any] | None = None  # 后置提取实际结果
     assertions: list[AssertionRecordOut] = []
 
 
@@ -568,9 +608,16 @@ class ExecutionRecordOut(ORMBase):
     summary: dict[str, Any] = {}
     dataset_id: int | None = None
     dataset_row: dict[str, Any] | None = None  # 数据驱动行快照 {row_index, data, label}
+    suite_execution_id: int | None = None  # 套件来源：非空=套件链成员执行，指向套件主记录
     steps: list[StepRecordOut] = []
     created_by: int | None = None
     created_by_name: str | None = None
+
+
+class ExecutionListOut(BaseModel):
+    """执行记录分页信封：items 当前页数据 + total 过滤后总数（el-pagination 计算 total 用）"""
+    items: list[ExecutionRecordOut]
+    total: int
 
 
 # ============ TestSchedule 定时任务 ============
@@ -694,7 +741,7 @@ class FileOut(ORMBase, AuditMixin):
 class DataSetColumnIn(BaseModel):
     """列定义：key 即执行时变量名（校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）"""
     key: str
-    type: str = "string"  # string/int/bool/array/object
+    type: str = "string"  # string/int/bool/array/object/file（file=文件中心文件 ID）
     # 快照原值（从用例生成的列携带）：执行时快照保真的比对基准
     # （同名异值列只作用于"节点配置值 == origin"的节点）；手工列/用户不传则为空
     origin: Any = None

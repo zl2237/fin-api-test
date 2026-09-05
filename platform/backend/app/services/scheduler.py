@@ -10,8 +10,8 @@
 - 错过不补跑：misfire_grace_time=60s，重启窗口内错过的触发直接丢弃
   （MeterSphere 同款语义）
 - 时区固定 Asia/Shanghai，用户配置按本地时间理解
-- 触发动作复用现有执行通道：创建 ExecutionRecord(trigger_type="schedule")
-  → submit_execution 线程池，与手动执行同一路径（TokenCache 共享锁统一生效）
+- 触发动作复用现有执行通道：execution_launcher（与手动执行同一条编排路径，
+  TokenCache 共享锁统一生效），trigger_type="schedule" 落库可溯源
 - 配置存 test_schedules 业务表，jobstore 用内存（重启时从表全量重建，
   不引入 SQLAlchemyJobStore 的 pickle 污染）
 
@@ -34,10 +34,8 @@ TZ = "Asia/Shanghai"
 MISFIRE_GRACE = 60  # 秒：错过超过 60s 的触发直接丢弃，不补跑
 
 from .. import models
-from ..crud.executions import create_execution
 from ..database import SessionLocal
-from ..engine.runner import submit_batch_aggregate_notify, submit_execution
-from . import dataset_service
+from .execution_launcher import build_launch_plan, commit_launch
 
 
 def _job_id(schedule_id: int) -> str:
@@ -213,7 +211,7 @@ def _parse_daily_time(value: str | None):
 def _run_schedule_job(schedule_id: int) -> None:
     """定时触发动作：加载 schedule → 校验用例/环境存在 → 创建执行记录 → 提交线程池。
 
-    与手动执行同一路径（submit_execution），TokenCache 共享登录统一生效。
+    与手动执行同一条编排路径（execution_launcher），TokenCache 共享登录统一生效。
     用例/环境已被删除时静默禁用该 schedule 并移除 job（自愈，不报错刷屏）。
     """
     db = SessionLocal()
@@ -238,26 +236,13 @@ def _run_schedule_job(schedule_id: int) -> None:
         schedule.last_run_at = datetime.now()
         db.commit()
         # 数据驱动（周期8）：绑定数据集的用例按行展开，每行一条 trigger_type=schedule 记录；
-        # 多行批量失败聚合成一条通知（与手动执行同策略）
+        # 多行批量失败聚合成一条通知（与手动执行同策略，编排统一在 execution_launcher）
         try:
-            plan = dataset_service.plan_case_expansion(db, case)
+            plan = build_launch_plan(db, case, schedule.env_id, schedule.created_by,
+                                     trigger_type="schedule")
+            commit_launch([plan], schedule.env_id)
         except ValueError as e:
             print(f"[定时任务] schedule#{schedule_id} 数据集不可执行，跳过本轮: {e}")
-            return
-        aggregate = len(plan) > 1 and plan[0]["dataset_id"] is not None
-        group_ids = []
-        for item in plan:
-            record = create_execution(db, case_id=schedule.case_id, env_id=schedule.env_id,
-                                      user_id=schedule.created_by, trigger_type="schedule",
-                                      dataset_id=item["dataset_id"], dataset_row=item["row"])
-            submit_execution(schedule.case_id, schedule.env_id, record.id,
-                             row_vars=(item["row"] or {}).get("data"),
-                             row_origins=item.get("origins"),
-                             node_config_overrides=item["overrides"], suppress_notify=aggregate)
-            group_ids.append(record.id)
-        if aggregate:
-            submit_batch_aggregate_notify(group_ids, schedule.case_id, schedule.env_id,
-                                          plan[0]["dataset_id"], case.name)
     except Exception as e:
         print(f"[定时任务] schedule#{schedule_id} 触发失败: {e}")
     finally:

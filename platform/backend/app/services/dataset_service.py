@@ -23,12 +23,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from .. import crud, models
+from ..engine.topo import topo_order
 from .body_builder import parse_field_value
 
 # 列 key 合法字符：字母数字下划线（不允许点/空格/${}，理由见模块注释）
 _COL_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-_VALID_COL_TYPES = {"string", "int", "bool", "array", "object"}
+_VALID_COL_TYPES = {"string", "int", "bool", "array", "object", "file"}
 
 
 def _validate_columns(columns: list) -> None:
@@ -272,41 +273,27 @@ def _infer_col_type(value) -> str:
 
 
 def _topo_node_ids(dag: dict) -> list:
-    """dag 节点的拓扑执行序（与 DagExecutor._topo_sort 同算法：Kahn + 节点 id 字典序入队）。
+    """dag 节点的拓扑执行序（engine.topo_order 唯一实现，此处口径：环/断链节点排末尾）。
 
     收集口径需按执行序取值：同名异值列取业务链路源头节点（执行序首个）的值，
     而非 dag 数组顺序（数组可能是用户拖拽后的任意顺序，源头节点不一定排最前）。
     环/断链节点按引擎同口径排到末尾（引擎也不执行它们，只是收集时仍扫一遍兜底）。
     """
-    nodes = (dag or {}).get("nodes", [])
-    edges = (dag or {}).get("edges", [])
-    ids = [n["id"] for n in nodes]
-    in_degree = {nid: 0 for nid in ids}
-    adj: dict = {nid: [] for nid in ids}
-    for e in edges:
-        src, tgt = e.get("source"), e.get("target")
-        if src in adj and tgt in in_degree:
-            adj[src].append(tgt)
-            in_degree[tgt] += 1
-    queue = sorted([nid for nid, d in in_degree.items() if d == 0])
-    order: list = []
-    while queue:
-        nid = queue.pop(0)
-        order.append(nid)
-        for nxt in adj[nid]:
-            in_degree[nxt] -= 1
-            if in_degree[nxt] == 0:
-                queue.append(nxt)
-        queue.sort()
-    order.extend(nid for nid in ids if nid not in order)
-    return order
+    order, leftover = topo_order(dag)
+    return order + leftover
 
 
 def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     """扫描用例全部节点，收集可参数化的"写死"请求参数（纯函数，不触 db）。
 
     收集口径与三级取值优先级一致（数据集 = 除动态绑定外的所有字段集合）：
-    - API 字段默认值：顶层 key（无点号）、非 file、非空、不含 ${}（上游提取注入属动态，不收）
+    - API 字段默认值：顶层 key（无点号）、非空、不含 ${}（上游提取注入属动态，不收）；
+      file 字段同样成列（值是文件中心文件 ID，列 type=file，行编辑器渲染文件选择器，
+      执行时经 pop_file_fields_from_body 剥离走 multipart，链路无缝）；
+      GET 接口例外：空值 query 参数（可选过滤条件）也成列——执行时行值为空不覆盖
+      （apply_row_overrides 跳过空值），用户填值才启用该参数，天然参数化语义；
+      但 key 不符 _COL_KEY_RE（如 curl 导入的 search_time[date] 带方括号）跳过：
+      列名即变量名，无法引用也无法行值覆盖（stats.invalid 计数提示）
     - 前置处理 set_field/add_field：path 顶层、value 不含 ${}；
       同节点同 key 时 set_field 覆盖默认值（执行顺序在组装之后，最终生效值为准）
     - set_field/add_field 顶层 path 的 value 含 ${}（运行时动态注入，如 [${audit_id}]）
@@ -323,9 +310,11 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     全部不可提取时返回空结果（columns=[]），由 generate_dataset_from_case 抛用户可读错误。
     """
     values: dict = {}      # key -> 首个最终生效值（列顺序 = 拓扑执行序）
+    key_types: dict = {}   # key -> 字段类型（file 需透传到列定义，行编辑器据此渲染文件选择器）
     dynamic_keys = set()   # 被 ${} 动态注入的顶层 key：运行时表达式生效，不可作数据列
     conflicts = []
-    stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0, "nested": 0, "empty": 0}
+    stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0,
+             "nested": 0, "empty": 0, "invalid": 0}
 
     cfg_by_node = {c.node_id: c for c in node_configs}
     for node_id in _topo_node_ids(getattr(case, "dag_config", None)):
@@ -337,23 +326,41 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
             continue
         stats["nodes"] += 1
 
+        # key -> field_type：pre_process 路径的 file 字段值同为文件 ID，需识别类型
+        api_field_types = {f.key: (f.field_type or "string") for f in (getattr(api, "fields", None) or []) if f.key}
+        # GET 的 query 参数：空值（可选过滤条件）也成列，用户填值才启用（执行层空行值不覆盖）
+        is_get = str(getattr(api, "method", "") or "").upper() == "GET"
+
         node_vals: dict = {}  # 本节点最终生效值：默认值 → set_field 覆盖
+        node_types: dict = {}  # 本节点 key -> 字段类型
         for f in getattr(api, "fields", None) or []:
             if not f.key:
                 continue
             if "." in f.key:
                 stats["nested"] += 1
                 continue
-            if f.field_type == "file":
-                continue  # 值是文件 ID 非业务参数
+            # 列名即变量名（_COL_KEY_RE）：curl 导入的 GET query 原始参数名可能含
+            # 方括号（如 search_time[date]），无法作变量名也无法行值覆盖 → 跳过保真执行
+            if not _COL_KEY_RE.match(f.key):
+                stats["invalid"] += 1
+                continue
             raw = f.default_value
             if raw is None or (isinstance(raw, str) and not raw.strip()):
-                stats["empty"] += 1
+                # 空默认值的三类例外也成列（值空=未启用，用户在数据集行里填值才生效）：
+                # - GET 空值 query（可选过滤条件）
+                # - file 字段（curl 导入 multipart 的 file part 默认值恒为空；
+                #   空=未选文件，用户在数据集行里经文件选择器选了才上传）
+                if not is_get and f.field_type != "file":
+                    stats["empty"] += 1
+                    continue
+                node_vals[f.key] = ""
+                node_types[f.key] = f.field_type or "string"
                 continue
             if isinstance(raw, str) and "${" in raw:
                 stats["dynamic"] += 1
                 continue
             node_vals[f.key] = parse_field_value(raw, f.field_type or "string")
+            node_types[f.key] = f.field_type or "string"
         for act in cfg.pre_process or []:
             if act.get("type") not in ("set_field", "add_field"):
                 continue
@@ -364,6 +371,9 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
             if "." in path:
                 stats["nested"] += 1
                 continue
+            if not _COL_KEY_RE.match(path):
+                stats["invalid"] += 1
+                continue
             if isinstance(val, str) and "${" in val:
                 # 动态注入（如 [${audit_id}]）：运行时由表达式求值，不是数据列；
                 # 剔除本节点与早前节点收集的同名值，防止列拦截表达式
@@ -373,12 +383,14 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
                 values.pop(path, None)
                 continue
             node_vals[path] = val
+            node_types[path] = api_field_types.get(path, "string")
 
         for k, v in node_vals.items():
             if k in dynamic_keys:
                 continue
             if k not in values:
                 values[k] = v
+                key_types[k] = node_types.get(k, "string")
             elif values[k] != v:
                 # 同名异值：并集口径仍成一列（数据集=除动态绑定外所有字段的集合），
                 # 取执行序源头节点值；conflicts 仅提示异值。
@@ -389,8 +401,12 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
         # 全部不可提取（动态/嵌套/空/冲突）：返回空结果，由 generate_dataset_from_case 抛用户可读错误
         return {"columns": [], "row": {}, "stats": stats}
 
-    # origin = 生成时该 key 的源头值（与 row 初值相同）：执行时快照保真的比对基准
-    columns = [{"key": k, "type": _infer_col_type(v), "origin": v} for k, v in values.items()]
+    # origin = 生成时该 key 的源头值（与 row 初值相同）：执行时快照保真的比对基准；
+    # file 列类型来自字段定义（值是文件 ID，按值推断只会得到 string，行编辑器无法识别）
+    columns = [
+        {"key": k, "type": "file" if key_types.get(k) == "file" else _infer_col_type(v), "origin": v}
+        for k, v in values.items()
+    ]
     stats["columns"] = len(columns)
     return {"columns": columns, "row": dict(values), "stats": stats}
 
@@ -560,6 +576,29 @@ def resync_node_configs(db: Session, dataset_id: int) -> int:
     ds.node_configs = snapshot_node_configs(case, cfgs)
     db.commit()
     return len(ds.node_configs)
+
+
+def sync_case_datasets(db: Session, case_id: int) -> int:
+    """保存用例后自动同步：把该用例绑定的全部数据集 node_configs 一次性重快照（列/行不动）。
+
+    与手动 resync_node_configs 同口径（snapshot_node_configs），按用例批量执行；
+    各数据集持有快照的独立深拷贝，互不影响。返回同步的数据集数
+    （未绑定数据集或用例已不存在返回 0，不视为错误）。
+    """
+    datasets = (db.query(models.DataSet)
+                .filter(models.DataSet.case_id == case_id).all())
+    if not datasets:
+        return 0
+    case = crud.get_testcase(db, case_id)
+    if not case:
+        return 0
+    cfgs = (db.query(models.CaseNodeConfig)
+            .filter(models.CaseNodeConfig.case_id == case_id).all())
+    snapshot = snapshot_node_configs(case, cfgs)
+    for ds in datasets:
+        ds.node_configs = deepcopy(snapshot)
+    db.commit()
+    return len(datasets)
 
 
 # 编排字段中文名（drift 报告用）

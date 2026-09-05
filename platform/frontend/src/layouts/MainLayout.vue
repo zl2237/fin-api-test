@@ -16,7 +16,8 @@
         </svg>
       </div>
       <!-- 品牌区可点击回首页（首页即工作台：最近执行+统计+快速执行） -->
-      <div class="brand brand-link" title="回到首页" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
+      <el-tooltip content="回到首页" placement="top" popper-class="app-tip">
+        <router-link to="/home" class="brand brand-link" aria-label="回到首页">
         <span class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -25,7 +26,7 @@
               </marker>
             </defs>
             <!-- 产品图标：DAG 节点汇聚 → 断言对勾（与 favicon 同构的白色版） -->
-            <rect width="32" height="32" rx="7" fill="rgba(255,255,255,0.16)" />
+            <rect width="32" height="32" rx="2" fill="rgba(255,255,255,0.16)" />
             <g stroke="#fff" stroke-width="1" fill="none" stroke-linecap="round">
               <path d="M7.4 9 L11 12" marker-end="url(#brandArrow)" />
               <path d="M16 7.6 L16 11.5" marker-end="url(#brandArrow)" />
@@ -41,7 +42,8 @@
           </svg>
         </span>
         <span v-if="!collapsed" class="brand-text">fin-api-test</span>
-      </div>
+        </router-link>
+      </el-tooltip>
       <el-menu
         :default-active="menuActive"
         router
@@ -91,17 +93,33 @@
       <div class="sidebar-foot">
         <div class="avatar-ripple">
           <!-- 用户本人头像：tooltip 显示用户名（开发者署名见登录页页脚） -->
-          <img
+          <el-tooltip
             v-if="currentAvatar"
-            :src="currentAvatar"
-            class="dev-avatar"
-            :alt="store.user?.name || store.user?.username || '用户'"
-            :title="store.user?.name || store.user?.username || '当前用户'"
-          />
-          <div v-else class="dev-avatar dev-avatar-fallback" :title="store.user?.name || store.user?.username || '当前用户'">
-            {{ fallbackInitial }}
-          </div>
-          <div v-if="avatarUploading" class="avatar-uploading" title="头像上传中…">…</div>
+            :content="store.user?.name || store.user?.username || '当前用户'"
+            placement="top"
+            popper-class="app-tip"
+          >
+            <img
+              :src="currentAvatar"
+              width="36"
+              height="36"
+              class="dev-avatar"
+              :alt="store.user?.name || store.user?.username || '用户'"
+            />
+          </el-tooltip>
+          <el-tooltip
+            v-else
+            :content="store.user?.name || store.user?.username || '当前用户'"
+            placement="top"
+            popper-class="app-tip"
+          >
+            <div class="dev-avatar dev-avatar-fallback">
+              {{ fallbackInitial }}
+            </div>
+          </el-tooltip>
+          <el-tooltip v-if="avatarUploading" content="头像上传中…" placement="top" popper-class="app-tip">
+            <div class="avatar-uploading">…</div>
+          </el-tooltip>
         </div>
       </div>
     </el-aside>
@@ -109,9 +127,11 @@
     <el-container>
       <el-header class="topbar">
         <div class="topbar-left">
-          <el-button text class="collapse-btn" :title="collapsed ? '展开侧边栏' : '收起侧边栏'" :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
-            <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
-          </el-button>
+          <el-tooltip :content="collapsed ? '展开侧边栏' : '收起侧边栏'" placement="top" popper-class="app-tip">
+            <el-button text class="collapse-btn" :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
+              <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-breadcrumb :separator-icon="ArrowRight" class="topbar-breadcrumb">
             <el-breadcrumb-item :to="{ path: '/' }">
               <el-icon><HomeFilled /></el-icon>
@@ -142,17 +162,24 @@
             />
           </el-select>
           <!-- 项目管理入口：低频配置不占侧栏，归宿是项目选择器旁（规范 interaction-guidelines §1） -->
-          <el-button text title="项目管理" @click="router.push('/projects')">
-            <el-icon><Folder /></el-icon>管理
-          </el-button>
-          <el-button
+          <el-tooltip content="项目管理" placement="top" popper-class="app-tip">
+            <el-button text @click="router.push('/projects')">
+              <el-icon><Folder /></el-icon>管理
+            </el-button>
+          </el-tooltip>
+          <el-tooltip
             v-if="store.currentProjectId"
-            text
-            title="项目版本管理"
-            @click="versionVisible = true"
+            content="项目版本管理"
+            placement="top"
+            popper-class="app-tip"
           >
-            <el-icon><DataLine /></el-icon>版本
-          </el-button>
+            <el-button
+              text
+              @click="versionVisible = true"
+            >
+              <el-icon><DataLine /></el-icon>版本
+            </el-button>
+          </el-tooltip>
           <el-select
             v-model="store.currentEnvId"
             placeholder="选择环境"
@@ -166,35 +193,46 @@
               :value="e.id"
             />
           </el-select>
-          <el-button text :title="isFullscreen ? '退出全屏' : '进入全屏'" @click="toggleFullscreen">
-            <el-icon><FullScreen /></el-icon>
-          </el-button>
-          <el-dropdown trigger="click" @command="onThemeCommand">
-            <el-button text :title="themeLabel">
-              <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
-              <el-icon>
-                <Monitor v-if="store.theme === 'auto'" />
-                <Sunny v-else-if="store.theme === 'light'" />
-                <Moon v-else />
-              </el-icon>
+          <el-tooltip :content="isFullscreen ? '退出全屏' : '进入全屏'" placement="top" popper-class="app-tip">
+            <el-button text @click="toggleFullscreen">
+              <el-icon><FullScreen /></el-icon>
             </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">
-                  <el-icon><Sunny /></el-icon>浅色
-                  <el-icon v-if="store.theme === 'light'" class="theme-check"><Check /></el-icon>
-                </el-dropdown-item>
-                <el-dropdown-item command="dark" :class="{ 'theme-checked': store.theme === 'dark' }">
-                  <el-icon><Moon /></el-icon>深色
-                  <el-icon v-if="store.theme === 'dark'" class="theme-check"><Check /></el-icon>
-                </el-dropdown-item>
-                <el-dropdown-item command="auto" :class="{ 'theme-checked': store.theme === 'auto' }">
-                  <el-icon><Monitor /></el-icon>跟随系统
-                  <el-icon v-if="store.theme === 'auto'" class="theme-check"><Check /></el-icon>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          </el-tooltip>
+          <!-- 常驻帮助入口：coreCap 三 tab（表达式/断言/数据集）随手可查 -->
+          <el-tooltip content="帮助（表达式 / 断言 / 数据集）" placement="top" popper-class="app-tip">
+            <el-button text aria-label="帮助" @click="store.openCoreCapability('expression')">
+              <el-icon><QuestionFilled /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <!-- tooltip 必须包在 dropdown 外层：嵌在 dropdown 插槽内会与其触发器事件克隆互相覆盖，导致点击弹不出下拉 -->
+          <el-tooltip :content="themeLabel" placement="top" popper-class="app-tip">
+            <el-dropdown trigger="click" @command="onThemeCommand">
+              <el-button text>
+                <!-- 图标与当前主题模式一一对应：浅色太阳 / 深色月亮 / 跟随系统显示器 -->
+                <el-icon>
+                  <Monitor v-if="store.theme === 'auto'" />
+                  <Sunny v-else-if="store.theme === 'light'" />
+                  <Moon v-else />
+                </el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="light" :class="{ 'theme-checked': store.theme === 'light' }">
+                    <el-icon><Sunny /></el-icon>浅色
+                    <el-icon v-if="store.theme === 'light'" class="theme-check"><Check /></el-icon>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="dark" :class="{ 'theme-checked': store.theme === 'dark' }">
+                    <el-icon><Moon /></el-icon>深色
+                    <el-icon v-if="store.theme === 'dark'" class="theme-check"><Check /></el-icon>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="auto" :class="{ 'theme-checked': store.theme === 'auto' }">
+                    <el-icon><Monitor /></el-icon>跟随系统
+                    <el-icon v-if="store.theme === 'auto'" class="theme-check"><Check /></el-icon>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </el-tooltip>
           <el-dropdown trigger="click" @command="onUserCommand">
             <span class="user-chip">
               <img
@@ -302,10 +340,10 @@
   <!-- 全局命令面板（Ctrl+K） -->
   <CommandPalette ref="cmdPaletteRef" />
 
-  <!-- 核心能力详情弹窗：表达式引擎 / 17 种断言（状态来自全局 store，跨组件可触发） -->
+  <!-- 核心能力详情弹窗：表达式引擎 / 17 种断言 / 数据集（状态来自全局 store，跨组件可触发） -->
   <el-dialog
     v-model="store.coreCapVisible"
-    :title="store.coreCapTab === 'expression' ? '表达式引擎 · 内置函数与变量' : '17 种断言规则 · 用法示例'"
+    :title="coreCapTitle"
     width="860px"
     align-center
     class="corecap-dialog"
@@ -433,6 +471,80 @@
           </div>
         </div>
       </el-tab-pane>
+
+      <!-- ========== 数据驱动 · 数据集 ========== -->
+      <el-tab-pane label="数据驱动 · 数据集" name="dataset">
+        <div class="corecap-intro">
+          数据集 = 同一用例的多组参数。用例绑定数据集后，执行一次会按数据行展开为 N 次执行；
+          每行执行时同名列覆盖请求参数，嵌套字段用点号路径，跨列引用用 <code>${列名}</code>。
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">核心概念</div>
+          <div class="corecap-cards">
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">列 key = 请求参数名</code>
+                <span class="corecap-desc">同名即自动覆盖写死的参数值</span>
+              </div>
+              <div class="corecap-example">示例：列 <code>order_id</code> 覆盖请求体中的 <code>order_id</code></div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">a.b.c / a.0.b</code>
+                <span class="corecap-desc">点号写嵌套对象与数组下标</span>
+              </div>
+              <div class="corecap-example">示例：<code>to_customer.put_amount</code>、<code>supplier.0.order_id</code></div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">${列名}</code>
+                <span class="corecap-desc">跨字段引用同行的其他列值</span>
+              </div>
+              <div class="corecap-example">示例：默认值 <code>${bl_no}-A</code> 拼接同行的运单号</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">节点配置快照</code>
+                <span class="corecap-desc">执行按快照跑；保存用例自动同步，执行前检测过期可一键同步</span>
+              </div>
+              <div class="corecap-example">场景：改了编排忘了同步 → 执行确认面板会提示 drift</div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">工作流</div>
+          <div class="corecap-cards">
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">从用例生成</code>
+                <span class="corecap-desc">扫描用例写死的请求参数成列，附 1 行原值快照</span>
+              </div>
+              <div class="corecap-example">入口：数据集页 → 选中用例 → 「从用例生成」</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">绑定</code>
+                <span class="corecap-desc">用例私有数据集，在用例行内「数据」入口绑定/更换/解绑</span>
+              </div>
+              <div class="corecap-example">跨用例复用：在数据集页复制一份再改</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">执行确认面板</code>
+                <span class="corecap-desc">绑定后执行弹出：临时换数据集、勾选部分行、快照过期一键同步</span>
+              </div>
+              <div class="corecap-example">N 行 = N 次执行（并行，并发上限 4）</div>
+            </div>
+            <div class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">Excel/CSV 导入</code>
+                <span class="corecap-desc">先解析预览（列对齐告警）再确认替换全部行；可导出 xlsx</span>
+              </div>
+              <div class="corecap-example">适合批量造数与外部数据回灌</div>
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
     <template #footer>
       <el-button type="primary" @click="store.setCoreCapVisible(false)">关闭</el-button>
@@ -451,7 +563,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -465,6 +577,14 @@ const store = useAppStore()
 const tabStore = useTabStore()
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
+
+// 核心能力弹窗标题按 tab 映射（三个 tab 后不再用内联三元）
+const CORE_CAP_TITLES: Record<string, string> = {
+  expression: '表达式引擎 · 内置函数与变量',
+  assertion: '17 种断言规则 · 用法示例',
+  dataset: '数据驱动 · 数据集用法',
+}
+const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CAP_TITLES.expression)
 
 // 侧边菜单项（与模板 el-menu-item index 一一对应；项目管理为低频配置，入口在顶栏项目选择器旁）
 const MENU_PATHS = [
@@ -621,7 +741,7 @@ async function onAvatarFileChange(e: Event) {
     currentAvatar.value = dataUrl
     ElMessage.success('已更新')
   } catch (err: any) {
-    ElMessage.error(err?.response?.data?.detail || err?.message || '头像上传失败')
+    ElMessage.error(err.message || '头像上传失败')
   } finally {
     avatarUploading.value = false
     input.value = ''
@@ -831,8 +951,8 @@ onMounted(async () => {
 }
 .sidebar {
   position: relative;
-  /* 品牌渐变背景：与登录页保持视觉延续 */
-  background: linear-gradient(180deg, #1a2b4a 0%, color-mix(in srgb, var(--app-primary) 35%, #1a2b4a) 50%, color-mix(in srgb, var(--app-primary) 65%, #1a2b4a) 100%);
+  /* 实底深墨青（与登录页品牌区同色，审计青同族）：工程面板，不做渐变 */
+  background: #0e2a33;
   border-right: none;
   padding: 16px 12px;
   transition: width 0.25s ease;
@@ -900,6 +1020,13 @@ onMounted(async () => {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
+/* 减少动画偏好：上传角标停止闪烁，保持常亮 */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-uploading {
+    animation: none;
+    opacity: 1;
+  }
+}
 .dev-avatar {
   width: 36px;
   height: 36px;
@@ -953,6 +1080,10 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.1);
   outline: none;
 }
+/* 键盘焦点环：背景变化之外补内侧描边，深色底上保证可见性 */
+.brand-link:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
+}
 .brand-text {
   color: #fff;
 }
@@ -981,6 +1112,14 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.18);
   color: #fff;
   font-weight: 500;
+  /* 票据切角签名：与主按钮同构的右上切口 */
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--app-chamfer)) 0,
+    100% var(--app-chamfer),
+    100% 100%,
+    0 100%
+  );
 }
 /* 折叠态：菜单项居中，tooltip 由 el-menu 原生提供 */
 :deep(.nav-menu.el-menu--collapse) {
@@ -996,8 +1135,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  height: 52px; /* 工具密度：顶栏收紧（EP 默认 60px） */
   background: var(--app-card);
-  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--app-border);
 }
 /* topbar 底部品牌色渐变线 */
@@ -1065,6 +1204,11 @@ onMounted(async () => {
   font-size: 13px;
   outline: none;
 }
+/* 键盘焦点可见：outline:none 的替换焦点环 */
+.user-chip:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
 .user-chip .user-name {
   max-width: 120px;
   overflow: hidden;
@@ -1109,7 +1253,7 @@ onMounted(async () => {
   gap: 4px;
   height: 28px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: var(--app-radius-sm);
   font-size: 13px;
   color: var(--app-text-muted);
   cursor: pointer;
@@ -1117,10 +1261,10 @@ onMounted(async () => {
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
 }
-/* ===== 标签页开关动画（TransitionGroup name="tab"） ===== */
+/* ===== 标签页开关动画（TransitionGroup name="tab"；仅过渡 opacity/transform 合成器属性） ===== */
 .tab-enter-active,
 .tab-leave-active {
-  transition: all 0.18s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 .tab-enter-from {
   opacity: 0;
@@ -1149,8 +1293,8 @@ onMounted(async () => {
   padding: 4px;
   background: var(--app-card);
   border: 1px solid var(--app-border);
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-lg);
 }
 .tab-ctxmenu .ctx-item {
   padding: 6px 12px;

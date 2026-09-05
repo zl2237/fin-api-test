@@ -41,11 +41,12 @@ class JsonParseError(Exception):
 
 class BusinessError(Exception):
     """后端业务逻辑异常：http 200，但业务code非成功"""
-    def __init__(self, code: int, msg: str, url: str, resp_text: str):
+    def __init__(self, code: int, msg: str, url: str, resp_text: str, resp_json: dict | None = None):
         self.code = code
         self.msg = msg
         self.url = url
         self.resp_text = resp_text
+        self.resp_json = resp_json  # 已解析的完整响应（resp_text 可能被截断）
         super().__init__(
             f"业务执行失败，code:{code}, msg:{msg}, url:{url}，完整响应:{resp_text}"
         )

@@ -300,21 +300,22 @@ _SQL_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 def inject_sql_vars(sql: str, extracted: dict[str, Any]) -> str:
     """把 ${xxx} 替换为已提取变量值，字符串做防注入转义。
 
-    支持 ${context.xxx} / ${extracted.xxx} 前缀，等价于 ${xxx}。
+    支持 ${context.xxx} / ${extracted.xxx} / ${env.xxx} / ${global.xxx} 前缀，
+    等价于 ${xxx}（统一变量池已含环境变量，见 ExecutionContext.extracted 初始化）。
     - 字符串值：用单引号包裹，内部单引号转义为两个单引号
     - None：转 NULL
     - 其他（int/float 等）：转 str
     - 未定义变量：m.group(0) 作为字符串返回（会被引号包裹）
 
     被 ExpressionEngine._inject_vars / Extractor._inject_vars /
-    AssertionEngine._inject_extracted 共用，消除三份重复的转义逻辑。
+    AssertionEngine._inject_extracted / 前置 exec_sql 共用，消除重复的转义逻辑。
     """
     def repl(m):
         key = m.group(1).strip()
-        if key.startswith("context."):
-            key = key[len("context."):]
-        elif key.startswith("extracted."):
-            key = key[len("extracted."):]
+        for prefix in ("context.", "extracted.", "env.", "global."):
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+                break
         val = extracted.get(key, m.group(0))
         if isinstance(val, str):
             return "'" + val.replace("'", "''") + "'"

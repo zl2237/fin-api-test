@@ -3,8 +3,13 @@
     <div class="page-head">
       <div class="head-left">
         <span class="page-title">数据集</span>
-        <el-button type="primary" @click="openGenerate">从用例生成</el-button>
-        <el-button :disabled="!currentCase" @click="openCreate">+ 新建数据集</el-button>
+        <el-button type="primary" :disabled="!currentCase" @click="openCreate">+ 新建数据集</el-button>
+        <el-upload :show-file-list="false" accept=".xlsx,.csv" :auto-upload="false" :disabled="!current" :on-change="onImportFile">
+          <el-button :disabled="!current">Excel/CSV 导入</el-button>
+        </el-upload>
+        <el-button @click="openGenerate">从用例生成</el-button>
+        <el-button :disabled="!current" @click="openMerge">从其他数据集覆盖…</el-button>
+        <el-button :disabled="!current" @click="exportRows">导出 Excel</el-button>
       </div>
       <div class="head-right">
         <span class="head-tip">数据集按用例隔离 · 每行数据 = 一次执行 · 复用靠复制 · 列中文名实时引用字段字典</span>
@@ -15,30 +20,33 @@
     <div v-loading="loading" class="group-layout">
       <aside class="group-side">
         <template v-for="row in sideRows" :key="row.kind === 'group' ? `g${row.id}` : `c${row.id}`">
-          <!-- 分组节点：折叠/展开组内用例 -->
+          <!-- 分组节点：折叠/展开组内用例（样式与接口/用例页左树同规格） -->
           <div
             v-if="row.kind === 'group'"
-            class="side-node group-row"
-            :style="{ paddingLeft: 8 + row.depth * 14 + 'px' }"
+            class="side-node"
+            :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
             @click="toggleGroup(row.id)"
           >
             <el-icon v-if="groupHasContent(row.id)" class="expand-icon" :class="{ expanded: isExpanded(row.id) }"><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
-            <el-icon class="group-icon"><Folder /></el-icon>
-            <span class="side-name">{{ row.name }}</span>
-            <span class="side-cnt">{{ groupDatasetCount(row.id) }} 集</span>
+            <el-tooltip :content="row.name" placement="top" popper-class="app-tip" :disabled="row.name.length <= 12">
+              <span class="side-name">{{ row.name }}</span>
+            </el-tooltip>
+            <span class="side-cnt">{{ groupDatasetCount(row.id) }}</span>
           </div>
           <!-- 用例节点：选中查看其数据集 -->
           <div
             v-else
             class="side-node"
             :class="{ on: currentCase?.id === row.id }"
-            :style="{ paddingLeft: 8 + row.depth * 14 + 'px' }"
+            :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
             @click="selectCaseById(row.id)"
           >
             <span class="expand-spacer" />
             <el-icon class="case-icon"><Document /></el-icon>
-            <span class="side-name">{{ row.name }}</span>
+            <el-tooltip :content="row.name" placement="top" popper-class="app-tip" :disabled="row.name.length <= 12">
+              <span class="side-name">{{ row.name }}</span>
+            </el-tooltip>
             <span class="side-cnt">{{ caseDatasetCount(row.id) }}</span>
           </div>
         </template>
@@ -83,13 +91,10 @@
             <div class="main-head">
               <span class="main-title">{{ current.name }}</span>
               <span class="group-count">{{ current.rows?.length ?? 0 }}</span>
-              <span class="main-sub" :title="colKeys.join('、')">列：{{ colLabels.join('、') || '（未定义）' }}</span>
+              <el-tooltip :content="colKeys.join('、')" placement="top" popper-class="app-tip">
+                <span class="main-sub">列：{{ colLabels.join('、') || '（未定义）' }}</span>
+              </el-tooltip>
               <div class="main-actions">
-                <el-upload :show-file-list="false" accept=".xlsx,.csv" :auto-upload="false" :on-change="onImportFile">
-                  <el-button size="small">Excel/CSV 导入</el-button>
-                </el-upload>
-                <el-button size="small" @click="exportRows">导出 Excel</el-button>
-                <el-button size="small" @click="openMerge">从其他数据集覆盖…</el-button>
                 <el-button size="small" @click="copyDataset">复制</el-button>
                 <el-button size="small" @click="openEdit(current)">编辑列定义</el-button>
                 <el-button size="small" type="danger" link @click="remove(current)">删除</el-button>
@@ -98,7 +103,7 @@
 
             <el-table :data="current.rows" stripe size="small" row-key="id" max-height="480">
               <template #empty>
-                <el-empty description="暂无数据行，下方添加或导入" :image-size="60" />
+                <EmptyState description="暂无数据行，下方添加或导入" :image-size="60" />
               </template>
               <el-table-column prop="row_index" label="#" width="50" />
               <el-table-column
@@ -110,7 +115,6 @@
               >
                 <template #header>
                   <span>{{ colLabel(col.key) }}</span>
-                  <span v-if="!dictLabel(col.key)" class="col-key-raw">{{ col.key }}</span>
                 </template>
                 <template #default="{ row }">{{ fmtCell(row.data?.[col.key]) }}</template>
               </el-table-column>
@@ -126,10 +130,13 @@
             <div class="row-ops">
               <el-button size="small" @click="addRow">+ 添加一行</el-button>
               <el-button size="small" type="danger" plain @click="clearRows">清空全部行</el-button>
-              <span class="tip">列名与请求参数同名即自动覆盖；嵌套字段或跨字段引用可用 <code v-pre>${列名}</code></span>
+              <span class="tip">
+                列名与请求参数同名即自动覆盖；嵌套字段或跨字段引用可用 <code v-pre>${列名}</code>
+                <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
+              </span>
             </div>
 
-            <!-- 节点配置快照（只读 + 手动重新同步） -->
+            <!-- 节点配置快照（只读；保存用例自动同步 + 手动兜底） -->
             <el-collapse class="snap-panel">
               <el-collapse-item>
                 <template #title>
@@ -138,9 +145,9 @@
                 </template>
                 <div class="snap-actions">
                   <el-button size="small" :loading="resyncing" @click="resyncDataset">重新同步（取用例当前编排）</el-button>
-                  <span class="tip">仅刷新快照，列 / 行数据不动；用例编排变更后需手动同步</span>
+                  <span class="tip">仅刷新快照，列 / 行数据不动；保存用例时已自动同步，此处为手动兜底</span>
                 </div>
-                <el-empty
+                <EmptyState
                   v-if="!current.node_configs?.length"
                   description="暂无快照（生成时未捕获到节点配置，或已过期清空）"
                   :image-size="60"
@@ -189,9 +196,15 @@
             <div class="col-list">
               <div v-for="(col, i) in form.columns" :key="i" class="col-row">
                 <el-input v-model="col.key" placeholder="key（变量名）" style="width: 220px" />
-                <span class="col-dict" :title="dictLabel(col.key) ? '来自字段字典' : '字典缺失，列头将显示 key'">
-                  {{ dictLabel(col.key) || '（字典缺失 → 显 key）' }}
-                </span>
+                <el-tooltip
+                  :content="dictLabel(col.key) ? '来自字段字典' : '字典缺失，列头将显示 key'"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <span class="col-dict">
+                    {{ dictLabel(col.key) || '（字典缺失 → 显 key）' }}
+                  </span>
+                </el-tooltip>
                 <el-select v-model="col.type" style="width: 110px">
                   <el-option v-for="t in colTypes" :key="t" :label="t" :value="t" />
                 </el-select>
@@ -215,7 +228,7 @@
         type="info"
         :closable="false"
         style="margin-bottom: 12px"
-        title="扫描用例全部节点的写死请求参数（非 ${} 提取注入），每个参数一列并带 1 行原值快照；同时按节点快照当前前置/后置提取/断言配置；同名参数跨节点取值不同时跳过该列"
+        title="扫描用例全部节点的写死请求参数（非 ${} 提取注入），每个参数一列并带 1 行原值快照；file 字段同样成列（行编辑时从文件中心选择）；同时按节点快照当前前置/后置提取/断言配置；同名参数跨节点取值不同时跳过该列"
       />
       <el-form label-width="80px">
         <el-form-item label="选择用例" required>
@@ -239,7 +252,7 @@
     </el-dialog>
 
     <!-- 快照明细（只读 JSON） -->
-    <el-dialog v-model="snapVisible" :title="`节点 ${snapViewing?.node_id || ''} 配置快照（只读）`" width="640px">
+    <el-dialog v-model="snapVisible" :title="`节点 ${snapViewing?.node_id || ''} 配置快照（只读）`" width="720px">
       <pre class="snap-json">{{ snapJson }}</pre>
       <template #footer>
         <el-button @click="snapVisible = false">关闭</el-button>
@@ -247,7 +260,7 @@
     </el-dialog>
 
     <!-- 导入预览确认 -->
-    <el-dialog v-model="previewVisible" title="导入预览" width="720px">
+    <el-dialog v-model="previewVisible" title="导入预览" width="720px" align-center :close-on-click-modal="false">
       <el-alert
         v-for="(w, i) in previewWarnings"
         :key="i"
@@ -295,11 +308,23 @@
           <el-form label-position="top" size="small" @submit.prevent>
             <el-form-item v-for="col in filteredFields" :key="col.key">
               <template #label>
+                <!-- 全站统一约定：原始字段名 + 字典中文名（如有） -->
                 <span>{{ colLabel(col.key) }}</span>
-                <span v-if="!dictLabel(col.key)" class="col-key-raw">{{ col.key }}</span>
                 <span class="col-type-tag">{{ col.type }}</span>
               </template>
+              <!-- file 列：值是文件中心文件 ID，弹文件选择器而非手填文本 -->
+              <div v-if="col.type === 'file'" class="file-value-cell">
+                <el-input
+                  :model-value="editingRowData[col.key] ? `#${editingRowData[col.key]}` : ''"
+                  readonly
+                  placeholder="未选择文件"
+                  class="file-value-input"
+                />
+                <el-button link type="primary" @click="openFilePicker(col.key)">选择</el-button>
+                <el-button v-if="editingRowData[col.key]" link type="danger" @click="editingRowData[col.key] = ''">清除</el-button>
+              </div>
               <el-input
+                v-else
                 v-model="editingRowData[col.key]"
                 :type="isJsonText(editingRowData[col.key]) ? 'textarea' : 'text'"
                 :autosize="{ minRows: 1, maxRows: 20 }"
@@ -315,6 +340,13 @@
       </template>
     </el-drawer>
 
+    <!-- file 列取值：文件中心选择器（与前置处理的文件选择同构） -->
+    <FilePicker
+      v-model="filePickerVisible"
+      :model-file-id="editingRowData[filePickerKey] || ''"
+      @select="onFileSelect"
+    />
+
     <!-- 从其他数据集覆盖（节点级对比合并） -->
     <el-dialog v-model="mergeVisible" title="从其他数据集覆盖" width="720px" :close-on-click-modal="false">
       <el-form label-width="90px" size="small">
@@ -323,6 +355,8 @@
             v-model="mergeSourceId"
             placeholder="选择同项目其他数据集"
             style="width: 100%"
+            filterable
+            fit-input-width
             @change="doMergePreview"
           >
             <el-option
@@ -347,7 +381,7 @@
         <template v-else>
           <el-form label-width="90px" size="small">
             <el-form-item label="用源哪一行">
-              <el-select v-model="mergeRowIdx" style="width: 200px">
+              <el-select v-model="mergeRowIdx" style="width: 200px" filterable fit-input-width>
                 <el-option
                   v-for="(lbl, i) in mergePreviewData.source.row_labels"
                   :key="i"
@@ -368,7 +402,9 @@
             <el-table-column prop="api_name" label="相同节点（接口）" min-width="140" />
             <el-table-column label="涉及列" min-width="300">
               <template #default="{ row }">
-                <span class="merge-cols" :title="row.columns.join('、')">{{ row.columns.join('、') }}</span>
+                <el-tooltip :content="row.columns.map(colLabel).join('、')" placement="top" popper-class="app-tip">
+                  <span class="merge-cols">{{ row.columns.map(colLabel).join('、') }}</span>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -396,14 +432,20 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CaretRight, Document, Folder, Grid, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup } from '@/api'
-import { buildGroupTree, type GroupTreeNode } from '@/composables/useGroupTree'
+import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
+import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup, type TestFile } from '@/api'
+import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
+import { useFieldDict } from '@/composables/useFieldDict'
+import { fileTimestamp } from '@/utils/format'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
+import FilePicker from '@/components/FilePicker.vue'
 
 const store = useAppStore()
+const router = useRouter()
+const { dictLabel } = useFieldDict()
 const cases = ref<TestCase[]>([])
 const groups = ref<CaseGroup[]>([])
 const datasets = ref<DataSet[]>([])
@@ -414,62 +456,21 @@ const loadError = ref('')
 const saving = ref(false)
 const resyncing = ref(false)
 
-const colTypes = ['string', 'int', 'bool', 'array', 'object']
+const colTypes = ['string', 'int', 'bool', 'array', 'object', 'file']
 const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === currentCase.value?.id))
 const colKeys = computed(() => (current.value?.columns || []).map((c) => c.key))
 const colLabels = computed(() => colKeys.value.map((k) => colLabel(k)))
 
-// ===== 左侧用例分组树（沿用用例列表的分组结构）=====
+// ===== 左侧用例分组树（沿用用例列表的分组结构；树构建与展开记忆收敛进 useGroupTree）=====
 const UNGROUPED_ID = -1
-const groupTree = computed(() => buildGroupTree(groups.value))
-// 展开记忆：按项目持久化（与 CaseList 的 fin_group_expand_{scope}_{projectId} 同约定，scope 独立）
-const EXPAND_SCOPE = 'datasetManage'
-const expandedGroupIds = ref(new Set<number>())
-let hasExpandMemory = false
-
-function expandStorageKey() {
-  return `fin_group_expand_${EXPAND_SCOPE}_${store.currentProjectId ?? 0}`
-}
-
-function loadExpandMemory() {
-  if (!store.currentProjectId) {
-    expandedGroupIds.value = new Set()
-    hasExpandMemory = false
-    return
-  }
-  try {
-    const saved = localStorage.getItem(expandStorageKey())
-    if (saved !== null) {
-      expandedGroupIds.value = new Set(JSON.parse(saved))
-      hasExpandMemory = true
-    } else {
-      hasExpandMemory = false
-    }
-  } catch {
-    hasExpandMemory = false
-  }
-}
-
-function saveExpandMemory() {
-  if (!store.currentProjectId) return
-  try {
-    localStorage.setItem(expandStorageKey(), JSON.stringify([...expandedGroupIds.value]))
-  } catch {
-    // 忽略写入失败
-  }
-}
-
-function isExpanded(id: number) {
-  return expandedGroupIds.value.has(id)
-}
-
-function toggleGroup(id: number) {
-  const s = new Set(expandedGroupIds.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  expandedGroupIds.value = s
-  saveExpandMemory()
-}
+const {
+  tree: groupTree,
+  isExpanded,
+  toggleExpand: toggleGroup,
+  expandedIds,
+} = useGroupTree(groups, computed(() => store.currentProjectId), 'datasetManage')
+// 未分组（-1 虚拟节点）不在 useGroupTree 的树里：与真实分组共用 expandedIds，
+// 同一持久化 key（fin_group_expand_datasetManage_{projectId}），展开/折叠语义一致
 
 function casesOfGroup(gid: number | null) {
   return cases.value.filter((c) => (c.group_id ?? null) === gid)
@@ -512,12 +513,11 @@ function selectCaseById(id: number) {
   if (c) selectCase(c)
 }
 
-// 列中文名实时引用项目字段字典，缺失显 key
-function dictLabel(key: string) {
-  return store.fieldDictMap?.[key] || ''
-}
+// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有）。
+// dictLabel 来自 useFieldDict（含嵌套路径完整/末段/父级段匹配），不再本地弱化重写。
 function colLabel(key: string) {
-  return dictLabel(key) || key
+  const cn = dictLabel(key)
+  return cn ? `${key}（${cn}）` : key
 }
 function caseDatasetCount(caseId: number) {
   return datasets.value.filter((d) => d.case_id === caseId).length
@@ -536,14 +536,10 @@ async function load() {
     cases.value = cs
     groups.value = gs
     datasets.value = ds
-    // 展开记忆优先；首次（无记忆）默认全展开并落记忆
-    loadExpandMemory()
-    if (!hasExpandMemory) {
-      const s = new Set<number>()
-      gs.forEach((g) => s.add(g.id))
-      s.add(UNGROUPED_ID)
-      expandedGroupIds.value = s
-      saveExpandMemory()
+    // 展开记忆优先（useGroupTree 随 projectId 变化自动读写）；首次（无记忆）
+    // 默认全展开（含未分组虚拟节点）并落记忆
+    if (localStorage.getItem(expandStorageKey('datasetManage', store.currentProjectId)) === null) {
+      expandedIds.value = [...gs.map((g) => g.id), UNGROUPED_ID]
     }
     if (currentCase.value) {
       currentCase.value = cases.value.find((c) => c.id === currentCase.value!.id) || null
@@ -554,7 +550,7 @@ async function load() {
     }
     if (!current.value && caseDatasets.value.length) current.value = caseDatasets.value[0]
   } catch (e: any) {
-    loadError.value = e?.response?.data?.detail || '加载失败'
+    loadError.value = e.message || '加载失败'
   } finally {
     loading.value = false
   }
@@ -616,7 +612,7 @@ async function save() {
     await load()
     if (editingId.value) current.value = caseDatasets.value.find((d) => d.id === editingId.value) || current.value
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     saving.value = false
   }
@@ -640,7 +636,7 @@ async function remove(d: DataSet) {
     if (current.value?.id === d.id) current.value = null
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -653,7 +649,7 @@ async function copyDataset() {
     await load()
     current.value = caseDatasets.value.find((d) => d.id === nd.id) || current.value
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '复制失败')
+    ElMessage.error(e.message || '复制失败')
   }
 }
 
@@ -665,7 +661,7 @@ async function resyncDataset() {
     ElMessage.success(r.message)
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '重新同步失败')
+    ElMessage.error(e.message || '重新同步失败')
   } finally {
     resyncing.value = false
   }
@@ -710,6 +706,15 @@ async function confirmGenerate() {
   try {
     const { dataset, stats } = await datasetApi.generate(genCaseId.value, genName.value.trim() || undefined)
     ElMessage.success(`已生成「${dataset.name}」：${stats.columns} 列 · 扫描 ${stats.nodes} 节点 · 含 1 行原值快照`)
+    // 未成列的参数提示（动态/嵌套/列名不合法），列数与接口字段数对不上时可解释
+    const skipped = [
+      stats.dynamic ? `${stats.dynamic} 个动态绑定（表达式注入）` : '',
+      stats.nested ? `${stats.nested} 个嵌套路径` : '',
+      stats.invalid ? `${stats.invalid} 个列名不合法（如含方括号）` : '',
+    ].filter(Boolean)
+    if (skipped.length) {
+      ElMessage.info(`另有 ${skipped.join('、')} 未成列，执行时保持原配置`)
+    }
     if (stats.conflicts?.length) {
       const keys = stats.conflicts.slice(0, 5).map((c) => c.key).join('、')
       ElMessage.info(`${stats.conflicts.length} 个参数跨节点取值不同，已取首节点值成列：${keys}${stats.conflicts.length > 5 ? '…' : ''}`)
@@ -718,8 +723,24 @@ async function confirmGenerate() {
     await load()
     currentCase.value = cases.value.find((c) => c.id === genCaseId.value) || currentCase.value
     current.value = caseDatasets.value.find((d) => d.id === dataset.id) || current.value
+    // 回程引导：绑定数据集的链路在本页断头（从用例「数据」入口跳来生成后需自行折返）。
+    // 仅目标用例尚未绑定数据集时提示，避免打扰纯数据集维护流程。
+    const genCase = cases.value.find((c) => c.id === genCaseId.value)
+    if (genCase && !genCase.dataset_id) {
+      try {
+        await ElMessageBox.confirm(
+          `「${dataset.name}」已生成。若从用例的「数据」绑定入口跳来，可返回用例列表完成绑定`,
+          '返回用例继续绑定？',
+          { type: 'info', confirmButtonText: '返回用例列表', cancelButtonText: '留在此页' },
+        )
+        router.push('/cases')
+        ElMessage.info('在目标用例行内点「数据」，选择刚生成的数据集完成绑定')
+      } catch {
+        // 留在数据集页继续维护
+      }
+    }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '生成失败')
+    ElMessage.error(e.message || '生成失败')
   } finally {
     genSaving.value = false
   }
@@ -780,6 +801,22 @@ function cancelEditRow() {
   editingRowData.value = {}
 }
 
+// ===== file 列文件选择器（值存文件中心文件 ID） =====
+const filePickerVisible = ref(false)
+const filePickerKey = ref('')
+
+function openFilePicker(key: string) {
+  filePickerKey.value = key
+  filePickerVisible.value = true
+}
+
+function onFileSelect(file: TestFile) {
+  if (filePickerKey.value) {
+    editingRowData.value[filePickerKey.value] = String(file.id)
+  }
+  filePickerKey.value = ''
+}
+
 async function saveRow() {
   if (!current.value || !editingRowId.value) return
   // 有 JSON 语法错误时阻止保存（提示第一个错误字段）
@@ -811,7 +848,7 @@ async function saveRow() {
     cancelEditRow()
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    ElMessage.error(e.message || '保存失败')
   } finally {
     rowSaving.value = false
   }
@@ -826,17 +863,27 @@ async function addRow() {
     await datasetApi.addRow(current.value.id, data)
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '添加失败')
+    ElMessage.error(e.message || '添加失败')
   }
 }
 
 async function removeRow(row: any) {
   if (!current.value) return
   try {
+    await ElMessageBox.confirm(
+      `确认删除第 ${row.row_index} 行数据？此操作不可恢复`,
+      '删除数据行',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
     await datasetApi.removeRow(current.value.id, row.id)
+    ElMessage.success('已删除')
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
+    ElMessage.error(e.message || '删除失败')
   }
 }
 
@@ -848,7 +895,7 @@ async function copyRow(row: any) {
     ElMessage.success('已复制为新行')
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '复制失败')
+    ElMessage.error(e.message || '复制失败')
   }
 }
 
@@ -864,7 +911,7 @@ async function clearRows() {
     ElMessage.success('已清空')
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '操作失败')
+    ElMessage.error(e.message || '操作失败')
   }
 }
 
@@ -886,7 +933,7 @@ async function onImportFile(file: any) {
     previewCols.value = (current.value.columns || []).map((c) => c.key)
     previewVisible.value = true
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '解析失败')
+    ElMessage.error(e.message || '解析失败')
   }
 }
 
@@ -899,7 +946,7 @@ async function confirmImport() {
     previewVisible.value = false
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '导入失败')
+    ElMessage.error(e.message || '导入失败')
   } finally {
     importing.value = false
   }
@@ -918,21 +965,15 @@ async function exportRows() {
     const blob = await datasetApi.exportRows(current.value.id)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    const stamp = fileTimestamp()
     link.href = url
     link.download = `${current.value.name}_${stamp}.xlsx`
     link.click()
     URL.revokeObjectURL(url)
     ElMessage.success('已导出 Excel')
   } catch (e: any) {
-    // blob 错误响应需按文本解析（axios 对 blob 不走 JSON 拦截）
-    try {
-      const txt = await (e?.response?.data as Blob)?.text()
-      const detail = txt ? JSON.parse(txt).detail : ''
-      ElMessage.error(detail || '导出失败')
-    } catch {
-      ElMessage.error('导出失败')
-    }
+    // blob 错误响应已由 axios 拦截器统一解析为 ApiError，catch 只读 e.message
+    ElMessage.error(e.message || '导出失败')
   }
 }
 
@@ -977,7 +1018,7 @@ async function doMergePreview() {
       )
     })
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '对比失败')
+    ElMessage.error(e.message || '对比失败')
   } finally {
     mergeLoading.value = false
   }
@@ -996,7 +1037,7 @@ async function confirmMerge() {
     mergeVisible.value = false
     await load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '覆盖合并失败')
+    ElMessage.error(e.message || '覆盖合并失败')
   } finally {
     merging.value = false
   }
@@ -1047,6 +1088,8 @@ watch(() => store.currentProjectId, () => {
   cursor: pointer;
   user-select: none;
   color: var(--app-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 .side-node:hover {
   background: var(--app-hover);
@@ -1071,10 +1114,6 @@ watch(() => store.currentProjectId, () => {
 .side-node.on .side-cnt {
   color: var(--app-primary);
 }
-.group-icon {
-  font-size: 16px;
-  color: var(--app-primary);
-}
 .case-icon {
   font-size: 14px;
   color: var(--app-text-faint);
@@ -1082,20 +1121,17 @@ watch(() => store.currentProjectId, () => {
 .side-node.on .case-icon {
   color: var(--app-primary);
 }
-.group-row {
-  color: var(--app-text);
-  font-weight: 500;
-}
 .expand-icon {
-  font-size: 12px;
-  transition: transform 0.15s;
-  color: var(--app-text-faint);
+  font-size: 14px;
+  transition: transform 0.18s ease;
+  color: var(--app-text-muted);
+  cursor: pointer;
 }
 .expand-icon.expanded {
   transform: rotate(90deg);
 }
 .expand-spacer {
-  width: 12px;
+  width: 14px;
   flex-shrink: 0;
 }
 .group-main {
@@ -1120,7 +1156,7 @@ watch(() => store.currentProjectId, () => {
   gap: 6px;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
-  border-radius: 14px;
+  border-radius: var(--app-radius-sm);
   cursor: pointer;
   user-select: none;
   color: var(--app-text-muted);
@@ -1166,7 +1202,7 @@ watch(() => store.currentProjectId, () => {
 .group-count {
   background: var(--app-primary);
   color: #fff;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   padding: 1px 10px;
   font-size: 12px;
   font-weight: 500;
@@ -1199,10 +1235,10 @@ watch(() => store.currentProjectId, () => {
   color: var(--app-text-muted);
   font-size: 12px;
 }
-.col-key-raw {
+.tip .help-link {
+  padding: 2px 6px;
+  font-size: 12px;
   margin-left: 4px;
-  font-size: 11px;
-  color: var(--app-text-faint);
 }
 .col-row {
   display: flex;
@@ -1305,6 +1341,16 @@ watch(() => store.currentProjectId, () => {
   font-size: 12px;
   color: var(--el-color-danger);
   margin-top: 2px;
+}
+/* file 列取值单元格：只读文件 ID + 选择/清除（与前置处理同构） */
+.file-value-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+.file-value-input {
+  flex: 1;
 }
 /* 覆盖合并弹窗 */
 .merge-hint {

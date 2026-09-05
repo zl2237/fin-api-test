@@ -252,6 +252,10 @@ def previews_to_api_create(
                 sort_order=idx,
             ))
 
+        # Content-Type 落库到接口 headers_template：curl/HAR 声明的请求体类型
+        # （如 x-www-form-urlencoded）必须在执行时生效——发送器据此分流表单/JSON 编码，
+        # 环境公共头只作兜底（同环境并存 JSON 与表单接口时互不干扰）
+        content_type = preview.get("content_type") or ""
         api_data = schemas.ApiCreate(
             project_id=project_id,
             group_id=group_id,
@@ -261,7 +265,7 @@ def previews_to_api_create(
             path=path,
             description="",
             request_template=[] if preview.get("is_array_body") else {},
-            headers_template={},
+            headers_template={"Content-Type": content_type} if content_type else {},
             fields=api_fields,
         )
         to_create.append((api_data, preview))

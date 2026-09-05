@@ -107,6 +107,11 @@ export function collectDescendantIds(tree: GroupTreeNode[], id: number): number[
   return ids
 }
 
+/** 展开记忆持久化 key 的唯一约定点（视图自定义虚拟节点时复用同一存储，不各自拼 key） */
+export function expandStorageKey(scope: string, projectId: number | null): string {
+  return `fin_group_expand_${scope}_${projectId ?? 0}`
+}
+
 /**
  * 多级分组视图模型：封装树构建、展开记忆、可见行计算。
  *
@@ -124,7 +129,7 @@ export function useGroupTree(
   const hasMemory = ref(false)
 
   function storageKey(): string {
-    return `fin_group_expand_${scope}_${projectId.value ?? 0}`
+    return expandStorageKey(scope, projectId.value)
   }
 
   function loadMemory() {

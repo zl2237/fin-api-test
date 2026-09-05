@@ -25,32 +25,32 @@
           <path d="M30 26 C 48 26, 44 50, 62 50" class="dag-edge" />
           <path d="M30 74 C 48 74, 44 50, 62 50" class="dag-edge" />
           <path d="M96 50 C 110 50, 106 26, 124 26" class="dag-edge" />
-          <rect x="6" y="12" width="34" height="28" rx="7" class="dag-node" />
-          <rect x="6" y="60" width="34" height="28" rx="7" class="dag-node" />
-          <rect x="62" y="36" width="36" height="28" rx="7" class="dag-node dag-node-main" />
-          <rect x="120" y="12" width="22" height="28" rx="7" class="dag-badge" />
+          <rect x="6" y="12" width="34" height="28" rx="2" class="dag-node" />
+          <rect x="6" y="60" width="34" height="28" rx="2" class="dag-node" />
+          <rect x="62" y="36" width="36" height="28" rx="2" class="dag-node dag-node-main" />
+          <rect x="120" y="12" width="22" height="28" rx="2" class="dag-badge" />
           <path d="M126 24 l3.5 4.5 l6 -7.5" class="dag-check" />
         </svg>
       </section>
 
-      <!-- ===== 统计行：当前项目概览（点击直达对应页面） ===== -->
+      <!-- ===== 统计行：当前项目概览（点击直达对应页面；语义化 <button> 保证键盘可达） ===== -->
       <section class="stats">
-        <div class="stat" @click="router.push('/apis')">
+        <button type="button" class="stat" @click="router.push('/apis')">
           <b>{{ loading ? '…' : apiCount }}</b>
           <span>接口</span>
-        </div>
-        <div class="stat" @click="router.push('/cases')">
+        </button>
+        <button type="button" class="stat" @click="router.push('/cases')">
           <b>{{ loading ? '…' : caseCount }}</b>
           <span>用例</span>
-        </div>
-        <div class="stat" @click="router.push('/executions')">
+        </button>
+        <button type="button" class="stat" @click="router.push('/executions')">
           <b>{{ loading ? '…' : weekStats.count }}</b>
           <span>7 天执行</span>
-        </div>
-        <div class="stat" @click="router.push('/executions')">
+        </button>
+        <button type="button" class="stat" @click="router.push('/executions')">
           <b :class="{ 'is-pass': (weekStats.rate ?? 0) >= 90 }">{{ loading ? '…' : (weekStats.rate === null ? '—' : weekStats.rate + '%') }}</b>
           <span>7 天通过率</span>
-        </div>
+        </button>
       </section>
 
       <!-- ===== 主区：最近执行 + 快速执行/指南 ===== -->
@@ -60,9 +60,11 @@
           <header class="panel-head">
             <h3>最近执行</h3>
             <div class="panel-tools">
-              <el-button text size="small" :title="'刷新'" @click="loadHome">
-                <el-icon><Refresh /></el-icon>
-              </el-button>
+              <el-tooltip content="刷新" placement="top" popper-class="app-tip">
+                <el-button text size="small" aria-label="刷新" @click="loadHome">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+              </el-tooltip>
               <el-button text type="primary" size="small" @click="router.push('/executions')">
                 全部记录<el-icon class="go-icon"><ArrowRight /></el-icon>
               </el-button>
@@ -86,24 +88,31 @@
             <el-button type="primary" @click="router.push('/cases')">去执行用例</el-button>
           </EmptyState>
 
-          <ul v-else class="exec-list">
-            <li
+          <div v-else class="exec-list">
+            <button
               v-for="r in recentExecs"
               :key="r.id"
+              type="button"
               class="exec-row"
               @click="router.push(`/reports/${r.id}`)"
             >
               <span :class="['exec-dot', `is-${r.status}`]">
                 <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
               </span>
-              <span class="exec-name" :title="r.case_name || `#${r.case_id}`">{{ r.case_name || `#${r.case_id}` }}</span>
-              <span class="exec-env" :title="r.env_name || `环境#${r.env_id}`">{{ r.env_name || `环境#${r.env_id}` }}</span>
+              <el-tooltip :content="r.case_name || `#${r.case_id}`" placement="top" popper-class="app-tip">
+                <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
+              </el-tooltip>
+              <el-tooltip :content="r.env_name || `环境#${r.env_id}`" placement="top" popper-class="app-tip">
+                <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
+              </el-tooltip>
               <span class="exec-summary" :class="`is-${r.status}`">
                 {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
               </span>
-              <span class="exec-time" :title="formatTime(r.started_at)">{{ formatRelativeTime(r.started_at) }}</span>
-            </li>
-          </ul>
+              <el-tooltip :content="formatTime(r.started_at)" placement="top" popper-class="app-tip">
+                <span class="exec-time">{{ formatRelativeTime(r.started_at) }}</span>
+              </el-tooltip>
+            </button>
+          </div>
         </section>
 
         <!-- 右栏：快速执行 + 指南入口 -->
@@ -116,7 +125,9 @@
             <div v-if="!recentCases.length" class="quick-empty">还没有用例，去 <el-button text type="primary" size="small" @click="router.push('/cases')">创建第一个</el-button></div>
             <ul v-else class="quick-list">
               <li v-for="c in recentCases" :key="c.id" class="quick-row">
-                <span class="quick-name" :title="c.name">{{ c.name }}</span>
+                <el-tooltip :content="c.name" placement="top" popper-class="app-tip">
+                  <span class="quick-name">{{ c.name }}</span>
+                </el-tooltip>
                 <el-button
                   link
                   type="primary"
@@ -134,7 +145,7 @@
           <section class="panel guide-panel">
             <header class="panel-head"><h3>上手指南</h3></header>
             <div class="guide-links">
-              <el-button text type="primary" @click="openGuide">五步上手流程</el-button>
+              <el-button text type="primary" @click="openGuide">六步上手流程</el-button>
               <el-button text type="primary" @click="store.openCoreCapability('expression')">表达式语法</el-button>
               <el-button text type="primary" @click="store.openCoreCapability('assertion')">17 种断言</el-button>
             </div>
@@ -147,43 +158,22 @@
       </div>
     </template>
 
-    <!-- ===== 上手指南抽屉（原落地页内容收纳于此；首登自动展示一次） ===== -->
-    <el-drawer v-model="guideVisible" title="上手指南" size="480px" :close-on-click-modal="false">
-      <div class="guide-body">
-        <h4 class="guide-section">五步跑通第一个测试</h4>
-        <ol class="guide-steps">
-          <li v-for="(s, i) in guideSteps" :key="s.title">
-            <span class="g-num">{{ i + 1 }}</span>
-            <div class="g-text">
-              <b>{{ s.title }}</b>
-              <p>{{ s.desc }}</p>
-            </div>
-            <el-button text type="primary" size="small" @click="router.push(s.to); guideVisible = false">{{ s.go }}</el-button>
-          </li>
-        </ol>
-
-        <h4 class="guide-section">核心能力</h4>
-        <ul class="guide-caps">
-          <li v-for="cap in guideCaps" :key="cap.title" :class="{ clickable: !!cap.tab }" @click="cap.tab && store.openCoreCapability(cap.tab)">
-            <b>{{ cap.title }}</b>
-            <p>{{ cap.desc }}</p>
-          </li>
-        </ul>
-      </div>
-    </el-drawer>
+    <!-- ===== 上手指南抽屉（自包含组件：v-model 显隐，首登自动展示与常量内聚） ===== -->
+    <HomeGuideDrawer v-model="guideVisible" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, Refresh, VideoPlay, Loading, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores'
 import { apiApi, caseApi, execApi } from '@/api'
 import type { ExecutionRecord, TestCase } from '@/api'
-import { formatTime, formatRelativeTime } from '@/utils/format'
+import { formatTime, formatRelativeTime, execStatusText as statusText, execStatusType as statusTagType } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
+import HomeGuideDrawer from '@/components/HomeGuideDrawer.vue'
 
 const router = useRouter()
 const store = useAppStore()
@@ -208,36 +198,25 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-// 7 天执行量与通过率（口径与执行记录页一致：最近 200 条本地过滤）
-const weekStats = computed(() => {
-  const now = Date.now()
-  const week = recentExecs.value.filter(r => r.started_at && now - new Date(r.started_at).getTime() < 7 * 864e5)
-  const done = week.filter(r => r.status === 'success' || r.status === 'failed')
-  const passed = week.filter(r => r.status === 'success').length
-  return {
-    count: week.length,
-    rate: done.length ? Math.round((passed / done.length) * 1000) / 10 : null,
-  }
-})
-
-function statusText(s: string) {
-  return s === 'success' ? '通过' : s === 'failed' ? '失败' : '运行中'
-}
+// 7 天执行量与通过率：走 stats 聚合接口（全量口径，不受最近列表截断影响）
+const weekStats = ref<{ count: number; rate: number | null }>({ count: 0, rate: null })
 
 async function loadHome() {
   if (!store.currentProjectId) return
   loading.value = true
   loadError.value = ''
   try {
-    const [apis, cases, execs] = await Promise.all([
+    const [apis, cases, execs, stats] = await Promise.all([
       apiApi.list(store.currentProjectId),
       caseApi.list(store.currentProjectId),
       execApi.list({ project_id: store.currentProjectId, limit: 200 }),
+      execApi.stats({ days: 7, project_id: store.currentProjectId }),
     ])
     apiCount.value = apis.length
     caseCount.value = cases.length
     recentCases.value = cases.slice(0, 3)
-    recentExecs.value = execs.slice(0, 8)
+    recentExecs.value = execs.items.slice(0, 8)
+    weekStats.value = { count: stats.count, rate: stats.rate }
   } catch (e: any) {
     loadError.value = e?.message || '加载失败'
   } finally {
@@ -264,34 +243,11 @@ async function runCase(c: TestCase) {
   }
 }
 
-// ===== 上手指南（原落地页内容收纳；首登展示一次） =====
+// ===== 上手指南（显隐状态留父级供入口按钮使用；内容与首登逻辑内聚在 HomeGuideDrawer） =====
 const guideVisible = ref(false)
-const GUIDE_SEEN_KEY = 'fin_home_guide_seen'
 function openGuide() {
   guideVisible.value = true
 }
-onMounted(() => {
-  if (!localStorage.getItem(GUIDE_SEEN_KEY)) {
-    guideVisible.value = true
-    localStorage.setItem(GUIDE_SEEN_KEY, '1')
-  }
-})
-
-const guideSteps = [
-  { title: '建一个项目', desc: '项目把一个系统的接口和用例装在一起，右上角随时切换', go: '去创建', to: '/projects' },
-  { title: '配置环境', desc: '被测系统地址、登录账号、数据库连接，可即时测试连通性', go: '去配置', to: '/envs' },
-  { title: '录入接口', desc: '手动新建或粘贴 cURL 自动识别，参数像填表格一样配置', go: '去录入', to: '/apis' },
-  { title: '编排用例', desc: '画布上把接口连成流程，双击节点添加断言', go: '去编排', to: '/cases' },
-  { title: '执行看报告', desc: '选环境点执行，每一步请求与校验结果全留档', go: '去看', to: '/executions' },
-]
-
-const guideCaps = [
-  { title: '数据驱动测试', desc: '用例生成数据集，改单元格即参数化：一行一执行，支持 Excel 导入导出与跨数据集覆盖合并', tab: null },
-  { title: '数据自动生成', desc: '随机手机号、日期加减、唯一单号，写一次 ${uuid()} 到处复用', tab: 'expression' as const },
-  { title: '17 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验，支持失败重试', tab: 'assertion' as const },
-  { title: '批量导入接口', desc: 'cURL 粘贴即用，HAR 抓包文件、Swagger 文档批量导入', tab: null },
-  { title: '数据库直查对账', desc: '测试时顺手执行 SQL 对账，不用开数据库客户端', tab: null },
-]
 </script>
 
 <style scoped>
@@ -305,18 +261,21 @@ const guideCaps = [
 }
 .empty-project { border-radius: var(--app-radius-lg); }
 
-/* ===== 欢迎条 ===== */
+/* ===== 欢迎条：实底面板 + 左侧主色状态轨（工程面板语言，去渐变） ===== */
 .welcome {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 22px 28px;
   border-radius: var(--app-radius-lg);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--app-primary) 10%, var(--app-card-solid)) 0%, var(--app-card-solid) 60%);
+  background: var(--app-card-solid);
   border: 1px solid var(--app-border);
+  border-left: 3px solid var(--app-primary);
   box-shadow: var(--app-shadow-sm);
   min-height: 96px;
+  overflow: hidden;
 }
 .welcome-text { min-width: 0; }
 .welcome-title {
@@ -338,11 +297,6 @@ const guideCaps = [
   gap: 6px;
   flex-wrap: wrap;
 }
-.last-status { font-weight: 600; }
-.last-status.is-success { color: var(--app-success-text); }
-.last-status.is-failed { color: var(--app-danger-text); }
-.last-status.is-running { color: var(--app-warn-text); }
-
 .welcome-art { flex-shrink: 0; width: 150px; height: 100px; }
 .dag-node {
   fill: color-mix(in srgb, var(--app-primary) 8%, var(--app-card-solid));
@@ -360,35 +314,63 @@ const guideCaps = [
 .dag-badge { fill: var(--app-success); opacity: 0.18; }
 .dag-check { stroke: var(--app-success); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 
-/* ===== 统计行 ===== */
+/* ===== 统计行：台账条（单一面板 + 列间发丝线，替代 4 张等分卡片的仪表盘套路） ===== */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.stat {
   background: var(--app-card-solid);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
-  padding: 14px 18px;
-  height: 76px;
+}
+.stat {
+  padding: 16px 20px;
+  min-height: 72px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 2px;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: background 0.15s;
 }
-.stat:hover { border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border)); }
+/* 台账列分隔：发丝线，首列无 */
+.stat + .stat {
+  border-left: 1px solid var(--app-border);
+}
+.stat:hover {
+  background: var(--app-hover);
+}
 .stat b {
   font-size: 22px;
   font-weight: 700;
   color: var(--app-text);
+  /* 机器数据 mono 身份：计数/百分比用等宽表格数字 */
+  font-family: var(--app-font-mono);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 .stat b.is-pass { color: var(--app-success-text); }
 .stat span { font-size: 12px; color: var(--app-text-muted); }
+/* .stat / .exec-row 为语义化 <button>：清除浏览器默认按钮外观，保持台账条视觉 */
+.stat,
+.exec-row {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  width: 100%;
+}
+/* .stat + .stat 列分隔线（button 无 border 时重绘） */
+.stat + .stat {
+  border-left: 1px solid var(--app-border);
+}
+/* 键盘焦点可见（规范：focus-visible 焦点环） */
+.stat:focus-visible,
+.exec-row:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
+}
 
 /* ===== 主区两栏 ===== */
 .workbench {
@@ -518,45 +500,7 @@ kbd {
   color: var(--app-text);
 }
 
-/* ===== 指南抽屉 ===== */
-.guide-body { display: flex; flex-direction: column; gap: 6px; }
-.guide-section { font-size: 14px; font-weight: 600; color: var(--app-text); margin: 8px 0 6px; }
-.guide-steps { list-style: none; margin: 0; padding: 0; }
-.guide-steps li {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--app-border);
-}
-.guide-steps li:last-child { border-bottom: none; }
-.g-num {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
-  color: var(--app-primary);
-  font-size: 12px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.g-text { flex: 1; min-width: 0; }
-.g-text b { font-size: 13px; font-weight: 600; color: var(--app-text); display: block; margin-bottom: 2px; }
-.g-text p { font-size: 12px; line-height: 1.6; color: var(--app-text-muted); margin: 0; }
-.guide-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.guide-caps li {
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  padding: 10px 12px;
-}
-.guide-caps li.clickable { cursor: pointer; transition: border-color 0.15s; }
-.guide-caps li.clickable:hover { border-color: color-mix(in srgb, var(--app-primary) 45%, var(--app-border)); }
-.guide-caps b { font-size: 13px; font-weight: 600; color: var(--app-text); display: block; margin-bottom: 3px; }
-.guide-caps p { font-size: 12px; line-height: 1.6; color: var(--app-text-muted); margin: 0; }
+/* ===== 指南抽屉样式已随 HomeGuideDrawer 组件内聚 ===== */
 
 /* ===== 窄屏 ===== */
 @media (max-width: 960px) {
