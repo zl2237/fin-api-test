@@ -663,11 +663,12 @@ onUnmounted(stopPolling)
 }
 
 .summary-card :deep(.el-card__body) {
-  display: flex;
+  /* grid 四列定死：章 | 分数 | 迷你趋势(弹性) | meta/动作。不用 flex-wrap——
+     上一版 flex-basis 与换行叠加把趋势卡拉伸到 260px，撑爆横带挤死工作区 */
+  display: grid;
+  grid-template-columns: auto auto minmax(200px, 1fr) auto;
   align-items: center;
-  flex-wrap: wrap;
-  row-gap: 8px;
-  gap: 18px;
+  column-gap: 18px;
   padding: 10px 16px;
 }
 
@@ -740,18 +741,28 @@ onUnmounted(stopPolling)
   background: var(--app-border);
 }
 
-/* 迷你趋势：横带中间弹性占位，左右发丝线分隔 */
+/* 迷你趋势：硬定高 68px（head 19 + svg 40 + 呼吸），杜绝任何子项把横带撑高 */
 .summary-trend {
-  flex: 1 1 260px;
-  min-width: 220px;
+  height: 68px;
+  min-width: 0;
   border-left: 1px solid var(--app-border);
   border-right: 1px solid var(--app-border);
   padding: 0 14px;
 }
 
-/* 右侧列：meta（上）+ 动作（下），整体贴右 */
+/* 窄窗口：趋势降级隐藏（信息非关键），其余三列照常 */
+@media (max-width: 1280px) {
+  .summary-card :deep(.el-card__body) {
+    grid-template-columns: auto auto auto;
+  }
+  .summary-trend {
+    display: none;
+  }
+}
+
+/* 右侧列：meta（上）+ 动作（下） */
 .summary-side {
-  margin-left: auto;
+  justify-self: end;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
