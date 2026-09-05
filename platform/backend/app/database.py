@@ -38,9 +38,20 @@ def _build_mysql_url() -> URL:
 
 DATABASE_URL = _build_mysql_url()
 
+
+def _connect_args() -> dict:
+    """TiDB Cloud 等 TLS-only 云数据库：DB_SSL=true 时启用系统 CA 校验的 TLS 连接"""
+    if os.getenv("DB_SSL", "").strip().lower() in {"1", "true", "yes"}:
+        import ssl
+
+        return {"ssl": ssl.create_default_context()}
+    return {}
+
+
 # MySQL 连接池配置：避免长连接被 server 端断开（wait_timeout 默认 8h，这里 1h 主动回收）
 engine = create_engine(
     DATABASE_URL,
+    connect_args=_connect_args(),
     pool_pre_ping=True,      # 取连接前 ping 一下，失效则重建
     pool_recycle=3600,       # 1 小时回收
     pool_size=10,            # 连接池大小
