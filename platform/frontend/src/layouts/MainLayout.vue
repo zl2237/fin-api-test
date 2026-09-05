@@ -266,6 +266,13 @@
             style="display: none"
             @change="onAvatarFileChange"
           />
+          <!-- 头像裁剪弹窗：选完文件进入 1:1 裁剪（拖动/缩放），确认后才走上传 -->
+          <AvatarCropper
+            v-model="cropperVisible"
+            :file="cropperFile"
+            :uploading="avatarUploading"
+            @confirm="onCropConfirm"
+          />
         </div>
       </el-header>
       <!-- 标签页栏（TransitionGroup 开关动画 + 右键快捷菜单） -->
@@ -569,6 +576,7 @@ import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
 import CommandPalette from '@/components/CommandPalette.vue'
 import ProjectVersionHistory from '@/components/ProjectVersionHistory.vue'
+import AvatarCropper from '@/components/AvatarCropper.vue'
 import { resolveMenuActive } from '@/utils/ui'
 
 const route = useRoute()
@@ -699,52 +707,35 @@ async function loadCurrentAvatar() {
   }
 }
 
-// canvas 压缩图片到 256x256，输出 jpeg base64 data URL
-function compressImage(file: File, size = 256, quality = 0.85): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        canvas.width = size
-        canvas.height = size
-        const ctx = canvas.getContext('2d')!
-        // 居中裁剪为正方形
-        const min = Math.min(img.width, img.height)
-        const sx = (img.width - min) / 2
-        const sy = (img.height - min) / 2
-        ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size)
-        resolve(canvas.toDataURL('image/jpeg', quality))
-      }
-      img.onerror = () => reject(new Error('图片加载失败'))
-      img.src = reader.result as string
-    }
-    reader.onerror = () => reject(new Error('文件读取失败'))
-    reader.readAsDataURL(file)
-  })
-}
+// canvas 压缩与 1:1 居中裁剪已由 AvatarCropper 组件替代（拖动定位 + 缩放，输出 256×256 JPEG）
+const cropperVisible = ref(false)
+const cropperFile = ref<File | null>(null)
 
-async function onAvatarFileChange(e: Event) {
+function onAvatarFileChange(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
+  input.value = ''
   if (!file) return
   if (file.size > 5 * 1024 * 1024) {
     ElMessage.warning('图片不能超过 5MB')
-    input.value = ''
     return
   }
+  // 进入裁剪弹窗，确认后才上传
+  cropperFile.value = file
+  cropperVisible.value = true
+}
+
+async function onCropConfirm(dataUrl: string) {
   avatarUploading.value = true
   try {
-    const dataUrl = await compressImage(file)
     await authApi.updateAvatar(dataUrl)
     currentAvatar.value = dataUrl
     ElMessage.success('已更新')
+    cropperVisible.value = false
   } catch (err: any) {
     ElMessage.error(err.message || '头像上传失败')
   } finally {
     avatarUploading.value = false
-    input.value = ''
   }
 }
 
