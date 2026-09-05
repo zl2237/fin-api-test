@@ -1,6 +1,6 @@
 pytest==9.0.3
 requests==2.33.0
-pymysql==1.1.1
+pymysql==1.2.0
 PyYAML==6.0.1
 pytest-html==4.0.2
 # 拓展可选，框架基础运行不需要，按需开启
