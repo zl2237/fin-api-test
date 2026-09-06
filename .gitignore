@@ -89,9 +89,6 @@ platform/backend/backup_*.json
 
 # 本地学习/文档目录（个人笔记，不入库）
 learn/
-# docs/ 目录内容默认不入库（个人笔记），但正式系统设计文档除外
-docs/*
-!docs/SYSTEM_DESIGN.md
 
 # 本地依赖/缓存（云部署验证临时安装，勿提交）
 .deps/
