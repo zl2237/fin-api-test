@@ -61,6 +61,9 @@ htmlcov/
 **/_*
 # 但 Python 包标记文件不能被忽略（否则 app/crud 等新包无法提交）
 !**/__init__.py
+# 单元测试目录必须入库（vitest/jest 约定）
+!**/__tests__/
+!**/__tests__/**
 
 # 临时调试脚本/产物（.tmp_ 前缀：CDP 诊断、临时自测脚本等）
 .tmp_*
@@ -86,7 +89,9 @@ platform/backend/backup_*.json
 
 # 本地学习/文档目录（个人笔记，不入库）
 learn/
-docs/
+# docs/ 目录内容默认不入库（个人笔记），但正式系统设计文档除外
+docs/*
+!docs/SYSTEM_DESIGN.md
 
 # 本地依赖/缓存（云部署验证临时安装，勿提交）
 .deps/
