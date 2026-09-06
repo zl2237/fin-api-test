@@ -72,6 +72,19 @@ backend-lint:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+# mypy 类型检查（advisory）：基线 375 个 SQLAlchemy 类型推断错误，不阻塞流水线
+backend-mypy:
+  stage: lint
+  image: python:3.12-slim
+  allow_failure: true
+  script:
+    - cd platform/backend
+    - pip install -r requirements.txt mypy -i $PIP_INDEX
+    # Basic 渐进式：SQLAlchemy Column 类型推断错误占绝大多数，运行时由单测覆盖
+    - mypy app || true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 frontend-lint:
   stage: lint
   image: node:20-alpine
@@ -81,6 +94,8 @@ frontend-lint:
     - npm ci
     # vue-tsc 类型检查（与本地 build 前的类型校验一致）
     - npx vue-tsc --noEmit
+    # vitest 单测（utils 纯函数 + composables，blocking）
+    - npm run test
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 

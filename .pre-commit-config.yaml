@@ -1,7 +1,8 @@
 # =============================================================================
 # pre-commit 预检查：与 .gitlab-ci.yml 的 lint stage 同口径
 #   backend-lint  : ruff check --select F platform/backend（未定义变量/未用 import）
-#   frontend-lint : cd platform/frontend && npx vue-tsc --noEmit
+#   backend-mypy  : mypy app（advisory，基线 375 个 SQLAlchemy 类型推断错误）
+#   frontend-lint : cd platform/frontend && npx vue-tsc --noEmit && npm run test
 # -----------------------------------------------------------------------------
 # 安装（一次性）：
 #   pip install pre-commit && pre-commit install
@@ -43,7 +44,19 @@ repos:
         args: [--select, F]
         files: ^platform/backend/
 
-  # ---- 前端：vue-tsc（与 CI frontend-lint 同口径；Python 运行器保证 Windows/Linux 可用） ----
+  # ---- 后端：mypy（advisory，与 CI backend-mypy 同口径） ----
+  # 基线 375 个 SQLAlchemy 类型推断错误，verbose 输出但默认不阻塞（--install-types 自动装存根）
+  - repo: local
+    hooks:
+      - id: backend-mypy
+        name: mypy (backend, advisory)
+        entry: bash -c 'cd platform/backend && mypy app --install-types --non-interactive || true'
+        language: system
+        files: ^platform/backend/app/.*\.py$
+        pass_filenames: false
+        verbose: true
+
+  # ---- 前端：vue-tsc + vitest（与 CI frontend-lint 同口径；Python 运行器保证 Windows/Linux 可用） ----
   - repo: local
     hooks:
       - id: frontend-typecheck
@@ -52,3 +65,12 @@ repos:
         language: system
         files: ^platform/frontend/.*
         types_or: [ts, vue, json]
+
+  - repo: local
+    hooks:
+      - id: frontend-vitest
+        name: vitest 单测 (frontend)
+        entry: bash -c 'cd platform/frontend && npm run test'
+        language: system
+        files: ^platform/frontend/src/.*\.(test|spec)\.ts$
+        pass_filenames: false

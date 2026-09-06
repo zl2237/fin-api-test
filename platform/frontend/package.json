@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
-    "gen:api": "cd ../backend && python scripts/export_openapi.py && cd ../frontend && npx -y openapi-typescript openapi.json -o src/types/api.gen.ts"
+    "gen:api": "cd ../backend && python scripts/export_openapi.py && cd ../frontend && npx -y openapi-typescript openapi.json -o src/types/api.gen.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@vue-flow/background": "^1.3.2",
@@ -27,8 +30,12 @@
     "@types/node": "^26.1.2",
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^25.0.1",
     "typescript": "~5.6.3",
     "vite": "^6.0.5",
+    "vitest": "^2.1.8",
     "vue-tsc": "^2.2.0"
   }
 }
