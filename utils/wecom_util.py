@@ -1,3 +1,5 @@
+from typing import Any
+
 import requests
 from utils.log_util import get_logger
 
@@ -10,7 +12,7 @@ class WeComRobot:
 
     def send_markdown(self, title: str, content: str):
         """发送markdown消息"""
-        payload = {
+        payload: dict[str, Any] = {
             "msgtype": "markdown",
             "markdown": {
                 "title": title,
