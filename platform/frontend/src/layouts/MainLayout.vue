@@ -49,45 +49,70 @@
         router
         class="nav-menu"
         :collapse="collapsed"
+        :default-openeds="['workbench', 'config']"
       >
-        <!-- 顺序 = 日常测试工作流：接口(素材) → 用例(编排/执行) → 数据集(参数化) → 执行记录(结果)；
-             环境配置与字典/文件为低频准备项，管理员功能沉底 -->
-        <el-menu-item index="/apis">
-          <el-icon><Connection /></el-icon>
-          <template #title><span>接口管理</span></template>
-        </el-menu-item>
-        <el-menu-item index="/cases">
-          <el-icon><Share /></el-icon>
-          <template #title><span>用例管理</span></template>
-        </el-menu-item>
-        <el-menu-item index="/datasets">
-          <el-icon><Grid /></el-icon>
-          <template #title><span>数据集</span></template>
-        </el-menu-item>
-        <el-menu-item index="/executions">
-          <el-icon><Histogram /></el-icon>
-          <template #title><span>执行记录</span></template>
-        </el-menu-item>
-        <el-menu-item index="/envs">
-          <el-icon><Setting /></el-icon>
-          <template #title><span>环境配置</span></template>
-        </el-menu-item>
-        <el-menu-item index="/dictionary">
-          <el-icon><Collection /></el-icon>
-          <template #title><span>字段字典</span></template>
-        </el-menu-item>
-        <el-menu-item index="/files">
-          <el-icon><Files /></el-icon>
-          <template #title><span>文件中心</span></template>
-        </el-menu-item>
-        <el-menu-item v-if="store.user?.role === 'admin'" index="/users">
-          <el-icon><UserFilled /></el-icon>
-          <template #title><span>用户管理</span></template>
-        </el-menu-item>
-        <el-menu-item v-if="store.user?.role === 'admin'" index="/operation-logs">
-          <el-icon><List /></el-icon>
-          <template #title><span>操作日志</span></template>
-        </el-menu-item>
+        <!-- 分组折叠：高频测试工作台默认展开，资源配置与系统管理按需展开；
+             折叠态（collapse）下 el-sub-menu 自动变为图标+hover 弹层，无需额外处理 -->
+        <el-sub-menu index="workbench">
+          <template #title>
+            <el-icon><HomeFilled /></el-icon>
+            <span>测试工作台</span>
+          </template>
+          <el-menu-item index="/apis">
+            <el-icon><Connection /></el-icon>
+            <template #title><span>接口管理</span></template>
+          </el-menu-item>
+          <el-menu-item index="/cases">
+            <el-icon><Share /></el-icon>
+            <template #title><span>用例管理</span></template>
+          </el-menu-item>
+          <el-menu-item index="/datasets">
+            <el-icon><Grid /></el-icon>
+            <template #title><span>数据集</span></template>
+          </el-menu-item>
+          <el-menu-item index="/executions">
+            <el-icon><Histogram /></el-icon>
+            <template #title><span>执行记录</span></template>
+          </el-menu-item>
+        </el-sub-menu>
+
+        <el-sub-menu index="config">
+          <template #title>
+            <el-icon><Setting /></el-icon>
+            <span>资源配置</span>
+          </template>
+          <el-menu-item index="/projects">
+            <el-icon><Folder /></el-icon>
+            <template #title><span>项目管理</span></template>
+          </el-menu-item>
+          <el-menu-item index="/envs">
+            <el-icon><Setting /></el-icon>
+            <template #title><span>环境配置</span></template>
+          </el-menu-item>
+          <el-menu-item index="/dictionary">
+            <el-icon><Collection /></el-icon>
+            <template #title><span>字段字典</span></template>
+          </el-menu-item>
+          <el-menu-item index="/files">
+            <el-icon><Files /></el-icon>
+            <template #title><span>文件中心</span></template>
+          </el-menu-item>
+        </el-sub-menu>
+
+        <el-sub-menu v-if="store.user?.role === 'admin'" index="admin">
+          <template #title>
+            <el-icon><UserFilled /></el-icon>
+            <span>系统管理</span>
+          </template>
+          <el-menu-item index="/users">
+            <el-icon><UserFilled /></el-icon>
+            <template #title><span>用户管理</span></template>
+          </el-menu-item>
+          <el-menu-item index="/operation-logs">
+            <el-icon><List /></el-icon>
+            <template #title><span>操作日志</span></template>
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
       <!-- 侧边栏底部：当前登录用户头像（持续涟漪特效，悬浮旋转保留） -->
       <div class="sidebar-foot">
@@ -161,12 +186,6 @@
               :value="p.id"
             />
           </el-select>
-          <!-- 项目管理入口：低频配置不占侧栏，归宿是项目选择器旁（规范 interaction-guidelines §1） -->
-          <el-tooltip content="项目管理" placement="top" popper-class="app-tip">
-            <el-button text @click="router.push('/projects')">
-              <el-icon><Folder /></el-icon>管理
-            </el-button>
-          </el-tooltip>
           <el-tooltip
             v-if="store.currentProjectId"
             content="项目版本管理"
@@ -594,10 +613,11 @@ const CORE_CAP_TITLES: Record<string, string> = {
 }
 const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CAP_TITLES.expression)
 
-// 侧边菜单项（与模板 el-menu-item index 一一对应；项目管理为低频配置，入口在顶栏项目选择器旁）
+// 侧边菜单项（与模板 el-menu-item index 一一对应，供子路由激活态前缀匹配）
 const MENU_PATHS = [
-  '/envs', '/apis', '/cases', '/datasets', '/executions',
-  '/dictionary', '/files', '/users', '/operation-logs',
+  '/apis', '/cases', '/datasets', '/executions',
+  '/projects', '/envs', '/dictionary', '/files',
+  '/users', '/operation-logs',
 ]
 // 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失
 const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
@@ -1089,13 +1109,15 @@ onMounted(async () => {
   border-right: none;
   background: transparent;
 }
-:deep(.nav-menu .el-menu-item) {
+:deep(.nav-menu .el-menu-item),
+:deep(.nav-menu .el-sub-menu__title) {
   border-radius: var(--app-radius-sm);
   margin-bottom: 4px;
   color: rgba(255, 255, 255, 0.75);
   transition: background 0.18s ease, color 0.18s ease;
 }
-:deep(.nav-menu .el-menu-item:hover) {
+:deep(.nav-menu .el-menu-item:hover),
+:deep(.nav-menu .el-sub-menu__title:hover) {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
@@ -1112,11 +1134,12 @@ onMounted(async () => {
     0 100%
   );
 }
-/* 折叠态：菜单项居中，tooltip 由 el-menu 原生提供 */
+/* 折叠态：菜单项与子菜单标题居中，tooltip 由 el-menu 原生提供 */
 :deep(.nav-menu.el-menu--collapse) {
   width: 40px;
 }
-:deep(.nav-menu.el-menu--collapse .el-menu-item) {
+:deep(.nav-menu.el-menu--collapse .el-menu-item),
+:deep(.nav-menu.el-menu--collapse .el-sub-menu__title) {
   display: flex;
   justify-content: center;
   padding: 0 !important;
