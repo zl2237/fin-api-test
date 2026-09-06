@@ -265,9 +265,11 @@ input.sp-radio { display: none; }
 .step-pane .sp-panes { position: relative; }
 .step-pane[data-tabbed="1"] input.sp-radio-req:checked ~ .sp-panes .sp-pane-req { display: block; }
 .step-pane[data-tabbed="1"] input.sp-radio-resp:checked ~ .sp-panes .sp-pane-resp { display: block; }
+.step-pane[data-tabbed="1"] input.sp-radio-extract:checked ~ .sp-panes .sp-pane-extract { display: block; }
 .step-pane[data-tabbed="1"] input.sp-radio-assert:checked ~ .sp-panes .sp-pane-assert { display: block; }
 .step-pane[data-tabbed="1"] input.sp-radio-req:checked ~ .sp-tabs label[for].sp-tab-req,
 .step-pane[data-tabbed="1"] input.sp-radio-resp:checked ~ .sp-tabs label.sp-tab-resp,
+.step-pane[data-tabbed="1"] input.sp-radio-extract:checked ~ .sp-tabs label.sp-tab-extract,
 .step-pane[data-tabbed="1"] input.sp-radio-assert:checked ~ .sp-tabs label.sp-tab-assert {
   color: var(--primary); border-bottom-color: var(--primary);
 }
@@ -282,6 +284,13 @@ input.sp-radio { display: none; }
 }
 .kv { font-size: 13px; }
 .kv b { font-weight: 700; }
+
+/* 前置处理条目（请求 Tab 顶部的注入情况） */
+.pre-list { display: flex; flex-direction: column; gap: 6px; }
+.pre-item { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.pre-type { flex-shrink: 0; padding: 1px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--skip-soft); color: var(--text-2); }
+.pre-item .mono { font-family: Consolas, Menlo, monospace; overflow-wrap: anywhere; }
+.pre-item .muted { color: var(--text-3); }
 
 /* 断言表 */
 .assert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -426,9 +435,85 @@ def _json_sec(title: str, val: Any) -> str:
             f'<pre class="code-block">{_esc(_fmt_json(val))}</pre></div>')
 
 
+# ===== 前置处理 / 后置提取展示辅助（文案与前端 ReportDetail 一致） =====
+
+_PRE_TYPE_TEXT = {
+    "set_field": "设置字段",
+    "add_field": "新增字段",
+    "delete_field": "删除字段",
+    "iterate_set": "遍历赋值",
+    "exec_sql": "执行 SQL",
+}
+
+
+def _value_text(v: Any) -> str:
+    """快照值为执行时规则原文：字符串原样（可含 ${} 引用），对象/数组 JSON 化，None 显示 '—'"""
+    if v is None:
+        return "—"
+    if isinstance(v, str):
+        return v
+    try:
+        return json.dumps(v, ensure_ascii=False, default=str)
+    except Exception:
+        return str(v)
+
+
+def _pre_sec(pre_list: list[Any]) -> str:
+    """请求 Tab 顶部的注入情况区：类型 + path = value；exec_sql 显示 SQL"""
+    title = f"前置处理（{len(pre_list)}）"
+    if not pre_list:
+        return f'<div class="sec"><div class="sec-title">{title}</div><div class="sec-empty">无前置处理</div></div>'
+    items: list[str] = []
+    for it in pre_list:
+        if not isinstance(it, dict):
+            continue
+        t = it.get("type")
+        if t == "exec_sql":
+            body = f'<span class="mono">{_esc(_value_text(it.get("sql")))}</span>'
+        else:
+            body = f'<span class="mono">{_esc(str(it.get("path") or "—"))}</span>'
+            if t != "delete_field":
+                body += f'<span class="muted">=</span><span class="mono">{_esc(_value_text(it.get("value")))}</span>'
+        items.append(f'<div class="pre-item"><span class="pre-type">{_esc(_PRE_TYPE_TEXT.get(t, t or "—"))}</span>{body}</div>')
+    return (f'<div class="sec"><div class="sec-title">{title}</div>'
+            f'<div class="pre-list">{"".join(items)}</div></div>')
+
+
+def _extract_pane(post_extract: list[Any], extracted_vars: Any) -> str:
+    """提取 Tab：变量名 / 来源 / 规则 / 实际提取结果（规则失败或值缺失时明确标注）"""
+    if not post_extract:
+        return '<div class="sp-pane sp-pane-extract"><div class="sec-empty">该步骤无提取规则</div></div>'
+    vars_dict = extracted_vars if isinstance(extracted_vars, dict) else {}
+    rows: list[str] = []
+    for r in post_extract:
+        if not isinstance(r, dict):
+            continue
+        name = r.get("name")
+        if r.get("source") == "db":
+            rule = r.get("sql") or "—"
+            if r.get("field"):
+                rule = f"{rule} → {r['field']}"
+        else:
+            rule = r.get("json_path") or "—"
+        has = name is not None and name in vars_dict
+        actual = (f'<span class="mono">{_esc(_value_text(vars_dict.get(name)))}</span>'
+                  if has else '<span class="muted">未提取到</span>')
+        rows.append("<tr>"
+                    f'<td class="mono">{_esc(name if name is not None else "—")}</td>'
+                    f"<td>{'数据库' if r.get('source') == 'db' else '响应'}</td>"
+                    f'<td class="mono">{_esc(rule)}</td>'
+                    f"<td>{actual}</td></tr>")
+    return ('<div class="sp-pane sp-pane-extract">'
+            '<table class="assert-table"><thead><tr><th>变量名</th><th>来源</th><th>规则</th><th>提取结果</th></tr></thead>'
+            + "".join(rows) + "</table></div>")
+
+
 def _step_pane(s: Any, idx: int, sid: str) -> str:
     name = s.api_name or s.node_id or "未命名步骤"
     assertions = getattr(s, "assertions", None) or []
+    pre_list = getattr(s, "pre_process", None) or []
+    post_extract = getattr(s, "post_extract", None) or []
+    extracted_vars = getattr(s, "extracted_vars", None) or {}
     p: list[str] = []
     p.append(f'<section class="step-pane" data-step="{sid}" data-tabbed="1">')
 
@@ -451,16 +536,18 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     # Tabs（radio 实现：选中态纯 CSS，无 JS 依赖；顺序 radio → tabs → panes 满足兄弟选择器）
     p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-req" id="tab-{sid}-req" checked>')
     p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-resp" id="tab-{sid}-resp">')
+    p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-extract" id="tab-{sid}-ex">')
     p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-assert" id="tab-{sid}-as">')
     p.append('<div class="sp-tabs">')
     p.append(f'<label class="sp-tab sp-tab-req" for="tab-{sid}-req">请求</label>')
     p.append(f'<label class="sp-tab sp-tab-resp" for="tab-{sid}-resp">响应</label>')
+    p.append(f'<label class="sp-tab sp-tab-extract" for="tab-{sid}-ex">提取（{len(post_extract)}）</label>')
     p.append(f'<label class="sp-tab sp-tab-assert" for="tab-{sid}-as">断言（{len(assertions)}）</label>')
     p.append("</div>")
 
-    # 请求
+    # 请求（前置处理 = 注入情况，置于请求头/请求体之前，与平台详情页顺序一致）
     p.append('<div class="sp-panes">')
-    p.append(f'<div class="sp-pane sp-pane-req">{_json_sec("请求头", s.request_headers)}{_json_sec("请求体", s.request_body)}</div>')
+    p.append(f'<div class="sp-pane sp-pane-req">{_pre_sec(pre_list)}{_json_sec("请求头", s.request_headers)}{_json_sec("请求体", s.request_body)}</div>')
     # 响应
     resp = (f'<div class="sp-pane sp-pane-resp">'
             f'<div class="sec"><div class="sec-title">状态码</div>'
@@ -469,6 +556,8 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
             f'<span class="kv"><b>{_esc(s.response_time_ms if s.response_time_ms is not None else "-")} ms</b></span></div>'
             f'{_json_sec("响应体", s.response_body)}</div>')
     p.append(resp)
+    # 提取
+    p.append(_extract_pane(post_extract, extracted_vars))
     # 断言
     if assertions:
         rows: list[str] = []
