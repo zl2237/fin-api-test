@@ -50,14 +50,14 @@ def swagger_type_to_field_type(swagger_type: str) -> str:
     return mapping.get(swagger_type, "string")
 
 
-def pick_default_value(node: dict) -> Any:
+def pick_default_value(node: Any) -> Any:
     """从 OpenAPI schema/parameter 节点按优先级提取默认值：
     default > example(单数) > examples(复数,取第一个value) > enum[0] > ""
     覆盖 OpenAPI 3.0 的多种示例写法。
     """
     if not isinstance(node, dict):
         return ""
-    val = node.get("default")
+    val: Any = node.get("default")
     if val is not None:
         return val
     val = node.get("example")

@@ -34,8 +34,8 @@ def _require_scheduler():
 
 
 def _fill_names(db: Session, obj: models.TestSchedule) -> models.TestSchedule:
-    obj.case_name = obj.case.name if obj.case else None
-    obj.env_name = obj.env.name if obj.env else None
+    setattr(obj, "case_name", obj.case.name if obj.case else None)
+    setattr(obj, "env_name", obj.env.name if obj.env else None)
     crud.fill_audit_names(db, obj)
     return obj
 

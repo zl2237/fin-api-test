@@ -194,6 +194,7 @@ def _member_out(db: Session, m: models.SuiteMember) -> schemas.SuiteMemberOut:
     if mc:
         out.case_name = mc.name
         out.project_id = mc.project_id
+        assert mc.project_id is not None  # 用例必然属于某项目
         project = crud.get_project(db, mc.project_id)
         out.project_name = project.name if project else None
         out.member_case_type = getattr(mc, "case_type", "normal")
@@ -269,6 +270,8 @@ def scan_split(case_id: int, data: schemas.CaseSplitRequest, db: Session = Depen
 def split(case_id: int, data: schemas.CaseSplitRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """执行拆分：抽离节点 + 相关边 + 节点配置到新用例，原用例同步收缩。"""
     from ..services.case_combine_service import split_case
+    if not data.new_name:
+        raise HTTPException(400, "新用例名不能为空")
     try:
         new_case, updated = split_case(db, case_id, data.node_ids, data.new_name, data.new_group_id, user.id)
     except ValueError as e:

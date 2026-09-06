@@ -54,38 +54,38 @@ class AssertionEngine:
         message = rule.get("message", "")
 
         if rule_type == "json_path_equals":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             expected = self.expr.evaluate(rule.get("expected"))
             return self._pack(actual == expected, rule_type, actual, expected, message or f"{rule.get('path')} 期望 {expected}, 实际 {actual}")
 
         if rule_type == "json_path_not_equals":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             expected = self.expr.evaluate(rule.get("expected"))
             return self._pack(actual != expected, rule_type, actual, expected, message)
 
         if rule_type == "json_path_contains":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             expected = self.expr.evaluate(rule.get("expected"))
             passed = expected in actual if actual is not None else False
             return self._pack(passed, rule_type, actual, expected, message)
 
         if rule_type == "json_path_exists":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             return self._pack(actual is not None, rule_type, actual, "exists", message)
 
         if rule_type == "json_path_not_empty":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             passed = bool(actual) or actual == 0 or actual is False
             return self._pack(passed, rule_type, actual, "not_empty", message)
 
         if rule_type == "json_path_match_regex":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             pattern = rule.get("pattern", "")
             passed = bool(re.search(pattern, str(actual))) if actual is not None else False
             return self._pack(passed, rule_type, actual, pattern, message or f"{rule.get('path')} 期望匹配正则 /{pattern}/, 实际 {actual}")
 
         if rule_type == "json_path_type_equals":
-            actual = self._jsonpath_get(response_body, rule.get("path"))
+            actual = self._jsonpath_get(response_body, rule.get("path") or "")
             expected_type = rule.get("expected", "string")
             actual_type = self._python_type_name(actual)
             passed = actual_type == expected_type
@@ -95,7 +95,7 @@ class AssertionEngine:
             expected = rule.get("expected")
             # HTTP 状态码为整数，expected 可能为字符串（前端表单输入），统一数值化比较
             try:
-                passed = int(status_code) == int(expected)
+                passed = int(status_code) == int(expected or 0)
             except (TypeError, ValueError):
                 passed = str(status_code) == str(expected)
             return self._pack(passed, rule_type, status_code, expected, message)
@@ -143,7 +143,7 @@ class AssertionEngine:
         sql = rule.get("sql", "")
         sql = self._inject_extracted(sql)
         rows: list | None = None
-        actual = None
+        actual: Any = None
         if self.db_client:
             try:
                 rows = self.db_client.query(sql)
@@ -258,7 +258,7 @@ class AssertionEngine:
             except Exception as e:
                 return self._pack(False, "db_vs_jsonpath_equals", f"DB Error: {e}", None, message or f"SQL执行异常: {e}")
 
-        json_value = self._jsonpath_get(response_body, json_path)
+        json_value = self._jsonpath_get(response_body, json_path or "")
         rule_type = rule.get("type", "db_vs_jsonpath_equals")
         if rule_type == "db_vs_jsonpath_not_equals":
             passed = db_value != json_value

@@ -15,11 +15,11 @@
 - AssertionRecord  断言记录
 """
 from datetime import datetime
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     JSON,
     Boolean,
-    Column,
     DateTime,
     ForeignKey,
     Integer,
@@ -27,7 +27,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
@@ -36,27 +36,27 @@ class User(Base):
     """用户表：账号密码登录 + 角色控制"""
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    username = Column(String(50), nullable=False, unique=True, index=True, comment="登录用户名")
-    password_hash = Column(String(255), nullable=False, comment="密码哈希：pbkdf2_hmac(sha256) + salt")
-    name = Column(String(50), comment="显示名")
-    role = Column(String(20), default="member", comment="角色：admin 管理员 / member 普通成员")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    username: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True, comment="登录用户名")
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="密码哈希：pbkdf2_hmac(sha256) + salt")
+    name: Mapped[str | None] = mapped_column(String(50), comment="显示名")
+    role: Mapped[str] = mapped_column(String(20), default="member", comment="角色：admin 管理员 / member 普通成员")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
     # 审计字段：谁创建/更新了该用户（自引用外键，记录操作人）
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
     # 登录安全：失败计数 + 锁定截止时间（连续失败 5 次锁 15 分钟）
-    failed_count = Column(Integer, default=0, comment="连续登录失败次数，成功登录后重置")
-    locked_until = Column(DateTime, nullable=True, comment="锁定截止时间，NULL 表示未锁定")
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, comment="连续登录失败次数，成功登录后重置")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="锁定截止时间，NULL 表示未锁定")
     # 首次登录强制改密：默认 admin 创建时为 True，改密成功后置 False
-    must_change_password = Column(Boolean, default=False, comment="是否需要强制修改密码：True 时登录后强制跳转改密页")
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否需要强制修改密码：True 时登录后强制跳转改密页")
     # 用户头像：前端 canvas 压缩后的 base64 data URL（约 10-50KB），NULL 表示未上传
-    avatar = Column(Text, nullable=True, comment="头像 base64 data URL，前端压缩后上传")
+    avatar: Mapped[str | None] = mapped_column(Text, nullable=True, comment="头像 base64 data URL，前端压缩后上传")
     # 联系方式：可选填写，填写时全局唯一（多个用户不能共用同一手机号/邮箱）
-    phone = Column(String(20), nullable=True, unique=True, comment="手机号，可选，填写时全局唯一")
-    email = Column(String(100), nullable=True, unique=True, comment="邮箱，可选，填写时全局唯一")
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True, comment="手机号，可选，填写时全局唯一")
+    email: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True, comment="邮箱，可选，填写时全局唯一")
     # 部门：自由文本，可选，用于列表展示与筛选（不建独立部门表，降低维护成本）
-    department = Column(String(50), nullable=True, comment="部门，可选，自由文本")
+    department: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="部门，可选，自由文本")
 
     @property
     def has_avatar(self) -> bool:
@@ -67,85 +67,85 @@ class User(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    name = Column(String(100), nullable=False, comment="项目名称")
-    description = Column(Text, comment="项目描述")
-    sort_order = Column(Integer, default=0, comment="排序序号（支持拖拽排序）")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="项目名称")
+    description: Mapped[str | None] = mapped_column(Text, comment="项目描述")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号（支持拖拽排序）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    environments = relationship("Environment", back_populates="project", cascade="all, delete-orphan")
-    api_groups = relationship("ApiGroup", back_populates="project", cascade="all, delete-orphan")
-    apis = relationship("ApiDefinition", back_populates="project", cascade="all, delete-orphan")
-    case_groups = relationship("CaseGroup", back_populates="project", cascade="all, delete-orphan")
-    test_cases = relationship("TestCase", back_populates="project", cascade="all, delete-orphan")
-    versions = relationship("ProjectVersion", back_populates="project", cascade="all, delete-orphan",
+    environments: Mapped[list["Environment"]] = relationship("Environment", back_populates="project", cascade="all, delete-orphan")
+    api_groups: Mapped[list["ApiGroup"]] = relationship("ApiGroup", back_populates="project", cascade="all, delete-orphan")
+    apis: Mapped[list["ApiDefinition"]] = relationship("ApiDefinition", back_populates="project", cascade="all, delete-orphan")
+    case_groups: Mapped[list["CaseGroup"]] = relationship("CaseGroup", back_populates="project", cascade="all, delete-orphan")
+    test_cases: Mapped[list["TestCase"]] = relationship("TestCase", back_populates="project", cascade="all, delete-orphan")
+    versions: Mapped[list["ProjectVersion"]] = relationship("ProjectVersion", back_populates="project", cascade="all, delete-orphan",
                             order_by="ProjectVersion.version_no.desc()")
 
 
 class Environment(Base):
     __tablename__ = "environments"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    name = Column(String(50), nullable=False, comment="环境名称：dev/test/pre/prod")
-    base_url = Column(String(500), nullable=False, comment="接口基础地址，如 https://api.example.com")
-    db_config = Column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
-    login_config = Column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")
-    notify_config = Column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success}")
-    variables = Column(JSON, default=dict, comment="业务变量（与登录/通知解耦）")
-    common_headers = Column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
-    timeout = Column(Integer, default=15, comment="接口请求超时时间（秒）")
-    success_codes = Column(String(100), default="200", comment="业务成功码（逗号分隔，响应 code 命中任一即成功；不同系统约定不同，如 ThinkPHP 成功 code:1）")
-    is_default = Column(Boolean, default=False, comment="是否为项目默认环境")
-    sort_order = Column(Integer, default=0, comment="排序序号（支持拖拽排序）")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    name: Mapped[str] = mapped_column(String(50), nullable=False, comment="环境名称：dev/test/pre/prod")
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="接口基础地址，如 https://api.example.com")
+    db_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
+    login_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")
+    notify_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success}")
+    variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="业务变量（与登录/通知解耦）")
+    common_headers: Mapped[Any] = mapped_column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
+    timeout: Mapped[int] = mapped_column(Integer, default=15, comment="接口请求超时时间（秒）")
+    success_codes: Mapped[str] = mapped_column(String(100), default="200", comment="业务成功码（逗号分隔，响应 code 命中任一即成功；不同系统约定不同，如 ThinkPHP 成功 code:1）")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否为项目默认环境")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号（支持拖拽排序）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    project = relationship("Project", back_populates="environments")
+    project: Mapped["Project"] = relationship("Project", back_populates="environments")
 
 
 class ApiGroup(Base):
     """接口分组（订单组/认证组/文件组等），支持多级分组"""
     __tablename__ = "api_groups"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    parent_id = Column(Integer, ForeignKey("api_groups.id"), nullable=True, comment="父分组ID，NULL表示顶层分组")
-    name = Column(String(100), nullable=False, comment="分组名称")
-    sort_order = Column(Integer, default=0, comment="排序序号")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("api_groups.id"), nullable=True, comment="父分组ID，NULL表示顶层分组")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="分组名称")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
 
-    project = relationship("Project", back_populates="api_groups")
-    apis = relationship("ApiDefinition", back_populates="group", cascade="all, delete-orphan")
-    children = relationship("ApiGroup", back_populates="parent", cascade="all, delete-orphan")
-    parent = relationship("ApiGroup", back_populates="children", remote_side=[id])
+    project: Mapped["Project"] = relationship("Project", back_populates="api_groups")
+    apis: Mapped[list["ApiDefinition"]] = relationship("ApiDefinition", back_populates="group", cascade="all, delete-orphan")
+    children: Mapped[list["ApiGroup"]] = relationship("ApiGroup", back_populates="parent", cascade="all, delete-orphan")
+    parent: Mapped["ApiGroup | None"] = relationship("ApiGroup", back_populates="children", remote_side=[id])
 
 
 class ApiDefinition(Base):
     __tablename__ = "api_definitions"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    group_id = Column(Integer, ForeignKey("api_groups.id"), nullable=True, comment="所属分组ID，NULL 表示未分组")
-    name = Column(String(100), nullable=False, comment="接口中文名：如 创建订单")
-    code = Column(String(100), nullable=False, unique=True, comment="接口唯一编码：如 order_create")
-    category = Column(String(50), comment="旧版分类（order/auth/file），新版本用 group")
-    method = Column(String(10), default="POST", comment="HTTP 方法：GET/POST/PUT/DELETE")
-    path = Column(String(500), nullable=False, comment="请求路径：如 /api/order/orderEntrust/orderAdd")
-    description = Column(Text, comment="接口描述")
-    request_template = Column(JSON, default=dict, comment="旧版请求体模板，新版本用 fields 字段表")
-    headers_template = Column(JSON, default=dict, comment="请求头模板")
-    sort_order = Column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    group_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("api_groups.id"), nullable=True, comment="所属分组ID，NULL 表示未分组")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="接口中文名：如 创建订单")
+    code: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, comment="接口唯一编码：如 order_create")
+    category: Mapped[str | None] = mapped_column(String(50), comment="旧版分类（order/auth/file），新版本用 group")
+    method: Mapped[str] = mapped_column(String(10), default="POST", comment="HTTP 方法：GET/POST/PUT/DELETE")
+    path: Mapped[str] = mapped_column(String(500), nullable=False, comment="请求路径：如 /api/order/orderEntrust/orderAdd")
+    description: Mapped[str | None] = mapped_column(Text, comment="接口描述")
+    request_template: Mapped[Any] = mapped_column(JSON, default=dict, comment="旧版请求体模板，新版本用 fields 字段表")
+    headers_template: Mapped[Any] = mapped_column(JSON, default=dict, comment="请求头模板")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    project = relationship("Project", back_populates="apis")
-    group = relationship("ApiGroup", back_populates="apis")
-    fields = relationship("ApiField", back_populates="api", cascade="all, delete-orphan",
+    project: Mapped["Project"] = relationship("Project", back_populates="apis")
+    group: Mapped["ApiGroup | None"] = relationship("ApiGroup", back_populates="apis")
+    fields: Mapped[list["ApiField"]] = relationship("ApiField", back_populates="api", cascade="all, delete-orphan",
                           order_by="ApiField.sort_order")
 
 
@@ -153,62 +153,62 @@ class ApiField(Base):
     """接口请求字段（字段级配置，支持嵌套路径，如 to_customer.put_amount）"""
     __tablename__ = "api_fields"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    api_id = Column(Integer, ForeignKey("api_definitions.id"), comment="所属接口ID")
-    key = Column(String(200), nullable=False, comment="字段路径：如 order_id / to_customer.put_amount")
-    label = Column(String(100), comment="字段中文名：如 订单ID")
-    field_type = Column(String(20), default="string", comment="字段类型：string/int/bool/object/array")
-    required = Column(Boolean, default=False, comment="是否必填")
-    default_value = Column(Text, comment="默认值，支持表达式 ${...}")
-    remark = Column(Text, comment="备注")
-    sort_order = Column(Integer, default=0, comment="排序序号")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    api_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("api_definitions.id"), comment="所属接口ID")
+    key: Mapped[str] = mapped_column(String(200), nullable=False, comment="字段路径：如 order_id / to_customer.put_amount")
+    label: Mapped[str | None] = mapped_column(String(100), comment="字段中文名：如 订单ID")
+    field_type: Mapped[str] = mapped_column(String(20), default="string", comment="字段类型：string/int/bool/object/array")
+    required: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否必填")
+    default_value: Mapped[str | None] = mapped_column(Text, comment="默认值，支持表达式 ${...}")
+    remark: Mapped[str | None] = mapped_column(Text, comment="备注")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号")
 
-    api = relationship("ApiDefinition", back_populates="fields")
+    api: Mapped["ApiDefinition"] = relationship("ApiDefinition", back_populates="fields")
 
 
 class CaseGroup(Base):
     """用例分组（冒烟组/订单组/付款组/核销组/对账组等），支持多级分组"""
     __tablename__ = "case_groups"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    parent_id = Column(Integer, ForeignKey("case_groups.id"), nullable=True, comment="父分组ID，NULL表示顶层分组")
-    name = Column(String(100), nullable=False, comment="分组名称")
-    sort_order = Column(Integer, default=0, comment="排序序号")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("case_groups.id"), nullable=True, comment="父分组ID，NULL表示顶层分组")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="分组名称")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
 
-    project = relationship("Project", back_populates="case_groups")
-    cases = relationship("TestCase", back_populates="group", cascade="all, delete-orphan")
-    children = relationship("CaseGroup", back_populates="parent", cascade="all, delete-orphan")
-    parent = relationship("CaseGroup", back_populates="children", remote_side=[id])
+    project: Mapped["Project"] = relationship("Project", back_populates="case_groups")
+    cases: Mapped[list["TestCase"]] = relationship("TestCase", back_populates="group", cascade="all, delete-orphan")
+    children: Mapped[list["CaseGroup"]] = relationship("CaseGroup", back_populates="parent", cascade="all, delete-orphan")
+    parent: Mapped["CaseGroup | None"] = relationship("CaseGroup", back_populates="children", remote_side=[id])
 
 
 class TestCase(Base):
     __tablename__ = "test_cases"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
-    group_id = Column(Integer, ForeignKey("case_groups.id"), nullable=True, comment="所属分组ID，NULL 表示未分组")
-    name = Column(String(200), nullable=False, comment="用例名称")
-    description = Column(Text, comment="用例描述")
-    case_type = Column(String(20), nullable=False, default="normal", server_default="normal",
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    group_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("case_groups.id"), nullable=True, comment="所属分组ID，NULL 表示未分组")
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="用例名称")
+    description: Mapped[str | None] = mapped_column(Text, comment="用例描述")
+    case_type: Mapped[str] = mapped_column(String(20), nullable=False, default="normal", server_default="normal",
                        comment="用例类型：normal 普通 DAG 用例 / suite 套件（成员为其他用例的跨系统链）")
-    shared_vars = Column(JSON, nullable=True,
+    shared_vars: Mapped[Any] = mapped_column(JSON, nullable=True,
                          comment="套件专用：共享变量白名单 [\"bl_no\", ...]，上游成员结束时按名单快照注入下游")
-    dag_config = Column(JSON, nullable=False, comment="DAG 配置：{nodes: [...], edges: [...]}")
-    sort_order = Column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
-    dataset_id = Column(Integer, ForeignKey("data_sets.id"), nullable=True,
+    dag_config: Mapped[Any] = mapped_column(JSON, nullable=False, comment="DAG 配置：{nodes: [...], edges: [...]}")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
+    dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("data_sets.id"), nullable=True,
                         comment="绑定的数据集ID，NULL=普通用例；绑定时执行按数据行展开（数据驱动）")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    project = relationship("Project", back_populates="test_cases")
-    group = relationship("CaseGroup", back_populates="cases")
-    node_configs = relationship("CaseNodeConfig", back_populates="case", cascade="all, delete-orphan")
-    executions = relationship("ExecutionRecord", back_populates="case", cascade="all, delete-orphan")
-    members = relationship("SuiteMember", back_populates="suite", foreign_keys="SuiteMember.suite_case_id",
+    project: Mapped["Project"] = relationship("Project", back_populates="test_cases")
+    group: Mapped["CaseGroup | None"] = relationship("CaseGroup", back_populates="cases")
+    node_configs: Mapped[list["CaseNodeConfig"]] = relationship("CaseNodeConfig", back_populates="case", cascade="all, delete-orphan")
+    executions: Mapped[list["ExecutionRecord"]] = relationship("ExecutionRecord", back_populates="case", cascade="all, delete-orphan")
+    members: Mapped[list["SuiteMember"]] = relationship("SuiteMember", back_populates="suite", foreign_keys="SuiteMember.suite_case_id",
                            cascade="all, delete-orphan", order_by="SuiteMember.sort_order")
 
 
@@ -216,18 +216,18 @@ class SuiteMember(Base):
     """套件成员：套件用例 → 成员用例的有序引用（可跨项目）。每成员独立绑定环境；串行执行。"""
     __tablename__ = "suite_members"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    suite_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True,
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    suite_case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True,
                            comment="宿主套件用例ID")
-    member_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False,
+    member_case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id"), nullable=False,
                             comment="成员用例ID（可跨项目引用，删除成员用例时级联清理本行）")
-    env_id = Column(Integer, ForeignKey("environments.id"), nullable=False,
+    env_id: Mapped[int] = mapped_column(Integer, ForeignKey("environments.id"), nullable=False,
                     comment="该成员执行所用环境ID（跨系统各用各的）")
-    sort_order = Column(Integer, default=0, comment="执行顺序（0 起，串行）")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="执行顺序（0 起，串行）")
 
-    suite = relationship("TestCase", back_populates="members", foreign_keys=[suite_case_id])
-    member_case = relationship("TestCase", foreign_keys=[member_case_id])
-    env = relationship("Environment")
+    suite: Mapped["TestCase"] = relationship("TestCase", back_populates="members", foreign_keys=[suite_case_id])
+    member_case: Mapped["TestCase"] = relationship("TestCase", foreign_keys=[member_case_id])
+    env: Mapped["Environment"] = relationship("Environment")
 
 
 class DataSet(Base):
@@ -242,114 +242,117 @@ class DataSet(Base):
     """
     __tablename__ = "data_sets"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), comment="所属项目ID（冗余，归属以 case_id 为准）")
-    case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True,
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID（冗余，归属以 case_id 为准）")
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True,
                      comment="归属用例ID（1:N，用例间隔离）")
-    name = Column(String(100), nullable=False, comment="数据集名称")
-    description = Column(Text, comment="描述")
-    columns = Column(JSON, default=list, comment="列定义：[{key, type}]，key 即执行时变量名；中文名实时引用字段字典")
-    node_configs = Column(JSON, default=list,
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="数据集名称")
+    description: Mapped[str | None] = mapped_column(Text, comment="描述")
+    columns: Mapped[Any] = mapped_column(JSON, default=list, comment="列定义：[{key, type}]，key 即执行时变量名；中文名实时引用字段字典")
+    node_configs: Mapped[Any] = mapped_column(JSON, default=list,
                           comment="编排配置快照：[{node_id, api_id, pre_process, post_extract, assertions, wait_after_ms}]，执行时整块覆盖用例节点配置")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    rows = relationship("DataSetRow", back_populates="dataset", cascade="all, delete-orphan",
+    rows: Mapped[list["DataSetRow"]] = relationship("DataSetRow", back_populates="dataset", cascade="all, delete-orphan",
                         order_by="DataSetRow.row_index")
+
+    # 运行时填充的被引用用例数（非数据库列）
+    case_bound_count: ClassVar[int] = 0
 
 
 class DataSetRow(Base):
     """数据集行：一行 = 一次执行的变量组"""
     __tablename__ = "data_set_rows"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    dataset_id = Column(Integer, ForeignKey("data_sets.id"), comment="所属数据集ID")
-    row_index = Column(Integer, nullable=False, comment="行序（1 起，删行后重排保持连续）")
-    data = Column(JSON, default=dict, comment="行数据：{列key: 值}")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("data_sets.id"), comment="所属数据集ID")
+    row_index: Mapped[int] = mapped_column(Integer, nullable=False, comment="行序（1 起，删行后重排保持连续）")
+    data: Mapped[Any] = mapped_column(JSON, default=dict, comment="行数据：{列key: 值}")
 
-    dataset = relationship("DataSet", back_populates="rows")
+    dataset: Mapped["DataSet"] = relationship("DataSet", back_populates="rows")
 
 
 class CaseNodeConfig(Base):
     __tablename__ = "case_node_configs"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    case_id = Column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
-    node_id = Column(String(100), nullable=False, comment="DAG 节点唯一ID")
-    api_id = Column(Integer, ForeignKey("api_definitions.id"), comment="关联接口ID")
-    pre_process = Column(JSON, default=list, comment="前置处理动作列表：[{type, path, value}]")
-    post_extract = Column(JSON, default=list, comment="后置提取规则列表：[{name, source, jsonpath, sql, field}]")
-    assertions = Column(JSON, default=list, comment="断言规则列表：[{type, path, expected, sql, ...}]")
-    wait_after_ms = Column(Integer, default=0, comment="当前节点执行完后到下一节点请求前的等待毫秒数，默认0")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
+    node_id: Mapped[str] = mapped_column(String(100), nullable=False, comment="DAG 节点唯一ID")
+    api_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("api_definitions.id"), comment="关联接口ID")
+    pre_process: Mapped[Any] = mapped_column(JSON, default=list, comment="前置处理动作列表：[{type, path, value}]")
+    post_extract: Mapped[Any] = mapped_column(JSON, default=list, comment="后置提取规则列表：[{name, source, jsonpath, sql, field}]")
+    assertions: Mapped[Any] = mapped_column(JSON, default=list, comment="断言规则列表：[{type, path, expected, sql, ...}]")
+    wait_after_ms: Mapped[int] = mapped_column(Integer, default=0, comment="当前节点执行完后到下一节点请求前的等待毫秒数，默认0")
 
-    case = relationship("TestCase", back_populates="node_configs")
-    api = relationship("ApiDefinition")
+    case: Mapped["TestCase"] = relationship("TestCase", back_populates="node_configs")
+    api: Mapped["ApiDefinition | None"] = relationship("ApiDefinition")
 
 
 class ExecutionRecord(Base):
     __tablename__ = "execution_records"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    case_id = Column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
-    env_id = Column(Integer, ForeignKey("environments.id"), comment="执行环境ID")
-    status = Column(String(20), default="running", comment="执行状态：running 进行中 / success 成功 / failed 失败")
-    trigger_type = Column(String(20), default="manual", comment="触发方式：manual 手动 / schedule 定时任务")
-    started_at = Column(DateTime, default=datetime.now, comment="开始执行时间")
-    ended_at = Column(DateTime, comment="结束时间")
-    summary = Column(JSON, default=dict, comment="执行摘要：{total 总数, passed 通过, failed 失败}")
-    dataset_id = Column(Integer, nullable=True,
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
+    env_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("environments.id"), comment="执行环境ID")
+    status: Mapped[str] = mapped_column(String(20), default="running", comment="执行状态：running 进行中 / success 成功 / failed 失败")
+    trigger_type: Mapped[str] = mapped_column(String(20), default="manual", comment="触发方式：manual 手动 / schedule 定时任务")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="开始执行时间")
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="结束时间")
+    summary: Mapped[Any] = mapped_column(JSON, default=dict, comment="执行摘要：{total 总数, passed 通过, failed 失败}")
+    dataset_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
                         comment="执行时使用的数据集ID（快照解耦：纯溯源编号，无外键，数据集可删；数据以 dataset_row 为准）")
-    dataset_row = Column(JSON, nullable=True,
+    dataset_row: Mapped[Any] = mapped_column(JSON, nullable=True,
                          comment="该次执行对应的数据行快照：{row_index, data, label}，不回写不更新")
-    suite_execution_id = Column(Integer, nullable=True, index=True,
+    suite_execution_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True,
                                 comment="套件来源：非空表示本记录是套件链中某成员的一次执行，"
                                         "指向套件主执行记录ID；普通执行为 NULL")
-    created_by = Column(Integer, nullable=True, comment="执行人 user_id")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="执行人 user_id")
 
-    case = relationship("TestCase", back_populates="executions")
-    steps = relationship("StepRecord", back_populates="execution", cascade="all, delete-orphan")
+    case: Mapped["TestCase"] = relationship("TestCase", back_populates="executions")
+    steps: Mapped[list["StepRecord"]] = relationship("StepRecord", back_populates="execution", cascade="all, delete-orphan")
 
 
 class StepRecord(Base):
     __tablename__ = "step_records"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    execution_id = Column(Integer, ForeignKey("execution_records.id"), comment="所属执行记录ID")
-    node_id = Column(String(100), comment="DAG 节点ID")
-    api_name = Column(String(100), comment="接口名称（执行时快照）")
-    api_path = Column(String(500), comment="请求路径（执行时快照）")
-    api_method = Column(String(10), comment="HTTP 方法（执行时快照）")
-    request_headers = Column(JSON, comment="实际请求头")
-    request_body = Column(JSON, comment="实际请求体")
-    response_status = Column(Integer, comment="HTTP 响应状态码")
-    response_body = Column(JSON, comment="响应体")
-    response_time_ms = Column(Integer, comment="响应耗时（毫秒）")
-    started_at = Column(DateTime, comment="步骤开始时间")
-    ended_at = Column(DateTime, comment="步骤结束时间")
-    status = Column(String(20), comment="步骤状态：success 成功 / failed 失败")
-    pre_process = Column(JSON, comment="前置处理快照：[{type, path, value}]")
-    post_extract = Column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")
-    extracted_vars = Column(JSON, comment="后置提取实际结果：{name: value}")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    execution_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("execution_records.id"), comment="所属执行记录ID")
+    node_id: Mapped[str | None] = mapped_column(String(100), comment="DAG 节点ID")
+    api_name: Mapped[str | None] = mapped_column(String(100), comment="接口名称（执行时快照）")
+    api_path: Mapped[str | None] = mapped_column(String(500), comment="请求路径（执行时快照）")
+    api_method: Mapped[str | None] = mapped_column(String(10), comment="HTTP 方法（执行时快照）")
+    request_headers: Mapped[Any] = mapped_column(JSON, comment="实际请求头")
+    request_body: Mapped[Any] = mapped_column(JSON, comment="实际请求体")
+    response_status: Mapped[int | None] = mapped_column(Integer, comment="HTTP 响应状态码")
+    response_body: Mapped[Any] = mapped_column(JSON, comment="响应体")
+    response_time_ms: Mapped[int | None] = mapped_column(Integer, comment="响应耗时（毫秒）")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤开始时间")
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤结束时间")
+    status: Mapped[str | None] = mapped_column(String(20), comment="步骤状态：success 成功 / failed 失败")
+    pre_process: Mapped[Any] = mapped_column(JSON, comment="前置处理快照：[{type, path, value}]")
+    post_extract: Mapped[Any] = mapped_column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")
+    extracted_vars: Mapped[Any] = mapped_column(JSON, comment="后置提取实际结果：{name: value}")
 
-    execution = relationship("ExecutionRecord", back_populates="steps")
-    assertions = relationship("AssertionRecord", back_populates="step", cascade="all, delete-orphan")
+    execution: Mapped["ExecutionRecord"] = relationship("ExecutionRecord", back_populates="steps")
+    assertions: Mapped[list["AssertionRecord"]] = relationship("AssertionRecord", back_populates="step", cascade="all, delete-orphan")
 
 
 class AssertionRecord(Base):
     __tablename__ = "assertion_records"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    step_id = Column(Integer, ForeignKey("step_records.id"), comment="所属步骤记录ID")
-    rule_type = Column(String(50), comment="断言类型：如 json_path_equals / db_query_equals")
-    rule_config = Column(JSON, comment="断言规则配置（原始参数）")
-    result = Column(Boolean, comment="断言结果：True 通过 / False 失败")
-    actual_value = Column(Text, comment="实际值")
-    expected_value = Column(Text, comment="期望值")
-    message = Column(String(500), comment="结果消息（失败时含原因）")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    step_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("step_records.id"), comment="所属步骤记录ID")
+    rule_type: Mapped[str | None] = mapped_column(String(50), comment="断言类型：如 json_path_equals / db_query_equals")
+    rule_config: Mapped[Any] = mapped_column(JSON, comment="断言规则配置（原始参数）")
+    result: Mapped[bool | None] = mapped_column(Boolean, comment="断言结果：True 通过 / False 失败")
+    actual_value: Mapped[str | None] = mapped_column(Text, comment="实际值")
+    expected_value: Mapped[str | None] = mapped_column(Text, comment="期望值")
+    message: Mapped[str | None] = mapped_column(String(500), comment="结果消息（失败时含原因）")
 
-    step = relationship("StepRecord", back_populates="assertions")
+    step: Mapped["StepRecord"] = relationship("StepRecord", back_populates="assertions")
 
 
 class ProjectVersion(Base):
@@ -360,31 +363,31 @@ class ProjectVersion(Base):
         UniqueConstraint("project_id", "version_no", name="uq_project_version"),
     )
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True, comment="所属项目ID")
-    version_no = Column(Integer, nullable=False, comment="版本号：从 1 递增")
-    name = Column(String(200), nullable=False, comment="版本名称：如 v1.0 / 冒烟基线")
-    description = Column(Text, comment="版本说明/变更备注")
-    snapshot = Column(JSON, nullable=False, comment="完整快照：{apis:[...], cases:[...]}，不含环境（敏感信息）")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    created_at = Column(DateTime, default=datetime.now, comment="版本创建时间")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True, comment="所属项目ID")
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号：从 1 递增")
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="版本名称：如 v1.0 / 冒烟基线")
+    description: Mapped[str | None] = mapped_column(Text, comment="版本说明/变更备注")
+    snapshot: Mapped[Any] = mapped_column(JSON, nullable=False, comment="完整快照：{apis:[...], cases:[...]}，不含环境（敏感信息）")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="版本创建时间")
 
-    project = relationship("Project", back_populates="versions")
+    project: Mapped["Project"] = relationship("Project", back_populates="versions")
 
 
 class OperationLog(Base):
     """操作日志：记录用户的增删改操作"""
     __tablename__ = "operation_logs"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    user_id = Column(Integer, nullable=True, comment="操作人 user_id")
-    username = Column(String(50), comment="操作人用户名（冗余字段，便于查询）")
-    action = Column(String(20), nullable=False, comment="操作类型：create 创建 / update 更新 / delete 删除")
-    target_type = Column(String(50), nullable=False, comment="目标对象类型：project/environment/api/testcase/user 等")
-    target_id = Column(Integer, nullable=True, comment="目标对象ID（delete 时可能已无对应记录）")
-    target_name = Column(String(200), comment="目标对象名称（便于阅读）")
-    detail = Column(Text, comment="操作详情（JSON 字符串，可选）")
-    created_at = Column(DateTime, default=datetime.now, index=True, comment="操作时间")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="操作人 user_id")
+    username: Mapped[str | None] = mapped_column(String(50), comment="操作人用户名（冗余字段，便于查询）")
+    action: Mapped[str] = mapped_column(String(20), nullable=False, comment="操作类型：create 创建 / update 更新 / delete 删除")
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False, comment="目标对象类型：project/environment/api/testcase/user 等")
+    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="目标对象ID（delete 时可能已无对应记录）")
+    target_name: Mapped[str | None] = mapped_column(String(200), comment="目标对象名称（便于阅读）")
+    detail: Mapped[str | None] = mapped_column(Text, comment="操作详情（JSON 字符串，可选）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, index=True, comment="操作时间")
 
 
 class FieldDictionary(Base):
@@ -394,16 +397,16 @@ class FieldDictionary(Base):
         UniqueConstraint("project_id", "key", name="uq_field_dict_project_key"),
     )
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
-    key = Column(String(200), nullable=False, comment="字段英文名：如 order_id / bl_no")
-    label = Column(String(100), nullable=False, comment="字段中文名：如 订单ID / 提单号")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
+    key: Mapped[str] = mapped_column(String(200), nullable=False, comment="字段英文名：如 order_id / bl_no")
+    label: Mapped[str] = mapped_column(String(100), nullable=False, comment="字段中文名：如 订单ID / 提单号")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    project = relationship("Project")
+    project: Mapped["Project"] = relationship("Project")
 
 
 # ============ 文件中心 ============
@@ -414,60 +417,64 @@ class FileCategory(Base):
         UniqueConstraint("project_id", "parent_id", "name", name="uq_file_category_project_parent_name"),
     )
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
-    parent_id = Column(Integer, ForeignKey("file_categories.id"), nullable=True, comment="父分类ID，NULL表示顶层")
-    name = Column(String(100), nullable=False, comment="分类名称")
-    sort_order = Column(Integer, default=0, comment="排序序号")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
+    parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("file_categories.id"), nullable=True, comment="父分类ID，NULL表示顶层")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="分类名称")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
 
-    project = relationship("Project")
-    children = relationship("FileCategory", back_populates="parent", cascade="all, delete-orphan")
-    parent = relationship("FileCategory", back_populates="children", remote_side=[id])
-    files = relationship("TestFile", back_populates="category", cascade="all, delete-orphan")
+    project: Mapped["Project"] = relationship("Project")
+    children: Mapped[list["FileCategory"]] = relationship("FileCategory", back_populates="parent", cascade="all, delete-orphan")
+    parent: Mapped["FileCategory | None"] = relationship("FileCategory", back_populates="children", remote_side=[id])
+    files: Mapped[list["TestFile"]] = relationship("TestFile", back_populates="category", cascade="all, delete-orphan")
 
 
 class TestFile(Base):
     """测试文件（项目级隔离，sha256 内容去重，ref_count 引用计数）"""
     __tablename__ = "test_files"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
-    category_id = Column(Integer, ForeignKey("file_categories.id"), nullable=True, comment="所属分类ID，NULL 表示未分类")
-    name = Column(String(255), nullable=False, comment="显示名（可重命名）")
-    original_name = Column(String(255), nullable=False, comment="上传时原始文件名")
-    content_type = Column(String(100), default="application/octet-stream", comment="MIME 类型")
-    size = Column(Integer, default=0, comment="文件大小（字节）")
-    sha256 = Column(String(64), nullable=False, index=True, comment="内容 SHA256 指纹（去重依据）")
-    storage_path = Column(String(500), nullable=False, comment="相对存储路径：uploads/files/{sha256前2位}/{sha256}")
-    ref_count = Column(Integer, default=1, comment="引用计数，归零时可清理物理文件")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID")
+    category_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("file_categories.id"), nullable=True, comment="所属分类ID，NULL 表示未分类")
+    name: Mapped[str] = mapped_column(String(255), nullable=False, comment="显示名（可重命名）")
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="上传时原始文件名")
+    content_type: Mapped[str] = mapped_column(String(100), default="application/octet-stream", comment="MIME 类型")
+    size: Mapped[int] = mapped_column(Integer, default=0, comment="文件大小（字节）")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="内容 SHA256 指纹（去重依据）")
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False, comment="相对存储路径：uploads/files/{sha256前2位}/{sha256}")
+    ref_count: Mapped[int] = mapped_column(Integer, default=1, comment="引用计数，归零时可清理物理文件")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    project = relationship("Project")
-    category = relationship("FileCategory", back_populates="files")
+    project: Mapped["Project"] = relationship("Project")
+    category: Mapped["FileCategory | None"] = relationship("FileCategory", back_populates="files")
 
 
 class TestSchedule(Base):
     """用例定时任务：interval 间隔分钟 / daily 每日固定时刻，两档简化调度（不暴露原生 cron）"""
     __tablename__ = "test_schedules"
 
-    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True, comment="所属用例ID")
-    env_id = Column(Integer, ForeignKey("environments.id"), nullable=False, comment="执行环境ID")
-    schedule_type = Column(String(20), nullable=False, comment="调度类型：interval 间隔分钟 / daily 每日固定时刻")
-    interval_minutes = Column(Integer, comment="interval 类型：间隔分钟数（≥1）")
-    daily_time = Column(String(5), comment="daily 类型：每日执行时刻 HH:MM（24小时制）")
-    enabled = Column(Boolean, default=True, comment="是否启用")
-    last_run_at = Column(DateTime, comment="最近一次实际触发时间")
-    next_run_at = Column(DateTime, comment="下次预计触发时间（调度器计算，冗余展示用）")
-    created_at = Column(DateTime, default=datetime.now, comment="创建时间")
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
-    created_by = Column(Integer, nullable=True, comment="创建人 user_id")
-    updated_by = Column(Integer, nullable=True, comment="更新人 user_id")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id"), nullable=False, index=True, comment="所属用例ID")
+    env_id: Mapped[int] = mapped_column(Integer, ForeignKey("environments.id"), nullable=False, comment="执行环境ID")
+    schedule_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="调度类型：interval 间隔分钟 / daily 每日固定时刻")
+    interval_minutes: Mapped[int | None] = mapped_column(Integer, comment="interval 类型：间隔分钟数（≥1）")
+    daily_time: Mapped[str | None] = mapped_column(String(5), comment="daily 类型：每日执行时刻 HH:MM（24小时制）")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否启用")
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, comment="最近一次实际触发时间")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, comment="下次预计触发时间（调度器计算，冗余展示用）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
-    case = relationship("TestCase")
-    env = relationship("Environment")
+    case: Mapped["TestCase"] = relationship("TestCase")
+    env: Mapped["Environment"] = relationship("Environment")
+
+    # 运行时填充的展示名（非数据库列，仅 API 响应用）
+    case_name: ClassVar[str | None] = None
+    env_name: ClassVar[str | None] = None

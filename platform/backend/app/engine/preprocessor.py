@@ -94,7 +94,7 @@ class PreProcessor:
     不在数据集覆盖范围内——表达式照常求值，行值同名列不压制。
     """
 
-    def __init__(self, context: dict[str, Any], db_client=None, row_vars: dict[str, Any] = None):
+    def __init__(self, context: dict[str, Any], db_client=None, row_vars: dict[str, Any] | None = None):
         self.expr = ExpressionEngine(context, db_client=db_client)
         self.db_client = db_client
         # 数据集行值（原始引用，区别于 context 池中被覆盖过的值）：
@@ -103,7 +103,7 @@ class PreProcessor:
         self.row_vars = {k: v for k, v in (row_vars or {}).items()
                          if v is not None and v != ""} or None
 
-    def process(self, body: Any, actions: list[dict], extracted: dict[str, Any] = None) -> Any:
+    def process(self, body: Any, actions: list[dict], extracted: dict[str, Any] | None = None) -> Any:
         """
         执行前置处理动作。
 
@@ -127,7 +127,7 @@ class PreProcessor:
         # 普通 dict 请求体
         return self._process_dict(body, actions, extracted)
 
-    def _process_dict(self, body: dict, actions: list[dict], extracted: dict[str, Any] = None) -> dict:
+    def _process_dict(self, body: dict, actions: list[dict], extracted: dict[str, Any] | None = None) -> dict:
         """对 dict 请求体执行前置处理动作"""
         for action in actions or []:
             action_type = action.get("type")
@@ -190,8 +190,8 @@ class PreProcessor:
                 value_template = action.get("value")
                 # sync_list：同步设置的另一个列表路径，同位置元素用相同值（费用录入的 unique_id 关联）
                 sync_list_path = action.get("sync_list")
-                target_list = get_nested_value(body, list_path)
-                sync_list = get_nested_value(body, sync_list_path) if sync_list_path else None
+                target_list = get_nested_value(body, list_path or "")
+                sync_list = get_nested_value(body, sync_list_path or "") if sync_list_path else None
                 if isinstance(target_list, list):
                     for idx, item in enumerate(target_list):
                         if isinstance(item, dict):

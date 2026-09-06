@@ -305,12 +305,12 @@ def rollback_project_version(
     case_group_rows: list = []
     for g in snap.get("case_groups", []):
         old_id = g.get("id")
-        ng = models.CaseGroup(project_id=project.id, name=g["name"], sort_order=g.get("sort_order", 0))
-        db.add(ng)
+        cg = models.CaseGroup(project_id=project.id, name=g["name"], sort_order=g.get("sort_order", 0))
+        db.add(cg)
         db.flush()
         if old_id is not None:
-            case_group_map[old_id] = ng.id
-        case_group_rows.append((ng, g.get("parent_id")))
+            case_group_map[old_id] = cg.id
+        case_group_rows.append((cg, g.get("parent_id")))
 
     for ng, old_parent_id in case_group_rows:
         if old_parent_id is not None and old_parent_id in case_group_map:

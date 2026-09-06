@@ -25,7 +25,7 @@
 import json
 import re
 import shlex
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 # cURL 数据参数，命中其一即认为该 token 后跟请求体
@@ -425,7 +425,7 @@ def preview_to_fields_for_override(preview: dict[str, Any]) -> list[dict[str, An
     与 HAR 覆盖字段的前端逻辑保持一致：返回原始字段 dict 列表，
     由前端转换为 ApiField[] 展示对比。
     """
-    return preview.get("fields", [])
+    return cast(list[dict[str, Any]], preview.get("fields", []))
 
 
 # 复用 har_parser.previews_to_api_create，避免重复落库逻辑

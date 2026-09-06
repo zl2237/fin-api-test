@@ -80,7 +80,11 @@ def diff_version(
         raise HTTPException(400, "两个版本不属于同一项目，无法对比")
     crud.fill_version_audit_names(db, [base, target])
     diff = crud.diff_project_versions(base, target)
-    return schemas.ProjectVersionDiff(base=base, target=target, diff=diff)
+    return schemas.ProjectVersionDiff(
+        base=schemas.ProjectVersionOut.model_validate(base),
+        target=schemas.ProjectVersionOut.model_validate(target),
+        diff=diff,
+    )
 
 
 @router.post("/api/project-versions/{version_id}/rollback")

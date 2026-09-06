@@ -18,8 +18,8 @@ from typing import Any
 
 
 class ExecutionContext:
-    def __init__(self, env_vars: dict[str, Any] = None, global_vars: dict[str, Any] = None,
-                 row_vars: dict[str, Any] = None, suite_vars: dict[str, Any] = None):
+    def __init__(self, env_vars: dict[str, Any] | None = None, global_vars: dict[str, Any] | None = None,
+                 row_vars: dict[str, Any] | None = None, suite_vars: dict[str, Any] | None = None):
         # 环境变量在用例开始时并入统一变量池，作为初始已提取变量
         self.env_vars: dict[str, Any] = env_vars or {}
         # 数据行变量优先于同名环境变量（列名即变量名）

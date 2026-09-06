@@ -1,6 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
+sqlalchemy==2.0.52
 alembic>=1.13.0
 pydantic>=2.11.3
 jsonpath-ng==1.6.1

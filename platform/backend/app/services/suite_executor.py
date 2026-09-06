@@ -125,6 +125,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
                     row_snapshots.append(None)
                     continue
             row_vars = (item["row"] or {}).get("data")
+            assert record.created_by is not None  # 套件执行必有触发人
             row_record = exec_domain.create_execution(
                 db, case_id=member_case.id, env_id=member_env.id,
                 user_id=record.created_by, trigger_type=record.trigger_type,
@@ -192,6 +193,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
 
     # 套件级一条通知（成员逐条通知已抑制）；环境取主记录 env（已对齐首成员）
     try:
+        assert record.env_id is not None  # 套件主记录绑定环境
         env = crud.get_environment(db, record.env_id)
         if env:
             send_suite_notify(db, env, suite_case, record)

@@ -37,7 +37,7 @@ def build_http_client(env) -> HttpClient:
 
 
 # ddddocr 懒加载单例：None=未初始化，False=不可用（缺失时验证码自动识别降级跳过）
-_ocr_instance = None
+_ocr_instance: Any = None
 
 
 def _get_ocr():
@@ -71,7 +71,7 @@ def _preprocess_captcha(content: bytes) -> bytes:
         img = Image.open(io.BytesIO(content)).convert("L")
         img = ImageOps.autocontrast(img)
         img = img.point(lambda p: 255 if p > 127 else 0)
-        img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
+        img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
@@ -187,6 +187,7 @@ def login(client: HttpClient, env) -> None:
                     last_exc = e
                     if captcha_enabled and i < captcha_attempts - 1:
                         print(f"[验证码] 第 {i + 1} 次登录失败，取新验证码重试: {e}")
+            assert last_exc is not None
             raise last_exc
         return wrapper
 
@@ -251,7 +252,7 @@ def login(client: HttpClient, env) -> None:
 
     def _attempt_login_with_token_retry():
         """token 模式的验证码重试：未取到 token（识别错被服务端拒）也重试。"""
-        last_exc = None
+        last_exc: BaseException | None = None
         for i in range(captcha_attempts if captcha_enabled else 1):
             try:
                 token = _attempt_login()
@@ -264,6 +265,7 @@ def login(client: HttpClient, env) -> None:
                 if not captcha_enabled or i == captcha_attempts - 1:
                     raise
                 print(f"[验证码] 第 {i + 1} 次登录异常，取新验证码重试: {e}")
+        assert last_exc is not None
         raise last_exc
 
     _do_login = _attempt_login_with_token_retry
@@ -273,7 +275,7 @@ def login(client: HttpClient, env) -> None:
             client.set_header(auth_header_name, _build_header_value(token))
 
     # 跟踪当前使用的裸 token（refresh 时识别 stale；嵌套函数写回需容器）
-    current = {"token": None}
+    current: dict[str, Any] = {"token": None}
 
     if share_mode == "isolated":
         # 原行为：独立登录 + 独立刷新，token 不进共享缓存
@@ -310,7 +312,7 @@ def login(client: HttpClient, env) -> None:
         current["token"] = token
         _apply_token(token)
 
-    def refresh():
+    def refresh_shared():
         # 401 条件重登：缓存 token 已被其他执行刷新则直接复用新值（不登录），
         # 仅当缓存仍是自己失效的那个 token 时才真正重登，消除乒乓互踢
         try:
@@ -325,7 +327,7 @@ def login(client: HttpClient, env) -> None:
             print(f"[token刷新] 重新登录失败（忽略）: {e}")
             return None
 
-    client.set_token_refresh_callback(refresh)
+    client.set_token_refresh_callback(refresh_shared)
 
 
 def build_db_client(env):

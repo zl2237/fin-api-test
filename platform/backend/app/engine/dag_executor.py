@@ -67,7 +67,7 @@ class DagExecutor:
         self.node_config_overrides = node_config_overrides or None
         self.extractor = Extractor()
         self.http_client: HttpClient | None = None
-        self.db_client = None
+        self.db_client: Any = None
         # 并发执行场景下由外部预先创建 record 并传入，避免后台线程重复创建
         self._precreated_record = execution_record
         # 事件出口：默认落库；测试/dry-run 注入内存 sink（持久化接缝）
@@ -220,6 +220,7 @@ class DagExecutor:
         # 1. 组装请求（三级优先级与编排顺序统一在 prepare_request，见其模块注释）；
         # 前置处理 exec_sql 执行失败等组装期异常在这里兜底为失败步骤（原因可见），
         # 避免异常冒泡到 execute() 导致本节点无步骤记录
+        assert self.http_client is not None  # execute() 前已 build_http_client，收窄 None 分支
         try:
             parts = prepare_request(api, config, context=self.context,
                                     row_vars=self.row_vars, row_origins=self.row_origins,

@@ -417,8 +417,8 @@ def import_fields_from_swagger(
     summary = matched_info.get("summary") or matched_info.get("operationId") or matched_path
     return schemas.ApiImportFieldsResponse(
         matched=True,
-        method=matched_method,
-        path=matched_path,
+        method=matched_method or "",
+        path=matched_path or "",
         operation_summary=summary,
         fields=fields,
     )

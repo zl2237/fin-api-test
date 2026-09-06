@@ -199,11 +199,11 @@ def _parse_daily_time(value: str | None):
     if not value or ":" not in value:
         return None, None
     try:
-        hh, mm = value.split(":", 1)
-        hh, mm = int(hh), int(mm)
+        parts = value.split(":", 1)
+        hh, mm = int(parts[0]), int(parts[1])
         if 0 <= hh <= 23 and 0 <= mm <= 59:
             return hh, mm
-    except ValueError:
+    except (ValueError, IndexError):
         pass
     return None, None
 
@@ -238,6 +238,7 @@ def _run_schedule_job(schedule_id: int) -> None:
         # 数据驱动（周期8）：绑定数据集的用例按行展开，每行一条 trigger_type=schedule 记录；
         # 多行批量失败聚合成一条通知（与手动执行同策略，编排统一在 execution_launcher）
         try:
+            assert schedule.created_by is not None  # 定时任务必由用户创建
             plan = build_launch_plan(db, case, schedule.env_id, schedule.created_by,
                                      trigger_type="schedule")
             commit_launch([plan], schedule.env_id)
