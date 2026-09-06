@@ -23,6 +23,9 @@ class _Step:
         self.started_at = kw.get("started_at", "2026-01-01 10:00:00")
         self.ended_at = kw.get("ended_at", "2026-01-01 10:00:01")
         self.assertions = kw.get("assertions", [])
+        self.pre_process = kw.get("pre_process", [])
+        self.post_extract = kw.get("post_extract", [])
+        self.extracted_vars = kw.get("extracted_vars", {})
 
 
 class _Assert:
@@ -124,13 +127,59 @@ class TestExportReportHtml:
         assert 'data-name="查单"' in html
 
     def test_detail_pane_per_step_with_tabs(self):
-        """每个步骤一个详情面板，内含请求/响应/断言三个 Tab（radio 驱动）"""
+        """每个步骤一个详情面板，内含请求/响应/提取/断言四个 Tab（radio 驱动）"""
         steps = [_Step(assertions=[_Assert()]), _Step()]
         html = export_report_html(_Record(), steps)
         assert html.count('class="step-pane"') == 2
         assert html.count('class="sp-radio sp-radio-req"') == 2
         assert "断言（1）" in html
         assert "断言（0）" in html
+
+    # ===== 前置处理（注入情况）/ 后置提取 =====
+
+    def test_pre_process_rendered_in_request_tab(self):
+        """请求 Tab 顶部渲染前置处理：类型文案 + path = value；exec_sql 只显示 SQL"""
+        steps = [_Step(pre_process=[
+            {"type": "set_field", "path": "$.orderNo", "value": "${bl_no}"},
+            {"type": "exec_sql", "sql": "SELECT id FROM t_order LIMIT 1"},
+        ])]
+        html = export_report_html(_Record(), steps)
+        assert "前置处理（2）" in html
+        assert "设置字段" in html
+        assert "$.orderNo" in html
+        assert "${bl_no}" in html
+        assert "执行 SQL" in html
+        assert "SELECT id FROM t_order LIMIT 1" in html
+
+    def test_pre_process_empty_shows_placeholder(self):
+        """无前置处理时请求 Tab 内显示占位文案"""
+        html = export_report_html(_Record(), [_Step()])
+        assert "前置处理（0）" in html
+        assert "无前置处理" in html
+
+    def test_extract_tab_with_rules_and_actual_values(self):
+        """提取 Tab：变量名/来源/规则/实际提取结果；缺失结果标注未提取到"""
+        steps = [_Step(
+            post_extract=[
+                {"name": "bl_no", "source": "response", "json_path": "$.data.blNo"},
+                {"name": "order_id", "source": "db", "sql": "SELECT id FROM t_order", "field": "id"},
+                {"name": "miss", "source": "response", "json_path": "$.none"},
+            ],
+            extracted_vars={"bl_no": "OHYHL001", "order_id": 42},
+        )]
+        html = export_report_html(_Record(), steps)
+        assert "提取（3）" in html
+        assert "bl_no" in html
+        assert "OHYHL001" in html
+        assert "数据库" in html and "响应" in html
+        assert "SELECT id FROM t_order → id" in html   # db 规则：SQL + 取值字段
+        assert "42" in html                            # 非字符串值 JSON 化展示
+        assert "未提取到" in html                       # 规则失败/值缺失明确标注
+
+    def test_extract_tab_empty_shows_placeholder(self):
+        html = export_report_html(_Record(), [_Step()])
+        assert "提取（0）" in html
+        assert "该步骤无提取规则" in html
 
     def test_fail_summary_card_only_when_failed(self):
         """失败摘要卡仅在有失败步骤时渲染，含跳转锚点与失败原因"""
