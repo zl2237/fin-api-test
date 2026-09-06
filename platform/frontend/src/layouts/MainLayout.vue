@@ -1144,6 +1144,25 @@ onMounted(async () => {
   justify-content: center;
   padding: 0 !important;
 }
+/* 子菜单展开容器（.el-menu--inline）与嵌套菜单项：
+   Element Plus 默认内联菜单有浅色背景与默认文字色，深色侧边栏下会显空白，
+   需显式覆盖背景透明 + 文字白色，hover/active 与顶级项一致 */
+:deep(.nav-menu .el-menu--inline) {
+  background: transparent;
+}
+:deep(.nav-menu .el-menu--inline .el-menu-item) {
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 4px;
+}
+:deep(.nav-menu .el-menu--inline .el-menu-item:hover) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+:deep(.nav-menu .el-menu--inline .el-menu-item.is-active) {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-weight: 500;
+}
 .topbar {
   position: relative;
   display: flex;
