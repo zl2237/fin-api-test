@@ -62,14 +62,14 @@ def _validate_row_data(columns: list, data: dict) -> None:
 
 # ============ 数据集 CRUD ============
 
-def create_dataset(db: Session, project_id: int, name: str, columns: list,
-                   user_id: int, description: str = None,
-                   rows_data: list = None, case_id: int = None,
-                   node_configs: list = None) -> models.DataSet:
+def create_dataset(db: Session, project_id: int | None, name: str, columns: list,
+                   user_id: int | None, description: str | None = None,
+                   rows_data: list | None = None, case_id: int | None = None,
+                   node_configs: list | None = None) -> models.DataSet:
     """建数据集；rows_data/node_configs 可选（创建即带行/带快照的原子写入路径）"""
     columns = [dict(c) for c in columns]
     _validate_columns(columns)
-    obj = models.DataSet(project_id=project_id, case_id=case_id, name=name, description=description,
+    obj: models.DataSet = models.DataSet(project_id=project_id, case_id=case_id, name=name, description=description,
                          columns=columns, node_configs=node_configs or [],
                          created_by=user_id, updated_by=user_id)
     db.add(obj)
@@ -84,15 +84,15 @@ def create_dataset(db: Session, project_id: int, name: str, columns: list,
     return obj
 
 
-def get_dataset(db: Session, dataset_id: int):
+def get_dataset(db: Session, dataset_id: int) -> models.DataSet:
     obj = crud.get_dataset(db, dataset_id)
     if not obj:
         raise ValueError(f"数据集不存在: {dataset_id}")
     return obj
 
 
-def update_dataset(db: Session, dataset_id: int, name: str = None,
-                   description: str = None, columns: list = None) -> models.DataSet:
+def update_dataset(db: Session, dataset_id: int, name: str | None = None,
+                   description: str | None = None, columns: list | None = None) -> models.DataSet:
     """更新数据集。改列定义时校验现有行数据不含被删的列（防行悬空）。"""
     obj = get_dataset(db, dataset_id)
     if name is not None:
@@ -272,13 +272,15 @@ def _infer_col_type(value) -> str:
     return "string"
 
 
-def _topo_node_ids(dag: dict) -> list:
+def _topo_node_ids(dag: dict | None) -> list:
     """dag 节点的拓扑执行序（engine.topo_order 唯一实现，此处口径：环/断链节点排末尾）。
 
     收集口径需按执行序取值：同名异值列取业务链路源头节点（执行序首个）的值，
     而非 dag 数组顺序（数组可能是用户拖拽后的任意顺序，源头节点不一定排最前）。
     环/断链节点按引擎同口径排到末尾（引擎也不执行它们，只是收集时仍扫一遍兜底）。
     """
+    if not dag:
+        return []
     order, leftover = topo_order(dag)
     return order + leftover
 
@@ -312,8 +314,8 @@ def collect_case_params(case, node_configs: list, apis_by_id: dict) -> dict:
     values: dict = {}      # key -> 首个最终生效值（列顺序 = 拓扑执行序）
     key_types: dict = {}   # key -> 字段类型（file 需透传到列定义，行编辑器据此渲染文件选择器）
     dynamic_keys = set()   # 被 ${} 动态注入的顶层 key：运行时表达式生效，不可作数据列
-    conflicts = []
-    stats = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0,
+    conflicts: list[dict] = []
+    stats: dict[str, Any] = {"nodes": 0, "columns": 0, "conflicts": conflicts, "dynamic": 0,
              "nested": 0, "empty": 0, "invalid": 0}
 
     cfg_by_node = {c.node_id: c for c in node_configs}
@@ -485,8 +487,8 @@ def snapshot_node_configs(case, node_configs: list) -> list:
     } for c in node_configs if c.node_id in node_ids]
 
 
-def generate_dataset_from_case(db: Session, case_id: int, name: str = None,
-                               user_id: int = None) -> tuple:
+def generate_dataset_from_case(db: Session, case_id: int, name: str | None = None,
+                               user_id: int | None = None) -> tuple:
     """从用例生成数据集：写死参数各成一列 + 1 行原值快照 + 节点配置快照，返回 (dataset, stats)。
 
     生成的数据集归属该用例（case_id，1:N 隔离）。
@@ -494,6 +496,7 @@ def generate_dataset_from_case(db: Session, case_id: int, name: str = None,
     case = crud.get_testcase(db, case_id)
     if not case:
         raise ValueError(f"用例不存在: {case_id}")
+    assert case.project_id is not None  # 用例必然属于某项目
     # DataSet.name 上限 100：自定义名超长直接报错；默认名截断用例名部分保后缀
     suffix = "-参数集"
     if name:
@@ -522,7 +525,7 @@ def generate_dataset_from_case(db: Session, case_id: int, name: str = None,
     return ds, out["stats"]
 
 
-def copy_dataset(db: Session, dataset_id: int, name: str = None, user_id: int = None) -> models.DataSet:
+def copy_dataset(db: Session, dataset_id: int, name: str | None = None, user_id: int | None = None) -> models.DataSet:
     """复制数据集：列/全部行/节点配置快照全量深拷贝，归属同一用例（隔离语义下的复用方式）。
 
     命名：默认「原名-副本」；原名已带 -副本 后缀时递增编号（场景A-副本 → 场景A-副本2），

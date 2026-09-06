@@ -20,7 +20,7 @@ def _fill_extra(db: Session, obj: models.DataSet) -> models.DataSet:
     if obj.node_configs is None:
         obj.node_configs = []
     crud.fill_audit_names(db, obj)
-    obj.case_bound_count = crud.count_cases_bound_to_dataset(db, obj.id)
+    setattr(obj, "case_bound_count", crud.count_cases_bound_to_dataset(db, obj.id))
     return obj
 
 

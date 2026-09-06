@@ -141,7 +141,7 @@ class ExpressionEngine:
     def __init__(self, context: dict[str, Any], db_client=None):
         self.context = context
         self.db_client = db_client
-        self.functions = {
+        self.functions: dict[str, Any] = {
             "generate_bl_no": generate_bl_no,
             "generate_unique_id": generate_unique_id,
             "generate_invoice_number": generate_invoice_number,

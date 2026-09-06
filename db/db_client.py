@@ -76,6 +76,7 @@ class DBClient:
         :return: list[dict]
         """
         self.connect()
+        assert self.conn is not None  # connect() 保证已建连或抛异常，收窄 None 分支
         args = args or []
         logger.info(f"执行SQL查询:\n{sql}, args:{args}")
         try:
@@ -103,6 +104,7 @@ class DBClient:
         :return: 影响行数
         """
         self.connect()
+        assert self.conn is not None  # connect() 保证已建连或抛异常，收窄 None 分支
         args = args or []
         logger.info(f"执行SQL:\n{sql}, args:{args}")
         try:

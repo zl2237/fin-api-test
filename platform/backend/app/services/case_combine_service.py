@@ -232,18 +232,19 @@ def split_case(
             old_edges.append(e)
 
     cfg_map = {nc.node_id: nc for nc in (case.node_configs or [])}
-    new_cfg_payloads = []
+    new_cfg_payloads: list[crud.schemas.NodeConfigIn] = []
     for n in new_nodes:
         nc = cfg_map.get(n["id"])
         if nc:
-            new_cfg_payloads.append({
-                "node_id": n["id"], "api_id": nc.api_id,
-                "pre_process": deepcopy(nc.pre_process or []),
-                "post_extract": deepcopy(nc.post_extract or []),
-                "assertions": deepcopy(nc.assertions or []),
-                "wait_after_ms": nc.wait_after_ms or 0,
-            })
+            new_cfg_payloads.append(crud.schemas.NodeConfigIn(
+                node_id=n["id"], api_id=nc.api_id,
+                pre_process=deepcopy(nc.pre_process or []),
+                post_extract=deepcopy(nc.post_extract or []),
+                assertions=deepcopy(nc.assertions or []),
+                wait_after_ms=nc.wait_after_ms or 0,
+            ))
 
+    assert case.project_id is not None  # 用例必然属于某项目
     new_case = crud.create_testcase(db, crud.schemas.TestCaseCreate(
         project_id=case.project_id,
         name=new_name, group_id=new_group_id,
@@ -257,11 +258,11 @@ def split_case(
     try:
         updated = crud.update_testcase(db, case, crud.schemas.TestCaseUpdate(
             dag_config={"nodes": old_nodes, "edges": old_edges},
-            node_configs=[{
-                "node_id": nc.node_id, "api_id": nc.api_id,
-                "pre_process": nc.pre_process or [], "post_extract": nc.post_extract or [],
-                "assertions": nc.assertions or [], "wait_after_ms": nc.wait_after_ms or 0,
-            } for nc in (case.node_configs or []) if nc.node_id not in move_set],
+            node_configs=[crud.schemas.NodeConfigIn(
+                node_id=nc.node_id, api_id=nc.api_id,
+                pre_process=nc.pre_process or [], post_extract=nc.post_extract or [],
+                assertions=nc.assertions or [], wait_after_ms=nc.wait_after_ms or 0,
+            ) for nc in (case.node_configs or []) if nc.node_id not in move_set],
         ), user_id)
     except Exception:
         db.query(models.TestCase).filter(models.TestCase.id == new_case.id).delete()

@@ -474,7 +474,7 @@ def _pre_sec(pre_list: list[Any]) -> str:
             body = f'<span class="mono">{_esc(str(it.get("path") or "—"))}</span>'
             if t != "delete_field":
                 body += f'<span class="muted">=</span><span class="mono">{_esc(_value_text(it.get("value")))}</span>'
-        items.append(f'<div class="pre-item"><span class="pre-type">{_esc(_PRE_TYPE_TEXT.get(t, t or "—"))}</span>{body}</div>')
+        items.append(f'<div class="pre-item"><span class="pre-type">{_esc(_PRE_TYPE_TEXT.get(str(t), t or "—"))}</span>{body}</div>')
     return (f'<div class="sec"><div class="sec-title">{title}</div>'
             f'<div class="pre-list">{"".join(items)}</div></div>')
 

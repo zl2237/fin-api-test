@@ -24,11 +24,11 @@ _AVATAR_DATA_URL_RE = re.compile(r"^data:image/(jpeg|png|webp);base64,([A-Za-z0-
 _AVATAR_MAX_BYTES = 200 * 1024
 
 
-def get_user_by_username(db: Session, username: str):
+def get_user_by_username(db: Session, username: str) -> models.User | None:
     return db.query(models.User).filter(models.User.username == username).first()
 
 
-def get_user_by_id(db: Session, user_id: int):
+def get_user_by_id(db: Session, user_id: int) -> models.User | None:
     return db.query(models.User).filter(models.User.id == user_id).first()
 
 
@@ -38,8 +38,10 @@ def authenticate_user(db: Session, username: str, password: str) -> models.User:
     锁定检查在密码校验之前，避免泄露用户是否存在。
     """
     user = get_user_by_username(db, username)
+    if not user:
+        raise HTTPException(401, "用户名或密码错误")
 
-    if user and user.locked_until and user.locked_until > datetime.now():
+    if user.locked_until and user.locked_until > datetime.now():
         remain = int((user.locked_until - datetime.now()).total_seconds() / 60) + 1
         raise HTTPException(403, f"账号已锁定，请 {remain} 分钟后重试")
 

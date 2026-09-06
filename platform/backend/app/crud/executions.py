@@ -12,7 +12,7 @@ from .. import models
 
 def create_execution(db: Session, case_id: int, env_id: int, user_id: int,
                      trigger_type: str = "manual",
-                     dataset_id: int = None, dataset_row: dict = None) -> models.ExecutionRecord:
+                     dataset_id: int | None = None, dataset_row: dict | None = None) -> models.ExecutionRecord:
     """创建 running 状态的执行记录（触发执行前先落库，前端立即可轮询）。
 
     dataset_id/dataset_row：数据驱动执行时的数据行快照（失败可溯源是哪行）。

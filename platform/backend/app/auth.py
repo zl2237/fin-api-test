@@ -102,7 +102,7 @@ def decode_token(token: str) -> dict | None:
         actual_sig = base64.urlsafe_b64decode(sig_b64)
         if not hmac.compare_digest(expected_sig, actual_sig):
             return None
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        payload: dict = json.loads(base64.urlsafe_b64decode(payload_b64))
         if int(payload.get("exp", 0)) < int(time.time()):
             return None
         return payload

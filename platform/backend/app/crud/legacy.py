@@ -1,6 +1,6 @@
 """数据库 CRUD 操作（遗留平铺实现，逐步迁移至各域子模块，勿在此新增内容）"""
 from datetime import datetime
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from sqlalchemy.orm import Session
 
@@ -70,8 +70,8 @@ def fill_exec_names(db: Session, objs) -> None:
         for r in rows:
             project_map[r[0]] = (r[2], r[3])
     if env_ids:
-        rows = db.query(models.Environment.id, models.Environment.name).filter(models.Environment.id.in_(env_ids)).all()
-        env_map = {r[0]: r[1] for r in rows}
+        env_rows = db.query(models.Environment.id, models.Environment.name).filter(models.Environment.id.in_(env_ids)).all()
+        env_map = {r[0]: r[1] for r in env_rows}
     for o in obj_list:
         cid = getattr(o, "case_id", None)
         o.case_name = case_map.get(cid)
@@ -184,7 +184,7 @@ def reorder_projects(db: Session, items: list[dict], user_id: int | None = None)
         return 0
     audit: dict = {}
     if user_id is not None:
-        audit = {models.Project.updated_by: user_id, models.Project.updated_at: datetime.now()}
+        audit = {models.Project.updated_by: user_id}
     updated = 0
     for it in items:
         updated += db.query(models.Project).filter(
@@ -242,7 +242,7 @@ def reorder_environments(db: Session, items: list[dict], user_id: int | None = N
         return 0
     audit: dict = {}
     if user_id is not None:
-        audit = {models.Environment.updated_by: user_id, models.Environment.updated_at: datetime.now()}
+        audit = {models.Environment.updated_by: user_id}
     updated = 0
     for it in items:
         updated += db.query(models.Environment).filter(
@@ -323,7 +323,7 @@ def batch_move_apis(db: Session, api_ids: list[int], group_id: int | None, user_
         return 0
     values: dict = {models.ApiDefinition.group_id: group_id}
     if user_id is not None:
-        values.update({models.ApiDefinition.updated_by: user_id, models.ApiDefinition.updated_at: datetime.now()})
+        values.update({models.ApiDefinition.updated_by: user_id})
     updated = db.query(models.ApiDefinition).filter(
         models.ApiDefinition.id.in_(api_ids)
     ).update(values, synchronize_session=False)
@@ -337,7 +337,7 @@ def reorder_apis(db: Session, items: list[dict], user_id: int | None = None) -> 
         return 0
     audit: dict = {}
     if user_id is not None:
-        audit = {models.ApiDefinition.updated_by: user_id, models.ApiDefinition.updated_at: datetime.now()}
+        audit = {models.ApiDefinition.updated_by: user_id}
     updated = 0
     for it in items:
         updated += db.query(models.ApiDefinition).filter(
@@ -702,7 +702,7 @@ def list_executions(db: Session, case_id: int | None = None, project_id: int | N
     q = _execution_filter_query(db, case_id, project_id, created_by, case_name, status, start_time, end_time)
     col = EXECUTION_SORT_FIELDS.get(sort_by, models.ExecutionRecord.id)
     q = q.order_by(col.asc() if order == "asc" else col.desc())
-    return q.offset(offset).limit(limit).all()
+    return cast(list[models.ExecutionRecord], q.offset(offset).limit(limit).all())
 
 
 def count_executions(db: Session, case_id: int | None = None, project_id: int | None = None,
@@ -710,8 +710,8 @@ def count_executions(db: Session, case_id: int | None = None, project_id: int | 
                      status: str | None = None, start_time: datetime | None = None,
                      end_time: datetime | None = None) -> int:
     """执行记录总数（与 list 同口径过滤）：分页组件 total 用"""
-    return _execution_filter_query(db, case_id, project_id, created_by, case_name, status,
-                                   start_time, end_time).count()
+    return cast(int, _execution_filter_query(db, case_id, project_id, created_by, case_name, status,
+                                   start_time, end_time).count())
 
 
 # ============ FieldDictionary 字段字典 ============
