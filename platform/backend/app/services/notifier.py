@@ -195,6 +195,23 @@ def send_batch_notify(db, env_id: int, dataset_id: int, records, case_name: str)
         print(f"[聚合通知] 发送失败（忽略）: {e}")
 
 
+def _member_error_text(member: dict) -> str:
+    """成员失败摘要：成员级 error 优先；否则首个失败行（行号 + 回填原因）。
+
+    非数据驱动成员的行无 row_index（未绑定数据集时展开项 row 为 None），
+    此时回退「执行失败」，不能拼出「第None行失败」。
+    """
+    err = member.get("error")
+    if err:
+        return str(err)
+    for r in member.get("rows") or []:
+        if r.get("status") != "failed":
+            continue
+        head = f"第{r['row_index']}行失败" if r.get("row_index") is not None else "执行失败"
+        return f"{head}：{r['reason']}" if r.get("reason") else head
+    return ""
+
+
 def send_suite_notify(db, env, suite_case, record) -> None:
     """套件执行完成的汇总通知（一条）：成员成败一览 + 共享变量终值。
 
@@ -221,9 +238,8 @@ def send_suite_notify(db, env, suite_case, record) -> None:
             lines += ["> ", "**成员明细**"]
             for m in members[:10]:  # 最多列 10 个成员，防通知超长
                 status = m.get("status", "-")
-                err = m.get("error") or m.get("rows") and next(
-                    (f"第{r.get('row_index')}行失败" for r in m["rows"] if r.get("status") == "failed"), "")
                 line = f"> {icon.get(status, '·')} {m.get('case_name', '')}"
+                err = _member_error_text(m)
                 if err:
                     line += f"：{_clip(err, 120)}"
                 lines.append(line)

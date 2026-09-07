@@ -10,7 +10,7 @@ from unittest.mock import patch
 import utils.wecom_util  # noqa: F401  显式绑定子模块：utils 为命名空间包，不导入则 patch("utils.wecom_util.WeComRobot") 解析目标失败
 
 from app import models
-from app.services.notifier import send_batch_notify, send_notify
+from app.services.notifier import send_batch_notify, send_notify, send_suite_notify
 
 
 def _env(name="测试环境", notify_config=None):
@@ -425,3 +425,52 @@ class TestSendBatchNotify:
             # 不应抛出
             send_batch_notify(DB, env_id=1, dataset_id=2,
                               records=[self._rec()], case_name="下单用例")
+
+
+class TestSendSuiteNotify:
+    """套件汇总通知：成员明细失败文案（第None行修复）+ 门控复用 _send_wecom"""
+
+    @staticmethod
+    def _suite_record(members):
+        return SimpleNamespace(
+            status="failed",
+            summary={"suite": True, "total": len(members),
+                     "passed": sum(1 for m in members if m.get("status") == "success"),
+                     "failed": sum(1 for m in members if m.get("status") == "failed"),
+                     "blocked": sum(1 for m in members if m.get("status") == "blocked"),
+                     "members": members, "shared_vars": {}},
+            started_at=None, ended_at=None, created_by=None,
+        )
+
+    def _run(self, members):
+        record = self._suite_record(members)
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_suite_notify(DB, _env(notify_config=WEBHOOK_CFG),
+                              _case(name="融资全链路"), record)
+        return MockRobot
+
+    def test_plain_member_failure_no_none(self):
+        """非数据驱动成员失败（row_index=None）：不出现 None，回退「执行失败」并带原因"""
+        members = [{"case_name": "发起融资", "status": "failed", "rows": [
+            {"row_index": None, "execution_id": 101, "status": "failed",
+             "reason": "授信金额应大于0"},
+        ]}]
+        content = self._run(members).return_value.send_markdown.call_args[0][1]
+        assert "None" not in content
+        assert "发起融资：执行失败：授信金额应大于0" in content
+
+    def test_dataset_member_failure_keeps_row_number(self):
+        """数据驱动成员失败：保留「第N行失败」并带原因"""
+        members = [{"case_name": "发起融资", "status": "failed", "rows": [
+            {"row_index": 3, "execution_id": 101, "status": "failed", "reason": "断言失败"},
+        ]}]
+        content = self._run(members).return_value.send_markdown.call_args[0][1]
+        assert "发起融资：第3行失败：断言失败" in content
+
+    def test_member_level_error_takes_priority(self):
+        """成员级 error（成员/环境被删等）：优先于行级文案"""
+        members = [{"case_name": "成员B", "status": "failed", "rows": [],
+                    "error": "成员用例或其绑定环境不存在（可能已被删除）"}]
+        content = self._run(members).return_value.send_markdown.call_args[0][1]
+        assert "已被删除" in content
+        assert "行失败" not in content

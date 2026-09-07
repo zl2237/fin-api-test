@@ -68,12 +68,13 @@ def harness(monkeypatch):
                     dataset_id=None, dataset_row=None):
         rec = SimpleNamespace(id=100 + len(created), case_id=case_id, env_id=env_id,
                               status="running", summary={}, suite_execution_id=None,
-                              started_at=None, ended_at=None)
+                              started_at=None, ended_at=None,
+                              steps=[])  # 对齐 ExecutionRecord ORM：steps 恒存在（_row_fail_reason 依赖）
         created.append(rec)
         return rec
 
     class FakeExecutor:
-        """按脚本顺序产出 (status, extracted)；捕获构造入参供断言"""
+        """按脚本顺序产出 (status, extracted[, record 补丁])；捕获构造入参供断言"""
         script: list = []
         instances: list = []
 
@@ -87,9 +88,11 @@ def harness(monkeypatch):
             FakeExecutor.instances.append(self)
 
         def execute(self):
-            status, extracted = FakeExecutor.script.pop(0)
-            self.record.status = status
-            self.context.extracted = dict(extracted)
+            item = FakeExecutor.script.pop(0)
+            self.record.status = item[0]
+            self.context.extracted = dict(item[1])
+            for k, v in (item[2] if len(item) > 2 else {}).items():
+                setattr(self.record, k, v)
 
     notif = []
     plans = {}
@@ -241,3 +244,43 @@ class TestRunSuite:
         assert downstream["status"] == "failed"
         assert "不存在" in downstream["error"]
         assert record.status == "failed"
+
+    # ===== 行失败原因回填（_row_fail_reason：非数据驱动成员不再「第None行失败」的数据来源）=====
+
+    @staticmethod
+    def _failed_step(api_name="发起融资接口", message="状态码应为200"):
+        return SimpleNamespace(
+            status="failed", api_name=api_name, node_id="n1", response_status=500,
+            response_body={}, assertions=[
+                SimpleNamespace(result=False, message=message, rule_type="status_equals",
+                                expected_value="200", actual_value="500"),
+            ],
+        )
+
+    def test_row_reason_from_failed_assertion(self, harness):
+        """断言失败（无 summary.error）：reason 取首个失败步骤的断言消息"""
+        harness.plans.update({11: _plain_plan()})
+        harness.FakeExecutor.script = [
+            ("failed", {}, {"steps": [self._failed_step(message="授信金额应大于0")]}),
+        ]
+        record = make_record()
+        se.run_suite(FakeDB([make_member(0, 11, 22)]),
+                     SimpleNamespace(id=77, shared_vars=None), record)
+
+        row = record.summary["members"][0]["rows"][0]
+        assert row["row_index"] is None  # 未绑定数据集 → 无行号
+        assert row["reason"] == "授信金额应大于0"
+
+    def test_row_reason_prefers_summary_error(self, harness):
+        """执行级 error（登录失败等）优先于步骤级断言消息"""
+        harness.plans.update({11: _plain_plan()})
+        harness.FakeExecutor.script = [
+            ("failed", {}, {"steps": [self._failed_step()],
+                            "summary": {"error": "环境登录失败：账号被锁定"}}),
+        ]
+        record = make_record()
+        se.run_suite(FakeDB([make_member(0, 11, 22)]),
+                     SimpleNamespace(id=77, shared_vars=None), record)
+
+        row = record.summary["members"][0]["rows"][0]
+        assert row["reason"] == "环境登录失败：账号被锁定"
