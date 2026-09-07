@@ -96,53 +96,56 @@
           <el-button type="success" :loading="running" @click="onRun">执行</el-button>
         </div>
       </div>
-      <DagCanvas
-        ref="canvasRef"
-        v-model:nodes="nodes"
-        v-model:edges="edges"
-        :config-summary="configSummary"
-        @node-open="onNodeOpen"
-        @nodes-pasted="onNodesPasted"
-        @link-mode-change="onLinkModeChange"
-      />
-      <!-- 画布浮动工具条：自动布局/连线/拆分（44e6d3b 样式与逻辑已在，此处补录遗漏的 DOM） -->
-      <div class="canvas-float-bar" role="toolbar" aria-label="画布工具">
-        <el-tooltip content="自动布局：整理节点与连线走向" popper-class="app-tip" placement="left" :show-after="300">
-          <button type="button" class="float-btn" aria-label="自动布局" @click="onAutoLayout">
-            <el-icon><Grid /></el-icon>
-          </button>
-        </el-tooltip>
-        <el-tooltip
-          :content="linkMode ? linkHint : '连线模式：依次点击源节点和目标节点'"
-          popper-class="app-tip"
-          placement="left"
-          :show-after="300"
-        >
-          <button
-            type="button"
-            :class="['float-btn', { active: linkMode }]"
-            :aria-pressed="linkMode"
-            aria-label="连线模式"
-            @click="onToggleLinkMode"
+      <!-- 画布本体层：浮动工具条的定位基准（顶栏不参与，避免 top 偏移压住执行按钮） -->
+      <div class="canvas-body">
+        <DagCanvas
+          ref="canvasRef"
+          v-model:nodes="nodes"
+          v-model:edges="edges"
+          :config-summary="configSummary"
+          @node-open="onNodeOpen"
+          @nodes-pasted="onNodesPasted"
+          @link-mode-change="onLinkModeChange"
+        />
+        <!-- 画布浮动工具条：自动布局/连线/拆分（44e6d3b 样式与逻辑已在，此处补录遗漏的 DOM） -->
+        <div class="canvas-float-bar" role="toolbar" aria-label="画布工具">
+          <el-tooltip content="自动布局：整理节点与连线走向" popper-class="app-tip" placement="left" :show-after="300">
+            <button type="button" class="float-btn" aria-label="自动布局" @click="onAutoLayout">
+              <el-icon><Grid /></el-icon>
+            </button>
+          </el-tooltip>
+          <el-tooltip
+            :content="linkMode ? linkHint : '连线模式：依次点击源节点和目标节点'"
+            popper-class="app-tip"
+            placement="left"
+            :show-after="300"
           >
-            <el-icon><Share /></el-icon>
-          </button>
-        </el-tooltip>
-        <el-tooltip content="拆分选中节点为独立用例（子流程）" popper-class="app-tip" placement="left" :show-after="300">
-          <button
-            type="button"
-            class="float-btn"
-            :disabled="!caseData.id || splitScanning"
-            aria-label="拆分选中节点"
-            @click="onSplit"
-          >
-            <el-icon v-if="splitScanning" class="spin"><Loading /></el-icon>
-            <el-icon v-else><Scissor /></el-icon>
-          </button>
-        </el-tooltip>
-      </div>
-      <div class="canvas-hint">
-        提示：点击接口添加节点；单击选中、双击或 Enter 打开配置；Delete 删除选中节点；Ctrl+C/V 复制粘贴；Ctrl+S 保存用例；双击连线删除。
+            <button
+              type="button"
+              :class="['float-btn', { active: linkMode }]"
+              :aria-pressed="linkMode"
+              aria-label="连线模式"
+              @click="onToggleLinkMode"
+            >
+              <el-icon><Share /></el-icon>
+            </button>
+          </el-tooltip>
+          <el-tooltip content="拆分选中节点为独立用例（子流程）" popper-class="app-tip" placement="left" :show-after="300">
+            <button
+              type="button"
+              class="float-btn"
+              :disabled="!caseData.id || splitScanning"
+              aria-label="拆分选中节点"
+              @click="onSplit"
+            >
+              <el-icon v-if="splitScanning" class="spin"><Loading /></el-icon>
+              <el-icon v-else><Scissor /></el-icon>
+            </button>
+          </el-tooltip>
+        </div>
+        <div class="canvas-hint">
+          提示：点击接口添加节点；单击选中、双击或 Enter 打开配置；Delete 删除选中节点；Ctrl+C/V 复制粘贴；Ctrl+S 保存用例；双击连线删除。
+        </div>
       </div>
     </div>
 
@@ -781,6 +784,16 @@ watch(() => store.currentProjectId, async () => {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+}
+/* 画布本体层：顶栏之外的部分（画布 + 浮动工具条 + 快捷键提示）。
+   relative 交给本层——浮动工具条 top 偏移从画布顶部起算，
+   不再覆盖到顶栏右侧的执行/保存按钮 */
+.canvas-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   position: relative; /* 浮动工具条定位基准 */
 }
 /* 画布浮动工具条：贴画布右上角（自动布局/连线/拆分），顶栏因此只留主流程四件 */
