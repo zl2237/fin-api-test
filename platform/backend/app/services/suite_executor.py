@@ -35,6 +35,29 @@ def _snapshot_vars(whitelist: list[str], extracted: dict[str, Any]) -> dict[str,
     return {k: extracted[k] for k in keys if k in (extracted or {})}
 
 
+def _row_fail_reason(record) -> str:
+    """行失败摘要：执行级 error（登录失败等）优先；否则首个失败步骤
+    （断言消息 > 响应体错误文本 > 接口名+状态码），断言失败也能在
+    套件报告/通知里直接看到原因，无需点进成员报告。"""
+    err = (record.summary or {}).get("error")
+    if err:
+        return str(err)
+    for step in record.steps or []:
+        if step.status == "success":
+            continue
+        bad = [a for a in (step.assertions or []) if a.result is False]
+        if bad:
+            a = bad[0]
+            return str(a.message or f"{a.rule_type} 期望 {a.expected_value} 实际 {a.actual_value}")
+        rb = step.response_body
+        if isinstance(rb, dict):
+            for key in ("error", "message", "msg"):
+                if rb.get(key):
+                    return str(rb[key])
+        return f"{step.api_name or step.node_id} HTTP {step.response_status if step.response_status is not None else '-'}"
+    return ""
+
+
 def run_suite(db: Session, suite_case: models.TestCase, record: models.ExecutionRecord) -> None:
     """串行执行套件链，回填主记录状态与 summary。调用方保证在后台线程且 record 已落库。"""
     record.started_at = datetime.now()
@@ -151,11 +174,11 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
             row_report.update(execution_id=row_record.id,
                               status="success" if ok else "failed")
             if not ok:
-                # 行失败原因回填（登录失败等执行级错误在 row_record.summary.error），
+                # 行失败原因回填（执行级错误/断言失败均覆盖），
                 # 套件报告页行内直接可见，无需点进成员报告排查
-                err = (row_record.summary or {}).get("error")
+                err = _row_fail_reason(row_record)
                 if err:
-                    row_report["reason"] = str(err)[:200]
+                    row_report["reason"] = err[:200]
             member_report["rows"].append(row_report)
             row_snapshots.append(
                 _snapshot_vars(whitelist, executor.context.extracted)
