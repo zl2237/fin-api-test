@@ -12,7 +12,7 @@ from ..database import get_db
 from ..engine.curl_parser import parse_curl_to_previews
 from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
 from ..services.request_sender import send_request
-from ..services.spec_parser import extract_fields_from_spec, path_to_code
+from ..services.spec_parser import extract_fields_from_spec, path_to_code, unique_code
 
 router = APIRouter(prefix="/api/apis", tags=["接口定义"])
 
@@ -200,6 +200,11 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
 
     imported = []
     skipped = []
+    used_codes: set[str] = set()  # 本批已用编码（批内两个不同接口编码撞车时逐级改名）
+
+    def _code_taken(code: str) -> bool:
+        return code in used_codes or bool(crud.get_api_by_code(db, code))
+
     for path, methods in paths.items():
         if not isinstance(methods, dict):
             continue
@@ -209,11 +214,25 @@ def import_apis(data: schemas.ApiImportRequest, db: Session = Depends(get_db), u
                 continue
             # 接口名：优先 summary，其次 operationId，最后 path
             name = info.get("summary") or info.get("operationId") or path
-            # code：优先 operationId，其次 path 转下划线
-            code = info.get("operationId") or path_to_code(path, method)
-            if crud.get_api_by_code(db, code):
-                skipped.append(f"{method} {path}（编码 {code} 已存在）")
+            # 编码冲突处理：占用者是同一接口（重复导入）→ 跳过；
+            # 是不同接口（前缀不同、尾部相同的路径）→ 改名导入：
+            # - operationId 生成的编码是显式标识，冲突时加数字后缀
+            # - 路径生成的编码逐级向前多取一段（customer_policy_policypage_post）
+            operation_id = info.get("operationId") or ""
+            base_code = operation_id or path_to_code(path, method)
+            holder = crud.get_api_by_code(db, base_code)
+            if holder is not None and holder.path == path and holder.method == method:
+                skipped.append(f"{method} {path}（已导入过，编码 {base_code}）")
                 continue
+            if operation_id:
+                code = operation_id
+                i = 2
+                while _code_taken(code):
+                    code = f"{operation_id}_{i}"
+                    i += 1
+            else:
+                code = unique_code(path, method, _code_taken)
+            used_codes.add(code)
 
             # 解析请求参数（query/path/header）+ 请求体 schema -> 字段
             fields, is_array_body = extract_fields_from_spec(info, spec, is_v3)
@@ -276,17 +295,13 @@ def import_har(
     if not data.previews:
         raise HTTPException(400, "请至少勾选一个接口")
 
-    # 收集已存在的 code，避免重复导入
-    existing_codes: set = set()
-    for preview in data.previews:
-        method = preview.get("method", "GET").upper()
-        path = preview.get("path", "")
-        code = path_to_code(path, method)
-        if crud.get_api_by_code(db, code):
-            existing_codes.add(code)
+    # 编码占用查询（绑定 db）：占用的编码由 previews_to_api_create 判定——
+    # 同一接口跳过（重复导入），不同接口（尾部路径相同的撞车编码）改名导入
+    def occupied(code: str):
+        return crud.get_api_by_code(db, code)
 
     to_create, skipped = previews_to_api_create(
-        data.previews, data.project_id, data.group_id, existing_codes
+        data.previews, data.project_id, data.group_id, occupied
     )
 
     imported = []
@@ -334,17 +349,12 @@ def import_curl(
     if not data.previews:
         raise HTTPException(400, "请至少勾选一个接口")
 
-    # 收集已存在的 code，避免重复导入
-    existing_codes: set = set()
-    for preview in data.previews:
-        method = preview.get("method", "GET").upper()
-        path = preview.get("path", "")
-        code = path_to_code(path, method)
-        if crud.get_api_by_code(db, code):
-            existing_codes.add(code)
+    # 编码占用查询（绑定 db）：与 HAR 导入同一套冲突规则（同接口跳过/异接口改名）
+    def occupied(code: str):
+        return crud.get_api_by_code(db, code)
 
     to_create, skipped = previews_to_api_create(
-        data.previews, data.project_id, data.group_id, existing_codes
+        data.previews, data.project_id, data.group_id, occupied
     )
 
     imported = []

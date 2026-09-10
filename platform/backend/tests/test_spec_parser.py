@@ -10,6 +10,7 @@ from app.services.spec_parser import (
     pick_default_value,
     resolve_ref,
     swagger_type_to_field_type,
+    unique_code,
 )
 
 
@@ -35,6 +36,36 @@ class TestPathToCode:
 
     def test_trailing_slash(self):
         assert path_to_code("/api/order/create/", "POST") == "order_create_post"
+
+
+class TestUniqueCode:
+    """unique_code：编码撞车时逐级向前多取一段路径（前缀不同、尾部相同的接口）"""
+
+    def test_no_conflict_keeps_baseline(self):
+        # 无冲突时与 path_to_code 完全一致（存量编码风格不变）
+        assert unique_code("/api/order/create", "POST", set()) == "order_create_post"
+
+    def test_conflict_takes_one_more_segment(self):
+        # Customer 版已占 Policy_policyPage_post → Home 版多取一段（保留路径原样大小写）
+        taken = {"Policy_policyPage_post"}
+        assert unique_code("/api/Home/Policy/policyPage", "POST", taken) == "Home_Policy_policyPage_post"
+
+    def test_conflict_skips_path_param_segments(self):
+        # 向前取段同样跳过 {param} 段
+        taken = {"submit_post"}
+        assert unique_code("/api/order/{id}/submit", "POST", taken) == "order_submit_post"
+
+    def test_full_path_conflict_numeric_suffix(self):
+        # 全路径候选仍被占 → 数字后缀
+        assert unique_code("/a/b", "POST", {"a_b_post"}) == "a_b_post_2"
+
+    def test_single_segment_numeric_suffix(self):
+        # 单段路径无更长的段可取 → 直接数字后缀
+        assert unique_code("/login", "GET", {"login_get", "login_get_2"}) == "login_get_3"
+
+    def test_callable_taken(self):
+        # taken 也支持 callable（导入入口绑定 db 查询用）：基线被占 → 数字后缀
+        assert unique_code("/a/b", "GET", lambda c: c == "a_b_get") == "a_b_get_2"
 
 
 class TestResolveRef:

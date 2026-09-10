@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .. import schemas
-from ..services.spec_parser import path_to_code
+from ..services.spec_parser import path_to_code, unique_code
 
 # 静态资源后缀，导入时跳过
 _STATIC_EXTENSIONS = {
@@ -219,9 +219,15 @@ def previews_to_api_create(
     previews: list[dict[str, Any]],
     project_id: int,
     group_id: int | None,
-    existing_codes: set,
+    occupied,
 ) -> tuple:
     """将用户勾选的预览项转换为 ApiCreate 列表。
+
+    occupied：编码占用查询（code -> 占用接口对象或 None），由调用方绑定 db。
+    编码冲突的处理规则：
+    - 占用者是同一个接口（path+method 相同）→ 跳过（重复导入防重）
+    - 占用者是不同接口（前缀不同、尾部相同的路径，如 Customer/Home 下的
+      Policy/policyPage）→ unique_code 逐级向前多取一段路径改名导入
 
     返回 (to_create, skipped)
     to_create: [(api_data, preview) ...] 待创建的接口数据
@@ -229,15 +235,26 @@ def previews_to_api_create(
     """
     to_create = []
     skipped = []
+    seen: dict[str, tuple[str, str]] = {}  # 本批已用编码 -> (path, method)，批内去重
 
     for preview in previews:
         method = preview["method"]
         path = preview["path"]
-        code = path_to_code(path, method)
+        base = path_to_code(path, method)
 
-        if code in existing_codes:
-            skipped.append(f"{method} {path}（编码 {code} 已存在）")
+        holder = occupied(base)
+        if holder is not None and _same_endpoint(holder, path, method):
+            skipped.append(f"{method} {path}（已导入过，编码 {base}）")
             continue
+        if base in seen and seen[base] == (path, method.upper()):
+            skipped.append(f"{method} {path}（本次导入重复勾选）")
+            continue
+
+        def _taken(c: str) -> bool:
+            return c in seen or occupied(c) is not None
+
+        code = unique_code(path, method, _taken)
+        seen[code] = (path, method.upper())
 
         # 转换字段格式
         api_fields = []
@@ -271,3 +288,9 @@ def previews_to_api_create(
         to_create.append((api_data, preview))
 
     return to_create, skipped
+
+
+def _same_endpoint(holder, path: str, method: str) -> bool:
+    """编码占用者是否就是当前接口（重复导入判定）：path 相同且 method 相同（忽略大小写）"""
+    return (getattr(holder, "path", None) == path
+            and str(getattr(holder, "method", "")).upper() == method.upper())

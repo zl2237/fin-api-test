@@ -23,6 +23,33 @@ def path_to_code(path: str, method: str) -> str:
     return f"{code}_{method.lower()}"
 
 
+def unique_code(path: str, method: str, taken) -> str:
+    """生成不冲突的接口编码：path_to_code 基线，被占用时逐级向前多取一段路径。
+
+    同一系统常有「前缀不同、尾部相同」的接口（/api/Customer/Policy/policyPage
+    与 /api/Home/Policy/policyPage 最后两段相同），基线编码相同；占用者是别的
+    接口时向前多取一段区分（home_policy_policypage_post），全路径仍冲突则加
+    数字后缀。taken：占用判断，set（in 判断）或 callable（code -> bool）。
+    """
+    if isinstance(taken, (set, frozenset)):
+        def _taken(c: str) -> bool:
+            return c in taken
+    else:
+        _taken = taken
+
+    parts = [p for p in path.strip("/").split("/") if p and not p.startswith("{")]
+    suffix = f"_{method.lower()}"
+    for n in range(2, len(parts) + 1):  # 基线 = 最后两段，与 path_to_code 一致
+        cand = "_".join(parts[-n:]) + suffix
+        if not _taken(cand):
+            return cand
+    base = ("_".join(parts) if parts else "api") + suffix
+    i = 2
+    while _taken(f"{base}_{i}"):
+        i += 1
+    return f"{base}_{i}"
+
+
 def resolve_ref(ref: str, spec: dict) -> dict:
     """解析 $ref 引用，支持 #/components/schemas、#/components/parameters、#/definitions"""
     if not ref:
