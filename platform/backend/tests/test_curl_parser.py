@@ -1,4 +1,6 @@
 """curl_parser 模块单测：验证 cURL 命令解析为预览项的正确性。"""
+from types import SimpleNamespace
+
 from app.engine.curl_parser import _split_curl_commands, parse_curl_to_previews
 from app.engine.har_parser import previews_to_api_create
 
@@ -158,7 +160,7 @@ class TestImportContentTypePersisted:
 
     def _create(self, curl_text):
         previews, _ = parse_curl_to_previews(curl_text)
-        to_create, _skipped = previews_to_api_create(previews, project_id=1, group_id=None, existing_codes=set())
+        to_create, _skipped = previews_to_api_create(previews, project_id=1, group_id=None, occupied=lambda c: None)
         return to_create[0][0]
 
     def test_form_urlencoded_persisted(self):
@@ -195,6 +197,56 @@ class TestImportContentTypePersisted:
         # %40 解码为 @
         assert field_map["data[password]"]["default_value"] == "zl179178@@@"
         assert field_map["data[remember]"]["default_value"] == "0"
+
+
+class TestImportCodeConflict:
+    """编码冲突处理：前缀不同、尾部相同的接口（Customer/Home 下的
+    Policy/policyPage）导入不冲突——撞车编码逐级向前多取一段路径。"""
+
+    @staticmethod
+    def _preview(path, method="POST"):
+        return {"method": method, "path": path, "name": path, "fields": []}
+
+    def test_same_tail_different_prefix_renamed(self):
+        """库里已占 Policy_policyPage_post 的是 Customer 版 → Home 版多取一段前缀导入"""
+        holder = SimpleNamespace(path="/api/Customer/Policy/policyPage", method="POST")
+
+        def occupied(code):
+            return holder if code == "Policy_policyPage_post" else None
+
+        previews = [self._preview("/api/Home/Policy/policyPage")]
+        to_create, skipped = previews_to_api_create(previews, 1, None, occupied)
+        assert skipped == []
+        assert to_create[0][0].code == "Home_Policy_policyPage_post"
+        assert to_create[0][0].path == "/api/Home/Policy/policyPage"
+
+    def test_same_endpoint_skipped(self):
+        """占用者是同一接口（path+method 相同）→ 跳过（重复导入防重语义不变）"""
+        holder = SimpleNamespace(path="/api/Customer/Policy/policyPage", method="POST")
+
+        def occupied(code):
+            return holder if code == "Policy_policyPage_post" else None
+
+        previews = [self._preview("/api/Customer/Policy/policyPage")]
+        to_create, skipped = previews_to_api_create(previews, 1, None, occupied)
+        assert to_create == []
+        assert "已导入过" in skipped[0]
+
+    def test_batch_internal_conflict_renamed(self):
+        """批内两条同尾路径（库里无占用）：第二条多取一段，不再撞库内 unique 约束"""
+        previews = [self._preview("/api/Customer/Policy/policyPage"),
+                    self._preview("/api/Home/Policy/policyPage")]
+        to_create, skipped = previews_to_api_create(previews, 1, None, lambda c: None)
+        assert skipped == []
+        assert [t[0].code for t in to_create] == [
+            "Policy_policyPage_post", "Home_Policy_policyPage_post"]
+
+    def test_batch_duplicate_selection_skipped(self):
+        """批内重复勾选同一条接口 → 第二条跳过"""
+        previews = [self._preview("/api/Customer/Policy/policyPage")] * 2
+        to_create, skipped = previews_to_api_create(previews, 1, None, lambda c: None)
+        assert len(to_create) == 1
+        assert "重复勾选" in skipped[0]
 
 
 class TestMultipartFormdata:
