@@ -164,6 +164,24 @@ class TestLogin:
         assert client.post_calls == []
         assert client.refresh_callback is None
 
+    def test_auth_expire_codes_merged_with_defaults(self):
+        """环境 auth_expire_codes 只配系统特有码（407）时与默认 401/405 合并——
+        只配 [407] 不得把异地登录 405 挤掉（执行记录 567/569 修复点）"""
+        env = _env(login_config={
+            "login_body": {"user": "u", "pwd": "p"},
+            "auth_expire_codes": [407],
+        })
+        client = FakeClient(post_resp={"data": {"token": "TKN"}})
+        login(client, env)
+        assert client.auth_expire_codes == ["401", "405", 407]
+
+    def test_auth_expire_codes_unset_keeps_defaults(self):
+        """未配置 auth_expire_codes：注入默认 401/405，行为不变"""
+        env = _env(login_config={"login_body": {"user": "u", "pwd": "p"}})
+        client = FakeClient(post_resp={"data": {"token": "TKN"}})
+        login(client, env)
+        assert client.auth_expire_codes == ["401", "405"]
+
     def test_login_success_sets_token_header(self):
         env = _env(login_config={
             "login_path": "/api/login",

@@ -124,9 +124,11 @@ def login(client: HttpClient, env) -> None:
         captcha_attempts = 3
     captcha_enabled = bool(captcha_url and captcha_field)
     # 鉴权失效业务码注入：HTTP 200 + code 命中（如 405 异地登录、407 登录已过期）
-    # 也触发 token 自动刷新重试。默认 {401,405}，系统特有过期码在 login_config
-    # 配 auth_expire_codes（如 fin 系统 [407]）——不配行为不变
-    client.set_auth_expire_codes(login_cfg.get("auth_expire_codes"))
+    # 也触发 token 自动刷新重试。默认 {401,405} 与环境配置 login_config
+    # .auth_expire_codes 合并（配置只追加不替换——只配系统特有码 407 时不会
+    # 把默认的异地登录 405 挤掉）；不配行为不变
+    expire_extra = login_cfg.get("auth_expire_codes") or []
+    client.set_auth_expire_codes(["401", "405", *expire_extra])
     if not login_body:
         return
 
