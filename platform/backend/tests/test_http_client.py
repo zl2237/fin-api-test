@@ -7,7 +7,7 @@
 from types import SimpleNamespace
 
 import pytest
-from utils.exceptions import BusinessError, JsonParseError
+from utils.exceptions import AuthError, BusinessError, JsonParseError
 from utils.http_client import HttpClient
 
 
@@ -135,6 +135,89 @@ class TestSuccessCodes:
         c.set_success_codes("1")
         c.set_success_codes(" , ")  # 全空部分：保持现值不覆盖
         assert c.success_codes == {"1"}
+
+
+class _SeqSession:
+    """按序返回预置响应（重登重试链路：失败响应 → 成功响应）"""
+
+    def __init__(self, resps):
+        self.resps = list(resps)
+
+    def request(self, method, url, headers=None, params=None, json=None, data=None, files=None, timeout=None):
+        return self.resps.pop(0)
+
+
+def _seq_client(*resps):
+    c = HttpClient(base_url="http://t")
+    c.session = _SeqSession(resps)
+    return c
+
+
+class TestAuthExpireCodes:
+    """鉴权失效业务码：HTTP 200 + code 命中集合 → 触发重登回调并重试当前请求"""
+
+    def test_default_405_triggers_refresh_and_retry(self):
+        # 默认集合 {401,405}：code 405（异地登录）自动重登后重试成功
+        c = _seq_client(
+            FakeRawResponse(json_value={"code": 405, "msg": "账号异地登录"}),
+            FakeRawResponse(json_value={"code": 200, "data": {"ok": 1}}),
+        )
+        refreshed = []
+        c.set_token_refresh_callback(lambda: refreshed.append(1))
+        assert c.get("/x") == {"code": 200, "data": {"ok": 1}}
+        assert refreshed == [1]
+
+    def test_configured_407_triggers_refresh_and_retry(self):
+        # fin 系统：登录过期返回 HTTP 200 + code 407——配置后自动重登（修复点）
+        c = _seq_client(
+            FakeRawResponse(json_value={"code": 407, "msg": "登录已过期"}),
+            FakeRawResponse(json_value={"code": 200, "data": {"ok": 1}}),
+        )
+        c.set_auth_expire_codes([407, 405])
+        refreshed = []
+        c.set_token_refresh_callback(lambda: refreshed.append(1))
+        assert c.get("/x") == {"code": 200, "data": {"ok": 1}}
+        assert refreshed == [1]
+
+    def test_407_not_configured_raises_business_error(self):
+        # 未配置时 407 是普通业务失败：不触发重登，BusinessError 交断言裁决
+        c = _client(FakeRawResponse(json_value={"code": 407, "msg": "登录已过期"}))
+        called = []
+        c.set_token_refresh_callback(lambda: called.append(1))
+        with pytest.raises(BusinessError) as ei:
+            c.get("/x")
+        assert ei.value.code == 407
+        assert called == []
+
+    def test_string_code_matches_int_config(self):
+        # 响应 code 为字符串 "407"、配置为 int 407：归一化字符串比较命中
+        c = _seq_client(
+            FakeRawResponse(json_value={"code": "407", "msg": "登录已过期"}),
+            FakeRawResponse(json_value={"code": 200, "data": 1}),
+        )
+        c.set_auth_expire_codes(407)
+        c.set_token_refresh_callback(lambda: None)
+        assert c.get("/x") == {"code": 200, "data": 1}
+
+    def test_refresh_failure_raises_auth_error(self):
+        # 重登回调抛异常 → AuthError（不再重试）
+        c = _seq_client(FakeRawResponse(json_value={"code": 407, "msg": "登录已过期"}))
+        c.set_auth_expire_codes([407])
+
+        def _boom():
+            raise RuntimeError("登录失败")
+
+        c.set_token_refresh_callback(_boom)
+        with pytest.raises(AuthError):
+            c.get("/x")
+
+    def test_set_auth_expire_codes_normalization(self):
+        c = HttpClient()
+        assert c.auth_expire_codes == {"401", "405"}
+        c.set_auth_expire_codes(None)
+        assert c.auth_expire_codes == {"401", "405"}  # 空值保持默认
+        c.set_auth_expire_codes("407, 405 ,")
+        assert c.auth_expire_codes == {"407", "405"}
 
 
 class TestAuthExpireGuard:

@@ -123,6 +123,10 @@ def login(client: HttpClient, env) -> None:
     except (TypeError, ValueError):
         captcha_attempts = 3
     captcha_enabled = bool(captcha_url and captcha_field)
+    # 鉴权失效业务码注入：HTTP 200 + code 命中（如 405 异地登录、407 登录已过期）
+    # 也触发 token 自动刷新重试。默认 {401,405}，系统特有过期码在 login_config
+    # 配 auth_expire_codes（如 fin 系统 [407]）——不配行为不变
+    client.set_auth_expire_codes(login_cfg.get("auth_expire_codes"))
     if not login_body:
         return
 
