@@ -43,6 +43,10 @@ class FakeClient:
         self.set_header_calls.append((name, value))
         self.headers[name] = value
 
+    def set_auth_expire_codes(self, codes):
+        # 对齐 HttpClient：记录注入的鉴权失效业务码（login_config.auth_expire_codes）
+        self.auth_expire_codes = codes
+
     def post(self, path, json=None):
         self.post_calls.append((path, json))
         if self._exc:

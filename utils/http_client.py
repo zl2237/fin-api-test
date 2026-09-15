@@ -20,6 +20,9 @@ class HttpClient:
         # 业务成功码集合（响应 code 命中任一即成功）：不同系统约定不同
         # （物流系统 200 / ThinkPHP 系 1 / 部分系统 0），由环境配置注入，默认平台约定 200
         self.success_codes: set = {"200"}
+        # 鉴权失效业务码集合（HTTP 200 + code 命中任一视为登录态失效，触发重登重试）：
+        # 405 账号异地登录为平台默认；407 登录已过期等系统特有码由环境 login_config 注入
+        self.auth_expire_codes: set = {"401", "405"}
 
     def set_success_codes(self, codes) -> None:
         """配置业务成功码集合，兼容 '200,1' 字符串 / list / 单值；空值忽略保持现值"""
@@ -34,6 +37,20 @@ class HttpClient:
         normalized = {str(p).strip() for p in parts if str(p).strip() != ""}
         if normalized:
             self.success_codes = normalized
+
+    def set_auth_expire_codes(self, codes) -> None:
+        """配置鉴权失效业务码集合（与 set_success_codes 同一归一化口径）；空值忽略保持现值"""
+        if codes is None:
+            return
+        if isinstance(codes, str):
+            parts = codes.split(",")
+        elif isinstance(codes, (list, tuple, set)):
+            parts = list(codes)
+        else:
+            parts = [codes]
+        normalized = {str(p).strip() for p in parts if str(p).strip() != ""}
+        if normalized:
+            self.auth_expire_codes = normalized
 
     def set_header(self, key: str, value: str):
         """设置单个请求头"""
@@ -113,8 +130,12 @@ class HttpClient:
         auth_expire = False
         if resp.status_code == 401:
             auth_expire = True
-        if resp_json and isinstance(resp_json, dict) and resp_json.get("code") == 405:
-            auth_expire = True
+        # HTTP 200 + 业务码命中鉴权失效集合（字符串化统一比较，兼容 int/str）：
+        # 默认 401/405；407 登录已过期等系统特有码经 set_auth_expire_codes 注入
+        if resp_json and isinstance(resp_json, dict):
+            code_str = str(resp_json.get("code", "")).strip()
+            if code_str and code_str in self.auth_expire_codes:
+                auth_expire = True
 
         if auth_expire and retry_401:
             if not self._token_refresh_callback:
