@@ -41,7 +41,11 @@ def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User
     obj = crud.get_case_group(db, group_id)
     if not obj:
         raise HTTPException(404, "用例分组不存在")
-    crud.delete_case_group(db, obj)
+    try:
+        crud.delete_case_group(db, obj)
+    except ValueError as e:
+        # 组非空时阻止删除（有子分组/有用例），前端提示用户先移走
+        raise HTTPException(400, str(e))
     crud.log_operation(db, user, "delete", "case_group", obj.id, obj.name)
     return {"message": "已删除"}
 
