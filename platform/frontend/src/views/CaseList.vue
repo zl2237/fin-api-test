@@ -11,7 +11,7 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="excel">Excel 简表</el-dropdown-item>
-              <el-dropdown-item command="json">JSON 全量（含 DAG/断言/提取）</el-dropdown-item>
+              <el-dropdown-item command="json">JSON 全量</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>

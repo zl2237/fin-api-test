@@ -1,7 +1,8 @@
-"""列表导出服务：Excel 简表（人看）+ JSON 全量（备份/迁移）。
+"""列表导出服务：Excel 简表（人看）+ JSON 全量（备份/迁移）+ OpenAPI 3.0（外部平台迁移）。
 
 口径：跟随列表页的后端筛选条件（project_id / created_by / updated_by）；
-keyword 为前端本地过滤，不参与导出。Excel 列为摘要级；JSON 含字段、断言、节点配置全量。
+勾选导出时按 ids 精确圈定（优先于筛选）。keyword 为前端本地过滤，不参与导出。
+Excel 列为摘要级；JSON 含字段、断言、节点配置全量；OpenAPI 供 Postman/Apifox 导入。
 """
 import io
 import json
@@ -83,6 +84,102 @@ def export_apis_json(apis: list, group_names: dict[int, str], project_name: str)
         ],
     }
     return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+# ===== OpenAPI 3.0 导出（Postman / Apifox 等可直接导入） =====
+_OPENAPI_TYPE_MAP = {
+    "string": "string", "str": "string",
+    "int": "integer", "integer": "integer",
+    "number": "number", "float": "number", "double": "number",
+    "bool": "boolean", "boolean": "boolean",
+    "object": "object", "array": "array",
+}
+
+
+def _field_leaf_schema(f) -> dict:
+    """单字段叶子 schema：类型映射 + 描述 + 默认值（${...} 表达式等非字面量降级为 example）。"""
+    t = _OPENAPI_TYPE_MAP.get((f.field_type or "string").strip().lower(), "string")
+    schema: dict = {"type": t}
+    desc = " / ".join(str(x) for x in (f.label, f.remark) if x)
+    if desc:
+        schema["description"] = desc
+    dv = (f.default_value or "").strip() if f.default_value else ""
+    if dv:
+        if t == "string":
+            schema["default"] = dv
+        else:
+            try:
+                schema["default"] = json.loads(dv)
+            except (json.JSONDecodeError, TypeError):
+                schema["example"] = dv
+    return schema
+
+
+def _fields_to_properties(fields) -> tuple[dict, list[str]]:
+    """字段列表转 properties 树（a.b 嵌套路径逐级展开为 object）+ 顶层 required。"""
+    props: dict = {}
+    required: list[str] = []
+    for f in sorted(fields or [], key=lambda x: x.sort_order or 0):
+        segs = [s for s in (f.key or "").split(".") if s]
+        if not segs:
+            continue
+        node = props
+        for s in segs[:-1]:
+            holder = node.setdefault(s, {"type": "object", "properties": {}})
+            node = holder.setdefault("properties", {})
+        node[segs[-1]] = _field_leaf_schema(f)
+        if len(segs) == 1 and f.required:
+            required.append(segs[0])
+    return props, required
+
+
+def export_apis_openapi(apis: list, group_names: dict[int, str], project_name: str) -> bytes:
+    """OpenAPI 3.0.3 文档：分组映射 tags、接口编码映射 operationId。
+
+    POST/PUT/PATCH 字段转 requestBody（application/json，schema 按编码收进 components）；
+    GET/DELETE 字段转 query 参数；同 path 多 method 合并进同一 pathItem。
+    """
+    paths: dict = {}
+    schemas: dict = {}
+    tags: list[dict] = []
+    seen_tags: set[str] = set()
+    for a in apis:
+        tag = group_names.get(a.group_id) if a.group_id else None
+        if tag and tag not in seen_tags:
+            seen_tags.add(tag)
+            tags.append({"name": tag})
+        path = a.path if (a.path or "").startswith("/") else f"/{a.path}"
+        item = paths.setdefault(path, {})
+        method = (a.method or "POST").upper()
+        op: dict = {"tags": [tag] if tag else [], "summary": a.name, "operationId": a.code}
+        if a.description:
+            op["description"] = a.description
+        fields = a.fields or []
+        if method in ("POST", "PUT", "PATCH"):
+            props, required = _fields_to_properties(fields)
+            schemas[a.code] = {"type": "object", "properties": props, **({"required": required} if required else {})}
+            op["requestBody"] = {
+                "required": bool(required),
+                "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/{a.code}"}}},
+            }
+        elif fields:
+            op["parameters"] = [
+                {"name": f.key, "in": "query", "required": bool(f.required),
+                 **({"description": f.label} if f.label else {}),
+                 "schema": _field_leaf_schema(f)}
+                for f in sorted(fields, key=lambda x: x.sort_order or 0)
+            ]
+        op["responses"] = {"200": {"description": "成功（断言与响应结构请在平台内维护）"}}
+        item[method.lower()] = op
+    doc = {
+        "openapi": "3.0.3",
+        "info": {"title": f"{project_name} 接口定义", "version": "1.0.0",
+                 "description": f"由 fin-api-test 平台导出于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"},
+        **({"tags": tags} if tags else {}),
+        "paths": paths,
+        **({"components": {"schemas": schemas}} if schemas else {}),
+    }
+    return json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8")
 
 
 def export_cases_excel(cases: list, group_names: dict[int, str]) -> bytes:

@@ -367,9 +367,14 @@ export const apiApi = {
       response_status: number; response_body: any; response_time_ms: number
       started_at: string; ok: boolean; login_failed: boolean; error: string | null
     }>(`/apis/${apiId}/debug`, { env_id: envId, body_override: bodyOverride ?? null }).then((r) => r.data),
-  // 列表导出：excel=简表 / json=全量，筛选条件与列表页一致
-  exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
-    http.get<Blob>('/apis/export', { responseType: 'blob', params }).then((r) => r.data),
+  // 列表导出：excel=简表 / json=全量 / openapi=OpenAPI 3.0（Postman/Apifox 可导入）；ids=勾选导出（优先于筛选）
+  exportList: (params: { project_id: number; format: 'excel' | 'json' | 'openapi'; ids?: number[]; created_by?: number; updated_by?: number }) => {
+    const { ids, ...rest } = params
+    return http.get<Blob>('/apis/export', {
+      responseType: 'blob',
+      params: { ...rest, ids: ids?.length ? ids.join(',') : undefined },
+    }).then((r) => r.data)
+  },
 }
 
 // ============ CaseGroup ============
