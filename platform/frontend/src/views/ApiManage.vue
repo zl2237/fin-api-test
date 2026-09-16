@@ -6,14 +6,15 @@
         <span class="page-title">接口管理</span>
         <el-button type="primary" @click="onCreate">+ 新建接口</el-button>
         <el-button @click="showImportDialog = true">导入接口</el-button>
-        <el-dropdown style="margin-left: 12px" @command="(fmt: string) => onExport(fmt as 'excel' | 'json')">
+        <el-dropdown style="margin-left: 12px" @command="(fmt: string) => onExport(fmt as 'excel' | 'json' | 'openapi')">
           <el-button>
             导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="excel">Excel 简表</el-dropdown-item>
-              <el-dropdown-item command="json">JSON 全量（含字段明细）</el-dropdown-item>
+              <el-dropdown-item command="json">JSON 全量</el-dropdown-item>
+              <el-dropdown-item command="openapi" divided>OpenAPI 3.0</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -807,16 +808,19 @@ async function doBatchMove(targetGroupId: number | null) {
   await loadApis()
 }
 
-// ===== 列表导出（Excel 简表 / JSON 全量，筛选条件与列表页一致）=====
-async function onExport(format: 'excel' | 'json') {
+// ===== 列表导出（Excel 简表 / JSON 全量 / OpenAPI 3.0）=====
+// 勾选导出优先：列表勾选了接口时只导勾选的；未勾选按筛选条件全量导出
+async function onExport(format: 'excel' | 'json' | 'openapi') {
   if (!currentProjectId.value) return
-  if (!filteredApis.value.length) return ElMessage.warning('当前没有可导出的接口')
+  const picked = selectedApiIds.value
+  if (!picked.length && !filteredApis.value.length) return ElMessage.warning('当前没有可导出的接口')
   try {
     const blob = await apiApi.exportList({
       project_id: currentProjectId.value,
       format,
-      created_by: filterCreator.value ?? undefined,
-      updated_by: filterUpdater.value ?? undefined,
+      ids: picked.length ? [...picked] : undefined,
+      created_by: picked.length ? undefined : (filterCreator.value ?? undefined),
+      updated_by: picked.length ? undefined : (filterUpdater.value ?? undefined),
     })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -825,8 +829,9 @@ async function onExport(format: 'excel' | 'json') {
     link.download = `apis_${stamp}.${format === 'excel' ? 'xlsx' : 'json'}`
     link.click()
     URL.revokeObjectURL(url)
-    // 不报具体数量：keyword 是前端本地过滤、不参与后端导出，报数会与文件实际条数不符
-    ElMessage.success(format === 'excel' ? '已导出 Excel 简表' : '已导出 JSON 全量')
+    const fmtLabel = format === 'excel' ? 'Excel 简表' : format === 'openapi' ? 'OpenAPI 文档' : 'JSON 全量'
+    // 勾选导出可报准确数量；全量不报（keyword 是前端本地过滤，报数会与文件实际条数不符）
+    ElMessage.success(picked.length ? `已导出勾选的 ${picked.length} 个接口（${fmtLabel}）` : `已导出${fmtLabel}`)
   } catch (e: any) {
     ElMessage.error(e.message || '导出失败')
   }

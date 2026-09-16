@@ -79,17 +79,31 @@ def list_all(project_id: int | None = None, created_by: int | None = None, updat
 def export_list(
     project_id: int,
     format: str = "excel",
+    ids: str | None = None,
     created_by: int | None = None,
     updated_by: int | None = None,
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """接口列表导出：Excel 简表（人看）或 JSON 全量（备份/迁移），筛选条件与列表页一致。
+    """接口列表导出：Excel 简表（人看）/ JSON 全量（备份/迁移）/ OpenAPI 3.0（Postman/Apifox 导入）。
+    ids 为勾选导出（逗号分隔，优先于筛选条件）；未传 ids 时筛选口径与列表页一致。
     注意：此路由需在 /{api_id} 之前注册，否则 GET /export 会被 path 参数拦截。"""
-    if format not in ("excel", "json"):
-        raise HTTPException(400, "format 仅支持 excel / json")
+    if format not in ("excel", "json", "openapi"):
+        raise HTTPException(400, "format 仅支持 excel / json / openapi")
 
-    objs = crud.list_apis(db, project_id, created_by, updated_by)
+    if ids:
+        id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+        if not id_list:
+            raise HTTPException(400, "ids 参数无效")
+        objs = (db.query(models.ApiDefinition)
+                .filter(models.ApiDefinition.id.in_(id_list),
+                        models.ApiDefinition.project_id == project_id)
+                .all())
+        # 按勾选顺序返回（in_ 查询不保序）
+        order = {i: n for n, i in enumerate(id_list)}
+        objs.sort(key=lambda a: order.get(a.id, len(order)))
+    else:
+        objs = crud.list_apis(db, project_id, created_by, updated_by)
     if not objs:
         raise HTTPException(400, "当前筛选条件下没有可导出的接口")
     crud.fill_audit_names_batch(db, objs)
@@ -100,8 +114,8 @@ def export_list(
     project_name = project.name if project else ""
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    from ..services.export_service import export_apis_excel, export_apis_json
-    # 审计在分支前统一记录（json 分支提前 return，放分支内会漏记）
+    from ..services.export_service import export_apis_excel, export_apis_json, export_apis_openapi
+    # 审计在分支前统一记录（json/openapi 分支提前 return，放分支内会漏记）
     crud.log_operation(db, user, "export", "api", None, f"导出{len(objs)}个接口（{format}）")
     if format == "json":
         content = export_apis_json(objs, group_names, project_name)
@@ -109,6 +123,13 @@ def export_list(
             content=content,
             media_type="application/json; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="apis_{stamp}.json"'},
+        )
+    if format == "openapi":
+        content = export_apis_openapi(objs, group_names, project_name)
+        return Response(
+            content=content,
+            media_type="application/json; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="openapi_{stamp}.json"'},
         )
     content = export_apis_excel(objs, group_names)
     return Response(

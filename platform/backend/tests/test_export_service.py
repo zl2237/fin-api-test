@@ -98,6 +98,55 @@ class TestExportApisJson:
         assert data["items"][0]["group"] is None
 
 
+class TestExportApisOpenapi:
+    def test_post_body_schema_with_nested_field(self):
+        api = _api(1, method="POST", path="/api/order/add", fields=[
+            _field("order_id", "int", True, "123"),
+            _field("to_customer.put_amount", "number", False, "1.5"),
+        ])
+        doc = json.loads(svc.export_apis_openapi([api], GROUPS, "物流系统"))
+        assert doc["openapi"] == "3.0.3"
+        assert doc["info"]["title"] == "物流系统 接口定义"
+        assert {"name": "冒烟组"} in doc["tags"]
+        op = doc["paths"]["/api/order/add"]["post"]
+        assert op["summary"] == "查询接口" and op["operationId"] == "api_1" and op["tags"] == ["冒烟组"]
+        ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        assert ref == "#/components/schemas/api_1"
+        schema = doc["components"]["schemas"]["api_1"]
+        assert schema["required"] == ["order_id"]
+        assert schema["properties"]["order_id"]["type"] == "integer"
+        assert schema["properties"]["order_id"]["default"] == 123
+        nested = schema["properties"]["to_customer"]
+        assert nested["type"] == "object"
+        assert nested["properties"]["put_amount"]["type"] == "number"
+
+    def test_get_translates_fields_to_query_params(self):
+        api = _api(2, method="GET", path="api/q", fields=[_field("kw"), _field("page", "int", True)])
+        doc = json.loads(svc.export_apis_openapi([api], GROUPS, "p"))
+        # path 缺省前导 / 时自动补全
+        op = doc["paths"]["/api/q"]["get"]
+        assert [p["name"] for p in op["parameters"]] == ["kw", "page"]
+        assert op["parameters"][1]["required"] is True
+        assert op["parameters"][1]["schema"]["type"] == "integer"
+        assert "requestBody" not in op
+
+    def test_same_path_multi_method_merged(self):
+        apis = [_api(1, method="GET", path="/api/x"), _api(2, name="创建", method="POST", path="/api/x")]
+        doc = json.loads(svc.export_apis_openapi(apis, GROUPS, "p"))
+        assert set(doc["paths"]["/api/x"]) == {"get", "post"}
+
+    def test_ungrouped_no_tag(self):
+        doc = json.loads(svc.export_apis_openapi([_api(1, group_id=99, method="GET")], GROUPS, "p"))
+        assert doc["paths"]["/api/x"]["get"]["tags"] == []
+        assert "tags" not in doc  # 无任何分组时不输出空 tags
+
+    def test_expression_default_falls_back_to_example(self):
+        api = _api(1, fields=[_field("bl_no", "int", False, "${bl_no}")])
+        doc = json.loads(svc.export_apis_openapi([api], GROUPS, "p"))
+        leaf = doc["components"]["schemas"]["api_1"]["properties"]["bl_no"]
+        assert leaf["example"] == "${bl_no}" and "default" not in leaf
+
+
 class TestExportCasesExcel:
     def test_structure(self):
         cases = [_case(1, nodes=[{"id": "a"}, {"id": "b"}]), _case(2)]
