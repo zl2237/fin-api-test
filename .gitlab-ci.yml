@@ -121,14 +121,21 @@ frontend-build:
 # ===========================================================================
 # 3. Deploy 部署到服务器
 # ===========================================================================
+# 结构性设计（fix 2026-09-17，教训：2fba17b 部署）：
+#   旧版顺序 reset(最前) → .env/pip/alembic/前端上传 → restart(最后)，
+#   中间任一步失败即整 job 失败：代码已更新但服务未重启，跑的还是旧代码，
+#   且流水线仅标红、线上无感知（次日定时任务用旧代码触发 multipart bug）。
+#   现改为：
+#   - 本地先把 .env / 前端产物准备并上传（失败无服务器副作用）
+#   - 单远程脚本原子部署，trap EXIT 保证 restart 必达——无论成败都先重启
+#   - pip / alembic 失败降级为警告：汇总后 exit 1 标红流水线，但服务已用
+#     新代码重启（真缺依赖/迁移时服务起不来会立刻暴露，好过静默跑旧代码）
 deploy:
   stage: deploy
   image: alpine:latest
   <<: *ssh_setup
   script:
-    # ---- 3.1 服务器：拉取最新代码 ----
-    - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "cd $DEPLOY_DIR && git fetch origin main && git reset --hard origin/main"
-    # ---- 3.2 同步 .env（从 GitLab 变量写入，敏感信息不入库）----
+    # ---- 3.1 本地准备：.env 写入与前端产物打包上传（纯上传，失败不影响服务器）----
     - echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" > /tmp/.env.deploy
     - echo "DB_HOST=$DB_HOST" >> /tmp/.env.deploy
     - echo "DB_PORT=$DB_PORT" >> /tmp/.env.deploy
@@ -136,39 +143,71 @@ deploy:
     - echo "DB_PASSWORD=$DB_PASSWORD" >> /tmp/.env.deploy
     - echo "DB_NAME=$DB_NAME" >> /tmp/.env.deploy
     - echo "CORS_ORIGINS=http://$SSH_HOST:8088" >> /tmp/.env.deploy
-    - scp -P $SSH_PORT /tmp/.env.deploy $SSH_USER@$SSH_HOST:$DEPLOY_DIR/platform/backend/.env
-    - rm -f /tmp/.env.deploy
-    # ---- 3.3 后端：依赖安装 + 数据库迁移 ----
-    - |
-      ssh -p $SSH_PORT $SSH_USER@$SSH_HOST bash -s <<'REMOTE'
-        set -e
-        cd /opt/fin-api-test/platform/backend
-        # 首次部署自动创建 venv（需 python3.12）
-        if [ ! -d venv ]; then
-          python3.12 -m venv venv
-        fi
-        source venv/bin/activate
-        pip install -U pip -i https://pypi.tuna.tsinghua.edu.cn/simple
-        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-        # 数据库迁移
-        alembic upgrade head
-      REMOTE
-    # ---- 3.3 前端：上传构建产物 ----
     - cd platform/frontend
     - tar czf /tmp/frontend-dist.tar.gz -C dist .
+    - cd -
+    - scp -P $SSH_PORT /tmp/.env.deploy $SSH_USER@$SSH_HOST:$DEPLOY_DIR/platform/backend/.env
     - scp -P $SSH_PORT /tmp/frontend-dist.tar.gz $SSH_USER@$SSH_HOST:/tmp/frontend-dist.tar.gz
+    - rm -f /tmp/.env.deploy /tmp/frontend-dist.tar.gz
+    # ---- 3.2 服务器：单脚本原子部署（trap 兜底重启）----
+    # heredoc 带引号阻断本地展开；$SYSTEMD_SERVICE 经 ssh 命令行注入远程环境
     - |
-      ssh -p $SSH_PORT $SSH_USER@$SSH_HOST bash -s <<'REMOTE'
+      ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "SYSTEMD_SERVICE='$SYSTEMD_SERVICE' bash -s" <<'REMOTE'
+        set -u
+        DEPLOY_DIR=/opt/fin-api-test
+        BACKEND_DIR=$DEPLOY_DIR/platform/backend
+        warn=""
+
+        finish() {
+          # 重启必达：代码已 reset，不重启的半部署比带着警告重启危险得多
+          echo "[deploy] 重启服务 $SYSTEMD_SERVICE ..."
+          systemctl restart "$SYSTEMD_SERVICE"
+          sleep 2
+          if systemctl is-active --quiet "$SYSTEMD_SERVICE"; then
+            echo "[deploy] 服务已运行"
+          else
+            echo "[deploy][严重] 重启后服务未运行！请执行 journalctl -u $SYSTEMD_SERVICE -n 50 排查"
+            exit 1
+          fi
+        }
+        trap finish EXIT
+
         set -e
-        rm -rf /opt/fin-api-test/platform/frontend/dist
-        mkdir -p /opt/fin-api-test/platform/frontend/dist
-        tar xzf /tmp/frontend-dist.tar.gz -C /opt/fin-api-test/platform/frontend/dist
+        cd "$DEPLOY_DIR"
+        git fetch origin main
+        git reset --hard origin/main
+
+        # 前端产物解压（已上传至 /tmp）
+        rm -rf "$DEPLOY_DIR/platform/frontend/dist"
+        mkdir -p "$DEPLOY_DIR/platform/frontend/dist"
+        tar xzf /tmp/frontend-dist.tar.gz -C "$DEPLOY_DIR/platform/frontend/dist"
         rm -f /tmp/frontend-dist.tar.gz
+
+        # 后端依赖：失败降级警告（依赖通常未变；真缺依赖时服务起不来会立刻暴露）
+        if ! (
+          cd "$BACKEND_DIR"
+          # 首次部署自动创建 venv（需 python3.12）
+          [ -d venv ] || python3.12 -m venv venv
+          source venv/bin/activate
+          pip install -U pip -q -i https://pypi.tuna.tsinghua.edu.cn/simple
+          pip install -r requirements.txt -q -i https://pypi.tuna.tsinghua.edu.cn/simple
+        ); then
+          warn="$warn 依赖安装失败(已用现有依赖重启);"
+        fi
+
+        # 数据库迁移：失败降级警告（新表未建时相关接口报错可见，优于静默跑旧代码）
+        if ! (
+          cd "$BACKEND_DIR" && source venv/bin/activate && alembic upgrade head
+        ); then
+          warn="$warn 数据库迁移失败;"
+        fi
+
+        if [ -n "$warn" ]; then
+          echo "[deploy][警告]$warn"
+          exit 1
+        fi
+        echo "[deploy] 部署完成"
       REMOTE
-    # ---- 3.4 重启后端服务 ----
-    - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "systemctl restart $SYSTEMD_SERVICE || (echo 'systemd 服务不存在，请手动配置启动方式' && exit 1)"
-    - sleep 2
-    - ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "systemctl is-active $SYSTEMD_SERVICE"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   environment:
