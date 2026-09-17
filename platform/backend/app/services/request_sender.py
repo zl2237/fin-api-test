@@ -31,24 +31,31 @@ from ..services.file_helpers import resolve_physical_path
 def build_multipart_files(db, file_fields: list[tuple[str, str]]) -> list:
     """将 file_id 列表转为 requests 的 files 参数格式。
 
-    返回 [(field_name, (filename, fileobj, content_type)), ...]
-    文件不存在或读取失败的字段跳过并打印日志。
+    返回 [(field_name, (filename, fileobj, content_type)), ...]。
+    file 字段值非空即视为「必须带上文件」：ID 非法 / 文件中心无记录 /
+    物理文件缺失时抛 ValueError 使步骤失败——此前静默跳过会让 file 字段
+    无声消失，服务端报「请选择文件」之类的莫名错误，难以定位
+    （多机部署时文件中心物理目录不共享即触发，见执行记录 614）。
     """
     files_payload: list = []
     for field_name, file_id_str in file_fields:
         try:
             file_id = int(file_id_str)
         except (ValueError, TypeError):
-            print(f"[文件上传] file_id 非法: {file_id_str}，跳过")
-            continue
+            raise ValueError(
+                f"file 字段「{field_name}」的文件 ID 非法: {file_id_str!r}，"
+                f"请填文件中心里的文件 ID")
         f = db.query(models.TestFile).filter(models.TestFile.id == file_id).first()
         if not f:
-            print(f"[文件上传] file_id={file_id} 不存在，跳过")
-            continue
+            raise ValueError(
+                f"file 字段「{field_name}」的文件不存在（文件中心 id={file_id}），"
+                f"请到文件中心确认该文件仍在")
         physical = resolve_physical_path(f.storage_path)
         if not physical.exists():
-            print(f"[文件上传] 物理文件丢失: {f.storage_path}，跳过")
-            continue
+            raise ValueError(
+                f"file 字段「{field_name}」的物理文件丢失（id={file_id}「{f.name}」，"
+                f"路径 {f.storage_path}）。多机部署时文件中心目录需共享存储，"
+                f"或在本机文件中心重新上传后更新节点配置")
         fileobj = open(physical, "rb")
         files_payload.append((field_name, (f.name, fileobj, f.content_type)))
     return files_payload
