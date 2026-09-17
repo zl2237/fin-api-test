@@ -181,6 +181,33 @@ class TestSendRequestDispatch:
         assert "ID 非法" in err
         assert c.calls == []
 
+    def test_multipart_file_content_is_bytes_for_retry_safety(self, tmp_path, monkeypatch):
+        """文件内容整体读入 bytes：鉴权失效（异地登录/过期）自动重登重试时，
+        HttpClient 会用同一 files 引用重发请求——句柄已被首次请求读空（EOF），
+        重试的 file part 为 0 字节，服务端报「请选择文件或者文件内容为空」
+        （执行记录 614 根因）；bytes 不可变，重试天然幂等"""
+        import app.services.request_sender as rs
+        physical = tmp_path / "u.pdf"
+        physical.write_bytes(b"%PDF-1.4 full-content")
+        monkeypatch.setattr(rs, "resolve_physical_path", lambda p: physical)
+
+        class _Db:
+            def query(self, *_a):
+                class _Q:
+                    def filter(self, *a):
+                        return self
+
+                    def first(self):
+                        return SimpleNamespace(storage_path="files/da/x", name="报关单.pdf",
+                                               content_type="application/pdf")
+
+                return _Q()
+
+        payload = rs.build_multipart_files(_Db(), [("file", "13")])
+        field, (fname, content, ctype) = payload[0]
+        assert (field, fname, ctype) == ("file", "报关单.pdf", "application/pdf")
+        assert isinstance(content, bytes) and content == b"%PDF-1.4 full-content"
+
 
 class TestFormUrlencoded:
     """表单接口（headers 声明 x-www-form-urlencoded）按表单编码发送。
