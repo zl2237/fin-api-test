@@ -31,11 +31,14 @@ from ..services.file_helpers import resolve_physical_path
 def build_multipart_files(db, file_fields: list[tuple[str, str]]) -> list:
     """将 file_id 列表转为 requests 的 files 参数格式。
 
-    返回 [(field_name, (filename, fileobj, content_type)), ...]。
+    返回 [(field_name, (filename, bytes, content_type)), ...]。
+    文件内容整体读入 bytes 而非传句柄：HttpClient 鉴权失效（异地登录/过期）
+    自动重登重试时，句柄已被首次请求读空（EOF），重发的 file part 会是
+    0 字节，服务端报「请选择文件或者文件内容为空」（执行记录 614：
+    每步都触发重登的清晨互踢场景）；bytes 不可变，重试天然幂等。
     file 字段值非空即视为「必须带上文件」：ID 非法 / 文件中心无记录 /
-    物理文件缺失时抛 ValueError 使步骤失败——此前静默跳过会让 file 字段
-    无声消失，服务端报「请选择文件」之类的莫名错误，难以定位
-    （多机部署时文件中心物理目录不共享即触发，见执行记录 614）。
+    物理文件缺失时抛 ValueError 使步骤失败——静默跳过会让错误难以定位
+    （多机部署时文件中心物理目录不共享即触发）。
     """
     files_payload: list = []
     for field_name, file_id_str in file_fields:
@@ -56,8 +59,7 @@ def build_multipart_files(db, file_fields: list[tuple[str, str]]) -> list:
                 f"file 字段「{field_name}」的物理文件丢失（id={file_id}「{f.name}」，"
                 f"路径 {f.storage_path}）。多机部署时文件中心目录需共享存储，"
                 f"或在本机文件中心重新上传后更新节点配置")
-        fileobj = open(physical, "rb")
-        files_payload.append((field_name, (f.name, fileobj, f.content_type)))
+        files_payload.append((field_name, (f.name, physical.read_bytes(), f.content_type)))
     return files_payload
 
 
