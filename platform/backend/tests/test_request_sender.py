@@ -103,8 +103,34 @@ class TestSendRequestDispatch:
         # 请求后 Content-Type 恢复
         assert c.headers["Content-Type"] == "application/json"
 
-    def test_multipart_list_body_takes_first_dict(self):
-        """数组请求体时 form_data 取首元素（dag_executor 现行为）"""
+    def test_multipart_list_body_takes_first_dict(self, tmp_path, monkeypatch):
+        """数组请求体时 form_data 取首元素（文件存在的 multipart 场景）"""
+        physical = tmp_path / "upload.bin"
+        physical.write_bytes(b"file-content")
+        import app.services.request_sender as rs
+        monkeypatch.setattr(rs, "resolve_physical_path", lambda p: physical)
+
+        class _Db:
+            def query(self, *_a):
+                class _Q:
+                    def filter(self, *a):
+                        return self
+
+                    def first(self):
+                        return SimpleNamespace(storage_path="files/ab/abc", name="f.bin", content_type="application/octet-stream")
+
+                return _Q()
+
+        c = StubClient()
+        code, _, err = send_request(_Db(), c, _api("POST"), [{"a": 1}, {"b": 2}], file_fields=[("file1", "3")])
+        assert code == 200 and err is None
+        kind, _, form, field_names, _ = c.calls[0]
+        assert kind == "multipart"
+        assert form == {"a": 1}
+
+    def test_multipart_file_not_in_db_fails_step(self):
+        """file 字段值非空但文件中心无记录 → 步骤失败并给出明确原因，
+        不再静默跳过退回 json 通道（file 字段无声消失的根源，见执行记录 614）"""
         c = StubClient()
 
         class _Db:
@@ -118,10 +144,42 @@ class TestSendRequestDispatch:
 
                 return _Q()
 
-        # file 字段在 DB 中不存在 → files_payload 为空 → 退回 json 通道，数组体原样发出
-        code, _, err = send_request(_Db(), c, _api("POST"), [{"a": 1}], file_fields=[("file1", "9")])
-        assert code == 200
-        assert c.calls[0][0] == "post"
+        code, data, err = send_request(_Db(), c, _api("POST"), [{"a": 1}], file_fields=[("file1", "9")])
+        assert code == 0
+        assert "file1" in err and "不存在" in err
+        assert c.calls == []  # 未发出任何请求
+
+    def test_multipart_physical_file_missing_fails_step(self, tmp_path, monkeypatch):
+        """文件中心有记录但物理文件不在本机磁盘（多机部署目录不共享）→ 步骤失败
+        并提示原因（执行记录 614 实际根因：上传发生在另一台机器）"""
+        import app.services.request_sender as rs
+        monkeypatch.setattr(rs, "resolve_physical_path", lambda p: tmp_path / "gone.bin")
+
+        class _Db:
+            def query(self, *_a):
+                class _Q:
+                    def filter(self, *a):
+                        return self
+
+                    def first(self):
+                        return SimpleNamespace(storage_path="files/da/da5f", name="报关单.pdf",
+                                               content_type="application/pdf")
+
+                return _Q()
+
+        c = StubClient()
+        code, _, err = send_request(_Db(), c, _api("POST"), {"order_id": "1"}, file_fields=[("file", "13")])
+        assert code == 0
+        assert "物理文件丢失" in err and "file" in err
+        assert c.calls == []
+
+    def test_multipart_bad_file_id_fails_step(self):
+        """file 字段值非数字 → 步骤失败（值非空即视为必须带上文件）"""
+        c = StubClient()
+        code, _, err = send_request(None, c, _api("POST"), {"a": 1}, file_fields=[("file1", "abc")])
+        assert code == 0
+        assert "ID 非法" in err
+        assert c.calls == []
 
 
 class TestFormUrlencoded:
