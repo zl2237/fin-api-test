@@ -4,7 +4,10 @@
 得到 str/list，原实现直接 resp_json.get("code") 抛 AttributeError，
 调试/执行界面只能看到"未预期异常"，真实响应被吞。
 """
+import io
 from types import SimpleNamespace
+
+import requests
 
 import pytest
 from utils.exceptions import AuthError, BusinessError, JsonParseError
@@ -229,3 +232,64 @@ class TestAuthExpireGuard:
         c.session = SimpleNamespace(request=lambda *a, **k: responses.pop(0))
         c.set_token_refresh_callback(lambda: "new-token")
         assert c.get("/x") == {"code": 200}
+
+
+class MultipartRecordingSession:
+    """真实 requests 编码层记录每次 multipart 请求体。
+
+    与 FakeSession 不同：这里用 requests.Request(...).prepare() 真实编码
+    files 参数（等价于真实发送时的行为——句柄会被读到 EOF、bytes 原样写入），
+    用于复现线上 614：重登重试复用同一 files 引用再次编码。
+    """
+
+    def __init__(self, resps):
+        self.resps = list(resps)
+        self.bodies = []
+
+    def request(self, method, url, headers=None, params=None, json=None, data=None, files=None, timeout=None):
+        prepared = requests.Request(method, url, headers=headers, data=data, files=files).prepare()
+        self.bodies.append(prepared.body)
+        return self.resps.pop(0)
+
+
+class TestMultipartRetryFidelity:
+    """614 回归：鉴权失效(405 异地登录)自动重登重试时，multipart 文件内容必须完整。
+
+    线上真因：修复前 request_sender 传文件句柄，首次编码把句柄读到 EOF，
+    重登重试再次编码得到 0 字节文件 part → 服务端报「请选择文件或者文件内容为空」。
+    修复后传 read_bytes() 的 bytes，不可变天然幂等。
+    """
+
+    FILE_BYTES = b"%PDF-1.4\n614-retry-fidelity-full-content-marker\n%%EOF"
+
+    def _retry_client(self):
+        session = MultipartRecordingSession([
+            FakeRawResponse(json_value={"code": 405, "msg": "账号异地登录"}),
+            FakeRawResponse(json_value={"code": 200, "data": "上传成功"}),
+        ])
+        c = HttpClient(base_url="http://t")
+        c.session = session
+        c.set_token_refresh_callback(lambda: "new-token")
+        return c, session
+
+    def test_file_bytes_survive_auth_expire_retry(self):
+        # bytes 方案：首发 + 405 重登重试，两次编码的请求体均含完整文件内容
+        c, session = self._retry_client()
+        files = [("file", ("report.pdf", self.FILE_BYTES, "application/pdf"))]
+        assert c.post_multipart("/upload", data={"type": "1"}, files=files) == {
+            "code": 200, "data": "上传成功"
+        }
+        assert len(session.bodies) == 2  # 首发一次 + 重试一次
+        for i, body in enumerate(session.bodies, 1):
+            assert self.FILE_BYTES in body, f"第{i}次请求 multipart 文件内容丢失"
+
+    def test_file_handle_would_lose_content_on_retry(self):
+        # 反证句柄方案（修复前实现）必败：同链路下第二次编码文件 part 为空——614 根因复现
+        c, session = self._retry_client()
+        handle = io.BytesIO(self.FILE_BYTES)
+        files = [("file", ("report.pdf", handle, "application/pdf"))]
+        assert c.post_multipart("/upload", data={"type": "1"}, files=files) == {
+            "code": 200, "data": "上传成功"
+        }
+        assert self.FILE_BYTES in session.bodies[0]  # 首发：句柄读到内容
+        assert self.FILE_BYTES not in session.bodies[1]  # 重试：句柄已在 EOF
