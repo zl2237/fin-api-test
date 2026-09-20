@@ -36,7 +36,7 @@
             ><CaretRight /></el-icon>
             <span v-else class="expand-spacer" />
             <span class="group-name">{{ row.name }}</span>
-            <span class="group-count">{{ row.isUngrouped ? apisOf(null).length : countApisWithDescendants(row.groupId!) }}</span>
+            <span class="group-count">{{ row.isUngrouped ? apisOf(null, apiKeyword || undefined).length : countApisWithDescendants(row.groupId!) }}</span>
           </button>
           <!-- 分组下的直接接口（仅展开时显示；点击添加为画布节点，语义化 button） -->
           <div
@@ -245,10 +245,13 @@ const {
 /** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行（叶子分组有数据也可展开） */
 const visibleGroupRows = computed(() => computeVisibleRows(apiList.value.some((a) => !a.group_id), (id) => apisOf(id).length))
 
-/** 统计分组的接口数量（含所有子孙分组） */
+/** 统计分组的接口数量（含所有子孙分组；搜索时只统计命中关键词的接口，与列表过滤口径一致） */
 function countApisWithDescendants(groupId: number): number {
   const ids = [groupId, ...collectDescendantIds(tree.value, groupId)]
-  return apiList.value.filter((a) => a.group_id != null && ids.includes(a.group_id)).length
+  const kw = apiKeyword.value.trim().toLowerCase()
+  return apiList.value.filter(
+    (a) => a.group_id != null && ids.includes(a.group_id) && (a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw)),
+  ).length
 }
 
 // 左侧接口搜索关键词（过滤分组内接口列表）
@@ -522,6 +525,20 @@ function onNodesPasted(mapping: { oldId: string; newId: string }[]) {
 function onConfigSave(_config: NodeConfig) {
   const idx = configs.value.findIndex((c) => c.node_id === _config.node_id)
   if (idx >= 0) configs.value[idx] = { ..._config }
+  // 换绑接口：同步画布名称/method/path 与 data.api_id。
+  // 运行时按 node_configs.api_id 取接口（dag_executor._resolve_node_config），
+  // 若此处不同步，保存的 dag_config 残留旧 api_id，重开用例时 loadCase 会把名称刷回旧接口
+  const nd = nodes.value.find((n) => n.id === _config.node_id)
+  if (nd && _config.api_id) {
+    const api = apiList.value.find((a) => a.id === _config.api_id)
+    if (api) {
+      nd.data.label = api.name
+      nd.data.api_id = api.id
+      nd.data.api_method = api.method
+      nd.data.api_path = api.path
+      nd.label = api.name
+    }
+  }
   dirty.value = true
 }
 
