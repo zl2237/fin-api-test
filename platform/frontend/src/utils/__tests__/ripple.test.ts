@@ -7,6 +7,15 @@ describe('setupRipple', () => {
 
   beforeEach(() => {
     addSpy = vi.spyOn(document, 'addEventListener')
+    // vitest4 + jsdom25 环境未提供 window.matchMedia，spy 前补齐（老环境自带时不动）
+    if (typeof window.matchMedia !== 'function') {
+      window.matchMedia = ((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia
+    }
     matchMediaSpy = vi.spyOn(window, 'matchMedia').mockReturnValue({
       matches: false,
       addEventListener: vi.fn(),
