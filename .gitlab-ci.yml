@@ -266,9 +266,10 @@ notify-failure:
     # ---- 失败时抓取失败 job 的日志摘要（附在通知里，免去登服务器翻日志）----
     # 鉴权：优先 GITLAB_API_TOKEN（项目级 Access Token，推荐配置）；
     # 未配置则用 CI_JOB_TOKEN 尝试（部分 GitLab 版本支持读本流水线 job 日志），失败则跳过摘要。
+    # 注意：注释只写在 YAML 层（本行），不得写进 |- 块首——多行块会被新版 runner
+    # 折叠为单命令执行，块首 # 注释曾导致整个块静默失败 exit 1（PIPE 81/82 复现两次），
+    # 摘要段整体包 ( ) || true 兜底：摘要失败绝不阻断后面的企微发送。
     - |
-      # 真实换行符：bash 双引号里的 \n 是字面量（jq --arg 也不转义），
-      # 企微 markdown 会把 "\n" 渲染成转义的 n，导致换行变 "n" 粘行
       NL=$(printf '\n')
       FAIL_SECTION=""
       API_BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
@@ -277,28 +278,27 @@ notify-failure:
       else
         AUTH_H="Job-Token: $CI_JOB_TOKEN"
       fi
-      JOBS_JSON=$(curl -s -H "$AUTH_H" "$API_BASE/pipelines/$CI_PIPELINE_ID/jobs" || true)
-      FAILED_JOBS=$(echo "$JOBS_JSON" | jq -r '.[]? | select(.status=="failed") | "\(.id)|\(.name)"' 2>/dev/null || true)
-      if [ -n "$FAILED_JOBS" ]; then
-        FAIL_SECTION="${NL}> **失败原因摘要**：${NL}"
-        for line in $FAILED_JOBS; do
-          JID="${line%%|*}"; JNAME="${line##*|}"
-          # 取日志尾部 300 行中的错误行（最多 6 行），防通知超长
-          # （引号转义交给 jq --arg，无需手动替换）
-          REASON=$(curl -s -H "$AUTH_H" "$API_BASE/jobs/$JID/trace" 2>/dev/null \
-            | tail -n 300 | grep -iE "error|failed|exception|traceback|✗" | tail -n 6 \
-            | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//' | head -c 800)
-          if [ -n "$REASON" ]; then
-            FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】${NL}> \`\`\`${NL}${REASON}${NL}\`\`\`${NL}"
-          else
-            FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）${NL}"
-          fi
-        done
-      fi
+      (
+        JOBS_JSON=$(curl -s -H "$AUTH_H" "$API_BASE/pipelines/$CI_PIPELINE_ID/jobs" || true)
+        FAILED_JOBS=$(echo "$JOBS_JSON" | jq -r '.[]? | select(.status=="failed") | "\(.id)|\(.name)"' 2>/dev/null || true)
+        if [ -n "$FAILED_JOBS" ]; then
+          FAIL_SECTION="${NL}> **失败原因摘要**：${NL}"
+          for line in $FAILED_JOBS; do
+            JID="${line%%|*}"; JNAME="${line##*|}"
+            REASON=$(curl -s -H "$AUTH_H" "$API_BASE/jobs/$JID/trace" 2>/dev/null | tail -n 300 | grep -iE "error|failed|exception|traceback" | tail -n 6 | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//' | head -c 800)
+            if [ -n "$REASON" ]; then
+              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】${NL}> \`\`\`${NL}${REASON}${NL}\`\`\`${NL}"
+            else
+              FAIL_SECTION="${FAIL_SECTION}> 【${JNAME}】未能提取摘要（token 无权限读日志，建议配置 GITLAB_API_TOKEN）${NL}"
+            fi
+          done
+        fi
+      ) || true
+    # 发送块：on_failure 任务只在有 job 失败时被调度，状态写死，不再判流水线变量。
+    # 用 CI 内置变量取提交信息，不依赖 git 命令（alpine 镜像未装 git）；
+    # 只取首行——完整 message 含 body 多行换行，会打断 markdown 引用块。
+    # 同理：注释只留在 YAML 层，不进 |- 块（块首注释会导致折叠后整块失效）。
     - |
-      # on_failure 任务只在有 job 失败时被调度，状态写死，不再判流水线变量
-      # 用 CI 内置变量取提交信息，不依赖 git 命令（alpine 镜像未装 git）；
-      # 只取首行——完整 message 含 body 多行换行，会打断 markdown 引用块
       COMMIT_MSG=$(printf '%s' "${CI_COMMIT_MESSAGE}" | head -n 1)
       AUTHOR="${GITLAB_USER_NAME}"
       SHORT_SHA="${CI_COMMIT_SHORT_SHA}"
@@ -306,6 +306,7 @@ notify-failure:
       PIPELINE_URL="${CI_PIPELINE_URL}"
       PROJECT_URL="${CI_PROJECT_URL}"
       TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
+      NL=$(printf '\n')
 
       MARKDOWN="## fin-api-test 部署通知  ❌ 失败${NL}"
       MARKDOWN="${MARKDOWN}> **项目**：[${CI_PROJECT_NAME}]($PROJECT_URL)${NL}"
@@ -316,11 +317,15 @@ notify-failure:
       MARKDOWN="${MARKDOWN}> **流水线**：[查看详情]($PIPELINE_URL)${NL}"
       MARKDOWN="${MARKDOWN}${FAIL_SECTION}"
 
-      # jq 构造 JSON，避免消息含引号/换行时打爆 payload
       PAYLOAD=$(jq -n --arg md "$MARKDOWN" '{msgtype:"markdown",markdown:{content:$md}}')
-      curl -s -X POST "$WECOM_WEBHOOK" \
-        -H 'Content-Type: application/json' \
-        -d "$PAYLOAD"
+      RESP=$(curl -s -X POST "$WECOM_WEBHOOK" -H 'Content-Type: application/json' -d "$PAYLOAD")
+      echo "wecom response: $RESP"
+      # 发送结果显性化：企微拒绝（errcode!=0，如 webhook 失效）要让任务红出来，而不是静默吞掉
+      ERRCODE=$(echo "$RESP" | jq -r '.errcode // 1' 2>/dev/null || echo 1)
+      if [ "$ERRCODE" != "0" ]; then
+        echo "[notify][严重] 企微 webhook 发送失败（errcode=$ERRCODE），请检查 WECOM_WEBHOOK 变量"
+        exit 1
+      fi
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       when: on_failure
