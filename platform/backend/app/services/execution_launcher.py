@@ -51,8 +51,12 @@ def build_launch_plan(db: Session, case, env_id: int, user_id: int, *,
 
     数据集不可执行（无数据/不存在）抛 ValueError，由调用方决定 4xx 或跳过。
     单套语义：绑定数据集恒展开 1 条（该数据集唯一一套数据）；
-    run_count>1 时复用一次规划重复提交（run_count 次执行）。"""
-    plan_items = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
+    run_count>1 时复用一次规划重复提交（run_count 次执行）。
+    套件：本体无变量池（成员各自绑定数据集与环境），单条直发不校验绑定。"""
+    if getattr(case, "case_type", "normal") == "suite":
+        plan_items = [{"dataset_id": None, "row": None}]
+    else:
+        plan_items = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
     aggregate = len(plan_items) > 1 and plan_items[0]["dataset_id"] is not None
 
     launch = LaunchPlan()

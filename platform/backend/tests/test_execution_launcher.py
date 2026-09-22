@@ -70,6 +70,22 @@ class TestBuildLaunchPlan:
         assert spec.suppress_notify is False
         assert plan.aggregate_groups == []
 
+    def test_suite_skips_dataset_binding(self, patched, monkeypatch):
+        """套件：本体无变量池，不走数据集展开（未绑定也可执行），单条直发无聚合"""
+        called = []
+        monkeypatch.setattr(launcher.dataset_service, "plan_case_expansion",
+                            lambda db, case, **kw: called.append(1) or [])
+
+        suite = SimpleNamespace(id=12, name="融资套件", case_type="suite")
+        plan = build_launch_plan(object(), suite, 22, 5)
+
+        assert called == []
+        assert len(plan.records) == 1
+        assert plan.records[0].dataset_id is None
+        assert plan.specs[0].row_vars is None
+        assert plan.specs[0].suppress_notify is False
+        assert plan.aggregate_groups == []
+
     def test_multi_row_dataset_aggregates(self, patched, monkeypatch):
         """数据驱动多行：每行一条记录，整组抑制逐条通知，登记一个聚合组"""
         items = [
