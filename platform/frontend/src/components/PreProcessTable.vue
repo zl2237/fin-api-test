@@ -40,7 +40,7 @@
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="值（支持 ${}）" min-width="240">
+      <el-table-column label="值（留空=自动引用）" min-width="240">
         <template #default="{ row }">
           <el-input
             v-if="row.type === 'exec_sql'"
@@ -66,7 +66,7 @@
             size="small"
             type="textarea"
             :rows="1"
-            placeholder="${order_id} 或 ${db.query_value('SELECT ... WHERE id=${id}', field='xxx')}"
+            :placeholder="valuePlaceholder(row)"
           />
           <span v-else class="muted">—</span>
         </template>
@@ -214,6 +214,15 @@ function remove(idx: number) {
 function isFileField(path: string): boolean {
   if (!path) return false
   return fields.value.some((f) => f.key === path && f.field_type === 'file')
+}
+
+// 三态提示（数据集模式）：placeholder 只在值为空时可见——恰好是「自动引用」态；
+// 填字面量 = 手动覆盖（最高优先级），填 ${} = 动态绑定（显式引用）
+function valuePlaceholder(row: any): string {
+  const p = row?.path
+  return p
+    ? `留空自动引用 ${p}：套件注入 → 数据集变量池；填值=手动覆盖；\${}=动态引用`
+    : '留空=按参数名自动引用（套件注入 → 数据集域）；填值=手动覆盖；\${}=动态引用'
 }
 
 // ===== 文件选择器 =====

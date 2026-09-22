@@ -85,23 +85,20 @@ def delete_nested_value(data: Any, path: str):
 class PreProcessor:
     """前置处理器（用例编排执行层）。
 
-    请求体参数三级取值优先级（引擎定案）：
-    1. 数据集行值（最高）：覆盖除动态绑定外的所有字段
-    2. 用例编排 set_field/add_field（本层，字面量或动态表达式）
-    3. 接口字段默认值（兜底，组装阶段已进 body）
+    请求体参数取值优先级（定案）：
+    1. 手动覆盖（最高，本层）：set_field/add_field 的非空值——字面量直接生效，
+       ${} 动态绑定照常求值；pre_process 在自动解析之后执行，天然压过第 2/3 层
+    2. 套件注入（prepare_request 自动解析，上游白名单快照）
+    3. 数据集域静态变量（prepare_request 自动解析）
 
-    动态绑定例外：值为 ${} 表达式的字段（上游提取/生成函数注入，如 [${audit_id}]）
-    不在数据集覆盖范围内——表达式照常求值，行值同名列不压制。
+    空值占位（三态之一）：value 为 None/"" 的 set_field 行是"自动引用"占位
+    （清空转引用后的形态），不写字面空串——参数值由 prepare_request 按名解析
+    （套件注入 > 数据集域；运行时变量不参与按名解析，仅 ${} 显式引用可取）。
     """
 
-    def __init__(self, context: dict[str, Any], db_client=None, row_vars: dict[str, Any] | None = None):
+    def __init__(self, context: dict[str, Any], db_client=None):
         self.expr = ExpressionEngine(context, db_client=db_client)
         self.db_client = db_client
-        # 数据集行值（原始引用，区别于 context 池中被覆盖过的值）：
-        # 非动态字段的行值压制 set_field 原值；空值（None/""，单元格未配置）剔除
-        # = 未配置让位下一优先级，set_field 恢复表达式求值（如 [${audit_id}]）
-        self.row_vars = {k: v for k, v in (row_vars or {}).items()
-                         if v is not None and v != ""} or None
 
     def process(self, body: Any, actions: list[dict], extracted: dict[str, Any] | None = None) -> Any:
         """
@@ -133,26 +130,17 @@ class PreProcessor:
             action_type = action.get("type")
 
             if action_type in ("set_field", "add_field"):
-                path = action["path"]
+                path = action.get("path") or ""
                 raw_value = action.get("value")
-                # 动态绑定判定：值含 ${}（上游提取/生成函数注入）。
-                # 三级优先级：数据集(1) > 编排 set_field(2) > 接口默认值(3)；
-                # 动态绑定字段不在数据集覆盖范围 → 表达式照常求值
-                is_dynamic = isinstance(raw_value, str) and "${" in raw_value
-                if self.row_vars and path in self.row_vars and not is_dynamic:
-                    # 优先级 1：非动态字段，行值直接生效（编排原值不执行）
-                    value = self.row_vars[path]
-                elif (self.row_vars and "." in path
-                        and path.split(".", 1)[0] in self.row_vars
-                        and not is_dynamic):
-                    # 优先级 1（嵌套）：行值已整块替换该顶层对象（如 to_customer 列），
-                    # 编排里残留的字面量子路径写入跳过，防止盖回行值
+                if not path or raw_value is None or raw_value == "":
+                    # 空 path（前端表格空行占位）或三态空值占位（自动引用）：
+                    # 均非有效写入，参数值由 prepare_request 按名解析
                     continue
-                else:
-                    # 动态绑定（表达式求值）或数据集未覆盖 → 优先级 2 生效
-                    value = self.expr.evaluate(raw_value)
+                # 优先级 1（手动覆盖）：字面量直接生效；${} 动态绑定表达式求值
+                value = self.expr.evaluate(raw_value)
                 set_nested_value(body, path, value)
-                # 同步到上下文：用 path 末段作为 key（bl_no / order_id 等顶层字段直接可用）
+                # 同步到上下文：用 path 末段作为 key（bl_no / order_id 等顶层字段直接可用）；
+                # 后续节点通过 ${xxx} 显式引用本节点产出（不参与按名解析）
                 if extracted is not None:
                     extracted[path.split(".")[-1]] = value
 

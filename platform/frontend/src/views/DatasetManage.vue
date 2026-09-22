@@ -3,16 +3,10 @@
     <div class="page-head">
       <div class="head-left">
         <span class="page-title">数据集</span>
-        <el-button type="primary" :disabled="!currentCase" @click="openCreate">+ 新建数据集</el-button>
-        <el-upload :show-file-list="false" accept=".xlsx,.csv" :auto-upload="false" :disabled="!current" :on-change="onImportFile">
-          <el-button :disabled="!current">Excel/CSV 导入</el-button>
-        </el-upload>
-        <el-button @click="openGenerate">从用例生成</el-button>
         <el-button :disabled="!current" @click="openMerge">从其他数据集覆盖…</el-button>
-        <el-button :disabled="!current" @click="exportRows">导出 Excel</el-button>
       </div>
       <div class="head-right">
-        <span class="head-tip">数据集按用例隔离 · 每行数据 = 一次执行 · 复用靠复制 · 列中文名实时引用字段字典</span>
+        <span class="head-tip">数据集按用例隔离 · 每个数据集一套数据（测试数据唯一来源） · 多场景建多个数据集 · 复用靠复制</span>
       </div>
     </div>
 
@@ -74,146 +68,195 @@
             >
               <el-icon class="ds-icon"><Grid /></el-icon>
               <span class="ds-name">{{ d.name }}</span>
-              <span class="ds-cnt">{{ d.rows?.length ?? 0 }} 行</span>
+              <span class="ds-cnt">{{ d.columns?.length ?? 0 }} 变量</span>
             </div>
-            <el-button size="small" @click="openCreate">+ 新建</el-button>
           </div>
 
           <EmptyState
             v-if="!caseDatasets.length"
-            description="该用例暂无数据集（数据集为用例私有，跨用例复用请复制）"
-          >
-            <el-button type="primary" @click="openGenerate">从用例生成</el-button>
-            <el-button @click="openCreate">+ 新建数据集</el-button>
-          </EmptyState>
+            description="该用例暂无数据集（变量池）。保存用例会自动收集静态参数建池"
+          />
 
           <template v-else-if="current">
             <div class="main-head">
               <span class="main-title">{{ current.name }}</span>
-              <span class="group-count">{{ current.rows?.length ?? 0 }}</span>
-              <el-tooltip :content="colKeys.join('、')" placement="top" popper-class="app-tip">
-                <span class="main-sub">列：{{ colLabels.join('、') || '（未定义）' }}</span>
-              </el-tooltip>
+              <span class="group-count">{{ totalCount }}</span>
               <div class="main-actions">
+                <el-button size="small" type="primary" :loading="savingValues" :disabled="!view" @click="saveValues">保存</el-button>
                 <el-button size="small" @click="copyDataset">复制</el-button>
-                <el-button size="small" @click="openEdit(current)">编辑列定义</el-button>
+                <el-button size="small" @click="openEdit(current)">编辑信息</el-button>
                 <el-button size="small" type="danger" link @click="remove(current)">删除</el-button>
               </div>
             </div>
 
-            <el-table :data="current.rows" stripe size="small" row-key="id" max-height="480">
-              <template #empty>
-                <EmptyState description="暂无数据行，下方添加或导入" :image-size="60" />
-              </template>
-              <el-table-column prop="row_index" label="#" width="50" />
-              <el-table-column
-                v-for="col in current.columns"
-                :key="col.key"
-                :label="colLabel(col.key)"
-                min-width="140"
-                show-overflow-tooltip
-              >
-                <template #header>
-                  <span>{{ colLabel(col.key) }}</span>
-                </template>
-                <template #default="{ row }">{{ fmtCell(row.data?.[col.key]) }}</template>
-              </el-table-column>
-              <el-table-column label="操作" width="180" fixed="right">
-                <template #default="{ row }">
-                  <el-button link size="small" @click="startEditRow(row)">编辑</el-button>
-                  <el-button link size="small" @click="copyRow(row)">复制</el-button>
-                  <el-button link size="small" type="danger" @click="removeRow(row)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+            <div v-loading="viewLoading" class="params-area">
+              <EmptyState
+                v-if="!viewLoading && !view?.nodes.length"
+                description="当前用例编排没有可配置入参的节点（先在用例设计器绑定接口）"
+                :image-size="60"
+              />
 
-            <div class="row-ops">
-              <el-button size="small" @click="addRow">+ 添加一行</el-button>
-              <el-button size="small" type="danger" plain @click="clearRows">清空全部行</el-button>
-              <span class="tip">
-                列名与请求参数同名即自动覆盖；嵌套字段或跨字段引用可用 <code v-pre>${列名}</code>
-                <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
-              </span>
-            </div>
+              <template v-else-if="view">
+                <!-- 悬空变量提示：池中存在但当前编排无节点使用 -->
+                <el-alert v-if="view.orphan_keys.length" type="info" :closable="false" class="orphan-tip">
+                  <template #title>
+                    {{ view.orphan_keys.length }} 个池变量已不被编排使用（节点已删/改参）：{{ view.orphan_keys.slice(0, 6).join('、') }}{{ view.orphan_keys.length > 6 ? '…' : '' }}，保存后将随参数清单清理
+                  </template>
+                </el-alert>
 
-            <!-- 节点配置快照（只读；保存用例自动同步 + 手动兜底） -->
-            <el-collapse class="snap-panel">
-              <el-collapse-item>
-                <template #title>
-                  <span class="snap-title">节点配置快照（{{ current.node_configs?.length || 0 }} 个节点）</span>
-                  <span class="snap-tip">只读 · 执行时整块覆盖该节点配置</span>
-                </template>
-                <div class="snap-actions">
-                  <el-button size="small" :loading="resyncing" @click="resyncDataset">重新同步（取用例当前编排）</el-button>
-                  <span class="tip">仅刷新快照，列 / 行数据不动；保存用例时已自动同步，此处为手动兜底</span>
+                <!-- 配置概览：已配置/总数（编辑态实时计算，用例级去重口径） -->
+                <div class="pool-stat">
+                  <span>已配置 <b>{{ filledCount }}</b> / {{ totalCount }} 个变量</span>
+                  <span class="stat-note">未配置的变量执行时发送空值（""/null）</span>
+                  <el-button v-if="activeNodeId === '__all__'" size="small" class="add-var-btn" @click="openAddVariable">新增变量</el-button>
+                  <el-button v-if="activeNodeId !== '__all__'" size="small" class="add-var-btn" @click="openImport">导入参数…</el-button>
                 </div>
-                <EmptyState
-                  v-if="!current.node_configs?.length"
-                  description="暂无快照（生成时未捕获到节点配置，或已过期清空）"
-                  :image-size="60"
-                />
-                <el-table v-else :data="current.node_configs" size="small">
-                  <el-table-column prop="node_id" label="节点" width="130" />
-                  <el-table-column prop="api_id" label="API" width="80">
-                    <template #default="{ row }">{{ row.api_id ?? '—' }}</template>
-                  </el-table-column>
-                  <el-table-column label="前置处理" width="90">
-                    <template #default="{ row }">{{ row.pre_process?.length || 0 }} 条</template>
-                  </el-table-column>
-                  <el-table-column label="后置提取" width="90">
-                    <template #default="{ row }">{{ row.post_extract?.length || 0 }} 条</template>
-                  </el-table-column>
-                  <el-table-column label="断言规则" width="90">
-                    <template #default="{ row }">{{ row.assertions?.length || 0 }} 条</template>
-                  </el-table-column>
-                  <el-table-column label="执行后等待" width="100">
-                    <template #default="{ row }">{{ row.wait_after_ms || 0 }} ms</template>
-                  </el-table-column>
-                  <el-table-column label="明细" min-width="60">
-                    <template #default="{ row }">
-                      <el-button link size="small" type="primary" @click="viewSnapshot(row)">查看 JSON</el-button>
+
+                <!-- 变量池 = 用例级单池；总览页签看全部变量（去重），节点页签按节点筛选 -->
+                <el-tabs v-model="activeNodeId" class="node-tabs">
+                  <el-tab-pane name="__all__">
+                    <template #label>
+                      <span class="tab-label">变量池总览</span>
+                      <span class="tab-cnt">{{ view.all_params.length }}</span>
                     </template>
-                  </el-table-column>
-                </el-table>
-              </el-collapse-item>
-            </el-collapse>
+                  </el-tab-pane>
+                  <el-tab-pane v-for="node in view.nodes" :key="node.node_id" :name="node.node_id">
+                    <template #label>
+                      <span class="tab-label">{{ node.label }}</span>
+                      <span class="tab-cnt">{{ node.params.length }}</span>
+                    </template>
+                  </el-tab-pane>
+                </el-tabs>
+
+                <div class="node-params">
+                  <div
+                    v-for="p in currentParams"
+                    :key="p.key"
+                    class="param-row"
+                    :class="{ manual: p.manual }"
+                  >
+                    <div class="param-label">
+                      <span>{{ colLabel(p.key) }}</span>
+                      <span class="col-type-tag">{{ p.type }}</span>
+                      <el-button
+                        v-if="activeNodeId === '__all__'"
+                        link
+                        type="danger"
+                        size="small"
+                        class="del-var-btn"
+                        :disabled="p.manual || p.dynamic"
+                        @click="removeVariable(p)"
+                      >
+                        删除
+                      </el-button>
+                      <!-- 状态徽标：手动覆盖 / 已动态配置 / 已配置 / 未配置 -->
+                      <el-tooltip
+                        v-if="p.manual"
+                        :content="activeNodeId === '__all__'
+                          ? `节点编排手动覆盖中：${String(p.manual_value ?? '')}——清空用例编排里该参数的值后，此处池值才会生效`
+                          : `该节点独有值：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
+                        placement="top"
+                        popper-class="app-tip"
+                      >
+                        <span class="badge badge-manual">{{ activeNodeId === '__all__' ? '手动覆盖中' : '节点独有' }}</span>
+                      </el-tooltip>
+                      <el-tooltip
+                        v-else-if="p.dynamic"
+                        :content="`节点已动态配置：${String(p.manual_value ?? '')}——运行时表达式求值（优先生效，请在用例编排中调整）`"
+                        placement="top"
+                        popper-class="app-tip"
+                      >
+                        <span class="badge badge-dynamic">已动态配置</span>
+                      </el-tooltip>
+                      <el-tooltip
+                        v-else-if="isFilled(p)"
+                        :content="activeNodeId === '__all__'
+                          ? '变量池中已有值，执行时按参数名取此值'
+                          : '池值（各节点共享）；在此改值即为本节点独有，压过池值'"
+                        placement="top"
+                        popper-class="app-tip"
+                      >
+                        <span class="badge badge-filled">已配置</span>
+                      </el-tooltip>
+                      <el-tooltip
+                        v-else
+                        :content="activeNodeId === '__all__'
+                          ? '池中无值：留空时发送空值（“”/null）；需引用运行时变量请用 ${} 显式绑定'
+                          : '池中无值：填值即为本节点独有值；留空同池语义'"
+                        placement="top"
+                        popper-class="app-tip"
+                      >
+                        <span class="badge badge-empty">未配置</span>
+                      </el-tooltip>
+                    </div>
+                    <!-- file 类型：值是文件中心文件 ID，弹文件选择器 -->
+                    <div v-if="p.type === 'file'" class="file-value-cell">
+                      <el-input
+                        :model-value="editVal(p.key) ? `#${editVal(p.key)}` : ''"
+                        readonly
+                        placeholder="未选择文件"
+                        class="file-value-input"
+                      />
+                      <el-button
+                        link
+                        type="primary"
+                        :disabled="p.dynamic && activeNodeId !== '__all__'"
+                        @click="openFilePicker(p.key)"
+                      >选择</el-button>
+                      <el-button
+                        v-if="editVal(p.key)"
+                        link
+                        type="danger"
+                        :disabled="p.dynamic && activeNodeId !== '__all__'"
+                        @click="setEditVal(p.key, '')"
+                      >清除</el-button>
+                    </div>
+                    <el-input
+                      v-else
+                      :model-value="editVal(p.key)"
+                      @update:model-value="(v: string) => setEditVal(p.key, v)"
+                      @blur="beautifyJson(p.key)"
+                      :type="isJsonText(editVal(p.key)) ? 'textarea' : 'text'"
+                      :autosize="{ minRows: 1, maxRows: 20 }"
+                      :placeholder="paramPlaceholder(p)"
+                      :disabled="p.dynamic && activeNodeId !== '__all__'"
+                    />
+                    <div
+                      v-if="!(p.dynamic && activeNodeId !== '__all__') && jsonError(editVal(p.key))"
+                      class="json-err"
+                    >{{ jsonError(editVal(p.key)) }}</div>
+                  </div>
+                </div>
+
+                <div class="pool-tip">
+                  <template v-if="activeNodeId === '__all__'">
+                    「变量池总览」编辑池值（一键一值，各节点共享）；
+                  </template>
+                  <template v-else>
+                    节点页签编辑该节点独有值（压过池值），其他节点不受影响；
+                  </template>
+                  徽标含义：<span class="badge badge-filled">已配置</span>=池中有值（执行取此值）；
+                  <span class="badge badge-dynamic">已动态配置</span>=节点编排 ${} 运行时求值，优先生效；
+                  <span class="badge badge-empty">未配置</span>=池中无值，留空时发送空值（“”/null）；
+                  <span class="badge badge-manual">手动覆盖中</span>=节点编排字面量优先，池值暂不生效。
+                  优先级：手动覆盖 &gt; 套件注入 &gt; 数据集变量池；运行时变量不自动按名取值，仅 ${} 显式引用
+                  <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
+                </div>
+              </template>
+            </div>
           </template>
         </template>
       </div>
     </div>
 
-    <!-- 新建/编辑数据集（列定义，中文名实时引用字典） -->
-    <el-dialog v-model="dlgVisible" :title="editingId ? '编辑数据集' : `新建数据集（${currentCase?.name || ''}）`" width="640px">
+    <!-- 编辑数据集信息（名称/描述） -->
+    <el-dialog v-model="dlgVisible" :title="editingId ? '编辑数据集' : `新建数据集（${currentCase?.name || ''}）`" width="560px">
       <el-form label-width="80px">
         <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="如：运单数据" maxlength="100" />
+          <el-input v-model="form.name" placeholder="如：运单数据-场景A" maxlength="100" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="列定义">
-          <div class="cols-editor">
-            <div class="col-list">
-              <div v-for="(col, i) in form.columns" :key="i" class="col-row">
-                <el-input v-model="col.key" placeholder="key（变量名）" style="width: 220px" />
-                <el-tooltip
-                  :content="dictLabel(col.key) ? '来自字段字典' : '字典缺失，列头将显示 key'"
-                  placement="top"
-                  popper-class="app-tip"
-                >
-                  <span class="col-dict">
-                    {{ dictLabel(col.key) || '（字典缺失 → 显 key）' }}
-                  </span>
-                </el-tooltip>
-                <el-select v-model="col.type" style="width: 110px">
-                  <el-option v-for="t in colTypes" :key="t" :label="t" :value="t" />
-                </el-select>
-                <el-button link type="danger" @click="form.columns.splice(i, 1)">删除</el-button>
-              </div>
-            </div>
-            <el-button size="small" @click="form.columns.push({ key: '', type: 'string' })">+ 添加列</el-button>
-            <div class="tip">key 仅允许字母/数字/下划线且不以数字开头；列中文名在「字典管理」维护，此处实时引用</div>
-          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -222,128 +265,67 @@
       </template>
     </el-dialog>
 
-    <!-- 从用例生成：写死请求参数 + 节点配置快照成数据集 -->
-    <el-dialog v-model="genVisible" title="从用例生成数据集" width="560px">
+    <!-- 新增变量（变量池加列） -->
+    <el-dialog v-model="addVarVisible" title="新增变量" width="460px" :close-on-click-modal="false">
       <el-alert
         type="info"
         :closable="false"
         style="margin-bottom: 12px"
-        title="扫描用例全部节点的写死请求参数（非 ${} 提取注入），每个参数一列并带 1 行原值快照；file 字段同样成列（行编辑时从文件中心选择）；同时按节点快照当前前置/后置提取/断言配置；同名参数跨节点取值不同时跳过该列"
+        title="在变量池中新增一个变量（列）。同字段在不同节点取值不同的参数（如状态流转）建议不从池取值，改由各节点在用例编排中单独配置"
       />
-      <el-form label-width="80px">
-        <el-form-item label="选择用例" required>
-          <el-select v-model="genCaseId" filterable placeholder="选择用例" style="width: 100%"
-                     :popper-options="{ strategy: 'fixed' }">
-            <el-option v-for="c in genCases" :key="c.id" :label="c.name" :value="c.id">
-              <el-tooltip :content="c.name" placement="top" :disabled="c.name.length <= 30">
-                <span class="gen-case-option">{{ c.name }}</span>
-              </el-tooltip>
-            </el-option>
-          </el-select>
+      <el-form label-width="70px">
+        <el-form-item label="变量名" required>
+          <el-input v-model="addVarKey" placeholder="如：entrust_status 或 to_customer.remark（点路径）" maxlength="100" />
         </el-form-item>
-        <el-form-item label="名称">
-          <el-input v-model="genName" placeholder="默认：用例名-参数集" maxlength="100" />
+        <el-form-item label="类型">
+          <el-select v-model="addVarType" style="width: 100%">
+            <el-option v-for="t in ['string', 'int', 'bool', 'array', 'object', 'file']" :key="t" :label="t" :value="t" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="genVisible = false">取消</el-button>
-        <el-button type="primary" :loading="genSaving" @click="confirmGenerate">生成</el-button>
+        <el-button @click="addVarVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAddVariable">添加</el-button>
       </template>
     </el-dialog>
 
-    <!-- 快照明细（只读 JSON） -->
-    <el-dialog v-model="snapVisible" :title="`节点 ${snapViewing?.node_id || ''} 配置快照（只读）`" width="720px">
-      <pre class="snap-json">{{ snapJson }}</pre>
-      <template #footer>
-        <el-button @click="snapVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 导入预览确认 -->
-    <el-dialog v-model="previewVisible" title="导入预览" width="720px" align-center :close-on-click-modal="false">
-      <el-alert
-        v-for="(w, i) in previewWarnings"
-        :key="i"
-        :title="w"
-        type="warning"
-        :closable="false"
-        style="margin-bottom: 8px"
+    <!-- 节点参数导入：粘贴 JSON → 预览（动态不覆盖/静态替换/忽略）→ 确认应用并保存 -->
+    <el-dialog v-model="importVisible" title="导入节点参数" width="760px" :close-on-click-modal="false">
+      <el-input
+        v-model="importText"
+        type="textarea"
+        :rows="8"
+        placeholder="粘贴 JSON 对象（{...}）；解析预览后仅「将被替换」的参数会被应用，动态绑定（${}）不会被覆盖"
       />
-      <div class="preview-tip">共解析 {{ previewRows.length }} 行，确认后将<b>替换现有全部行</b></div>
-      <el-table :data="previewRows" stripe size="small" max-height="360">
-        <el-table-column type="index" label="#" width="50" />
-        <el-table-column
-          v-for="col in previewCols"
-          :key="col"
-          :prop="col"
-          :label="colLabel(col)"
-          min-width="130"
-          show-overflow-tooltip
-        >
-          <template #default="{ row }">{{ fmtCell(row[col]) }}</template>
+      <div class="import-actions">
+        <el-button size="small" @click="parseImport">解析预览</el-button>
+      </div>
+      <el-table v-if="importRows.length" :data="importRows" size="small" border max-height="320">
+        <el-table-column label="参数" prop="key" width="200" show-overflow-tooltip />
+        <el-table-column label="状态" width="150">
+          <template #default="{ row }">
+            <span class="badge" :class="row.badge">{{ row.statusText }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="当前值" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.cur || '（空）' }}</template>
+        </el-table-column>
+        <el-table-column label="导入值" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.neu }}</template>
         </el-table-column>
       </el-table>
       <template #footer>
-        <el-button @click="previewVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="confirmImport">确认导入</el-button>
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!applyCount" :loading="savingValues" @click="confirmImport">
+          确认导入{{ applyCount ? `（${applyCount} 项替换）` : '' }}
+        </el-button>
       </template>
     </el-dialog>
 
-    <!-- 行编辑抽屉：字段纵向排列 + 搜索定位，替代横向滚动表格内编辑 -->
-    <el-drawer v-model="drawerVisible" size="640px" :close-on-click-modal="false">
-      <template #header>
-        <span>编辑第 {{ editingRowIndex }} 行数据</span>
-      </template>
-      <div class="drawer-body">
-        <el-input
-          v-model="fieldSearch"
-          placeholder="搜索字段（中文名 / key）"
-          clearable
-          class="field-search"
-        />
-        <div class="field-count">
-          {{ filteredFields.length }} / {{ current?.columns?.length || 0 }} 个字段{{ fieldSearch ? '（已过滤）' : '' }}
-        </div>
-        <el-scrollbar class="field-scroll">
-          <el-form label-position="top" size="small" @submit.prevent>
-            <el-form-item v-for="col in filteredFields" :key="col.key">
-              <template #label>
-                <!-- 全站统一约定：原始字段名 + 字典中文名（如有） -->
-                <span>{{ colLabel(col.key) }}</span>
-                <span class="col-type-tag">{{ col.type }}</span>
-              </template>
-              <!-- file 列：值是文件中心文件 ID，弹文件选择器而非手填文本 -->
-              <div v-if="col.type === 'file'" class="file-value-cell">
-                <el-input
-                  :model-value="editingRowData[col.key] ? `#${editingRowData[col.key]}` : ''"
-                  readonly
-                  placeholder="未选择文件"
-                  class="file-value-input"
-                />
-                <el-button link type="primary" @click="openFilePicker(col.key)">选择</el-button>
-                <el-button v-if="editingRowData[col.key]" link type="danger" @click="editingRowData[col.key] = ''">清除</el-button>
-              </div>
-              <el-input
-                v-else
-                v-model="editingRowData[col.key]"
-                :type="isJsonText(editingRowData[col.key]) ? 'textarea' : 'text'"
-                :autosize="{ minRows: 1, maxRows: 20 }"
-              />
-              <div v-if="jsonError(col.key)" class="json-err">{{ jsonError(col.key) }}</div>
-            </el-form-item>
-          </el-form>
-        </el-scrollbar>
-      </div>
-      <template #footer>
-        <el-button @click="cancelEditRow">取消</el-button>
-        <el-button type="primary" :loading="rowSaving" @click="saveRow">保存</el-button>
-      </template>
-    </el-drawer>
-
-    <!-- file 列取值：文件中心选择器（与前置处理的文件选择同构） -->
+    <!-- file 参数取值：文件中心选择器 -->
     <FilePicker
       v-model="filePickerVisible"
-      :model-file-id="editingRowData[filePickerKey] || ''"
+      :model-file-id="editingValues[filePickerKey] || ''"
       @select="onFileSelect"
     />
 
@@ -363,7 +345,7 @@
               v-for="d in mergeCandidates"
               :key="d.id"
               :value="d.id"
-              :label="`${d.name}（${caseName(d.case_id)}，${d.rows?.length ?? 0} 行）`"
+              :label="`${d.name}（${caseName(d.case_id)}，${d.columns?.length ?? 0} 变量）`"
             />
           </el-select>
         </el-form-item>
@@ -379,19 +361,6 @@
           title="两个数据集没有相同节点（相同接口），没有覆盖的必要"
         />
         <template v-else>
-          <el-form label-width="90px" size="small">
-            <el-form-item label="用源哪一行">
-              <el-select v-model="mergeRowIdx" style="width: 200px" filterable fit-input-width>
-                <el-option
-                  v-for="(lbl, i) in mergePreviewData.source.row_labels"
-                  :key="i"
-                  :value="i + 1"
-                  :label="`第 ${lbl} 行`"
-                />
-              </el-select>
-              <span class="merge-hint">该行的值将覆盖下方勾选节点涉及的列（当前数据集全部行）</span>
-            </el-form-item>
-          </el-form>
           <el-table
             ref="mergeTableRef"
             :data="mergePreviewData.common_nodes"
@@ -400,7 +369,7 @@
           >
             <el-table-column type="selection" width="40" />
             <el-table-column prop="api_name" label="相同节点（接口）" min-width="140" />
-            <el-table-column label="涉及列" min-width="300">
+            <el-table-column label="涉及变量" min-width="300">
               <template #default="{ row }">
                 <el-tooltip :content="row.columns.map(colLabel).join('、')" placement="top" popper-class="app-tip">
                   <span class="merge-cols">{{ row.columns.map(colLabel).join('、') }}</span>
@@ -409,8 +378,8 @@
             </el-table-column>
           </el-table>
           <div class="merge-hint" style="margin-top: 8px">
-            已选 {{ mergeSelectedApis.length }} 个节点 · 源「{{ mergePreviewData.source.name }}」共
-            {{ mergePreviewData.source.rows }} 行 · 目标独有列保持不变 · 源行空值不覆盖
+            已选 {{ mergeSelectedApis.length }} 个节点 · 源「{{ mergePreviewData.source.name }}」的单套值将覆盖勾选节点涉及变量 ·
+            目标独有变量保持不变 · 源空值不覆盖
           </div>
         </template>
       </template>
@@ -432,19 +401,16 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, type DataSet, type DataSetColumn, type DataSetNodeConfig, type TestCase, type CaseGroup, type TestFile } from '@/api'
+import { datasetApi, caseApi, caseGroupApi, type DataSet, type TestCase, type CaseGroup, type DatasetParamsView, type DatasetParam, type TestFile } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useFieldDict } from '@/composables/useFieldDict'
-import { fileTimestamp } from '@/utils/format'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
 import FilePicker from '@/components/FilePicker.vue'
 
 const store = useAppStore()
-const router = useRouter()
 const { dictLabel } = useFieldDict()
 const cases = ref<TestCase[]>([])
 const groups = ref<CaseGroup[]>([])
@@ -454,12 +420,366 @@ const current = ref<DataSet | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 const saving = ref(false)
-const resyncing = ref(false)
 
-const colTypes = ['string', 'int', 'bool', 'array', 'object', 'file']
 const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === currentCase.value?.id))
-const colKeys = computed(() => (current.value?.columns || []).map((c) => c.key))
-const colLabels = computed(() => colKeys.value.map((k) => colLabel(k)))
+
+// ===== 变量池视图（用例级单池；节点为筛选视角） =====
+const view = ref<DatasetParamsView | null>(null)
+const viewLoading = ref(false)
+const savingValues = ref(false)
+const editingValues = ref<Record<string, any>>({})
+const activeNodeId = ref('__all__')  // 默认总览：全部变量去重平铺
+// 节点级编辑态：node_id → key → 值（节点页签编辑 = 写该节点手动覆盖，压过池值；
+// 池总览页签编辑 = 池值本身，一键一值向各节点共享）
+const nodeEdits = ref<Record<string, Record<string, any>>>({})
+// 脏检测基线：node_id → key → 序列化初值（manual/dynamic 显示 manual_value，否则池值）
+const nodeBaselines = ref<Record<string, Record<string, string>>>({})
+// 动态绑定键（值含 ${}，编排配置）：节点页签只读，编辑/清除一律跳过
+const dynamicKeysByNode = ref<Record<string, Set<string>>>({})
+
+/** 当前页签的参数清单：总览 = all_params（用例级去重）；节点页签 = 该节点视角 */
+const currentParams = computed<DatasetParam[]>(() => {
+  if (!view.value) return []
+  if (activeNodeId.value === '__all__') return view.value.all_params
+  return view.value.nodes.find((n) => n.node_id === activeNodeId.value)?.params ?? []
+})
+
+const filledCount = computed(
+  () => view.value?.all_params.filter(isFilled).length ?? 0,
+)
+const totalCount = computed(() => view.value?.all_params.length ?? 0)
+
+/** 池中已有值（编辑态实时：输入框非空即已配置） */
+function isFilled(p: DatasetParam) {
+  const v = editingValues.value[p.key]
+  return v !== '' && v !== null && v !== undefined
+}
+
+/** 当前作用域的编辑值：总览 = 池值；节点页签 = 该节点独有值 */
+function editVal(key: string): any {
+  if (activeNodeId.value === '__all__') return editingValues.value[key]
+  return nodeEdits.value[activeNodeId.value]?.[key]
+}
+
+/** 当前作用域写值（v-model 无法绑三元表达式，经此分发） */
+function setEditVal(key: string, v: any) {
+  if (activeNodeId.value === '__all__') {
+    editingValues.value[key] = v
+    return
+  }
+  const m = nodeEdits.value[activeNodeId.value]
+  if (m) m[key] = v
+}
+
+/** 失焦自动美化：输入/粘贴的合法 JSON 文本统一缩进换行；非法（${} 动态绑定/尾逗号等）原样保留，错误由 jsonError 实时提示 */
+function beautifyJson(key: string) {
+  const v = editVal(key)
+  if (!isJsonText(v)) return
+  try {
+    setEditVal(key, JSON.stringify(JSON.parse(v.trim()), null, 2))
+  } catch {
+    // 非法 JSON（尾逗号/动态绑定占位等）：不动
+  }
+}
+
+/** 序列化（对象/数组转 JSON 文本，与池编辑同一格式；紧凑 JSON 文本字符串自动美化缩进换行） */
+function _ser(v: any): string {
+  if (typeof v === 'object' && v !== null) return JSON.stringify(v, null, 2)
+  if (isJsonText(v)) {
+    try {
+      return JSON.stringify(JSON.parse(v), null, 2)  // 合法 JSON 文本：统一美化
+    } catch {
+      return v  // 非法（${} 动态绑定/尾逗号等）：原样保留
+    }
+  }
+  return v ?? ''
+}
+
+/** 值文本还原：JSON 文本解析回对象/数组，其余原样 */
+function _parse(v: any): any {
+  if (isJsonText(v)) {
+    try {
+      return JSON.parse(v)
+    } catch {
+      return v
+    }
+  }
+  return v
+}
+
+async function loadParamsView(id: number) {
+  viewLoading.value = true
+  try {
+    view.value = await datasetApi.paramsView(id)
+    // 编辑副本：对象/数组序列化为 JSON 文本（el-input 直接绑对象会显示 [object Object]，
+    // 且用户一旦触碰输入框，原对象就被覆盖成字符串导致数据损坏）
+    const data: Record<string, any> = {}
+    for (const node of view.value.nodes) {
+      for (const p of node.params) {
+        if (p.key in data) continue
+        const v = p.value
+        data[p.key] = _ser(v)
+      }
+    }
+    // 悬空变量保留在编辑副本（保存时可随清单清理，也可继续给值）
+    for (const k of view.value.orphan_keys) {
+      if (!(k in data)) data[k] = ''
+    }
+    editingValues.value = data
+    // 节点级编辑态：manual/dynamic 显示绑定值（manual 可改，dynamic 只读），
+    // 其余显示池值——改了即成该节点手动覆盖；基线用于保存时脏检测
+    const edits: Record<string, Record<string, any>> = {}
+    const bases: Record<string, Record<string, string>> = {}
+    const dyn: Record<string, Set<string>> = {}
+    for (const node of view.value.nodes) {
+      const m: Record<string, any> = {}
+      const b: Record<string, string> = {}
+      const dk = new Set<string>()
+      for (const p of node.params) {
+        const base = (p.manual || p.dynamic) ? p.manual_value : p.value
+        m[p.key] = _ser(base)
+        b[p.key] = _ser(base)
+        if (p.dynamic) dk.add(p.key)
+      }
+      edits[node.node_id] = m
+      bases[node.node_id] = b
+      dyn[node.node_id] = dk
+    }
+    nodeEdits.value = edits
+    nodeBaselines.value = bases
+    dynamicKeysByNode.value = dyn
+    activeNodeId.value = '__all__'  // 切换数据集回到总览
+  } catch (e: any) {
+    ElMessage.error(e.message || '加载变量池视图失败')
+    view.value = null
+  } finally {
+    viewLoading.value = false
+  }
+}
+
+/** JSON 文本判定：trim 后以 [ 或 { 开头（前导空格不逃逸美化/校验/保存拦截三道防线） */
+function isJsonText(v: any) {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s.startsWith('[') || s.startsWith('{')
+}
+
+// ===== 变量池新增/删除变量（保存时经 column_types 指定新列类型） =====
+const addVarVisible = ref(false)
+const addVarKey = ref('')
+const addVarType = ref('string')
+const addedVarTypes = ref<Record<string, string>>({})
+
+// ===== 节点参数导入（粘贴 JSON → 预览 → 应用编辑态并保存） =====
+interface ImportRow {
+  key: string
+  status: 'replace' | 'dynamic' | 'ignore' | 'same'
+  statusText: string
+  badge: string
+  cur: string
+  neu: string
+}
+const importVisible = ref(false)
+const importText = ref('')
+const importRows = ref<ImportRow[]>([])
+const applyCount = computed(() => importRows.value.filter((r) => r.status === 'replace').length)
+
+function openImport() {
+  importText.value = ''
+  importRows.value = []
+  importVisible.value = true
+}
+
+/** 解析预览：当前节点参数与导入 JSON 逐键比对——动态绑定（${}）不覆盖，
+ *  非该节点参数忽略，其余标记替换（同值标记不变） */
+function parseImport() {
+  let obj: any
+  try {
+    obj = JSON.parse(importText.value)
+  } catch (e: any) {
+    ElMessage.error(`JSON 解析失败：${e.message}`)
+    return
+  }
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    ElMessage.error('请粘贴 JSON 对象（{...}）')
+    return
+  }
+  const node = view.value?.nodes.find((n) => n.node_id === activeNodeId.value)
+  const byKey = new Map((node?.params || []).map((p) => [p.key, p]))
+  const rows: ImportRow[] = []
+  for (const [k, v] of Object.entries(obj)) {
+    const neu = _ser(v)
+    const p = byKey.get(k)
+    if (!p) {
+      rows.push({ key: k, status: 'ignore', statusText: '非该节点参数，忽略', badge: 'badge-empty', cur: '', neu })
+    } else if (p.dynamic) {
+      rows.push({ key: k, status: 'dynamic', statusText: '动态绑定，不覆盖', badge: 'badge-dynamic', cur: _ser(p.manual_value), neu })
+    } else if (String(editVal(k)) === neu) {
+      rows.push({ key: k, status: 'same', statusText: '值相同', badge: 'badge-filled', cur: neu, neu })
+    } else {
+      rows.push({ key: k, status: 'replace', statusText: '将被替换', badge: 'badge-manual', cur: String(editVal(k) ?? ''), neu })
+    }
+  }
+  importRows.value = rows
+  if (!rows.length) ElMessage.info('导入内容为空')
+}
+
+async function confirmImport() {
+  // 仅替换项写入节点编辑态（与手输同一格式），复用保存链路（JSON 校验/脏检测）
+  for (const r of importRows.value) {
+    if (r.status === 'replace') setEditVal(r.key, r.neu)
+  }
+  importVisible.value = false
+  await saveValues()
+}
+// 与后端 _COL_KEY_RE 一致：字母/数字/下划线/点路径段
+const VAR_KEY_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d+))*$/
+
+function openAddVariable() {
+  addVarKey.value = ''
+  addVarType.value = 'string'
+  addVarVisible.value = true
+}
+
+function confirmAddVariable() {
+  const k = addVarKey.value.trim()
+  if (!k) return ElMessage.warning('请填写变量名')
+  if (!VAR_KEY_RE.test(k)) {
+    return ElMessage.error('变量名不合法：仅允许字母/数字/下划线/点号（点路径段，段内不以数字开头、不含空格/${}）')
+  }
+  if (k in editingValues.value) return ElMessage.warning(`变量「${k}」已存在`)
+  editingValues.value[k] = ''
+  addedVarTypes.value[k] = addVarType.value
+  addVarVisible.value = false
+  ElMessage.info(`已添加变量「${k}」，填写值后点「保存」生效`)
+}
+
+async function removeVariable(p: DatasetParam) {
+  if (!(p.key in editingValues.value)) return
+  try {
+    await ElMessageBox.confirm(
+      `确认从变量池删除「${colLabel(p.key)}」？删除后该参数不再从池取值：若节点未配置手动/动态值，执行时发送空值（""/null）。同字段节点取不同值时，请改由各节点在用例编排中单独配置。`,
+      '删除变量',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  delete editingValues.value[p.key]
+  delete addedVarTypes.value[p.key]
+  ElMessage.info('已从编辑清单移除，点「保存」后正式删除')
+}
+
+/** 即时 JSON 校验：文本以 {/[ 开头但解析失败时给出提示（不阻塞输入，保存时拦截） */
+function jsonError(v: any) {
+  if (!isJsonText(v)) return ''
+  try {
+    JSON.parse(v)
+    return ''
+  } catch (e: any) {
+    return `JSON 格式错误：${e.message}`
+  }
+}
+
+function paramPlaceholder(p: DatasetParam) {
+  if (p.type === 'array' || p.type === 'object')
+    return '池中无值；JSON 数组/对象文本'
+  return '池中无值；留空时发送空值（运行时变量需 ${} 显式引用）'
+}
+
+async function saveValues() {
+  if (!current.value) return
+  // 有 JSON 语法错误时阻止保存（提示第一个错误字段；池值 + 节点覆盖值都查）
+  for (const [k, v] of Object.entries(editingValues.value)) {
+    const err = jsonError(v)
+    if (err) {
+      ElMessage.error(`池值 ${colLabel(k)}：${err}`)
+      return
+    }
+  }
+  for (const [nid, m] of Object.entries(nodeEdits.value)) {
+    const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
+    for (const [k, v] of Object.entries(m)) {
+      if (dyn.has(k)) continue  // 动态绑定（${}）只读展示，非 JSON 文本不校验
+      const err = jsonError(v)
+      if (err) {
+        const label = view.value?.nodes.find((n) => n.node_id === nid)?.label || nid
+        ElMessage.error(`${label} / ${colLabel(k)}：${err}`)
+        return
+      }
+    }
+  }
+  // 节点级脏检测：改动即该节点手动覆盖（写 pre_process 字面量，压过池值）；
+  // 清空 = 移除覆盖回落池值；动态绑定键只读不参与
+  const nodeSaves: { node_id: string; sets: Record<string, any>; clears: string[] }[] = []
+  for (const [nid, m] of Object.entries(nodeEdits.value)) {
+    const base = nodeBaselines.value[nid] || {}
+    const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
+    const sets: Record<string, any> = {}
+    const clears: string[] = []
+    for (const [k, v] of Object.entries(m)) {
+      // 两侧统一 String 再比：池值 number/bool 经 _ser 原样保留非字符串，
+      // 若只 String 一侧，String(123) !== 123 恒真 → 未改动的参数被误判脏，
+      // 保存时整批写成节点 set_field 字面量（污染用例前置处理）
+      if (k in base && String(v) !== String(base[k]) && !dyn.has(k)) {
+        if (v === '' || v === null || v === undefined) clears.push(k)
+        else sets[k] = _parse(v)
+      }
+    }
+    if (Object.keys(sets).length || clears.length) nodeSaves.push({ node_id: nid, sets, clears })
+  }
+  // JSON 文本还原为对象/数组；空串保持空串（未配置语义）
+  const values: Record<string, any> = {}
+  Object.entries(editingValues.value).forEach(([k, v]) => {
+    if (isJsonText(v)) {
+      try {
+        values[k] = JSON.parse(v)
+        return
+      } catch {
+        // 上方已校验，这里不会走到
+      }
+    }
+    values[k] = v
+  })
+  savingValues.value = true
+  try {
+    const columnTypes = Object.keys(addedVarTypes.value).length ? { ...addedVarTypes.value } : undefined
+    await datasetApi.saveValues(current.value.id, values, columnTypes)
+    for (const ns of nodeSaves) {
+      await datasetApi.saveNodeValues(current.value.id, ns.node_id, ns.sets, ns.clears)
+    }
+    ElMessage.success('已保存')
+    await load()
+    if (current.value) await loadParamsView(current.value.id)
+  } catch (e: any) {
+    ElMessage.error(e.message || '保存失败')
+  } finally {
+    savingValues.value = false
+  }
+}
+
+// ===== file 参数取值：文件中心选择器（值存文件 ID） =====
+const filePickerVisible = ref(false)
+const filePickerKey = ref('')
+const filePickerNode = ref<string | null>(null)  // null = 池总览；节点页签 = 该节点覆盖
+
+function openFilePicker(key: string) {
+  filePickerKey.value = key
+  filePickerNode.value = activeNodeId.value === '__all__' ? null : activeNodeId.value
+  filePickerVisible.value = true
+}
+
+function onFileSelect(file: TestFile) {
+  if (filePickerKey.value) {
+    if (filePickerNode.value) {
+      const m = nodeEdits.value[filePickerNode.value]
+      if (m) m[filePickerKey.value] = String(file.id)
+    } else {
+      editingValues.value[filePickerKey.value] = String(file.id)
+    }
+  }
+  filePickerKey.value = ''
+  filePickerNode.value = null
+}
 
 // ===== 左侧用例分组树（沿用用例列表的分组结构；树构建与展开记忆收敛进 useGroupTree）=====
 const UNGROUPED_ID = -1
@@ -549,6 +869,7 @@ async function load() {
       current.value = caseDatasets.value.find((d) => d.id === current.value!.id) || null
     }
     if (!current.value && caseDatasets.value.length) current.value = caseDatasets.value[0]
+    if (current.value) await loadParamsView(current.value.id)
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -557,54 +878,35 @@ async function load() {
 }
 
 function selectCase(c: TestCase) {
-  cancelEditRow()
   currentCase.value = c
   current.value = caseDatasets.value[0] || null
+  if (current.value) loadParamsView(current.value.id)
+  else view.value = null
 }
 
 function select(d: DataSet) {
-  cancelEditRow()
   current.value = d
+  loadParamsView(d.id)
 }
 
-// ---------- 数据集（列定义）新建/编辑 ----------
+// ---------- 数据集信息（名称/描述）编辑 ----------
 const dlgVisible = ref(false)
 const editingId = ref<number | null>(null)
-const form = ref<{ name: string; description: string; columns: DataSetColumn[] }>({
-  name: '', description: '', columns: [{ key: '', type: 'string' }],
-})
-
-function openCreate() {
-  if (!currentCase.value) return ElMessage.warning('请先选择左侧用例（数据集按用例隔离）')
-  editingId.value = null
-  form.value = { name: '', description: '', columns: [{ key: '', type: 'string' }] }
-  dlgVisible.value = true
-}
+const form = ref<{ name: string; description: string }>({ name: '', description: '' })
 
 function openEdit(d: DataSet) {
   editingId.value = d.id
-  form.value = {
-    name: d.name,
-    description: d.description || '',
-    columns: (d.columns || []).map((c) => ({ ...c })),
-  }
+  form.value = { name: d.name, description: d.description || '' }
   dlgVisible.value = true
 }
 
 async function save() {
   if (!form.value.name.trim()) return ElMessage.warning('请填写名称')
-  const cols = form.value.columns.filter((c) => c.key.trim())
-  if (!cols.length) return ElMessage.warning('至少需要一列')
   saving.value = true
   try {
     if (editingId.value) {
       await datasetApi.update(editingId.value, {
-        name: form.value.name, description: form.value.description, columns: cols,
-      })
-    } else {
-      await datasetApi.create({
-        project_id: store.currentProjectId!, case_id: currentCase.value!.id, name: form.value.name,
-        description: form.value.description, columns: cols,
+        name: form.value.name, description: form.value.description,
       })
     }
     ElMessage.success('已保存')
@@ -623,7 +925,7 @@ async function remove(d: DataSet) {
     await ElMessageBox.confirm(
       d.case_bound_count
         ? `数据集已被所属用例绑定，请先在用例管理解绑后再删除`
-        : `确认删除数据集「${d.name}」及其全部数据行？`,
+        : `确认删除数据集「${d.name}」及其单套数据？`,
       '删除数据集',
       { type: 'warning', showCancelButton: !d.case_bound_count, confirmButtonText: d.case_bound_count ? '知道了' : '删除' },
     )
@@ -640,7 +942,7 @@ async function remove(d: DataSet) {
   }
 }
 
-// ---------- 复制 / 重新同步（隔离语义下的复用与快照更新） ----------
+// ---------- 复制（隔离语义下的复用） ----------
 async function copyDataset() {
   if (!current.value) return
   try {
@@ -648,332 +950,9 @@ async function copyDataset() {
     ElMessage.success(`已复制为「${nd.name}」`)
     await load()
     current.value = caseDatasets.value.find((d) => d.id === nd.id) || current.value
+    if (current.value) loadParamsView(current.value.id)
   } catch (e: any) {
     ElMessage.error(e.message || '复制失败')
-  }
-}
-
-async function resyncDataset() {
-  if (!current.value) return
-  resyncing.value = true
-  try {
-    const r = await datasetApi.resync(current.value.id)
-    ElMessage.success(r.message)
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '重新同步失败')
-  } finally {
-    resyncing.value = false
-  }
-}
-
-// ---------- 快照明细（只读） ----------
-const snapVisible = ref(false)
-const snapViewing = ref<DataSetNodeConfig | null>(null)
-const snapJson = computed(() => JSON.stringify(snapViewing.value, null, 2))
-
-function viewSnapshot(c: DataSetNodeConfig) {
-  snapViewing.value = c
-  snapVisible.value = true
-}
-
-// ---------- 从用例生成（写死参数 + 节点配置快照） ----------
-const genVisible = ref(false)
-const genSaving = ref(false)
-const genCases = ref<TestCase[]>([])
-const genCaseId = ref<number | null>(null)
-const genName = ref('')
-
-async function openGenerate() {
-  genCaseId.value = currentCase.value?.id ?? null
-  genName.value = ''
-  genVisible.value = true
-  try {
-    genCases.value = await caseApi.list(store.currentProjectId ?? undefined)
-  } catch {
-    genCases.value = []
-  }
-}
-
-watch(genCaseId, (id) => {
-  const c = genCases.value.find((c) => c.id === id)
-  genName.value = c ? `${c.name}-参数集` : ''
-})
-
-async function confirmGenerate() {
-  if (!genCaseId.value) return ElMessage.warning('请选择用例')
-  genSaving.value = true
-  try {
-    const { dataset, stats } = await datasetApi.generate(genCaseId.value, genName.value.trim() || undefined)
-    ElMessage.success(`已生成「${dataset.name}」：${stats.columns} 列 · 扫描 ${stats.nodes} 节点 · 含 1 行原值快照`)
-    // 未成列的参数提示（动态/嵌套/列名不合法），列数与接口字段数对不上时可解释
-    const skipped = [
-      stats.dynamic ? `${stats.dynamic} 个动态绑定（表达式注入）` : '',
-      stats.nested ? `${stats.nested} 个嵌套路径` : '',
-      stats.invalid ? `${stats.invalid} 个列名不合法（如含方括号）` : '',
-    ].filter(Boolean)
-    if (skipped.length) {
-      ElMessage.info(`另有 ${skipped.join('、')} 未成列，执行时保持原配置`)
-    }
-    if (stats.conflicts?.length) {
-      const keys = stats.conflicts.slice(0, 5).map((c) => c.key).join('、')
-      ElMessage.info(`${stats.conflicts.length} 个参数跨节点取值不同，已取首节点值成列：${keys}${stats.conflicts.length > 5 ? '…' : ''}`)
-    }
-    genVisible.value = false
-    await load()
-    currentCase.value = cases.value.find((c) => c.id === genCaseId.value) || currentCase.value
-    current.value = caseDatasets.value.find((d) => d.id === dataset.id) || current.value
-    // 回程引导：绑定数据集的链路在本页断头（从用例「数据」入口跳来生成后需自行折返）。
-    // 仅目标用例尚未绑定数据集时提示，避免打扰纯数据集维护流程。
-    const genCase = cases.value.find((c) => c.id === genCaseId.value)
-    if (genCase && !genCase.dataset_id) {
-      try {
-        await ElMessageBox.confirm(
-          `「${dataset.name}」已生成。若从用例的「数据」绑定入口跳来，可返回用例列表完成绑定`,
-          '返回用例继续绑定？',
-          { type: 'info', confirmButtonText: '返回用例列表', cancelButtonText: '留在此页' },
-        )
-        router.push('/cases')
-        ElMessage.info('在目标用例行内点「数据」，选择刚生成的数据集完成绑定')
-      } catch {
-        // 留在数据集页继续维护
-      }
-    }
-  } catch (e: any) {
-    ElMessage.error(e.message || '生成失败')
-  } finally {
-    genSaving.value = false
-  }
-}
-
-// ---------- 行编辑（右侧抽屉：字段纵向排列 + 搜索定位） ----------
-const editingRowId = ref<number | null>(null)
-const editingRowIndex = ref<number | null>(null)
-const editingRowData = ref<Record<string, any>>({})
-const drawerVisible = ref(false)
-const rowSaving = ref(false)
-const fieldSearch = ref('')
-
-// JSON 文本字段判定（对象/数组列编辑态显示为 JSON 文本，用 textarea）
-function isJsonText(v: any) {
-  return typeof v === 'string' && (v.startsWith('[') || v.startsWith('{'))
-}
-
-/** 即时 JSON 校验：文本以 {/[ 开头但解析失败时给出提示（不阻塞输入） */
-function jsonError(key: string) {
-  const v = editingRowData.value[key]
-  if (!isJsonText(v)) return ''
-  try {
-    JSON.parse(v)
-    return ''
-  } catch (e: any) {
-    return `JSON 格式错误：${e.message}`
-  }
-}
-
-const filteredFields = computed(() => {
-  const cols = current.value?.columns || []
-  const kw = fieldSearch.value.trim().toLowerCase()
-  if (!kw) return cols
-  return cols.filter(
-    (c) => c.key.toLowerCase().includes(kw) || colLabel(c.key).toLowerCase().includes(kw),
-  )
-})
-
-function startEditRow(row: any) {
-  editingRowId.value = row.id
-  editingRowIndex.value = row.row_index
-  fieldSearch.value = ''
-  // 对象/数组字段先序列化为 JSON 文本再编辑：el-input 直接绑对象会显示 [object Object]，
-  // 且用户一旦触碰该输入框，原对象就被覆盖成字符串导致数据损坏
-  const data: Record<string, any> = {}
-  Object.entries(row.data || {}).forEach(([k, v]) => {
-    data[k] = typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : v
-  })
-  editingRowData.value = data
-  drawerVisible.value = true
-}
-
-function cancelEditRow() {
-  drawerVisible.value = false
-  editingRowId.value = null
-  editingRowIndex.value = null
-  editingRowData.value = {}
-}
-
-// ===== file 列文件选择器（值存文件中心文件 ID） =====
-const filePickerVisible = ref(false)
-const filePickerKey = ref('')
-
-function openFilePicker(key: string) {
-  filePickerKey.value = key
-  filePickerVisible.value = true
-}
-
-function onFileSelect(file: TestFile) {
-  if (filePickerKey.value) {
-    editingRowData.value[filePickerKey.value] = String(file.id)
-  }
-  filePickerKey.value = ''
-}
-
-async function saveRow() {
-  if (!current.value || !editingRowId.value) return
-  // 有 JSON 语法错误时阻止保存（提示第一个错误字段）
-  for (const col of current.value.columns) {
-    const err = jsonError(col.key)
-    if (err) {
-      fieldSearch.value = ''
-      ElMessage.error(`${colLabel(col.key)}：${err}`)
-      return
-    }
-  }
-  // JSON 文本还原为对象/数组
-  const data: Record<string, any> = {}
-  Object.entries(editingRowData.value).forEach(([k, v]) => {
-    if (isJsonText(v)) {
-      try {
-        data[k] = JSON.parse(v)
-        return
-      } catch {
-        // 上方已校验，这里不会走到
-      }
-    }
-    data[k] = v
-  })
-  rowSaving.value = true
-  try {
-    await datasetApi.updateRow(current.value.id, editingRowId.value, data)
-    ElMessage.success('已保存')
-    cancelEditRow()
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    rowSaving.value = false
-  }
-}
-
-async function addRow() {
-  if (!current.value) return
-  if (!current.value.columns.length) return ElMessage.warning('请先编辑列定义')
-  const data: Record<string, any> = {}
-  current.value.columns.forEach((c) => (data[c.key] = ''))
-  try {
-    await datasetApi.addRow(current.value.id, data)
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '添加失败')
-  }
-}
-
-async function removeRow(row: any) {
-  if (!current.value) return
-  try {
-    await ElMessageBox.confirm(
-      `确认删除第 ${row.row_index} 行数据？此操作不可恢复`,
-      '删除数据行',
-      { type: 'warning', confirmButtonText: '删除' },
-    )
-  } catch {
-    return // 用户取消
-  }
-  try {
-    await datasetApi.removeRow(current.value.id, row.id)
-    ElMessage.success('已删除')
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-
-/** 复制行：原行数据原样追加为新行（row_index 顺延），常用于改少数字段的近似场景 */
-async function copyRow(row: any) {
-  if (!current.value) return
-  try {
-    await datasetApi.copyRow(current.value.id, row.id)
-    ElMessage.success('已复制为新行')
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '复制失败')
-  }
-}
-
-async function clearRows() {
-  if (!current.value) return
-  try {
-    await ElMessageBox.confirm('确认清空全部数据行？', '清空', { type: 'warning' })
-  } catch {
-    return
-  }
-  try {
-    await datasetApi.clearRows(current.value.id)
-    ElMessage.success('已清空')
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '操作失败')
-  }
-}
-
-// ---------- 导入（预览 → 确认） ----------
-const previewVisible = ref(false)
-const previewRows = ref<Record<string, any>[]>([])
-const previewWarnings = ref<string[]>([])
-const previewCols = ref<string[]>([])
-const importing = ref(false)
-let pendingFile: File | null = null
-
-async function onImportFile(file: any) {
-  if (!current.value) return
-  pendingFile = file.raw as File
-  try {
-    const res = await datasetApi.importFile(current.value.id, pendingFile, true)
-    previewRows.value = res.rows || []
-    previewWarnings.value = res.warnings || []
-    previewCols.value = (current.value.columns || []).map((c) => c.key)
-    previewVisible.value = true
-  } catch (e: any) {
-    ElMessage.error(e.message || '解析失败')
-  }
-}
-
-async function confirmImport() {
-  if (!current.value || !pendingFile) return
-  importing.value = true
-  try {
-    const res = await datasetApi.importFile(current.value.id, pendingFile, false)
-    ElMessage.success(`已导入 ${res.count} 行`)
-    previewVisible.value = false
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '导入失败')
-  } finally {
-    importing.value = false
-  }
-}
-
-function fmtCell(v: any) {
-  if (v === null || v === undefined || v === '') return '—'
-  if (typeof v === 'object') return JSON.stringify(v)
-  return String(v)
-}
-
-// ---------- 行导出 Excel ----------
-async function exportRows() {
-  if (!current.value) return
-  try {
-    const blob = await datasetApi.exportRows(current.value.id)
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const stamp = fileTimestamp()
-    link.href = url
-    link.download = `${current.value.name}_${stamp}.xlsx`
-    link.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success('已导出 Excel')
-  } catch (e: any) {
-    // blob 错误响应已由 axios 拦截器统一解析为 ApiError，catch 只读 e.message
-    ElMessage.error(e.message || '导出失败')
   }
 }
 
@@ -984,7 +963,6 @@ const mergeLoading = ref(false)
 const merging = ref(false)
 const mergePreviewData = ref<Awaited<ReturnType<typeof datasetApi.mergePreview>> | null>(null)
 const mergeSelectedApis = ref<number[]>([])
-const mergeRowIdx = ref(1)
 const mergeTableRef = ref()
 
 /** 源候选：同项目其他数据集（项目内已全量加载，无需再请求） */
@@ -1000,7 +978,6 @@ function openMerge() {
   mergeSourceId.value = null
   mergePreviewData.value = null
   mergeSelectedApis.value = []
-  mergeRowIdx.value = 1
   mergeVisible.value = true
 }
 
@@ -1031,11 +1008,11 @@ async function confirmMerge() {
     const res = await datasetApi.merge(current.value.id, {
       source_dataset_id: mergeSourceId.value,
       api_ids: mergeSelectedApis.value,
-      source_row_index: mergeRowIdx.value,
     })
     ElMessage.success(`${res.message}：${res.keys.slice(0, 8).join('、')}${res.keys.length > 8 ? '…' : ''}`)
     mergeVisible.value = false
     await load()
+    if (current.value) await loadParamsView(current.value.id)
   } catch (e: any) {
     ElMessage.error(e.message || '覆盖合并失败')
   } finally {
@@ -1047,6 +1024,7 @@ onMounted(load)
 watch(() => store.currentProjectId, () => {
   currentCase.value = null
   current.value = null
+  view.value = null
   load()
 })
 </script>
@@ -1209,15 +1187,6 @@ watch(() => store.currentProjectId, () => {
   min-width: 24px;
   text-align: center;
 }
-.main-sub {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .main-actions {
   margin-left: auto;
   display: flex;
@@ -1225,124 +1194,129 @@ watch(() => store.currentProjectId, () => {
   align-items: center;
   flex-shrink: 0;
 }
-.row-ops {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 .tip {
   color: var(--app-text-muted);
   font-size: 12px;
 }
-.tip .help-link {
-  padding: 2px 6px;
-  font-size: 12px;
-  margin-left: 4px;
+/* 变量池视图：节点页签 + 参数状态徽标 */
+.params-area {
+  min-height: 120px;
 }
-.col-row {
+.orphan-tip {
+  margin-bottom: 10px;
+}
+.pool-stat {
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
   align-items: center;
-}
-.col-dict {
-  width: 170px;
+  gap: 16px;
   font-size: 12px;
   color: var(--app-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-bottom: 8px;
 }
-.cols-editor {
-  width: 100%;
-  /* 列定义多时限高滚动，防弹窗无限膨胀；+ 添加列按钮与提示随滚动区之外常驻 */
-  display: flex;
-  flex-direction: column;
+.pool-stat b {
+  color: var(--app-primary);
 }
-.cols-editor .col-list {
-  max-height: 300px;
-  overflow-y: auto;
-  padding-right: 4px;
+.stat-note {
+  color: var(--app-text-faint);
 }
-/* 节点配置快照面板 */
-.snap-panel {
-  margin-top: 14px;
+.add-var-btn {
+  margin-left: auto;
+}
+.del-var-btn {
+  margin-left: auto;
+  margin-right: -6px;
+}
+.node-tabs {
   border-top: 1px solid var(--app-border);
 }
-.snap-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--app-text);
-}
-.snap-tip {
-  margin-left: 10px;
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-.snap-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.snap-json {
-  max-height: 420px;
-  overflow: auto;
-  padding: 12px;
-  background: var(--app-bg);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.preview-tip {
-  margin-bottom: 10px;
-  color: var(--app-text-muted);
-  font-size: 13px;
-}
-/* 用例下拉选项：超长名截断省略，防下拉面板无限变宽 */
-.gen-case-option {
-  display: block;
-  max-width: 420px;
+.tab-label {
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  vertical-align: middle;
 }
-/* 行编辑抽屉：搜索固定顶部，字段区独立滚动 */
-.drawer-body {
+.tab-cnt {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--app-text-faint);
+  vertical-align: middle;
+}
+.node-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px 20px;
+  padding: 8px 2px 4px;
+}
+.param-row {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  padding: 0 4px;
+  gap: 4px;
 }
-.field-search {
-  margin-bottom: 8px;
-}
-.field-count {
-  font-size: 12px;
+.param-row.manual .param-label {
   color: var(--app-text-muted);
-  margin-bottom: 8px;
 }
-.field-scroll {
-  flex: 1;
+.param-label {
+  font-size: 12px;
+  color: var(--app-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .col-type-tag {
-  margin-left: 6px;
   font-size: 11px;
   color: var(--app-text-muted);
   border: 1px solid var(--el-border-color);
   border-radius: 3px;
   padding: 0 4px;
 }
+/* 参数状态徽标（四态） */
+.badge {
+  font-size: 11px;
+  border-radius: 3px;
+  padding: 0 5px;
+  border: 1px solid;
+  cursor: help;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.badge-filled {
+  color: var(--el-color-success);
+  border-color: var(--el-color-success);
+}
+.badge-dynamic {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+.badge-empty {
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  font-weight: 600;
+}
+.badge-manual {
+  color: var(--el-color-warning);
+  border-color: var(--el-color-warning);
+}
 .json-err {
   font-size: 12px;
   color: var(--el-color-danger);
-  margin-top: 2px;
 }
-/* file 列取值单元格：只读文件 ID + 选择/清除（与前置处理同构） */
+.pool-tip {
+  margin-top: 10px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 2;
+}
+.pool-tip .badge {
+  cursor: default;
+}
+.pool-tip .help-link {
+  padding: 2px 6px;
+  font-size: 12px;
+  margin-left: 4px;
+}
 .file-value-cell {
   display: flex;
   align-items: center;
@@ -1353,6 +1327,11 @@ watch(() => store.currentProjectId, () => {
   flex: 1;
 }
 /* 覆盖合并弹窗 */
+.import-actions {
+  margin: 8px 0 4px;
+  display: flex;
+  justify-content: flex-end;
+}
 .merge-hint {
   font-size: 12px;
   color: var(--app-text-muted);

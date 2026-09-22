@@ -7,8 +7,6 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
-
 from app.services import dataset_service as svc
 from app.services.notifier import build_batch_notify_content
 
@@ -47,33 +45,11 @@ class TestBuildBatchNotifyContent:
 
 
 class TestPlanExpansionSelectors:
-    """执行面板交互：临时换数据集 / 仅执行部分行"""
+    """执行面板交互：临时换数据集（单套语义：绑定恒执行该数据集唯一一套数据）"""
 
     def _rows(self):
         return [SimpleNamespace(id=i, dataset_id=7, row_index=i, data={"bl_no": f"BL{i:03d}"})
                 for i in (1, 2, 3)]
-
-    def test_row_ids_filters_rows(self):
-        """row_ids 只执行选中行（单行手动执行=逐条通知的来源）"""
-        rows = self._rows()
-        case = SimpleNamespace(id=11, dataset_id=7)
-        ds = SimpleNamespace(id=7, case_id=11, node_configs=[],
-                             columns=[{"key": "bl_no", "type": "string"}], rows=rows)
-        with patch.object(svc.crud, "get_dataset", return_value=ds), \
-             patch.object(svc.crud, "list_rows", return_value=rows):
-            plan = svc.plan_case_expansion(SimpleNamespace(), case, row_ids=[2, 3])
-        assert [p["row"]["row_index"] for p in plan] == [2, 3]
-
-    def test_row_ids_unknown_rejected(self):
-        """row_ids 含不存在的行 → 拒"""
-        rows = self._rows()
-        case = SimpleNamespace(id=11, dataset_id=7)
-        ds = SimpleNamespace(id=7, case_id=11, node_configs=[],
-                             columns=[{"key": "bl_no", "type": "string"}], rows=rows)
-        with patch.object(svc.crud, "get_dataset", return_value=ds), \
-             patch.object(svc.crud, "list_rows", return_value=rows):
-            with pytest.raises(ValueError, match="不存在"):
-                svc.plan_case_expansion(SimpleNamespace(), case, row_ids=[99])
 
     def test_override_dataset_id(self):
         """临时换数据集（执行面板下拉）：覆盖用例绑定，不改动绑定本身"""

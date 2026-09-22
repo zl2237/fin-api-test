@@ -136,7 +136,6 @@ class EnvironmentCreate(BaseModel):
     db_config: dict[str, Any] = {}
     login_config: dict[str, Any] = {}
     notify_config: dict[str, Any] = {}
-    variables: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
     success_codes: str = "200"
     timeout: int = 15
@@ -149,7 +148,6 @@ class EnvironmentUpdate(BaseModel):
     db_config: dict[str, Any] | None = None
     login_config: dict[str, Any] | None = None
     notify_config: dict[str, Any] | None = None
-    variables: dict[str, Any] | None = None
     common_headers: dict[str, Any] | None = None
     success_codes: str | None = None
     timeout: int | None = None
@@ -169,7 +167,6 @@ class EnvironmentOut(ORMBase, AuditMixin):
     db_config: dict[str, Any] = {}
     login_config: dict[str, Any] = {}
     notify_config: dict[str, Any] = {}
-    variables: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
     success_codes: str = "200"
     timeout: int = 15
@@ -545,10 +542,14 @@ class ProjectVersionDiff(BaseModel):
 class ExecutionCreate(BaseModel):
     case_id: int
     env_id: int
-    dataset_id: int | None = None  # 执行时临时换数据集（不改用例绑定）
-    row_ids: list[int] | None = None  # 仅执行选中的数据行（单行手动执行=逐条通知）
+    dataset_id: int | None = None  # 执行时临时换数据集（不改用例绑定；单套语义，执行一次）
     # 并发执行数：1=逐个串行（一个结束再下一个，避免并发问题），默认 4
     concurrency: int = 4
+
+
+class StepReplayRequest(BaseModel):
+    """报告页节点重放：body_override 为编辑后的请求体（null=用原快照请求体）"""
+    body_override: Any = None
 
 
 class BatchExecutionCreate(BaseModel):
@@ -737,14 +738,11 @@ class FileOut(ORMBase, AuditMixin):
     updated_by_name: str | None = None
 
 
-# ============ DataSet 数据集（数据驱动测试） ============
+# ============ DataSet 数据集（变量池，单套语义） ============
 class DataSetColumnIn(BaseModel):
-    """列定义：key 即执行时变量名（校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）"""
+    """列定义：key 即执行时变量名（点路径键，校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）"""
     key: str
     type: str = "string"  # string/int/bool/array/object/file（file=文件中心文件 ID）
-    # 快照原值（从用例生成的列携带）：执行时快照保真的比对基准
-    # （同名异值列只作用于"节点配置值 == origin"的节点）；手工列/用户不传则为空
-    origin: Any = None
     model_config = {"extra": "ignore"}
 
 
@@ -756,16 +754,27 @@ class DataSetCreate(BaseModel):
     columns: list[DataSetColumnIn]
 
 
-class DataSetGenerateIn(BaseModel):
-    """从用例生成数据集：收集用例全部写死请求参数各成一列 + 1 行原值快照 + 节点配置快照"""
-    case_id: int
-    name: str | None = None
-
-
 class DataSetUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     columns: list[DataSetColumnIn] | None = None
+
+
+class DataSetValuesSave(BaseModel):
+    """保存单套数据：values 即该数据集唯一一套值（列定义随参数走）；
+    column_types 可选：显式指定部分键的列类型（新增变量时空值默认推断为 string，
+    需指定 int/bool/file 等类型时传入；已有列类型保留不受影响）"""
+    values: dict[str, Any]
+    column_types: dict[str, str] | None = None
+
+
+class DataSetNodeValuesSave(BaseModel):
+    """保存节点级手动覆盖（数据集页节点页签编辑语义）：
+    sets = 该节点各参数的独有值（写入 pre_process 字面量，压过池值）；
+    clears = 清除的参数（移除字面量动作，回落池值）；动态绑定 ${} 不在二者之列"""
+    node_id: str
+    sets: dict[str, Any] = {}
+    clears: list[str] = []
 
 
 class DataSetRowOut(ORMBase):
@@ -782,28 +791,18 @@ class DataSetOut(ORMBase, AuditMixin):
     name: str
     description: str | None = None
     columns: list[dict[str, Any]] = []
-    node_configs: list[dict[str, Any]] = []  # 节点配置快照（只读展示，改配置回用例编排再同步）
-    rows: list[DataSetRowOut] = []
+    rows: list[DataSetRowOut] = []  # 单套语义：存储上恒为一行（变量池值集）
     case_bound_count: int = 0  # 被引用用例数（列表展示）
     updated_at: datetime | None = None
     updated_by: int | None = None
     updated_by_name: str | None = None
 
 
-class DataSetRowCreate(BaseModel):
-    data: dict[str, Any]
-
-
-class DataSetRowsReplace(BaseModel):
-    """批量保存（表格整页保存）：整体替换，row_index 由后端重排"""
-    rows: list[dict[str, Any]]
-
-
 class DataSetMergeRequest(BaseModel):
-    """覆盖合并：源数据集指定行的相同节点涉及列值刷到目标数据集全部行"""
+    """覆盖合并：源数据集单套值中相同节点涉及列，刷到目标数据集"""
     source_dataset_id: int
     api_ids: list[int] | None = None  # 不传=全部相同节点
-    source_row_index: int = 1
+    source_row_index: int = 1  # 单套语义恒为 1（保留字段兼容旧客户端）
 
 
 # ============ 轻量契约（原裸 dict 出参） ============

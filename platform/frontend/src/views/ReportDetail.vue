@@ -196,8 +196,11 @@
                 <EmptyState v-else description="无请求头" :image-size="40" />
               </div>
               <div class="section">
-                <div class="section-title">请求体</div>
-                <VueJsonPretty v-if="currentStep.request_body" :data="currentStep.request_body" />
+                <div class="section-title">
+                  请求体
+                  <el-button text size="small" class="json-expand-btn" @click="openReplay">编辑并重放…</el-button>
+                </div>
+                <VueJsonPretty v-if="currentStep.request_body" :data="currentStep.request_body" :deep="jsonDeep" />
                 <EmptyState v-else description="无请求体" :image-size="40" />
               </div>
             </el-tab-pane>
@@ -214,8 +217,17 @@
                 <span>{{ currentStep.response_time_ms ?? '-' }} ms</span>
               </div>
               <div class="section">
-                <div class="section-title">响应体</div>
-                <VueJsonPretty v-if="currentStep.response_body != null" :data="currentStep.response_body" />
+                <div class="section-title">
+                  响应体
+                  <el-button
+                    v-if="currentStep.response_body != null && typeof currentStep.response_body === 'object'"
+                    text
+                    size="small"
+                    class="json-expand-btn"
+                    @click="jsonDeep = jsonDeep === 2 ? Number.POSITIVE_INFINITY : 2"
+                  >{{ jsonDeep === 2 ? '展开全部' : '收起' }}</el-button>
+                </div>
+                <VueJsonPretty v-if="currentStep.response_body != null" :data="currentStep.response_body" :deep="jsonDeep" />
                 <EmptyState v-else description="无响应体" :image-size="40" />
               </div>
             </el-tab-pane>
@@ -302,6 +314,34 @@
         <el-button type="primary" @click="copyValue">复制</el-button>
       </template>
     </el-dialog>
+
+    <!-- 节点编辑重放：编辑当前步骤请求体 → 按原执行环境重发一次（纯调试，不写回报告） -->
+    <el-dialog v-model="replayVisible" title="编辑并重放节点" width="760px" :close-on-click-modal="false">
+      <el-alert
+        type="info"
+        :closable="false"
+        style="margin-bottom: 10px"
+        :title="'按原执行环境重发「' + (currentStep?.api_name || '') + '」一次；${} 表达式会重新求值，结果不写回报告'"
+      />
+      <el-input
+        v-model="replayBodyText"
+        type="textarea"
+        :rows="14"
+        class="mono"
+        spellcheck="false"
+        placeholder="JSON 请求体"
+      />
+      <template v-if="replayResult">
+        <div class="section-title" style="margin-top: 12px">
+          重放结果：HTTP {{ replayResult.status_code }} · {{ replayResult.elapsed_ms }} ms
+        </div>
+        <VueJsonPretty :data="replayResult.response_body" :deep="4" />
+      </template>
+      <template #footer>
+        <el-button @click="replayVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="replayLoading" @click="doReplay">重放</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -327,6 +367,40 @@ const loadError = ref('')
 const currentStepId = ref<number | null>(null)
 const activeTab = ref('request')
 const rerunning = ref(false)
+/** JSON 查看器默认展开层级：2 层防大响应刷屏，可一键全展开/收起 */
+const jsonDeep = ref<number>(2)
+
+// ===== 节点编辑重放（调试口径：按原环境重发一次，不写回报告） =====
+const replayVisible = ref(false)
+const replayLoading = ref(false)
+const replayBodyText = ref('')
+const replayResult = ref<{ status_code: number; response_body: any; elapsed_ms: number } | null>(null)
+
+function openReplay() {
+  if (!currentStep.value) return
+  replayBodyText.value = JSON.stringify(currentStep.value.request_body ?? {}, null, 2)
+  replayResult.value = null
+  replayVisible.value = true
+}
+
+async function doReplay() {
+  if (!currentStep.value) return
+  let body: unknown
+  try {
+    body = JSON.parse(replayBodyText.value)
+  } catch (e: any) {
+    ElMessage.error(`请求体 JSON 解析失败：${e.message}`)
+    return
+  }
+  replayLoading.value = true
+  try {
+    replayResult.value = await execApi.replayStep(currentStep.value.id, body)
+  } catch (e: any) {
+    ElMessage.error(e.message || '重放失败')
+  } finally {
+    replayLoading.value = false
+  }
+}
 
 async function onRerun() {
   if (!record.value?.case_id || !record.value?.env_id) {
@@ -1004,7 +1078,14 @@ onUnmounted(stopPolling)
   font-size: 13px;
   font-weight: 600;
   color: var(--app-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 6px;
+}
+.json-expand-btn {
+  margin-left: auto;
+  padding: 0 4px;
 }
 
 /* 前置处理动作行：标签 + path = 值（值可含 ${} 引用，规则原文快照） */

@@ -163,7 +163,7 @@
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
+                <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除 -->
@@ -217,8 +217,14 @@
             <el-table-column type="selection" width="42" :reserve-selection="true" />
             <el-table-column width="36" align="center">
               <template #default>
-                <!-- 父分组视图是跨组聚合列表，顺序无持久化语义，不提供拖拽 -->
-                <el-tooltip v-if="!isSubtreeView" content="拖拽排序" placement="top" popper-class="app-tip">
+                <!-- 父分组视图是跨组聚合列表，顺序无持久化语义，不提供拖拽；
+                     列排序激活时组内顺序≠sort_order 序，拖拽保存会错位，同样隐藏把手 -->
+                <el-tooltip
+                  v-if="!isSubtreeView && !sortProp"
+                  content="拖拽排序"
+                  placement="top"
+                  popper-class="app-tip"
+                >
                   <el-icon class="drag-handle"><Rank /></el-icon>
                 </el-tooltip>
               </template>
@@ -254,7 +260,7 @@
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
                 </el-tooltip>
-                <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '数据驱动：已绑定数据集，点击更换/解绑' : '绑定数据集启用数据驱动'" placement="top">
+                <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除 -->
@@ -399,14 +405,14 @@
       @changed="loadSchedules"
     />
 
-    <!-- 绑定数据集（数据驱动） -->
+    <!-- 绑定数据集 -->
     <el-dialog v-model="bindVisible" title="绑定数据集" width="480px">
       <div class="bind-tip">
-        绑定后执行该用例时按数据行展开：N 行数据 = N 次执行，行值以
-        <code v-pre>${列名}</code> 注入变量（优先于同名环境变量）。数据集按用例隔离，仅可选本用例名下的数据集
+        绑定后执行该用例时使用该数据集的单套数据：参数留空处按名自动取数据集变量池值，取不到则发送空值；运行时变量需在编排中 ${} 显式引用。
+        数据集按用例隔离，仅可选本用例名下的数据集；多场景建多个数据集切换执行
       </div>
       <el-select v-model="bindDatasetId" placeholder="选择数据集（空=不绑定）" clearable style="width: 100%">
-        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.rows?.length ?? 0} 行）`" :value="d.id" />
+        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.columns?.length ?? 0} 个变量值）`" :value="d.id" />
       </el-select>
       <div v-if="!projectDatasets.length" class="bind-empty">
         该用例暂无数据集（数据集为用例私有），
@@ -418,7 +424,7 @@
       </template>
     </el-dialog>
 
-    <!-- 数据驱动执行确认面板（选行/换数据集/快照过期检测收敛在组件，执行编排在父视图） -->
+    <!-- 数据集执行确认面板（数据集多选收敛在组件，执行编排在父视图） -->
     <DataDrivenRunDialog
       v-model="ddVisible"
       :case-item="ddCase"
@@ -480,7 +486,7 @@ const filteredList = computed(() => {
 
 // 表头排序（sortable="custom"）：作用在过滤后的全量列表，分组/分页下游自然继承排序，
 // 避免 el-table 默认前端排序只排当前页切片的假象；取消排序回到后端 sort_order（拖拽手序）
-const { onSortChange, sorted: sortedList } = useClientSort(filteredList, {
+const { onSortChange, sortProp, sorted: sortedList } = useClientSort(filteredList, {
   id: c => c.id,
   name: c => c.name,
   updated_at: c => c.updated_at ?? '',
@@ -750,9 +756,16 @@ async function runCase(row: TestCase) {
     }
     return
   }
-  // 数据驱动：绑定数据集的用例先弹确认面板（N 行执行 N 次，可临时换数据集/选行）
+  // 绑定数据集的用例：名下仅一个数据集→直接执行（零多余点击）；
+  // 多个数据集（多场景）→弹确认面板勾选（可多选各执行一次，临时换不改绑定）
   if (row.dataset_id) {
-    await openDataDrivenRun(row)
+    await loadDatasets(row.id)
+    ddCase.value = row
+    if (projectDatasets.value.length <= 1) {
+      await confirmDataDrivenRun({ datasetIds: [row.dataset_id] })
+    } else {
+      ddVisible.value = true
+    }
     return
   }
   try {
@@ -906,7 +919,7 @@ function openSchedule(row: TestCase) {
   scheduleVisible.value = true  // 有无配置决定列表/表单首屏，由弹窗组件打开时自判
 }
 
-// ============ 数据集绑定 + 数据驱动执行（周期 6/7） ============
+// ============ 数据集绑定 + 数据集执行 ============
 
 const projectDatasets = ref<DataSet[]>([])
 const bindVisible = ref(false)
@@ -947,41 +960,41 @@ async function saveBind() {
   }
 }
 
-// ---------- 数据驱动执行确认面板（选行/换数据集/快照检测见 DataDrivenRunDialog） ----------
+// ---------- 数据集执行确认面板（多数据集用例勾选执行；见 DataDrivenRunDialog） ----------
 const ddVisible = ref(false)
 const ddRunning = ref(false)
 const ddCase = ref<TestCase | null>(null)
 
-async function openDataDrivenRun(row: TestCase) {
-  ddCase.value = row
-  await loadDatasets(row.id)
-  ddVisible.value = true
-}
-
-/** DataDrivenRunDialog 确认回调：后端按选行展开 N 条记录（失败聚合成一条通知），轮询首条代表整批 */
-async function confirmDataDrivenRun({ datasetId, rowIds }: { datasetId: number | null; rowIds: number[] }) {
-  if (!ddCase.value || !rowIds.length) return
+/** 数据集执行确认回调：所选数据集并行各执行一次（每个单套数据），轮询完成态汇总 */
+async function confirmDataDrivenRun({ datasetIds }: { datasetIds: number[] }) {
+  if (!ddCase.value || !datasetIds.length) return
   ddRunning.value = true
   favicon.running()
   const msg = ElMessage({
-    message: `数据驱动执行中（${rowIds.length} 行并行）...`,
+    message: datasetIds.length > 1
+      ? `数据集执行中（${datasetIds.length} 套数据并行）...`
+      : '数据集执行中（单套数据）...',
     type: 'info',
     duration: 0,
   })
   try {
-    const first = await caseApi.execute(ddCase.value.id, store.currentEnvId!, {
-      dataset_id: datasetId,
-      row_ids: rowIds,
-    })
-    // 轮询首条记录（代表整批）；完成后去执行记录看全部
-    const status = await runner.pollUntilDone(first.id)
+    const statuses = await Promise.all(datasetIds.map(async (dsId) => {
+      const cur = await caseApi.execute(ddCase.value!.id, store.currentEnvId!, {
+        dataset_id: dsId,
+      })
+      const fin = await runner.pollUntilDone(cur.id)
+      return fin.status
+    }))
     msg.close()
-    if (status.status === 'success') {
+    const ok = statuses.filter((s) => s === 'success').length
+    if (ok === statuses.length) {
       favicon.success()
-      ElMessage.success(`数据驱动执行完成：首行通过（全部 ${rowIds.length} 条见执行记录）`)
+      ElMessage.success(statuses.length > 1
+        ? `${statuses.length} 个数据集全部执行完成：通过`
+        : '数据集执行完成：通过')
     } else {
       favicon.failed()
-      ElMessage.warning('数据驱动执行完成，存在失败行，详见执行记录')
+      ElMessage.warning(`执行完成：${ok}/${statuses.length} 个数据集通过，详见执行记录`)
     }
     router.push({ path: '/executions', query: { case_id: ddCase.value.id } })
   } catch (e: any) {

@@ -118,7 +118,6 @@ export interface Environment {
   db_config: Record<string, any>
   login_config: Record<string, any>
   notify_config: Record<string, any>
-  variables: Record<string, any>
   common_headers: Record<string, any>; success_codes?: string; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
@@ -397,9 +396,9 @@ export const caseApi = {
     http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>
     http.post<{ message: string; updated: number }>('/testcases/reorder', { items }).then((r) => r.data),
-  execute: (caseId: number, envId: number, opts?: { dataset_id?: number | null; row_ids?: number[] }) =>
+  execute: (caseId: number, envId: number, opts?: { dataset_id?: number | null }) =>
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`,
-      { case_id: caseId, env_id: envId, dataset_id: opts?.dataset_id ?? undefined, row_ids: opts?.row_ids ?? undefined }).then((r) => r.data),
+      { case_id: caseId, env_id: envId, dataset_id: opts?.dataset_id ?? undefined }).then((r) => r.data),
   batchExecute: (caseIds: number[], envId: number, counts?: number[], concurrency: number = 4) =>
     http.post<ExecutionRecord[]>('/testcases/batch-execute',
       { case_ids: caseIds, env_id: envId, counts, concurrency }).then((r) => r.data),
@@ -449,78 +448,62 @@ export const scheduleApi = {
   run: (id: number) => http.post<{ message: string }>(`/schedules/${id}/run`).then((r) => r.data),
 }
 
-// ============ DataSet 数据集（数据驱动测试，用例私有 1:N） ============
+// ============ DataSet 数据集（变量池，单套语义：每个数据集 = 一套数据） ============
 export interface DataSetColumn {
   key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object' | 'file'  // file=文件中心文件 ID；中文名实时引用字段字典，缺失显 key
-  origin?: any  // 快照原值（生成列携带）：执行时快照保真比对基准，手工列无
-}
-export interface DataSetNodeConfig {  // 节点配置快照（只读；保存用例自动同步，手动 resync 兜底）
-  node_id: string; api_id?: number | null
-  pre_process?: any[]; post_extract?: any[]; assertions?: any[]; wait_after_ms?: number
 }
 export interface DataSetRow {
   id: number; dataset_id: number; row_index: number; data: Record<string, any>
 }
 export interface DataSet {
   id: number; project_id: number; case_id: number; name: string; description?: string | null
-  columns: DataSetColumn[]; rows: DataSetRow[]; node_configs?: DataSetNodeConfig[]
+  columns: DataSetColumn[]; rows: DataSetRow[]
   case_bound_count?: number  // ≤1（用例私有），>0 时删除需先解绑
   created_at?: string; updated_at?: string
   created_by?: number | null; created_by_name?: string | null
   updated_by?: number | null; updated_by_name?: string | null
 }
+// 变量池视图：用例级单池（all_params 去重）+ 按节点的筛选视角 × 接口字段 × 池值
+export interface DatasetParam {
+  key: string; type: string
+  value: any            // 池中现值（空串 = 未配置）
+  manual: boolean       // 节点编排字面量 = 手动覆盖，池值不生效
+  manual_value?: any    // 覆盖/绑定值（字面量或 ${} 表达式）
+  dynamic: boolean      // 节点编排 ${} 动态绑定 = 运行时求值（非手动覆盖）
+}
+export interface DatasetParamsView {
+  dataset_id: number
+  all_params: DatasetParam[]  // 用例级去重清单（跨节点状态合并：手动 > 动态）
+  nodes: {
+    node_id: string; label: string; api_id: number; api_name: string
+    params: DatasetParam[]
+  }[]
+  orphan_keys: string[]     // 池中存在但当前编排无节点使用的键（悬空变量）
+}
 
 export const datasetApi = {
   list: (params?: { project_id?: number; case_id?: number; with_rows?: boolean }) =>
     http.get<DataSet[]>('/datasets', { params }).then((r) => r.data),
-  get: (id: number) => http.get<DataSet>(`/datasets/${id}`).then((r) => r.data),
-  create: (data: { project_id: number; case_id: number; name: string; description?: string; columns: DataSetColumn[] }) =>
-    http.post<DataSet>('/datasets', data).then((r) => r.data),
   update: (id: number, data: { name?: string; description?: string; columns?: DataSetColumn[] }) =>
     http.put<DataSet>(`/datasets/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/datasets/${id}`),
-  // 复制：列/行/节点配置快照全量深拷贝，归属同用例
+  // 复制：列/单套值全量深拷贝，归属同用例
   copy: (id: number) => http.post<DataSet>(`/datasets/${id}/copy`).then((r) => r.data),
-  // 重新同步节点配置快照：用例当前编排整块替换（列/行不动）。
-  // 保存用例（编排有改动）时后端已自动同步全部绑定数据集，此为手动兜底入口
-  resync: (id: number) =>
-    http.post<{ message: string; nodes: number }>(`/datasets/${id}/resync`).then((r) => r.data),
-  // 快照过期检测：节点配置快照 vs 用例当前编排 的字段级差异
-  drift: (id: number) =>
-    http.get<{ stale: boolean; nodes: { node_id: string; label: string; changes: string[] }[] }>(`/datasets/${id}/drift`).then((r) => r.data),
-  // 从用例生成：收集用例全部写死请求参数各成一列 + 1 行原值快照
-  generate: (caseId: number, name?: string) =>
-    http.post<{
-      dataset: DataSet
-      stats: { nodes: number; columns: number; dynamic: number; nested: number; empty: number; invalid: number; conflicts: { key: string; values: any[] }[] }
-    }>('/datasets/generate', { case_id: caseId, name: name || undefined }).then((r) => r.data),
-  // 行操作
-  listRows: (id: number) => http.get<DataSetRow[]>(`/datasets/${id}/rows`).then((r) => r.data),
-  addRow: (id: number, data: Record<string, any>) =>
-    http.post<DataSetRow>(`/datasets/${id}/rows`, { data }).then((r) => r.data),
-  replaceRows: (id: number, rows: Record<string, any>[]) =>
-    http.put<DataSetRow[]>(`/datasets/${id}/rows`, { rows }).then((r) => r.data),
-  clearRows: (id: number) => http.delete(`/datasets/${id}/rows`),
-  updateRow: (id: number, rowId: number, data: Record<string, any>) =>
-    http.put<DataSetRow>(`/datasets/${id}/rows/${rowId}`, { data }).then((r) => r.data),
-  copyRow: (id: number, rowId: number) =>
-    http.post<DataSetRow>(`/datasets/${id}/rows/${rowId}/copy`).then((r) => r.data),
-  removeRow: (id: number, rowId: number) => http.delete(`/datasets/${id}/rows/${rowId}`),
-  // 导入：preview=true 只解析返回预览；否则整体替换落库
-  importFile: (id: number, file: File, preview = false) => {
-    const form = new FormData()
-    form.append('file', file)
-    return http.post<{ preview: boolean; count: number; rows?: Record<string, any>[]; warnings: string[] }>(
-      `/datasets/${id}/import`, form, { params: { preview } }).then((r) => r.data)
-  },
-  // 行导出 xlsx（与导入对偶：表头=列 key，object/array 为 JSON 字符串）
-  exportRows: (id: number) =>
-    http.get<Blob>(`/datasets/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
-  // 数据集间对比：按 api_id 配对相同节点，返回可覆盖列（空=无覆盖必要）
+  // 变量池视图：用例级单池（all_params）+ 按节点分组视角
+  paramsView: (id: number) =>
+    http.get<DatasetParamsView>(`/datasets/${id}/params-view`).then((r) => r.data),
+  // 保存单套数据：values 即该数据集唯一一套值（列定义随参数走）
+  saveValues: (id: number, values: Record<string, any>, columnTypes?: Record<string, string>) =>
+    http.put<DataSet>(`/datasets/${id}/values`, { values, column_types: columnTypes }).then((r) => r.data),
+  // 节点级手动覆盖：节点页签编辑的独有值写入该节点 pre_process（压过池值）；clears 移除回落池值
+  saveNodeValues: (id: number, nodeId: string, sets: Record<string, any>, clears: string[]) =>
+    http.put<{ message: string; touched: number }>(`/datasets/${id}/node-values`,
+      { node_id: nodeId, sets, clears }).then((r) => r.data),
+  // 数据集间对比：按 api_id 配对归属用例当前编排的相同节点，返回可覆盖列（空=无覆盖必要）
   mergePreview: (id: number, sourceId: number) =>
     http.get<{ source: { id: number; name: string; rows: number; row_labels: string[] }; common_nodes: { api_id: number; api_name: string; columns: string[] }[]; columns_total: number }>(
       `/datasets/${id}/merge-preview`, { params: { source_dataset_id: sourceId } }).then((r) => r.data),
-  // 覆盖合并：源数据集指定行的相同节点涉及列值刷到目标全部行
+  // 覆盖合并：源数据集单套值的相同节点涉及列刷到目标数据集
   merge: (id: number, data: { source_dataset_id: number; api_ids?: number[]; source_row_index?: number }) =>
     http.post<{ message: string; rows: number; columns: number; keys: string[] }>(`/datasets/${id}/merge`, data).then((r) => r.data),
 }
@@ -553,6 +536,10 @@ export const execApi = {
   exportReport: (id: number, format: 'csv' | 'html') =>
     http.get<Blob>(`/reports/executions/${id}/export`, { responseType: 'blob', params: { format } }).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/executions/cleanup', { params: { days } }).then((r) => r.data),
+  // 报告页节点重放：bodyOverride 为编辑后的请求体（null=用原快照重发一次）
+  replayStep: (stepId: number, bodyOverride: unknown) =>
+    http.post<{ status_code: number; response_body: any; error: string | null; elapsed_ms: number; request_body: any }>(
+      `/executions/steps/${stepId}/replay`, { body_override: bodyOverride ?? null }).then((r) => r.data),
 }
 
 // ============ FieldDictionary 字段字典 ============

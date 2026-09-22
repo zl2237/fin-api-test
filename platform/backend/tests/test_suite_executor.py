@@ -79,7 +79,7 @@ def harness(monkeypatch):
         instances: list = []
 
         def __init__(self, db, case, env, execution_record=None, row_vars=None,
-                     row_origins=None, node_config_overrides=None, suite_vars=None,
+                     node_config_overrides=None, suite_vars=None,
                      suppress_notify=False):
             self.case, self.env, self.record = case, env, execution_record
             self.suite_vars = suite_vars
@@ -110,13 +110,13 @@ def harness(monkeypatch):
 
 
 def _plain_plan():
-    return [{"dataset_id": None, "row": None, "origins": None, "overrides": None}]
+    return [{"dataset_id": None, "row": None, "overrides": None}]
 
 
 def _row_plan(*rows):
     """rows: (row_index, data) 序列 → 数据驱动展开项"""
     return [{"dataset_id": 7, "row": {"row_index": idx, "data": data, "label": ""},
-             "origins": None, "overrides": None} for idx, data in rows]
+             "overrides": None} for idx, data in rows]
 
 
 class TestSnapshotVars:

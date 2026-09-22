@@ -4,23 +4,6 @@
  */
 
 export interface paths {
-    "/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Root */
-        get: operations["root__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -245,7 +228,7 @@ export interface paths {
         };
         /**
          * List Logs
-         * @description 查询操作日志（仅 admin），支持按操作类型、目标类型、操作人筛选，默认最近100条
+         * @description 查询操作日志（仅 admin），支持按操作类型、目标类型、操作人、时间范围筛选，默认最近100条
          */
         get: operations["list_logs_api_operation_logs_get"];
         put?: never;
@@ -471,7 +454,8 @@ export interface paths {
         };
         /**
          * Export List
-         * @description 接口列表导出：Excel 简表（人看）或 JSON 全量（备份/迁移），筛选条件与列表页一致。
+         * @description 接口列表导出：Excel 简表（人看）/ JSON 全量（备份/迁移）/ OpenAPI 3.0（Postman/Apifox 导入）。
+         *     ids 为勾选导出（逗号分隔，优先于筛选条件）；未传 ids 时筛选口径与列表页一致。
          *     注意：此路由需在 /{api_id} 之前注册，否则 GET /export 会被 path 参数拦截。
          */
         get: operations["export_list_api_apis_export_get"];
@@ -836,6 +820,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/testcases/{case_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Members
+         * @description 套件成员列表（按执行顺序），带用例/项目/环境冗余名
+         */
+        get: operations["list_members_api_testcases__case_id__members_get"];
+        /**
+         * Replace Members
+         * @description 整体替换套件成员（编排保存语义）。校验：宿主是套件、成员存在且非套件（禁嵌套）、
+         *     环境存在、不得引用自身；sort_order 按提交顺序重排（0 起）。
+         */
+        put: operations["replace_members_api_testcases__case_id__members_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/testcases/{case_id}/scan-split": {
         parameters: {
             query?: never;
@@ -1034,50 +1043,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/datasets/{dataset_id}/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export Rows
-         * @description 数据集行导出 xlsx（与导入对偶）：表头=列 key，可直接整表导入回本数据集，
-         *     也可覆盖合并导入到同用例的其他数据集（同名列值覆盖）。
-         *     单资源导出用 path 参数风格（与 /reports/executions/{id}/export 一致）。
-         */
-        get: operations["export_rows_api_datasets__dataset_id__export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Generate From Case
-         * @description 从用例生成数据集：写死请求参数各成一列 + 1 行原值快照（改值即参数化，动态绑定 ${} 字段除外）。
-         *
-         *     返回 stats 说明收集结果（列数/同名异值提示/动态与嵌套计数），前端据此提示。
-         */
-        post: operations["generate_from_case_api_datasets_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/datasets/{dataset_id}/copy": {
         parameters: {
             query?: never;
@@ -1089,50 +1054,9 @@ export interface paths {
         put?: never;
         /**
          * Copy
-         * @description 复制数据集：列/行/节点配置快照全量深拷贝，归属同用例（隔离语义下的复用方式）
+         * @description 复制数据集：列/单套值全量深拷贝，归属同用例（隔离语义下的复用方式）
          */
         post: operations["copy_api_datasets__dataset_id__copy_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/{dataset_id}/resync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Resync
-         * @description 重新同步节点配置快照：用例当前编排整块替换进数据集（列/行数据不动）
-         */
-        post: operations["resync_api_datasets__dataset_id__resync_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/{dataset_id}/drift": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Drift
-         * @description 快照过期检测：数据集节点配置快照 vs 归属用例当前编排 的字段级差异清单。
-         *     执行确认弹窗据此提示（stale=true 时可引导一键 resync）。
-         */
-        get: operations["drift_api_datasets__dataset_id__drift_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1158,50 +1082,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/datasets/{dataset_id}/rows": {
+    "/api/datasets/{dataset_id}/params-view": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Rows */
-        get: operations["list_rows_api_datasets__dataset_id__rows_get"];
         /**
-         * Replace Rows
-         * @description 批量保存（表格整页保存语义）：整体替换，row_index 后端重排
+         * Params View
+         * @description 按节点分组的入参视图（变量池界面数据源）：归属用例当前编排 × 接口字段 × 池值。
+         *
+         *     manual=True 的参数为节点手动覆盖（编排非空值），池值不生效——展示覆盖值供解释。
          */
-        put: operations["replace_rows_api_datasets__dataset_id__rows_put"];
-        /** Add Row */
-        post: operations["add_row_api_datasets__dataset_id__rows_post"];
-        /** Clear Rows */
-        delete: operations["clear_rows_api_datasets__dataset_id__rows_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/{dataset_id}/rows/{row_id}/copy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
+        get: operations["params_view_api_datasets__dataset_id__params_view_get"];
         put?: never;
-        /**
-         * Copy Row
-         * @description 复制行：原行数据追加为新行（row_index 顺延），便于改少数字段快速造近似数据
-         */
-        post: operations["copy_row_api_datasets__dataset_id__rows__row_id__copy_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/datasets/{dataset_id}/rows/{row_id}": {
+    "/api/datasets/{dataset_id}/values": {
         parameters: {
             query?: never;
             header?: never;
@@ -1209,11 +1112,34 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Update Row */
-        put: operations["update_row_api_datasets__dataset_id__rows__row_id__put"];
+        /**
+         * Save Values
+         * @description 保存单套数据：values 即数据集唯一一套值；列定义随参数走（新键补列、悬空键剔除）。
+         */
+        put: operations["save_values_api_datasets__dataset_id__values_put"];
         post?: never;
-        /** Delete Row */
-        delete: operations["delete_row_api_datasets__dataset_id__rows__row_id__delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/datasets/{dataset_id}/node-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Node Values
+         * @description 保存节点级手动覆盖（节点页签编辑语义）：sets 写入该节点独有字面量（压过池值），
+         *     clears 移除字面量回落池值；同字段跨节点异值靠此机制，池仍保持一键一值。
+         */
+        put: operations["save_node_values_api_datasets__dataset_id__node_values_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1255,28 +1181,6 @@ export interface paths {
          * @description 覆盖合并：源数据集指定行的相同节点涉及列值，刷到目标数据集全部行。
          */
         post: operations["merge_from_api_datasets__dataset_id__merge_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/{dataset_id}/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import Rows
-         * @description Excel/CSV 导入：首行表头映射列 key。preview=1 只解析返回预览不落库。
-         *
-         *     落库为整体替换语义（与表格整页保存一致）：当前行全部丢弃、以导入内容重排。
-         */
-        post: operations["import_rows_api_datasets__dataset_id__import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1379,8 +1283,7 @@ export interface paths {
          * Execute
          * @description 触发用例执行（异步）：立即创建 running 状态的执行记录并返回，后台线程池执行。
          *     前端通过 GET /executions/{id} 轮询执行状态。
-         *     数据驱动：绑定数据集的用例按数据行展开为 N 条记录（响应返回第一条，列表可看全部）；
-         *     多行展开失败聚合成一条通知，row_ids 只选 1 行时保持逐条。
+         *     数据驱动：绑定数据集的用例用其单套数据执行（dataset_id 可临时换数据集）。
          */
         post: operations["execute_api_testcases__case_id__execute_post"];
         delete?: never;
@@ -1400,8 +1303,9 @@ export interface paths {
         put?: never;
         /**
          * Batch Execute
-         * @description 批量执行多个用例（并行）：为每个用例创建 running 状态的执行记录并立即返回，
-         *     后台线程池并行执行（并发上限 4，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
+         * @description 批量执行多个用例：为每个用例创建 running 状态的执行记录并立即返回，
+         *     后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
+         *     缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
          *     数据驱动：绑定数据集的用例按数据行展开，展开条目与普通条目一并平铺提交；
          *     展开多条的用例失败聚合成一条通知。
          *     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。
@@ -1420,8 +1324,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Executions */
+        /**
+         * List Executions
+         * @description 筛选（状态/时间范围）与排序全部服务端处理，返回 {items, total} 信封：
+         *     分页组件翻页/整页排序口径才正确；total 与列表同口径过滤
+         */
         get: operations["list_executions_api_executions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Execution Stats
+         * @description 近 N 天执行统计（工作台用）：全量聚合口径，不受列表 200 条截断影响。
+         *     需注册在 /executions/{exec_id} 之前。
+         */
+        get: operations["execution_stats_api_executions_stats_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1445,6 +1374,29 @@ export interface paths {
          * @description 手动清理指定天数前的执行记录（含步骤和断言），仅管理员可操作。需在 /{exec_id} 之前注册。
          */
         delete: operations["cleanup_executions_api_executions_cleanup_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/steps/{step_id}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replay Step
+         * @description 报告页节点重放：按步骤快照定位接口（path+method+项目），用原执行环境重发一次。
+         *
+         *     body_override（编辑后的请求体）优先，否则用原快照请求体；表达式求值与
+         *     调试/DAG 链路同口径（${timestamp()} 等生效）。纯调试口径：不写回报告。
+         */
+        post: operations["replay_step_api_executions_steps__step_id__replay_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2099,7 +2051,7 @@ export interface components {
         };
         /**
          * BatchExecutionCreate
-         * @description 批量执行：串行执行多个用例，一个结束执行下一个
+         * @description 批量执行：多个用例并行执行，并发数可配（1=串行，一个结束再下一个）
          */
         BatchExecutionCreate: {
             /** Case Ids */
@@ -2108,14 +2060,11 @@ export interface components {
             env_id: number;
             /** Counts */
             counts?: number[] | null;
-        };
-        /** Body_import_rows_api_datasets__dataset_id__import_post */
-        Body_import_rows_api_datasets__dataset_id__import_post: {
             /**
-             * File
-             * Format: binary
+             * Concurrency
+             * @default 4
              */
-            file: string;
+            concurrency: number;
         };
         /** Body_preview_har_api_apis_import_har_preview_post */
         Body_preview_har_api_apis_import_har_preview_post: {
@@ -2255,7 +2204,7 @@ export interface components {
         };
         /**
          * DataSetColumnIn
-         * @description 列定义：key 即执行时变量名（校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）
+         * @description 列定义：key 即执行时变量名（点路径键，校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）
          */
         DataSetColumnIn: {
             /** Key */
@@ -2265,8 +2214,6 @@ export interface components {
              * @default string
              */
             type: string;
-            /** Origin */
-            origin?: unknown;
         };
         /** DataSetCreate */
         DataSetCreate: {
@@ -2282,18 +2229,8 @@ export interface components {
             columns: components["schemas"]["DataSetColumnIn"][];
         };
         /**
-         * DataSetGenerateIn
-         * @description 从用例生成数据集：收集用例全部写死请求参数各成一列 + 1 行原值快照 + 节点配置快照
-         */
-        DataSetGenerateIn: {
-            /** Case Id */
-            case_id: number;
-            /** Name */
-            name?: string | null;
-        };
-        /**
          * DataSetMergeRequest
-         * @description 覆盖合并：源数据集指定行的相同节点涉及列值刷到目标数据集全部行
+         * @description 覆盖合并：源数据集单套值中相同节点涉及列，刷到目标数据集
          */
         DataSetMergeRequest: {
             /** Source Dataset Id */
@@ -2305,6 +2242,28 @@ export interface components {
              * @default 1
              */
             source_row_index: number;
+        };
+        /**
+         * DataSetNodeValuesSave
+         * @description 保存节点级手动覆盖（数据集页节点页签编辑语义）：
+         *     sets = 该节点各参数的独有值（写入 pre_process 字面量，压过池值）；
+         *     clears = 清除的参数（移除字面量动作，回落池值）；动态绑定 ${} 不在二者之列
+         */
+        DataSetNodeValuesSave: {
+            /** Node Id */
+            node_id: string;
+            /**
+             * Sets
+             * @default {}
+             */
+            sets: {
+                [key: string]: unknown;
+            };
+            /**
+             * Clears
+             * @default []
+             */
+            clears: string[];
         };
         /** DataSetOut */
         DataSetOut: {
@@ -2332,13 +2291,6 @@ export interface components {
                 [key: string]: unknown;
             }[];
             /**
-             * Node Configs
-             * @default []
-             */
-            node_configs: {
-                [key: string]: unknown;
-            }[];
-            /**
              * Rows
              * @default []
              */
@@ -2354,13 +2306,6 @@ export interface components {
             updated_by?: number | null;
             /** Updated By Name */
             updated_by_name?: string | null;
-        };
-        /** DataSetRowCreate */
-        DataSetRowCreate: {
-            /** Data */
-            data: {
-                [key: string]: unknown;
-            };
         };
         /** DataSetRowOut */
         DataSetRowOut: {
@@ -2378,16 +2323,6 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /**
-         * DataSetRowsReplace
-         * @description 批量保存（表格整页保存）：整体替换，row_index 由后端重排
-         */
-        DataSetRowsReplace: {
-            /** Rows */
-            rows: {
-                [key: string]: unknown;
-            }[];
-        };
         /** DataSetUpdate */
         DataSetUpdate: {
             /** Name */
@@ -2396,6 +2331,22 @@ export interface components {
             description?: string | null;
             /** Columns */
             columns?: components["schemas"]["DataSetColumnIn"][] | null;
+        };
+        /**
+         * DataSetValuesSave
+         * @description 保存单套数据：values 即该数据集唯一一套值（列定义随参数走）；
+         *     column_types 可选：显式指定部分键的列类型（新增变量时空值默认推断为 string，
+         *     需指定 int/bool/file 等类型时传入；已有列类型保留不受影响）
+         */
+        DataSetValuesSave: {
+            /** Values */
+            values: {
+                [key: string]: unknown;
+            };
+            /** Column Types */
+            column_types?: {
+                [key: string]: string;
+            } | null;
         };
         /** EnvironmentCreate */
         EnvironmentCreate: {
@@ -2427,19 +2378,17 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Variables
-             * @default {}
-             */
-            variables: {
-                [key: string]: unknown;
-            };
-            /**
              * Common Headers
              * @default {}
              */
             common_headers: {
                 [key: string]: unknown;
             };
+            /**
+             * Success Codes
+             * @default 200
+             */
+            success_codes: string;
             /**
              * Timeout
              * @default 15
@@ -2489,19 +2438,17 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
-             * Variables
-             * @default {}
-             */
-            variables: {
-                [key: string]: unknown;
-            };
-            /**
              * Common Headers
              * @default {}
              */
             common_headers: {
                 [key: string]: unknown;
             };
+            /**
+             * Success Codes
+             * @default 200
+             */
+            success_codes: string;
             /**
              * Timeout
              * @default 15
@@ -2550,14 +2497,12 @@ export interface components {
             notify_config?: {
                 [key: string]: unknown;
             } | null;
-            /** Variables */
-            variables?: {
-                [key: string]: unknown;
-            } | null;
             /** Common Headers */
             common_headers?: {
                 [key: string]: unknown;
             } | null;
+            /** Success Codes */
+            success_codes?: string | null;
             /** Timeout */
             timeout?: number | null;
             /** Is Default */
@@ -2571,8 +2516,21 @@ export interface components {
             env_id: number;
             /** Dataset Id */
             dataset_id?: number | null;
-            /** Row Ids */
-            row_ids?: number[] | null;
+            /**
+             * Concurrency
+             * @default 4
+             */
+            concurrency: number;
+        };
+        /**
+         * ExecutionListOut
+         * @description 执行记录分页信封：items 当前页数据 + total 过滤后总数（el-pagination 计算 total 用）
+         */
+        ExecutionListOut: {
+            /** Items */
+            items: components["schemas"]["ExecutionRecordOut"][];
+            /** Total */
+            total: number;
         };
         /** ExecutionRecordOut */
         ExecutionRecordOut: {
@@ -2614,6 +2572,8 @@ export interface components {
             dataset_row?: {
                 [key: string]: unknown;
             } | null;
+            /** Suite Execution Id */
+            suite_execution_id?: number | null;
             /**
              * Steps
              * @default []
@@ -3052,11 +3012,78 @@ export interface components {
             ended_at?: string | null;
             /** Status */
             status?: string | null;
+            /** Pre Process */
+            pre_process?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Post Extract */
+            post_extract?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Extracted Vars */
+            extracted_vars?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Assertions
              * @default []
              */
             assertions: components["schemas"]["AssertionRecordOut"][];
+        };
+        /**
+         * StepReplayRequest
+         * @description 报告页节点重放：body_override 为编辑后的请求体（null=用原快照请求体）
+         */
+        StepReplayRequest: {
+            /** Body Override */
+            body_override?: unknown;
+        };
+        /**
+         * SuiteMemberIn
+         * @description 套件成员写入项：成员用例（可跨项目）+ 执行环境 + 顺序
+         */
+        SuiteMemberIn: {
+            /** Member Case Id */
+            member_case_id: number;
+            /** Env Id */
+            env_id: number;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+        };
+        /** SuiteMemberOut */
+        SuiteMemberOut: {
+            /** Id */
+            id: number;
+            /** Member Case Id */
+            member_case_id: number;
+            /** Env Id */
+            env_id: number;
+            /** Sort Order */
+            sort_order: number;
+            /** Case Name */
+            case_name?: string | null;
+            /** Project Id */
+            project_id?: number | null;
+            /** Project Name */
+            project_name?: string | null;
+            /** Env Name */
+            env_name?: string | null;
+            /**
+             * Member Case Type
+             * @default normal
+             */
+            member_case_type: string;
+        };
+        /**
+         * SuiteMembersUpdate
+         * @description 整体替换套件成员列表（编排保存语义）
+         */
+        SuiteMembersUpdate: {
+            /** Members */
+            members: components["schemas"]["SuiteMemberIn"][];
         };
         /** TestCaseCreate */
         TestCaseCreate: {
@@ -3068,6 +3095,11 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+            /**
+             * Case Type
+             * @default normal
+             */
+            case_type: string;
             /** Dag Config */
             dag_config: {
                 [key: string]: unknown;
@@ -3077,6 +3109,8 @@ export interface components {
              * @default []
              */
             node_configs: components["schemas"]["NodeConfigIn"][];
+            /** Shared Vars */
+            shared_vars?: string[] | null;
         };
         /** TestCaseOut */
         TestCaseOut: {
@@ -3090,6 +3124,11 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+            /**
+             * Case Type
+             * @default normal
+             */
+            case_type: string;
             /** Dag Config */
             dag_config: {
                 [key: string]: unknown;
@@ -3101,6 +3140,8 @@ export interface components {
             node_configs: components["schemas"]["NodeConfigOut"][];
             /** Dataset Id */
             dataset_id?: number | null;
+            /** Shared Vars */
+            shared_vars?: string[] | null;
             /** Created At */
             created_at?: string | null;
             /** Updated At */
@@ -3122,6 +3163,8 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+            /** Case Type */
+            case_type?: string | null;
             /** Dag Config */
             dag_config?: {
                 [key: string]: unknown;
@@ -3130,6 +3173,8 @@ export interface components {
             node_configs?: components["schemas"]["NodeConfigIn"][] | null;
             /** Dataset Id */
             dataset_id?: number | null;
+            /** Shared Vars */
+            shared_vars?: string[] | null;
         };
         /** TestScheduleCreate */
         TestScheduleCreate: {
@@ -3301,26 +3346,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    root__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
     login_api_auth_login_post: {
         parameters: {
             query?: never;
@@ -3739,6 +3764,8 @@ export interface operations {
                 action?: string | null;
                 target_type?: string | null;
                 user_id?: number | null;
+                start_time?: string | null;
+                end_time?: string | null;
                 limit?: number;
             };
             header?: never;
@@ -4353,6 +4380,7 @@ export interface operations {
             query: {
                 project_id: number;
                 format?: string;
+                ids?: string | null;
                 created_by?: number | null;
                 updated_by?: number | null;
             };
@@ -5202,6 +5230,72 @@ export interface operations {
             };
         };
     };
+    list_members_api_testcases__case_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuiteMemberOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_members_api_testcases__case_id__members_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuiteMembersUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuiteMemberOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     scan_split_api_testcases__case_id__scan_split_post: {
         parameters: {
             query?: never;
@@ -5696,70 +5790,6 @@ export interface operations {
             };
         };
     };
-    export_rows_api_datasets__dataset_id__export_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    generate_from_case_api_datasets_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DataSetGenerateIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     copy_api_datasets__dataset_id__copy_post: {
         parameters: {
             query?: never;
@@ -5778,68 +5808,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DataSetOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    resync_api_datasets__dataset_id__resync_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    drift_api_datasets__dataset_id__drift_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -5950,108 +5918,7 @@ export interface operations {
             };
         };
     };
-    list_rows_api_datasets__dataset_id__rows_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataSetRowOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    replace_rows_api_datasets__dataset_id__rows_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DataSetRowsReplace"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataSetRowOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    add_row_api_datasets__dataset_id__rows_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DataSetRowCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataSetRowOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    clear_rows_api_datasets__dataset_id__rows_delete: {
+    params_view_api_datasets__dataset_id__params_view_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6082,51 +5949,18 @@ export interface operations {
             };
         };
     };
-    copy_row_api_datasets__dataset_id__rows__row_id__copy_post: {
+    save_values_api_datasets__dataset_id__values_put: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 dataset_id: number;
-                row_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataSetRowOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_row_api_datasets__dataset_id__rows__row_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-                row_id: number;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DataSetRowCreate"];
+                "application/json": components["schemas"]["DataSetValuesSave"];
             };
         };
         responses: {
@@ -6136,7 +5970,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DataSetRowOut"];
+                    "application/json": components["schemas"]["DataSetOut"];
                 };
             };
             /** @description Validation Error */
@@ -6150,17 +5984,20 @@ export interface operations {
             };
         };
     };
-    delete_row_api_datasets__dataset_id__rows__row_id__delete: {
+    save_node_values_api_datasets__dataset_id__node_values_put: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 dataset_id: number;
-                row_id: number;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSetNodeValuesSave"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -6227,43 +6064,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DataSetMergeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_rows_api_datasets__dataset_id__import_post: {
-        parameters: {
-            query?: {
-                preview?: boolean;
-            };
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_import_rows_api_datasets__dataset_id__import_post"];
             };
         };
         responses: {
@@ -6555,6 +6355,13 @@ export interface operations {
                 project_id?: number | null;
                 created_by?: number | null;
                 limit?: number;
+                offset?: number;
+                case_name?: string | null;
+                status?: string | null;
+                start_time?: string | null;
+                end_time?: string | null;
+                sort_by?: string;
+                order?: string;
             };
             header?: never;
             path?: never;
@@ -6568,7 +6375,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExecutionRecordOut"][];
+                    "application/json": components["schemas"]["ExecutionListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execution_stats_api_executions_stats_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                project_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -6592,6 +6431,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_step_api_executions_steps__step_id__replay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                step_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepReplayRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

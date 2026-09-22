@@ -76,7 +76,7 @@
           </div>
         </el-card>
 
-        <!-- 成员明细：按执行顺序，逐成员卡片（含数据驱动行展开） -->
+        <!-- 成员明细：按执行顺序，逐成员卡片（含数据集行展开） -->
         <el-card v-for="(m, i) in memberReports" :key="i" shadow="never" class="member-card">
           <template #header>
             <div class="card-head">
@@ -85,7 +85,7 @@
                 <span class="member-name">{{ m.case_name || `用例#${m.case_id}` }}</span>
                 <el-tag size="small" :type="statusType(m.status)">{{ statusText(m.status) }}</el-tag>
               </div>
-              <el-tag v-if="(m.rows?.length ?? 0) > 1" size="small" type="info" effect="plain">数据驱动 {{ m.rows?.length }} 行</el-tag>
+              <el-tag v-if="(m.rows?.length ?? 0) > 1" size="small" type="info" effect="plain">数据集 {{ m.rows?.length }} 行</el-tag>
             </div>
           </template>
           <div v-if="m.error" class="member-error">

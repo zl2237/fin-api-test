@@ -46,16 +46,13 @@ class LaunchPlan:
 def build_launch_plan(db: Session, case, env_id: int, user_id: int, *,
                       trigger_type: str = "manual",
                       dataset_id: int | None = None,
-                      row_ids: list | None = None,
                       run_count: int = 1) -> LaunchPlan:
     """规划一个用例的一次发射：展开 → 建记录 → 组装 specs。
 
-    数据集不可执行（0 行/过期/不存在）抛 ValueError，由调用方决定 4xx 或跳过。
-    多行展开时整组抑制逐条通知并登记一个 AggregateGroup。
-    run_count>1 时同轮次展开结果一致，复用一次规划重复提交。
-    """
-    plan_items = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id,
-                                                     row_ids=row_ids)
+    数据集不可执行（无数据/不存在）抛 ValueError，由调用方决定 4xx 或跳过。
+    单套语义：绑定数据集恒展开 1 条（该数据集唯一一套数据）；
+    run_count>1 时复用一次规划重复提交（run_count 次执行）。"""
+    plan_items = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
     aggregate = len(plan_items) > 1 and plan_items[0]["dataset_id"] is not None
 
     launch = LaunchPlan()
@@ -71,8 +68,6 @@ def build_launch_plan(db: Session, case, env_id: int, user_id: int, *,
                 execution_id=record.id,
                 case_id=case.id,
                 row_vars=(item["row"] or {}).get("data"),
-                row_origins=item.get("origins"),
-                node_config_overrides=item["overrides"],
                 suppress_notify=aggregate,
             ))
             group_ids.append(record.id)

@@ -211,22 +211,6 @@
           value-placeholder="application/json"
         />
       </div>
-
-      <!-- 业务变量 -->
-      <div class="card-section">
-        <div class="section-title">
-          业务变量
-          <span class="section-hint">测试中可用 ${env.变量名} 引用</span>
-          <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
-            查看表达式用法
-          </el-button>
-        </div>
-        <KeyValueTable
-          v-model="formData.variables"
-          key-placeholder="变量名"
-          value-placeholder="变量值"
-        />
-      </div>
     </div>
   </div>
 </template>
@@ -282,7 +266,6 @@ interface EnvFormData {
     enable_on_failure: boolean
     enable_on_success: boolean
   }
-  variables: Record<string, any>
   common_headers: Record<string, any>
 }
 
@@ -312,7 +295,6 @@ const formData = reactive<EnvFormData>({
     enable_on_failure: true,
     enable_on_success: false,
   },
-  variables: {},
   common_headers: { 'Content-Type': 'application/json' },
 })
 
@@ -337,16 +319,15 @@ async function loadEnv() {
     password: db.password || '',
     database: db.database || '',
   }
-  // login_config（兼容旧数据：若 login_config 为空但 variables 里有登录配置，则从 variables 迁移）
+  // login_config（测试数据来源唯一为数据集，环境不提供变量）
   const lc = env.login_config || {}
-  const oldVars = env.variables || {}
   formData.login_config = {
-    login_path: lc.login_path || oldVars.login_path || '/api/home/login/userLogin',
-    login_body: lc.login_body || oldVars.login_body || {},
+    login_path: lc.login_path || '/api/home/login/userLogin',
+    login_body: lc.login_body || {},
     login_mode: lc.login_mode || 'token',
     login_content_type: lc.login_content_type || 'json',
-    token_jsonpath: lc.token_jsonpath || oldVars.token_jsonpath || '$.data.token',
-    auth_header_name: lc.auth_header_name || oldVars.auth_header_name || 'Authorization',
+    token_jsonpath: lc.token_jsonpath || '$.data.token',
+    auth_header_name: lc.auth_header_name || 'Authorization',
     auth_header_value_template: lc.auth_header_value_template || '${token}',
     login_check_jsonpath: lc.login_check_jsonpath || '',
     login_check_value: lc.login_check_value || '',
@@ -354,21 +335,13 @@ async function loadEnv() {
     captcha_field: lc.captcha_field || '',
     captcha_retry: lc.captcha_retry ?? 3,
   }
-  // notify_config（兼容旧数据：wecom_webhook 从 variables 迁移）
+  // notify_config
   const nc = env.notify_config || {}
   formData.notify_config = {
-    wecom_webhook: nc.wecom_webhook || oldVars.wecom_webhook || '',
+    wecom_webhook: nc.wecom_webhook || '',
     enable_on_failure: nc.enable_on_failure ?? true,
     enable_on_success: nc.enable_on_success ?? false,
   }
-  // variables（去掉旧的登录/通知字段，只保留业务变量）
-  const pureVars: Record<string, any> = {}
-  for (const [k, v] of Object.entries(oldVars)) {
-    if (!['login_path', 'login_body', 'token_jsonpath', 'auth_header_name', 'wecom_webhook'].includes(k)) {
-      pureVars[k] = v
-    }
-  }
-  formData.variables = pureVars
   formData.common_headers = env.common_headers || { 'Content-Type': 'application/json' }
   // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
   // 这里用 nextTick 等待 watch 触发后再重置，避免误判"有未保存改动"
@@ -431,7 +404,6 @@ async function onSave() {
       db_config: formData.db_config,
       login_config: formData.login_config,
       notify_config: formData.notify_config,
-      variables: formData.variables,
       common_headers: formData.common_headers,
     }
     if (isEdit.value) {

@@ -94,7 +94,7 @@ class Environment(Base):
     db_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
     login_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")
     notify_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success}")
-    variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="业务变量（与登录/通知解耦）")
+    variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="已退役：原业务变量（测试数据来源已统一为数据集变量池，不再注入执行变量池）")
     common_headers: Mapped[Any] = mapped_column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
     timeout: Mapped[int] = mapped_column(Integer, default=15, comment="接口请求超时时间（秒）")
     success_codes: Mapped[str] = mapped_column(String(100), default="200", comment="业务成功码（逗号分隔，响应 code 命中任一即成功；不同系统约定不同，如 ThinkPHP 成功 code:1）")
@@ -231,14 +231,13 @@ class SuiteMember(Base):
 
 
 class DataSet(Base):
-    """数据集（用例私有，1:N）：数据驱动测试的场景包。
+    """数据集（用例私有，1:N）：用例的变量池（一套数据）。
 
     归属：case_id 用例级隔离（不同用例的数据集互相不可见，复用靠复制）；
     project_id 冗余保留（项目过滤仍可用）。
     组成：
-    - columns/rows：列定义 + 行数据（列名即变量名；列中文名实时引用项目字段字典，不落库）
-    - node_configs：编排配置快照 [{node_id, api_id, pre_process, post_extract, assertions, wait_after_ms}]，
-      执行时按 node_id 整块替换用例当前节点配置（缺失节点回落用例配置）
+    - columns/rows：列定义 + 单套值（列名即变量名，点路径键；列中文名实时引用项目字段字典，不落库）
+    - 编排唯一来源是用例当前配置（不做编排快照）
     """
     __tablename__ = "data_sets"
 
@@ -248,9 +247,7 @@ class DataSet(Base):
                      comment="归属用例ID（1:N，用例间隔离）")
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="数据集名称")
     description: Mapped[str | None] = mapped_column(Text, comment="描述")
-    columns: Mapped[Any] = mapped_column(JSON, default=list, comment="列定义：[{key, type}]，key 即执行时变量名；中文名实时引用字段字典")
-    node_configs: Mapped[Any] = mapped_column(JSON, default=list,
-                          comment="编排配置快照：[{node_id, api_id, pre_process, post_extract, assertions, wait_after_ms}]，执行时整块覆盖用例节点配置")
+    columns: Mapped[Any] = mapped_column(JSON, default=list, comment="列定义：[{key, type}]，key 即执行时变量名（点路径键）；中文名实时引用字段字典")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")

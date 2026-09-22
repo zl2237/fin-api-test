@@ -26,8 +26,7 @@ def _validate_concurrency(concurrency: int) -> None:
 def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """触发用例执行（异步）：立即创建 running 状态的执行记录并返回，后台线程池执行。
     前端通过 GET /executions/{id} 轮询执行状态。
-    数据驱动：绑定数据集的用例按数据行展开为 N 条记录（响应返回第一条，列表可看全部）；
-    多行展开失败聚合成一条通知，row_ids 只选 1 行时保持逐条。"""
+    数据驱动：绑定数据集的用例用其单套数据执行（dataset_id 可临时换数据集）。"""
     if data.case_id != case_id:
         raise HTTPException(400, "case_id 不一致")
     case = crud.get_testcase(db, case_id)
@@ -39,7 +38,7 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
 
     try:
         plan = build_launch_plan(db, case, data.env_id, user.id,
-                                 dataset_id=data.dataset_id, row_ids=data.row_ids)
+                                 dataset_id=data.dataset_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _validate_concurrency(data.concurrency)
@@ -139,6 +138,79 @@ def cleanup_executions(days: int = 30, db: Session = Depends(get_db), user: mode
     cutoff = datetime.now() - timedelta(days=days)
     count = exec_domain.cleanup_old_records(db, cutoff)
     return {"message": f"已清理 {count} 条 {days} 天前的执行记录", "deleted": count, "days": days}
+
+
+@router.post("/executions/steps/{step_id}/replay")
+def replay_step(step_id: int, data: schemas.StepReplayRequest,
+                db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """报告页节点重放：按步骤快照定位接口（path+method+项目），用原执行环境重发一次。
+
+    body_override（编辑后的请求体）优先，否则用原快照请求体；表达式求值与
+    调试/DAG 链路同口径（${timestamp()} 等生效）。纯调试口径：不写回报告。"""
+    import time
+    from copy import deepcopy
+
+    from ..engine.expression import ExpressionEngine
+    from ..engine.type_coercer import apply_field_types, coerce_json_strings
+    from ..services.body_builder import pop_file_fields_from_body
+    from ..services.request_sender import send_request
+    from ..services.runtime_service import build_db_client, build_http_client, login
+
+    step = db.get(models.StepRecord, step_id)
+    if not step:
+        raise HTTPException(404, f"步骤不存在: {step_id}")
+    execution = db.get(models.ExecutionRecord, step.execution_id)
+    if not execution or not execution.env_id:
+        raise HTTPException(400, "原执行记录缺失或无环境信息，无法重放")
+    case = crud.get_testcase(db, execution.case_id)
+    api = (db.query(models.ApiDefinition)
+           .filter(models.ApiDefinition.path == step.api_path,
+                   models.ApiDefinition.method == (step.api_method or "GET").upper(),
+                   models.ApiDefinition.project_id == case.project_id if case else True)
+           .first())
+    if not api:
+        raise HTTPException(404, f"接口已不存在或已改路径: {step.api_path}")
+    env = crud.get_environment(db, execution.env_id)
+    if not env:
+        raise HTTPException(404, f"环境不存在: {execution.env_id}")
+
+    start_ts = time.time()
+    client = build_http_client(env)
+    try:
+        try:
+            login(client, env)
+        except Exception as e:
+            return {"status_code": 0, "response_body": {"error": str(e)},
+                    "error": "登录失败", "elapsed_ms": int((time.time() - start_ts) * 1000),
+                    "request_body": data.body_override}
+        client.headers = {**(client.headers or {}),
+                          **(deepcopy(api.headers_template) or {})}
+        client.headers = {k: v for k, v in client.headers.items() if v is not None}
+        body = deepcopy(data.body_override) if data.body_override is not None \
+            else deepcopy(step.request_body or {})
+        expr = ExpressionEngine({"extracted": {}}, db_client=build_db_client(env))
+        body = expr.evaluate(body)
+        body = coerce_json_strings(body)
+        body = apply_field_types(body, api)
+        for k, v in list((client.headers or {}).items()):
+            if isinstance(v, str) and "${" in v:
+                client.headers[k] = expr.evaluate(v)
+        body, file_fields = pop_file_fields_from_body(body, api)
+        req_timeout = getattr(env, "timeout", None) or 15
+        status_code, response_data, error_msg = send_request(
+            db, client, api, body, file_fields=file_fields, timeout=req_timeout)
+        crud.log_operation(db, user, "execute", "api", api.id,
+                           f"replay step#{step_id} ({api.name})")
+        return {"status_code": status_code, "response_body": response_data,
+                "error": error_msg,
+                "elapsed_ms": int((time.time() - start_ts) * 1000),
+                "request_body": body}
+    finally:
+        try:
+            if client.session:
+                client.session.close()
+        except Exception:
+            pass
 
 
 @router.get("/executions/{exec_id}", response_model=schemas.ExecutionRecordOut)

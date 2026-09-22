@@ -59,25 +59,22 @@ class TestBuildLaunchPlan:
     def test_single_case_no_dataset(self, patched, monkeypatch):
         """普通用例：1 条记录 1 个 spec，不抑制通知，无聚合组"""
         _set_plan(monkeypatch, [{"dataset_id": None, "row": None,
-                                 "origins": None, "overrides": None}])
+                                 "overrides": None}])
 
         plan = build_launch_plan(object(), CASE, 22, 5)
 
         assert len(plan.records) == 1
         spec = plan.specs[0]
         assert (spec.execution_id, spec.case_id) == (100, 11)
-        assert spec.row_vars is None and spec.row_origins is None
-        assert spec.node_config_overrides is None
+        assert spec.row_vars is None
         assert spec.suppress_notify is False
         assert plan.aggregate_groups == []
 
     def test_multi_row_dataset_aggregates(self, patched, monkeypatch):
         """数据驱动多行：每行一条记录，整组抑制逐条通知，登记一个聚合组"""
         items = [
-            {"dataset_id": 7, "row": _row(1, "BL001"), "origins": {"bl_no": "BL"},
-             "overrides": None},
-            {"dataset_id": 7, "row": _row(2, "BL002"), "origins": {"bl_no": "BL"},
-             "overrides": None},
+            {"dataset_id": 7, "row": _row(1, "BL001"), "overrides": None},
+            {"dataset_id": 7, "row": _row(2, "BL002"), "overrides": None},
         ]
         _set_plan(monkeypatch, items)
 
@@ -86,7 +83,6 @@ class TestBuildLaunchPlan:
         assert [s.execution_id for s in plan.specs] == [100, 101]
         assert all(s.suppress_notify for s in plan.specs)  # 抑制逐条
         assert [s.row_vars for s in plan.specs] == [{"bl_no": "BL001"}, {"bl_no": "BL002"}]
-        assert all(s.row_origins == {"bl_no": "BL"} for s in plan.specs)
         assert len(plan.aggregate_groups) == 1
         group = plan.aggregate_groups[0]
         assert group.execution_ids == [100, 101]
@@ -95,8 +91,8 @@ class TestBuildLaunchPlan:
     def test_run_count_multiplies_with_single_group(self, patched, monkeypatch):
         """执行次数 ×N：记录数翻倍，聚合组覆盖全部 N×行 的 id"""
         _set_plan(monkeypatch, [
-            {"dataset_id": 7, "row": _row(1, "BL001"), "origins": None, "overrides": None},
-            {"dataset_id": 7, "row": _row(2, "BL002"), "origins": None, "overrides": None},
+            {"dataset_id": 7, "row": _row(1, "BL001"), "overrides": None},
+            {"dataset_id": 7, "row": _row(2, "BL002"), "overrides": None},
         ])
 
         plan = build_launch_plan(object(), CASE, 22, 5, run_count=3)
@@ -107,7 +103,7 @@ class TestBuildLaunchPlan:
     def test_single_row_dataset_no_aggregate(self, patched, monkeypatch):
         """row_ids 只选 1 行：dataset_id 非空但 len(plan)==1，保持逐条通知"""
         _set_plan(monkeypatch, [{"dataset_id": 7, "row": _row(1, "BL001"),
-                                 "origins": None, "overrides": None}])
+                                 "overrides": None}])
 
         plan = build_launch_plan(object(), CASE, 22, 5)
 
@@ -117,7 +113,7 @@ class TestBuildLaunchPlan:
     def test_trigger_type_passthrough(self, patched, monkeypatch):
         """trigger_type 透传到每条记录（schedule/manual 溯源）"""
         _set_plan(monkeypatch, [{"dataset_id": None, "row": None,
-                                 "origins": None, "overrides": None}])
+                                 "overrides": None}])
 
         build_launch_plan(object(), CASE, 22, 5, trigger_type="schedule")
 
