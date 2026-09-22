@@ -45,6 +45,9 @@ class FakeDb:
     def add(self, obj):
         self.added.append(obj)
 
+    def delete(self, obj):
+        self.added = [a for a in self.added if a is not obj]
+
     def commit(self):
         self.commits += 1
 
@@ -175,3 +178,39 @@ class TestCopyCarriesDatasets:
 
         assert obj.dataset_id == 901  # 绑定关系照搬：源绑 66（第二个）→ 克隆到 901
         assert fake_db.commits >= 1
+
+
+class TestDeleteLastDatasetGuard:
+    def _db_with(self, count):
+        db = FakeDb(datasets=[SimpleNamespace(id=i) for i in range(count)])
+
+        class Q:
+            def filter(self, *a, **k):
+                return self
+
+            def count(self):
+                return count
+
+            def delete(self):
+                pass
+
+        db.query = lambda model: Q()
+        return db
+
+    def test_last_dataset_rejected(self):
+        import pytest
+        pool = _ds(9, [{"key": "a", "type": "string"}], {"a": "1"})
+        pool.case_id = 5
+        with patch.object(ds_svc, "get_dataset", return_value=pool), \
+             patch.object(ds_svc.crud, "count_cases_bound_to_dataset", return_value=0):
+            with pytest.raises(ValueError, match="至少需保留一个"):
+                ds_svc.delete_dataset(self._db_with(1), 9)
+
+    def test_multiple_datasets_allowed(self):
+        pool = _ds(9, [{"key": "a", "type": "string"}], {"a": "1"})
+        pool.case_id = 5
+        db = self._db_with(3)
+        with patch.object(ds_svc, "get_dataset", return_value=pool), \
+             patch.object(ds_svc.crud, "count_cases_bound_to_dataset", return_value=0):
+            ds_svc.delete_dataset(db, 9)  # 名下 3 个，删除放行
+        assert db.commits == 1
