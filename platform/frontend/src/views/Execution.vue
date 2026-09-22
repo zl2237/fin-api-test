@@ -131,7 +131,7 @@
               </template>
               <!-- el-tooltip 默认插槽只渲染单个触发元素：tag+行号需包一层，否则 ds-row-label 被丢弃 -->
               <span class="ds-row-wrap">
-                <el-tag type="info" effect="plain" size="small">数据驱动</el-tag>
+                <el-tag type="info" effect="plain" size="small">数据集</el-tag>
                 <span class="ds-row-label">#{{ row.dataset_row.row_index }} {{ row.dataset_row.label }}</span>
               </span>
             </el-tooltip>

@@ -61,15 +61,15 @@ const guideSteps = [
   { title: '建一个项目', desc: '项目把一个系统的接口和用例装在一起，右上角随时切换', go: '去创建', to: '/projects' },
   { title: '配置环境', desc: '被测系统地址、登录账号、数据库连接，可即时测试连通性', go: '去配置', to: '/envs' },
   { title: '录入接口', desc: '手动新建或粘贴 cURL 自动识别，参数像填表格一样配置', go: '去录入', to: '/apis' },
-  { title: '编排用例', desc: '画布上把接口连成流程，双击节点添加断言', go: '去编排', to: '/cases' },
-  // 数据驱动为主流程的可选第六步：从用例生成数据集，用例行内「数据」绑定
-  { title: '绑定数据集（可选）', desc: '从用例生成数据集，改单元格即参数化，一行数据执行一次', go: '去看看', to: '/datasets' },
-  { title: '执行看报告', desc: '选环境点执行，每一步请求与校验结果全留档', go: '去看', to: '/executions' },
+  { title: '编排用例', desc: '画布上把接口连成流程，双击节点添加断言；保存时自动收集静态参数建变量池', go: '去编排', to: '/cases' },
+  // 数据集为主流程的可选第五步：保存即自动建池绑定；多场景复制数据集切换
+  { title: '调整数据（可选）', desc: '保存用例已自动建「{用例名}-变量池」并绑定，改参数值即参数化；多场景复制多个数据集', go: '去看看', to: '/datasets' },
+  { title: '执行看报告', desc: '选环境点执行，每一步请求与校验结果全留档；支持编辑节点参数后重放', go: '去看', to: '/executions' },
 ]
 
 const guideCaps = [
   { title: '测试套件', desc: '跨系统串联用例成链：逐成员绑环境，上游变量白名单自动注入下游', tab: null },
-  { title: '数据驱动测试', desc: '改单元格即参数化，一行数据一次执行，支持 Excel 导入导出', tab: 'dataset' as const },
+  { title: '数据集执行', desc: '保存用例自动建变量池，改参数值即参数化；每个数据集一套数据，多场景切换执行', tab: 'dataset' as const },
   { title: '数据自动生成', desc: '随机手机号、日期加减、唯一单号，写一次 ${uuid()} 到处复用', tab: 'expression' as const },
   { title: '17 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验，支持失败重试', tab: 'assertion' as const },
   { title: '批量导入接口', desc: 'cURL 粘贴即用，HAR 抓包文件、Swagger 文档批量导入', tab: null },

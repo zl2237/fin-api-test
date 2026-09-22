@@ -252,7 +252,7 @@ def rollback_project_version(
             ds_snap = [
                 {"id": d.id, "case_id": d.case_id, "name": d.name,
                  "description": d.description, "columns": d.columns,
-                 "node_configs": d.node_configs, "project_id": d.project_id}
+                 "project_id": d.project_id}
                 for d in db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids)).all()
             ]
             db.query(models.DataSetRow).filter(models.DataSetRow.dataset_id.in_(ds_ids))\
@@ -420,7 +420,7 @@ def rollback_project_version(
         db.add(models.DataSet(
             id=d["id"], project_id=d.get("project_id") or project.id, case_id=new_cid,
             name=d["name"], description=d.get("description"),
-            columns=d.get("columns") or [], node_configs=d.get("node_configs") or [],
+            columns=d.get("columns") or [],
         ))
         for r in ds_rows_map.get(d["id"], []):
             db.add(models.DataSetRow(dataset_id=d["id"], row_index=r["row_index"], data=r["data"]))

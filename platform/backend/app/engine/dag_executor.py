@@ -15,7 +15,6 @@ DAG 拓扑执行引擎。
 """
 import time
 from datetime import datetime
-from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -43,28 +42,20 @@ class DagExecutor:
                  execution_record: models.ExecutionRecord | None = None,
                  sink: ExecutionSink | None = None,
                  row_vars: dict[str, Any] | None = None,
-                 row_origins: dict[str, Any] | None = None,
-                 node_config_overrides: dict[str, dict] | None = None,
                  suite_vars: dict[str, Any] | None = None,
                  suppress_notify: bool = False):
         self.db = db
         self.case = case
         self.env = env
-        # 业务变量从 variables 读取（与登录/通知配置解耦）；
-        # 数据驱动：row_vars 为数据集行 {列key: 值}，覆盖同名环境变量进池；
-        # 套件注入：suite_vars 为上游成员白名单快照，优先级最高（单独执行不传，行为不变）
-        self.context = ExecutionContext(env_vars=env.variables or {}, row_vars=row_vars,
+        # 业务变量已退役：测试数据来源唯一为数据集（row_vars 为数据集单套数据，
+        # 数据集域第 3 层自动解析）；套件注入：suite_vars 为上游成员白名单快照
+        # （单独执行不传，行为不变）
+        self.context = ExecutionContext(row_vars=row_vars,
                                          suite_vars=suite_vars)
         # 数据驱动批量执行时抑制逐条通知（由聚合器等全部完成后发一条汇总）
         self.suppress_notify = suppress_notify
-        # 数据集行值原始引用（优先级 1）：PreProcessor 据此让非动态 set_field 让位行值
+        # 数据集行值原始引用：数据集域取值处（prepare_request 第 3 层解析）
         self.row_vars = row_vars or None
-        # 列快照原值 {key: 生成时源头值}（数据集 columns 的 origin）：同名异值列
-        # 只作用于"节点配置值 == origin"的节点（快照保真，见 filter_row_vars_for_node）
-        self.row_origins = row_origins or None
-        # 数据集节点配置快照 {node_id: {api_id, pre_process, post_extract, assertions, wait_after_ms}}：
-        # 命中的节点整块替换用例当前编排（前置/后置/断言全换），未命中回落 CaseNodeConfig
-        self.node_config_overrides = node_config_overrides or None
         self.extractor = Extractor()
         self.http_client: HttpClient | None = None
         self.db_client: Any = None
@@ -172,17 +163,7 @@ class DagExecutor:
 
     # ---------- 单节点执行 ----------
     def _resolve_node_config(self, node_id: str):
-        """节点配置来源：数据集快照优先（node_id 命中整块替换）→ 回落用例 CaseNodeConfig。"""
-        snap = (self.node_config_overrides or {}).get(node_id)
-        if snap:
-            return SimpleNamespace(
-                node_id=node_id,
-                api_id=snap.get("api_id"),
-                pre_process=snap.get("pre_process") or [],
-                post_extract=snap.get("post_extract") or [],
-                assertions=snap.get("assertions") or [],
-                wait_after_ms=snap.get("wait_after_ms") or 0,
-            )
+        """节点配置来源：用例当前 CaseNodeConfig（编排唯一来源，无快照覆盖）。"""
         return self.db.query(models.CaseNodeConfig).filter(
             models.CaseNodeConfig.case_id == self.case.id,
             models.CaseNodeConfig.node_id == node_id,
@@ -223,7 +204,7 @@ class DagExecutor:
         assert self.http_client is not None  # execute() 前已 build_http_client，收窄 None 分支
         try:
             parts = prepare_request(api, config, context=self.context,
-                                    row_vars=self.row_vars, row_origins=self.row_origins,
+                                    row_vars=self.row_vars,
                                     base_headers=self.http_client.headers,
                                     db_client=self.db_client)
         except Exception as e:

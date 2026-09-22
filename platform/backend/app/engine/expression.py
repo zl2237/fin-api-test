@@ -194,7 +194,8 @@ class ExpressionEngine:
         # ${context.name}：兼容旧写法，等价于 ${name}
         if inner.startswith("context."):
             return self._resolve_path(self.context.get("extracted", {}), inner[len("context."):])
-        # env.xxx → 从环境变量取值（env_vars 的原始副本，不含后置提取）
+        # env.xxx → 环境变量已退役（测试数据来源唯一为数据集）：池恒空，
+        # 引用保留占位符不替换，便于排查存量表达式
         if inner.startswith("env."):
             return self._resolve_path(self.context.get("env", {}), inner[len("env."):])
         # global.xxx

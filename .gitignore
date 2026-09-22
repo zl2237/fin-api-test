@@ -39,6 +39,8 @@ report/
 platform/backend/uploads/
 # 数据集迁移前备份（一次性产物）
 platform/backend/backup_*.json
+# 数据库 dump/备份目录（scripts 备份产物，含库数据勿提交）
+platform/backend/backups/
 # 本地导入接口所需文件
 *.har
 *.openapi.json

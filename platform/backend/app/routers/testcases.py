@@ -54,6 +54,12 @@ def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User
 @router.post("", response_model=schemas.TestCaseOut)
 def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.create_testcase(db, data, user.id)
+    # 变量池收集钩子：静态入参拆叶入池 + 清空转引用（失败不阻断保存，编排字面量仍在）
+    from ..services.dataset_service import sync_case_variable_pool
+    try:
+        sync_case_variable_pool(db, obj, user.id)
+    except Exception as e:
+        print(f"[保存用例] 变量池收集失败（忽略）: {e}")
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "create", "testcase", obj.id, obj.name)
     return obj
@@ -143,14 +149,16 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
         except ValueError as e:
             raise HTTPException(400, str(e))
     obj = crud.update_testcase(db, obj, data, user.id)
-    # 编排有改动时自动同步绑定数据集的节点配置快照（省去数据集页手动 resync）；
-    # 同步失败不影响用例保存——快照过期仍可 drift 检测兜底并手动 resync
-    if {"node_configs", "dag_config"} & data.model_fields_set:
-        from ..services.dataset_service import sync_case_datasets
-        try:
-            sync_case_datasets(db, obj.id)
-        except Exception as e:
-            print(f"[保存用例] 自动同步数据集节点配置快照失败（忽略）: {e}")
+    # 变量池收集钩子：静态入参拆叶入池 + 清空转引用（失败不阻断保存，编排字面量仍在）。
+    # 显式解绑（dataset_id 显式传 null）时跳过自动复用绑定，保留用户解绑意图
+    from ..services.dataset_service import sync_case_variable_pool
+    try:
+        sync_case_variable_pool(
+            db, obj, user.id,
+            unbind="dataset_id" in data.model_fields_set and data.dataset_id is None,
+        )
+    except Exception as e:
+        print(f"[保存用例] 变量池收集失败（忽略）: {e}")
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj

@@ -1,8 +1,9 @@
-"""执行展开（数据驱动测试周期 5）：绑定数据集的用例一次执行展开为 N 次执行。
+"""执行展开：绑定数据集的用例用其单套数据执行（单套语义）。
 
 seam：
-- dataset_service.plan_case_expansion：展开计划纯读函数（未绑定→1条普通；N行→N快照；0行→拒）
-- crud.executions.create_execution：dataset 快照落 record（失败可溯源是哪行数据）
+- dataset_service.plan_case_expansion：展开计划纯读函数（未绑定→1条普通；
+  绑定→该数据集唯一一套数据展开 1 条；无数据→拒）
+- crud.executions.create_execution：dataset 快照落 record（失败可溯源是哪套数据）
 """
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,7 +16,7 @@ from app.services import dataset_service as svc
 
 def _ds(rows, columns=None, case_id=11):
     return SimpleNamespace(id=7, case_id=case_id, columns=columns or [{"key": "bl_no", "type": "string"}],
-                           node_configs=[], rows=rows)
+                           rows=rows)
 
 
 def _rows(n):
@@ -24,32 +25,29 @@ def _rows(n):
 
 
 class TestPlanCaseExpansion:
-    def test_unbound_case_expands_to_single_plain(self):
-        """未绑定数据集：单条普通执行（行为与现状完全一致）"""
+    def test_unbound_case_rejected(self):
+        """未绑定数据集 → 拒绝执行（入参无默认值兜底，全空参数无意义）"""
         case = SimpleNamespace(id=11, dataset_id=None)
-        with patch.object(svc.crud, "get_dataset") as g:
-            plan = svc.plan_case_expansion(SimpleNamespace(), case)
-        assert plan == [{"dataset_id": None, "row": None, "overrides": None, "origins": None}]
-        g.assert_not_called()  # 未绑定不查数据集
+        with pytest.raises(ValueError, match="未绑定数据集"):
+            svc.plan_case_expansion(SimpleNamespace(), case)
 
-    def test_bound_case_expands_per_row(self):
-        """绑定 3 行 → 3 条展开项，快照含 row_index/data/label（首列值）"""
+    def test_bound_case_expands_single_set(self):
+        """绑定数据集 → 恒 1 条展开项：取首行（唯一一套数据），快照含 row_index/data/label"""
         case = SimpleNamespace(id=11, dataset_id=7)
-        rows = _rows(3)
+        rows = _rows(3)  # 存量多行：只取第一行（多场景 = 多个数据集）
         with patch.object(svc.crud, "get_dataset", return_value=_ds(rows)), \
              patch.object(svc.crud, "list_rows", return_value=rows):
             plan = svc.plan_case_expansion(SimpleNamespace(), case)
-        assert len(plan) == 3
-        assert all(p["dataset_id"] == 7 for p in plan)
+        assert len(plan) == 1
+        assert plan[0]["dataset_id"] == 7
         assert plan[0]["row"] == {"row_index": 1, "data": {"bl_no": "BL001"}, "label": "BL001"}
-        assert plan[2]["row"]["row_index"] == 3
 
     def test_zero_rows_rejected(self):
-        """绑定但数据集 0 行 → 拒绝执行（先录入数据）"""
+        """绑定但数据集无数据 → 拒绝执行（先在变量池录入参数值）"""
         case = SimpleNamespace(id=11, dataset_id=7)
         with patch.object(svc.crud, "get_dataset", return_value=_ds([])), \
              patch.object(svc.crud, "list_rows", return_value=[]):
-            with pytest.raises(ValueError, match="无数据行|先录入"):
+            with pytest.raises(ValueError, match="无数据|变量池"):
                 svc.plan_case_expansion(SimpleNamespace(), case)
 
     def test_other_case_dataset_rejected(self):
@@ -59,18 +57,6 @@ class TestPlanCaseExpansion:
              patch.object(svc.crud, "list_rows", return_value=_rows(2)):
             with pytest.raises(ValueError, match="不属于该用例|隔离"):
                 svc.plan_case_expansion(SimpleNamespace(), case)
-
-    def test_node_config_overrides_attached(self):
-        """数据集带节点配置快照 → 展开项附 overrides 映射（执行时整块替换用例编排）"""
-        case = SimpleNamespace(id=11, dataset_id=7)
-        rows = _rows(1)
-        ds = _ds(rows)
-        ds.node_configs = [{"node_id": "n1", "api_id": 3, "pre_process": [], "post_extract": [],
-                            "assertions": [], "wait_after_ms": 100}]
-        with patch.object(svc.crud, "get_dataset", return_value=ds), \
-             patch.object(svc.crud, "list_rows", return_value=rows):
-            plan = svc.plan_case_expansion(SimpleNamespace(), case)
-        assert plan[0]["overrides"] == {"n1": ds.node_configs[0]}
 
     def test_bound_dataset_missing_rejected(self):
         """绑定的数据集不存在（防御：正常被删除保护拦住）→ 明确报错而非静默单条"""

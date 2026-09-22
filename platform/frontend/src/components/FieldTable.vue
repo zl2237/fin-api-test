@@ -24,11 +24,6 @@
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="必填" width="60" align="center">
-        <template #default="{ row }">
-          <el-checkbox v-model="row.required" />
-        </template>
-      </el-table-column>
       <el-table-column label="默认值（支持 ${}）" min-width="200">
         <template #default="{ row }">
           <div v-if="row.field_type === 'file'" class="file-value-cell">
@@ -87,7 +82,7 @@ function add() {
     key: '',
     label: '',
     field_type: 'string',
-    required: false,
+    required: false,  // 必填概念已取消：字段恒 false，仅兼容后端模型
     default_value: '',
     remark: '',
     sort_order: list.length,

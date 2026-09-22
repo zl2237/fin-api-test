@@ -51,9 +51,13 @@ export function useGroupedTable<T extends ReorderableItem>(
 ) {
   const base = useGroupTree(groups, projectId, scope)
 
-  /** 某分组的条目列表（未分组传 null） */
+  /** 某分组的条目列表（未分组传 null）：按 sort_order 稳定排序——
+   *  拖拽重排后本地对象属性已更新，视图立即呈现新序（与刷新后的接口序一致）；
+   *  同值时保持源序（接口返回的 sort_order, id.desc 稳定序） */
   function itemsOf(groupId: number | null): T[] {
-    return items.value.filter((it) => getGroupId(it) === groupId)
+    return items.value
+      .filter((it) => getGroupId(it) === groupId)
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
   }
 
   /** 统计分组条目数量（含所有子孙分组，用于分组头部计数展示） */

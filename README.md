@@ -82,7 +82,7 @@ def test_fee_add(api_factory, db_factory, env_config):
 
 - 平台说明与快速上手：[platform/README.md](./platform/README.md)
 - 深模块词汇表（单一实现约定）：[docs/CONTEXT.md](./docs/CONTEXT.md)
-- 后端 730 个 fake-db 单测 + 前端 vue-tsc 全量类型检查，CI 与 pre-commit 同口径
+- 后端 755 个 fake-db 单测 + 前端 vue-tsc 全量类型检查，CI 与 pre-commit 同口径
 
 ## License
 

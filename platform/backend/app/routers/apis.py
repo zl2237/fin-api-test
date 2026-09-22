@@ -503,6 +503,20 @@ def debug_api(
         else:
             body = build_request_body(api)
 
+        # 表达式求值（与 DAG 执行链路口径一致）：${timestamp()} /
+        # ${generate_bl_no()} / ${db.query_value(...)} 等在调试时同样生效；
+        # 未定义变量保留占位符原样，便于排查
+        from ..engine.expression import ExpressionEngine
+        from ..engine.type_coercer import apply_field_types, coerce_json_strings
+        from ..services.runtime_service import build_db_client
+        expr = ExpressionEngine({"extracted": {}}, db_client=build_db_client(env))
+        body = expr.evaluate(body)
+        body = coerce_json_strings(body)
+        body = apply_field_types(body, api)
+        for k, v in list((client.headers or {}).items()):
+            if isinstance(v, str) and "${" in v:
+                client.headers[k] = expr.evaluate(v)
+
         # 剥离 file 类型字段：file 字段不参与 JSON body，单独组装到 multipart files
         body, file_fields = pop_file_fields_from_body(body, api)
 

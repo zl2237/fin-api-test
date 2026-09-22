@@ -10,7 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
-[![Tests](https://img.shields.io/badge/pytest-730_passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/pytest-755_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
@@ -18,10 +18,11 @@
 - **DAG 可视化编排** — 拖拽节点 + 连线描述执行顺序，自动布局 / 新节点防重叠 / minimap
 - **字段级接口配置** — 字段表维护请求体（key、类型、默认值、必填），告别手写 JSON
 - **多格式导入** — cURL / HAR / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段
-- **表达式引擎** — `${now()}` `${random_int()}` `${uuid()}` 等 12 个内置函数 + `${context.xxx}` 变量引用 + `db.query()` 内联 SQL 查询
-- **测试套件** — 跨系统用例链：`case_type='suite'` 串行执行多个成员用例（可跨项目、逐成员绑环境），共享变量白名单把上游变量池快照注入下游（环境变量 < 数据行 < 套件共享值），逐行配对 / 上游失败下游阻断 / 套件级汇总通知与专属报告
+- **表达式引擎** — `${now()}` `${random_int()}` `${uuid()}` 等 12 个内置函数 + `${context.xxx}` 变量引用 + `db.query()` 内联 SQL 查询；接口调试与报告节点重放同样求值
+- **测试套件** — 跨系统用例链：`case_type='suite'` 串行执行多个成员用例（可跨项目、逐成员绑环境），共享变量白名单把上游变量池快照注入下游，逐行配对 / 上游失败下游阻断 / 套件级汇总通知与专属报告
+- **数据集变量池** — 保存用例自动收集静态参数建「{用例名}-变量池」并绑定；节点页签改值 = 节点独有（压过池值），总览页签 = 全节点共享；支持粘贴 JSON 预览导入（动态绑定不覆盖）；多场景建多个数据集切换执行，复用靠复制
 - **17 种断言** — JSONPath / 状态码 / 耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试应对异步落库
-- **结构化报告** — 每步请求/响应/断言全量落库，后端导出 CSV（Excel 兼容）/ HTML（可打印 PDF）+ 耗时趋势图
+- **结构化报告** — 每步请求/响应/断言全量落库，响应体 JSON 可展开收起；支持编辑节点请求参数后按原环境重放（纯调试口径不写回报告）；后端导出 CSV（Excel 兼容）/ HTML（可打印 PDF）+ 耗时趋势图
 - **文件中心** — 分类树 + 标签 + multipart 上传，`file` 字段直接引用文件中心资源
 - **工程化** — JWT 鉴权 + admin/member 角色 + 操作审计 + Alembic 迁移 + 亮暗主题 + 标签页 + 命令面板（Ctrl+K）
 
@@ -91,7 +92,8 @@ npm install && npm run dev
   执行引擎与单接口调试共用
 - 执行编排（数据集展开→建记录→提交→聚合通知）只有一份实现 `services/execution_launcher.py`，
   单次/批量/定时三入口共用；`runner.submit_batch_execution` 收 `list[ExecutionSpec]`
-- 请求组装（"行值 > set_field > 默认值"三级优先级）单点 `engine/prepare_request.py`；
+- 请求组装三层取值优先级（手动覆盖 > 套件注入 > 数据集域；运行时变量仅 `${}` 显式引用，
+  接口字段默认值仅作保存时迁移源）单点 `engine/prepare_request.py`；
   Kahn 拓扑排序单点 `engine/topo.py`（执行序与数据集列序共用）；企微通知门控单点 `services/notifier.py`
 - 执行引擎产出 `StepResult` 事件经 `ExecutionSink` 落库（`DbSink`），
   引擎不反向 import 路由层 —— `test_engine_does_not_import_routers` 守卫
@@ -107,7 +109,7 @@ npm install && npm run dev
 
 ```bash
 cd platform/backend
-python -m pytest tests/ -q          # 676 passed
+python -m pytest tests/ -q          # 755 passed
 python -m ruff check --select F platform/backend   # 与 CI backend-lint 同口径
 cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口径
 ```
@@ -123,9 +125,10 @@ cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口
 | 通知 | `test_notifier.py` | 门控开关/单条与聚合通知/环境查无 |
 | 拓扑排序 | `test_dag_executor_topo.py` | Kahn 排序唯一实现（执行/数据集共用） |
 | 测试套件 | `test_suite_executor.py` | 白名单注入/逐行配对/行与整体阻断/嵌套与悬空（10 用例） |
-| 变量合并 | `test_variable_merge.py` | 变量池优先级（环境变量 < 数据行 < 套件共享值） |
+| 变量池 | `test_variable_pool.py` | 保存钩子收集/清空转引用/悬空清理/表达式引用保留 |
+| 变量合并 | `test_variable_merge.py` | 变量池优先级（套件注入 > 数据集域，运行时变量仅 ${} 显式引用） |
 | crud 域 | `test_{users,auth,executions}_domain.py` | 登录锁定/首管理员/最后管理员保护等 |
-| 数据驱动 | `test_{dataset_generate,dataset_service,row_override,execution_expand}.py` | 参数收集/快照保真过滤/三级优先级/行展开 |
+| 数据驱动 | `test_{dataset_copy_merge,dataset_service,row_override,execution_expand}.py` | 复制与覆盖合并/单套语义/三层优先级/行展开 |
 | 报告导出 | `test_report_export.py` | CSV/HTML 契约 |
 | schema | `test_audit_mixin.py` | 审计字段继承 + Out 契约 |
 

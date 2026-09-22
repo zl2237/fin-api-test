@@ -380,6 +380,7 @@
         <div class="corecap-intro">
           在请求字段、SQL、断言期望值中均可使用 <code>${...}</code> 表达式动态求值。
           整串为 <code>${func()}</code> 时返回原生类型（int/list 等），内嵌时做字符串替换。
+          接口调试与报告节点重放同样支持表达式求值。
         </div>
         <div class="corecap-group">
           <div class="corecap-group-title">变量引用</div>
@@ -498,42 +499,42 @@
         </div>
       </el-tab-pane>
 
-      <!-- ========== 数据驱动 · 数据集 ========== -->
-      <el-tab-pane label="数据驱动 · 数据集" name="dataset">
+      <!-- ========== 数据集（变量池） ========== -->
+      <el-tab-pane label="数据集" name="dataset">
         <div class="corecap-intro">
-          数据集 = 同一用例的多组参数。用例绑定数据集后，执行一次会按数据行展开为 N 次执行；
-          每行执行时同名列覆盖请求参数，嵌套字段用点号路径，跨列引用用 <code>${列名}</code>。
+          数据集 = 用例的变量池（一套数据）。测试数据来源唯一为数据集：节点入参留空即按参数名自动取值
+          （套件注入 → 数据集变量池）；多场景建多个数据集切换执行，复用靠复制。
         </div>
         <div class="corecap-group">
           <div class="corecap-group-title">核心概念</div>
           <div class="corecap-cards">
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">列 key = 请求参数名</code>
-                <span class="corecap-desc">同名即自动覆盖写死的参数值</span>
+                <code class="corecap-syntax">参数留空 = 自动引用</code>
+                <span class="corecap-desc">执行时按参数名取值：套件注入 → 数据集变量池；运行时变量需 ${} 显式引用</span>
               </div>
-              <div class="corecap-example">示例：列 <code>order_id</code> 覆盖请求体中的 <code>order_id</code></div>
+              <div class="corecap-example">示例：入参 <code>order_id</code> 留空 → 自动取池中同名列值</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">a.b.c / a.0.b</code>
-                <span class="corecap-desc">点号写嵌套对象与数组下标</span>
+                <code class="corecap-syntax">填值 = 覆盖</code>
+                <span class="corecap-desc">节点编排里填值是手动覆盖（最高优先级）；池里填值是静态数据</span>
               </div>
-              <div class="corecap-example">示例：<code>to_customer.put_amount</code>、<code>supplier.0.order_id</code></div>
+              <div class="corecap-example">优先级：手动覆盖 &gt; 套件注入 &gt; 数据集变量池；运行时变量仅 ${} 显式引用，不自动按名取值</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">${列名}</code>
-                <span class="corecap-desc">跨字段引用同行的其他列值</span>
+                <code class="corecap-syntax">a.b.c</code>
+                <span class="corecap-desc">点号路径写嵌套对象（嵌套 JSON 保存时自动拆叶成列）</span>
               </div>
-              <div class="corecap-example">示例：默认值 <code>${bl_no}-A</code> 拼接同行的运单号</div>
+              <div class="corecap-example">示例：<code>to_customer.put_amount</code></div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">节点配置快照</code>
-                <span class="corecap-desc">执行按快照跑；保存用例自动同步，执行前检测过期可一键同步</span>
+                <code class="corecap-syntax">节点独有 vs 池值</code>
+                <span class="corecap-desc">节点页签改值 = 节点独有（压过池值）；「变量池总览」改值 = 全部节点共享</span>
               </div>
-              <div class="corecap-example">场景：改了编排忘了同步 → 执行确认面板会提示 drift</div>
+              <div class="corecap-example">同字段各节点取值不同（如状态流转）→ 在节点页签单独配置</div>
             </div>
           </div>
         </div>
@@ -542,10 +543,10 @@
           <div class="corecap-cards">
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">从用例生成</code>
-                <span class="corecap-desc">扫描用例写死的请求参数成列，附 1 行原值快照</span>
+                <code class="corecap-syntax">自动建池</code>
+                <span class="corecap-desc">保存用例自动收集静态参数建「{用例名}-变量池」并绑定，无需手动创建</span>
               </div>
-              <div class="corecap-example">入口：数据集页 → 选中用例 → 「从用例生成」</div>
+              <div class="corecap-example">编排新增参数后再次保存用例即自动入池</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
@@ -557,16 +558,16 @@
             <div class="corecap-card">
               <div class="corecap-card-head">
                 <code class="corecap-syntax">执行确认面板</code>
-                <span class="corecap-desc">绑定后执行弹出：临时换数据集、勾选部分行、快照过期一键同步</span>
+                <span class="corecap-desc">仅多数据集用例弹出：勾选多个数据集各执行一次（临时换不改绑定）；单数据集点执行直接跑</span>
               </div>
-              <div class="corecap-example">N 行 = N 次执行（并行，并发上限 4）</div>
+              <div class="corecap-example">编排始终按用例当前配置执行</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">Excel/CSV 导入</code>
-                <span class="corecap-desc">先解析预览（列对齐告警）再确认替换全部行；可导出 xlsx</span>
+                <code class="corecap-syntax">导入参数</code>
+                <span class="corecap-desc">节点页签粘贴 JSON 预览导入：动态绑定（${}）不会被覆盖，静态参数替换，非本节点参数忽略</span>
               </div>
-              <div class="corecap-example">适合批量造数与外部数据回灌</div>
+              <div class="corecap-example">从报告/旧配置复制参数值批量回填节点</div>
             </div>
           </div>
         </div>
@@ -609,7 +610,7 @@ const versionVisible = ref(false)
 const CORE_CAP_TITLES: Record<string, string> = {
   expression: '表达式引擎 · 内置函数与变量',
   assertion: '17 种断言规则 · 用法示例',
-  dataset: '数据驱动 · 数据集用法',
+  dataset: '数据集 · 用法',
 }
 const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CAP_TITLES.expression)
 
@@ -624,12 +625,12 @@ const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
 // Mac 用户快捷键标签按平台显示（实际监听 Ctrl/Cmd 双键）
 const isMac = /mac|iphone|ipad/i.test(navigator.userAgent)
 
-// 表达式引擎数据：与后端 expression.py 的 14 个内置函数 + 变量引用 + DB 函数对齐
+// 表达式引擎数据：与后端 expression.py 的内置函数 + 变量引用 + DB 函数对齐
+// （测试数据来源唯一为数据集，${env.key} 不可解析）
 const expressionData = {
   variables: [
-    { syntax: '${var_name}', desc: '引用上下文中已提取的变量', example: '${order_id}', result: '10293' },
+    { syntax: '${var_name}', desc: '引用上下文中已提取的变量（数据集变量 / 后置提取 / 前序节点产出）', example: '${order_id}', result: '10293' },
     { syntax: '${context.var}', desc: '兼容旧写法，等价于 ${var}', example: '${context.bl_no}', result: 'SMOK20260810' },
-    { syntax: '${env.key}', desc: '引用环境变量', example: '${env.base_url}', result: 'https://api.example.com' },
   ],
   timeRandom: [
     { syntax: '${now()}', desc: '当前时间 ISO 字符串', example: '${now()}', result: '2026-08-10T14:25:07.353066' },

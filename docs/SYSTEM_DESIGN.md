@@ -131,7 +131,7 @@ fin-api-test/
 ├── steps/        # 步骤层:单接口操作 + 校验
 ├── flows/        # 流程层:多步骤业务流程编排
 ├── testcases/    # 用例层:pytest 测试函数,组合 flows
-├── data/         # 数据集层:数据驱动测试数据
+├── data/         # 数据集层:测试数据
 ├── config/       # 环境配置:env_*.yaml 环境定义
 ├── conftest.py   # pytest fixture:env_config/api_factory/login_token
 └── pytest.ini    # pytest 配置
@@ -256,7 +256,7 @@ flowchart TB
 
 | 模块 | 职责 |
 |---|---|
-| [execution_launcher.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py) | 执行编排核心:数据驱动展开、创建执行记录、组装 ExecutionSpec、批量提交线程池、通知聚合 |
+| [execution_launcher.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py) | 执行编排核心:数据集行展开、创建执行记录、组装 ExecutionSpec、批量提交线程池、通知聚合 |
 | [suite_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/suite_executor.py) | 套件执行:跨项目用例组合执行 |
 | [case_combine_service.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/case_combine_service.py) | 组合用例服务 |
 | [scheduler.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/scheduler.py) | APScheduler 调度:TestSchedule 转 job、重叠保护、错过不补跑、孤儿清理 |
@@ -367,7 +367,7 @@ platform/frontend/src/
 
 ```mermaid
 flowchart TB
-    START([执行触发]) --> LAUNCHER[execution_launcher<br/>数据驱动展开]
+    START([执行触发]) --> LAUNCHER[execution_launcher<br/>数据集行展开]
     LAUNCHER --> SPEC[组装 ExecutionSpec]
     SPEC --> POOL[ThreadPoolExecutor<br/>并发 1-16 默认 4]
     POOL --> RUNNER[runner.run_execution_background]
@@ -437,7 +437,7 @@ flowchart TB
 
 变量生命周期与优先级:
 - 环境变量、数据行变量、套件共享变量统一进入 `extracted` 池
-- 数据驱动行值覆盖同名环境变量
+- 数据集行值覆盖同名环境变量
 - 套件注入有独立优先级
 - `update_extracted()` 追加后置提取变量
 - `to_dict()` 供表达式引擎消费
@@ -465,14 +465,14 @@ flowchart TB
 - SQL 中支持 `${}` 变量引用
 - **同一节点内后续规则可引用已提取变量**(通过 `set_extracted_vars()` 注入上下文)
 
-### 6.7 数据驱动测试
+### 6.7 数据集执行
 
-参考 [execution_launcher.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py):
+参考 [execution_launcher.py](file:///d:/CODE/PyCharm/PythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py):
 
 - 数据集(DataSet)由多行(DataSetRow)组成
 - 执行时按行展开,每行生成一个独立 ExecutionSpec
 - 每行独立创建 ExecutionRecord,独立状态跟踪
-- 行值通过 `apply_row_overrides()` 覆盖请求体字段
+- 行值进入 row_vars 域,参与请求组装三层取值优先级(手动覆盖 > 套件注入 > 数据集域)
 - 批量提交线程池并发执行
 
 ### 6.8 并发执行与共享登录态

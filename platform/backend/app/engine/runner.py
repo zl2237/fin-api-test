@@ -26,10 +26,8 @@ class ExecutionSpec:
 
     execution_id: int
     case_id: int
-    # 数据驱动：行变量（列名即变量名）、列快照原值（快照保真过滤）、节点配置快照
+    # 数据驱动：行变量（数据集域，点路径键）——编排按用例当前配置执行
     row_vars: dict | None = None
-    row_origins: dict | None = None
-    node_config_overrides: dict | None = None
     # 多行数据驱动批量时抑制逐条通知（由聚合器汇总发送）
     suppress_notify: bool = False
 
@@ -45,14 +43,10 @@ def _get_executor() -> ThreadPoolExecutor:
 
 def run_execution_background(execution_id: int, case_id: int, env_id: int,
                              row_vars: dict | None = None,
-                             row_origins: dict | None = None,
-                             node_config_overrides: dict | None = None,
                              suppress_notify: bool = False) -> None:
     """在后台线程中执行用例，使用独立的数据库会话。
     execution_id 对应的 ExecutionRecord 已由调用方创建（status=running）。
-    row_vars：数据驱动执行的数据行变量（列名即变量名，覆盖同名环境变量）。
-    row_origins：列快照原值（数据集 columns 的 origin），执行时快照保真过滤（可选）。
-    node_config_overrides：数据集节点配置快照 {node_id: {...}}，命中节点整块替换用例编排。
+    row_vars：数据驱动执行的数据行变量（数据集域，prepare_request 第 3 层解析）。
     suppress_notify：数据驱动批量执行时抑制逐条通知（由聚合器汇总发送）。"""
     db = SessionLocal()
     try:
@@ -86,8 +80,6 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
             run_suite(db, case, record)
             return
         DagExecutor(db, case, env, execution_record=record, row_vars=row_vars,
-                    row_origins=row_origins,
-                    node_config_overrides=node_config_overrides,
                     suppress_notify=suppress_notify).execute()
     except Exception as e:
         # 兜底：任何异常都标记执行失败，避免 record 永远停在 running
@@ -117,8 +109,7 @@ def submit_batch_execution(specs: list[ExecutionSpec], env_id: int,
     pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix=f"case-c{concurrency}")
     for spec in specs:
         pool.submit(run_execution_background, spec.execution_id, spec.case_id, env_id,
-                    spec.row_vars, spec.row_origins,
-                    spec.node_config_overrides, spec.suppress_notify)
+                    spec.row_vars, spec.suppress_notify)
     pool.shutdown(wait=False)  # 提交完即关闭，已提交任务继续执行完
 
 

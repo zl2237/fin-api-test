@@ -1,10 +1,10 @@
-"""数据集路由：数据驱动测试的录入与管理入口。
+"""数据集路由：变量池的录入与管理入口。
 
+单套语义：每个数据集 = 一套数据（按节点分组的入参配置见 params-view）。
 服务层校验（dataset_service）抛 ValueError → 400 直给前端；
 权限与项目内资源一致：登录即可管理，project_id 隔离由查询参数保证。
-导入（Excel/CSV）接口在周期 3 补充。
 """
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import crud, models, schemas
@@ -16,9 +16,7 @@ router = APIRouter(prefix="/api/datasets", tags=["数据集"])
 
 
 def _fill_extra(db: Session, obj: models.DataSet) -> models.DataSet:
-    """补齐列表/详情展示字段：审计名 + 被引用用例数；node_configs NULL 兜底为 []（响应 schema 要求 list）"""
-    if obj.node_configs is None:
-        obj.node_configs = []
+    """补齐列表/详情展示字段：审计名 + 被引用用例数"""
     crud.fill_audit_names(db, obj)
     setattr(obj, "case_bound_count", crud.count_cases_bound_to_dataset(db, obj.id))
     return obj
@@ -57,30 +55,6 @@ def list_datasets(case_id: int | None = None, project_id: int | None = None, wit
     return out
 
 
-@router.get("/{dataset_id}/export")
-def export_rows(dataset_id: int, db: Session = Depends(get_db),
-                user: models.User = Depends(get_current_user)):
-    """数据集行导出 xlsx（与导入对偶）：表头=列 key，可直接整表导入回本数据集，
-    也可覆盖合并导入到同用例的其他数据集（同名列值覆盖）。
-    单资源导出用 path 参数风格（与 /reports/executions/{id}/export 一致）。"""
-    from datetime import datetime
-    from urllib.parse import quote
-
-    from fastapi import Response
-
-    _get_or_404(db, dataset_id)
-    content, name, n = _svc_call(svc.export_rows_excel, db, dataset_id)
-    crud.log_operation(db, user, "export", "dataset", dataset_id, f"导出 {name}（{n} 行）")
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # 中文文件名：RFC 5987 编码（filename*=UTF-8''），兼容各浏览器
-    fname = quote(f"{name}_{stamp}.xlsx")
-    return Response(
-        content=content,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
-    )
-
-
 @router.post("", response_model=schemas.DataSetOut)
 def create(data: schemas.DataSetCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     case = crud.get_testcase(db, data.case_id)
@@ -96,44 +70,12 @@ def create(data: schemas.DataSetCreate, db: Session = Depends(get_db), user: mod
     return _fill_extra(db, obj)
 
 
-@router.post("/generate")
-def generate_from_case(data: schemas.DataSetGenerateIn, db: Session = Depends(get_db),
-                       user: models.User = Depends(get_current_user)):
-    """从用例生成数据集：写死请求参数各成一列 + 1 行原值快照（改值即参数化，动态绑定 ${} 字段除外）。
-
-    返回 stats 说明收集结果（列数/同名异值提示/动态与嵌套计数），前端据此提示。
-    """
-    if not crud.get_testcase(db, data.case_id):
-        raise HTTPException(404, f"用例不存在: {data.case_id}")
-    ds, stats = _svc_call(svc.generate_dataset_from_case, db, case_id=data.case_id,
-                          name=data.name, user_id=user.id)
-    crud.log_operation(db, user, "create", "dataset", ds.id, f"generate from case#{data.case_id}")
-    return {"dataset": _fill_extra(db, ds), "stats": stats}
-
-
 @router.post("/{dataset_id}/copy", response_model=schemas.DataSetOut)
 def copy(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """复制数据集：列/行/节点配置快照全量深拷贝，归属同用例（隔离语义下的复用方式）"""
+    """复制数据集：列/单套值全量深拷贝，归属同用例（隔离语义下的复用方式）"""
     obj = _svc_call(svc.copy_dataset, db, dataset_id, user_id=user.id)
     crud.log_operation(db, user, "create", "dataset", obj.id, f"copy from #{dataset_id}")
     return _fill_extra(db, obj)
-
-
-@router.post("/{dataset_id}/resync")
-def resync(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """重新同步节点配置快照：用例当前编排整块替换进数据集（列/行数据不动）"""
-    _get_or_404(db, dataset_id)
-    n = _svc_call(svc.resync_node_configs, db, dataset_id)
-    crud.log_operation(db, user, "update", "dataset", dataset_id, f"resync {n} node configs")
-    return {"message": f"已重新同步 {n} 个节点的配置快照", "nodes": n}
-
-
-@router.get("/{dataset_id}/drift")
-def drift(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """快照过期检测：数据集节点配置快照 vs 归属用例当前编排 的字段级差异清单。
-    执行确认弹窗据此提示（stale=true 时可引导一键 resync）。"""
-    _get_or_404(db, dataset_id)
-    return _svc_call(svc.config_drift, db, dataset_id)
 
 
 @router.get("/{dataset_id}", response_model=schemas.DataSetOut)
@@ -161,65 +103,41 @@ def delete(dataset_id: int, db: Session = Depends(get_db), user: models.User = D
     return {"message": "已删除"}
 
 
-# ============ 行操作 ============
+# ============ 变量池视图与单套值保存（每个数据集 = 一套数据） ============
 
-@router.get("/{dataset_id}/rows", response_model=list[schemas.DataSetRowOut])
-def list_rows(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+@router.get("/{dataset_id}/params-view")
+def params_view(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """按节点分组的入参视图（变量池界面数据源）：归属用例当前编排 × 接口字段 × 池值。
+
+    manual=True 的参数为节点手动覆盖（编排非空值），池值不生效——展示覆盖值供解释。
+    """
     _get_or_404(db, dataset_id)
-    return crud.list_rows(db, dataset_id)
+    return _svc_call(svc.build_params_view, db, dataset_id)
 
 
-@router.post("/{dataset_id}/rows", response_model=schemas.DataSetRowOut)
-def add_row(dataset_id: int, data: schemas.DataSetRowCreate, db: Session = Depends(get_db),
-            user: models.User = Depends(get_current_user)):
+@router.put("/{dataset_id}/values", response_model=schemas.DataSetOut)
+def save_values(dataset_id: int, data: schemas.DataSetValuesSave, db: Session = Depends(get_db),
+                user: models.User = Depends(get_current_user)):
+    """保存单套数据：values 即数据集唯一一套值；列定义随参数走（新键补列、悬空键剔除）。"""
     _get_or_404(db, dataset_id)
-    row = _svc_call(svc.add_row, db, dataset_id, data=data.data)
-    crud.log_operation(db, user, "update", "dataset", dataset_id, f"add row#{row.row_index}")
-    return row
+    obj = _svc_call(svc.save_dataset_values, db, dataset_id, values=data.values,
+                    user_id=user.id, column_types=data.column_types)
+    crud.log_operation(db, user, "update", "dataset", dataset_id, f"save values ({len(data.values)} keys)")
+    return _fill_extra(db, obj)
 
 
-@router.put("/{dataset_id}/rows", response_model=list[schemas.DataSetRowOut])
-def replace_rows(dataset_id: int, data: schemas.DataSetRowsReplace, db: Session = Depends(get_db),
-                 user: models.User = Depends(get_current_user)):
-    """批量保存（表格整页保存语义）：整体替换，row_index 后端重排"""
+@router.put("/{dataset_id}/node-values")
+def save_node_values(dataset_id: int, data: schemas.DataSetNodeValuesSave,
+                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """保存节点级手动覆盖（节点页签编辑语义）：sets 写入该节点独有字面量（压过池值），
+    clears 移除字面量回落池值；同字段跨节点异值靠此机制，池仍保持一键一值。"""
     _get_or_404(db, dataset_id)
-    rows = _svc_call(svc.replace_rows, db, dataset_id, rows_data=data.rows)
-    crud.log_operation(db, user, "update", "dataset", dataset_id, f"replace {len(rows)} rows")
-    return rows
-
-
-@router.delete("/{dataset_id}/rows")
-def clear_rows(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    _get_or_404(db, dataset_id)
-    _svc_call(svc.clear_rows, db, dataset_id)
-    crud.log_operation(db, user, "update", "dataset", dataset_id, "clear rows")
-    return {"message": "已清空"}
-
-
-@router.post("/{dataset_id}/rows/{row_id}/copy", response_model=schemas.DataSetRowOut)
-def copy_row(dataset_id: int, row_id: int, db: Session = Depends(get_db),
-             user: models.User = Depends(get_current_user)):
-    """复制行：原行数据追加为新行（row_index 顺延），便于改少数字段快速造近似数据"""
-    _get_or_404(db, dataset_id)
-    row = _svc_call(svc.copy_row, db, dataset_id, row_id)
-    crud.log_operation(db, user, "update", "dataset", dataset_id, f"copy row#{row_id}")
-    return row
-
-
-@router.put("/{dataset_id}/rows/{row_id}", response_model=schemas.DataSetRowOut)
-def update_row(dataset_id: int, row_id: int, data: schemas.DataSetRowCreate, db: Session = Depends(get_db),
-               user: models.User = Depends(get_current_user)):
-    _get_or_404(db, dataset_id)
-    return _svc_call(svc.update_row, db, dataset_id, row_id, data=data.data)
-
-
-@router.delete("/{dataset_id}/rows/{row_id}")
-def delete_row(dataset_id: int, row_id: int, db: Session = Depends(get_db),
-               user: models.User = Depends(get_current_user)):
-    _get_or_404(db, dataset_id)
-    _svc_call(svc.delete_row, db, dataset_id, row_id)
-    crud.log_operation(db, user, "update", "dataset", dataset_id, f"delete row#{row_id}")
-    return {"message": "已删除"}
+    n = _svc_call(svc.save_node_values, db, dataset_id, node_id=data.node_id,
+                  sets=data.sets, clears=data.clears)
+    if n:
+        crud.log_operation(db, user, "update", "dataset", dataset_id,
+                           f"node values {data.node_id} ({n} params)")
+    return {"message": "已保存", "touched": n}
 
 
 @router.get("/{dataset_id}/merge-preview")
@@ -242,24 +160,5 @@ def merge_from(dataset_id: int, data: schemas.DataSetMergeRequest, db: Session =
     result = _svc_call(svc.merge_from_dataset, db, dataset_id, data.source_dataset_id,
                        api_ids=data.api_ids, source_row_index=data.source_row_index or 1)
     crud.log_operation(db, user, "update", "dataset", dataset_id,
-                       f"从数据集#{data.source_dataset_id}行{data.source_row_index or 1}覆盖合并"
-                       f"{result['columns']}列×{result['rows']}行")
-    return {"message": f"已覆盖 {result['columns']} 列（{result['rows']} 行）",
-            **result}
-
-
-@router.post("/{dataset_id}/import")
-async def import_rows(dataset_id: int, file: UploadFile = File(...), preview: bool = False,
-                      db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """Excel/CSV 导入：首行表头映射列 key。preview=1 只解析返回预览不落库。
-
-    落库为整体替换语义（与表格整页保存一致）：当前行全部丢弃、以导入内容重排。
-    """
-    obj = _get_or_404(db, dataset_id)
-    content = await file.read()
-    rows, warnings = _svc_call(svc.parse_import_file, file.filename, content, obj.columns or [])
-    if preview:
-        return {"preview": True, "count": len(rows), "rows": rows, "warnings": warnings}
-    saved = _svc_call(svc.replace_rows, db, dataset_id, rows_data=rows)
-    crud.log_operation(db, user, "import", "dataset", dataset_id, f"{file.filename} → {len(saved)} rows")
-    return {"preview": False, "count": len(saved), "warnings": warnings}
+                       f"从数据集#{data.source_dataset_id}覆盖合并{result['columns']}列")
+    return {"message": f"已覆盖 {result['columns']} 列", **result}
