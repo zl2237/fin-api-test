@@ -117,11 +117,16 @@ def update_dataset(db: Session, dataset_id: int, name: str | None = None,
 
 
 def delete_dataset(db: Session, dataset_id: int) -> None:
-    """删除数据集：被用例绑定时拒绝；成功则级联删行（ORM cascade）"""
+    """删除数据集：被用例绑定时拒绝；归属用例名下最后一个拒绝
+    （至少保留一个池，否则派生用例执行 400「未绑定数据集」）；成功级联删行"""
     obj = get_dataset(db, dataset_id)
     n = crud.count_cases_bound_to_dataset(db, dataset_id)
     if n:
         raise ValueError(f"数据集被 {n} 个用例绑定，请先在用例中解绑后再删除")
+    siblings = (db.query(models.DataSet)
+                .filter(models.DataSet.case_id == obj.case_id).count())
+    if siblings <= 1:
+        raise ValueError("用例至少需保留一个数据集，不允许删除唯一的一个")
     db.query(models.DataSetRow).filter(models.DataSetRow.dataset_id == dataset_id).delete()
     db.delete(obj)
     db.commit()

@@ -85,12 +85,16 @@ class TestDatasetCrud:
                 svc.delete_dataset(_fake_db(), 1)
 
     def test_delete_cascades_rows(self):
-        """删除数据集级联删行（无引用时）"""
+        """删除数据集级联删行（无引用且名下非最后一个时）"""
         deleted = {}
-        with patch.object(svc.crud, "get_dataset", return_value=SimpleNamespace(id=1)), \
+        with patch.object(svc.crud, "get_dataset",
+                          return_value=SimpleNamespace(id=1, case_id=5)), \
              patch.object(svc.crud, "count_cases_bound_to_dataset", return_value=0):
             db = SimpleNamespace(
-                query=lambda *a, **k: SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(delete=lambda: deleted.update(rows=True))),
+                query=lambda *a, **k: SimpleNamespace(
+                    filter=lambda *a, **k: SimpleNamespace(
+                        count=lambda: 3,
+                        delete=lambda: deleted.update(rows=True))),
                 delete=lambda o: deleted.update(ds=True), commit=lambda: None,
             )
             svc.delete_dataset(db, 1)
