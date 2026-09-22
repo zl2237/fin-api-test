@@ -853,7 +853,8 @@ async function load() {
       caseGroupApi.list(store.currentProjectId).catch(() => [] as CaseGroup[]),
       datasetApi.list({ project_id: store.currentProjectId, with_rows: true }),
     ])
-    cases.value = cs
+    // 套件不参与数据集（成员各自绑定变量池），左侧用例树不展示
+    cases.value = cs.filter((c) => c.case_type !== 'suite')
     groups.value = gs
     datasets.value = ds
     // 展开记忆优先（useGroupTree 随 projectId 变化自动读写）；首次（无记忆）
