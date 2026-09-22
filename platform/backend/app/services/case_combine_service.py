@@ -108,6 +108,22 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
         "node_configs": config_payloads,
     }
     obj = crud.create_testcase(db, crud.schemas.TestCaseCreate(**data), user_id)
+    # 池合并：各源绑定池按组合顺序合并（同键异值保留首个源，冲突记 description）
+    sources = []
+    for cid in case_ids:
+        c = crud.get_testcase(db, cid)
+        if c and c.dataset_id:
+            ds = crud.get_dataset(db, c.dataset_id)
+            if ds:
+                sources.append(ds)
+    if sources:
+        from .dataset_service import merge_datasets_for_case
+        merged = merge_datasets_for_case(db, sources, obj.id, project_id,
+                                         name=f"{name}-变量池", user_id=user_id)
+        if merged:
+            obj.dataset_id = merged.id
+            db.commit()
+            db.refresh(obj)
     crud.fill_audit_names(db, obj)
     return obj
 
@@ -271,4 +287,19 @@ def split_case(
 
     crud.fill_audit_names(db, new_case)
     crud.fill_audit_names(db, updated)
+    # 数据资产随迁：新用例克隆原绑定池（整池拷贝，多出的键由下次保存时
+    # 钩子悬空清理自动裁剪）；原用例触发钩子清掉拆走节点留下的悬空键
+    if case.dataset_id:
+        src_ds = crud.get_dataset(db, case.dataset_id)
+        if src_ds:
+            from .dataset_service import clone_dataset_to_case
+            new_case.dataset_id = clone_dataset_to_case(
+                db, src_ds, new_case.id, user_id=user_id).id
+            db.commit()
+            db.refresh(new_case)
+    try:
+        from .dataset_service import sync_case_variable_pool
+        sync_case_variable_pool(db, updated)
+    except Exception as e:
+        print(f"[拆分] 原用例变量池悬空清理失败（忽略）: {e}")
     return new_case, updated

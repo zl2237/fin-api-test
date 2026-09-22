@@ -28,11 +28,11 @@ def _nc(node_id, api_id=1, pre=None, extract=None, asserts=None, wait=0):
     )
 
 
-def _case(cid, pid=1, nodes=None, edges=None, configs=None, name=None):
+def _case(cid, pid=1, nodes=None, edges=None, configs=None, name=None, dataset_id=None):
     return SimpleNamespace(
         id=cid, project_id=pid, name=name or f"用例{cid}", group_id=None,
         dag_config={"nodes": nodes or [], "edges": edges or []},
-        node_configs=configs or [],
+        node_configs=configs or [], dataset_id=dataset_id,
     )
 
 
