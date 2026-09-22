@@ -780,6 +780,59 @@ def copy_dataset(db: Session, dataset_id: int, name: str | None = None, user_id:
     )
 
 
+def clone_dataset_to_case(db: Session, src: models.DataSet, target_case_id: int,
+                          user_id: int | None = None) -> models.DataSet:
+    """跨用例克隆数据集（列/行全量深拷贝，保持原名）。
+
+    复制用例/拆分用例的数据资产随迁：静态值已收口进池，派生用例不同步池
+    则节点引用解析不到值（执行 400）。
+    """
+    return create_dataset(
+        db, project_id=src.project_id, case_id=target_case_id,
+        name=src.name, user_id=user_id, description=src.description,
+        columns=deepcopy(src.columns or []),
+        rows_data=[deepcopy(r.data or {}) for r in (src.rows or [])],
+    )
+
+
+def merge_datasets_for_case(db: Session, sources: list, target_case_id: int,
+                            project_id: int | None, name: str,
+                            user_id: int | None = None) -> models.DataSet | None:
+    """组合用例的池合并：按源顺序合并各绑定池（每池取首行，单套语义）。
+
+    - 列：按键并集，顺序=首现顺序（类型冲突取首个源的列定义）
+    - 值：同键同值合并；同键异值保留首个源的值（组合按序执行语义的近似），
+      冲突清单记入新池 description 供用户在数据集界面调整
+    - 未绑定池的源跳过；全部源无池返回 None（不建，留给保存钩子）
+    """
+    cols: list[dict] = []
+    col_keys: set[str] = set()
+    merged: dict = {}
+    conflicts: list[str] = []
+    for src in sources:
+        for col in (src.columns or []):
+            key = col.get("key")
+            if key and key not in col_keys:
+                col_keys.add(key)
+                cols.append(dict(col))
+        rows = src.rows or []
+        if not rows:
+            continue
+        for k, v in (rows[0].data or {}).items():
+            if k in merged and merged[k] != v:
+                conflicts.append(f"{k}: {merged[k]!r} / {v!r}")
+            else:
+                merged[k] = v
+    if not cols and not merged:
+        return None
+    desc = None
+    if conflicts:
+        desc = "组合合并同键异值（已保留首个源的值，可按需调整）：" + "；".join(conflicts)
+    return create_dataset(db, project_id=project_id, case_id=target_case_id,
+                          name=name, user_id=user_id, description=desc,
+                          columns=cols, rows_data=[merged])
+
+
 # ============ 覆盖合并（数据集间字段流转） ============
 def _case_cfg_dicts(db: Session, case_id: int) -> list[dict]:
     """归属用例当前编排的 dict 形式 [{node_id, api_id, pre_process}]（compare/merge 配对用）。"""

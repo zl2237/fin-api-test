@@ -636,6 +636,18 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
                 env_id=m.env_id, sort_order=m.sort_order))
     db.commit()
     db.refresh(obj)
+    # 数据集资产随迁：名下全部池深拷贝（保持原名），绑定关系照搬
+    # （静态值已收口进池，不同步则新用例执行 400「未绑定数据集」）
+    from ..services.dataset_service import clone_dataset_to_case
+    ds_map: dict[int, int] = {}
+    for ds in (db.query(models.DataSet)
+               .filter(models.DataSet.case_id == case.id)
+               .order_by(models.DataSet.id).all()):
+        ds_map[ds.id] = clone_dataset_to_case(db, ds, obj.id).id
+    if case.dataset_id and case.dataset_id in ds_map:
+        obj.dataset_id = ds_map[case.dataset_id]
+        db.commit()
+        db.refresh(obj)
     return obj
 
 
