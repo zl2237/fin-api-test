@@ -74,7 +74,7 @@
 
           <EmptyState
             v-if="!caseDatasets.length"
-            description="该用例暂无数据集（变量池）。保存用例会自动收集静态参数建池"
+            description="该用例暂无数据集。保存用例会自动收集静态值生成默认数据集；需要多场景时复制现有数据集再改值"
           />
 
           <template v-else-if="current">
@@ -97,19 +97,28 @@
               />
 
               <template v-else-if="view">
-                <!-- 悬空变量提示：池中存在但当前编排无节点使用 -->
+                <!-- 悬空变量提示：池中存在但当前编排无节点使用；显式清理（普通保存不隐式删除） -->
                 <el-alert v-if="view.orphan_keys.length" type="info" :closable="false" class="orphan-tip">
                   <template #title>
-                    {{ view.orphan_keys.length }} 个池变量已不被编排使用（节点已删/改参）：{{ view.orphan_keys.slice(0, 6).join('、') }}{{ view.orphan_keys.length > 6 ? '…' : '' }}，保存后将随参数清单清理
+                    {{ view.orphan_keys.length }} 个池变量已不被编排使用（节点已删/改参）：{{ view.orphan_keys.slice(0, 6).join('、') }}{{ view.orphan_keys.length > 6 ? '…' : '' }}
+                    <el-button link type="primary" size="small" :loading="savingValues" @click="cleanOrphans">立即清理</el-button>
                   </template>
                 </el-alert>
 
-                <!-- 配置概览：已配置/总数（编辑态实时计算，用例级去重口径） -->
+                <!-- 配置概览 + 检索工具：大池（数百变量）按名/中文名搜索，只看未配置快速补值 -->
                 <div class="pool-stat">
                   <span>已配置 <b>{{ filledCount }}</b> / {{ totalCount }} 个变量</span>
                   <span class="stat-note">未配置的变量执行时发送空值（""/null）</span>
+                  <el-input
+                    v-model="searchKey"
+                    size="small"
+                    clearable
+                    placeholder="搜索变量（名/中文名）"
+                    class="pool-search"
+                  />
+                  <el-checkbox v-model="onlyUnfilled" size="small">只看未配置</el-checkbox>
                   <el-button v-if="activeNodeId === '__all__'" size="small" class="add-var-btn" @click="openAddVariable">新增变量</el-button>
-                  <el-button v-if="activeNodeId !== '__all__'" size="small" class="add-var-btn" @click="openImport">导入参数…</el-button>
+                  <el-button v-if="activeNodeId !== '__all__'" size="small" class="add-var-btn" @click="openImport">导入变量…</el-button>
                 </div>
 
                 <!-- 变量池 = 用例级单池；总览页签看全部变量（去重），节点页签按节点筛选 -->
@@ -128,9 +137,24 @@
                   </el-tab-pane>
                 </el-tabs>
 
+                <!-- 就近作用域提示：双作用域编辑是本页核心心智模型 -->
+                <div class="scope-tip">
+                  <template v-if="activeNodeId === '__all__'">
+                    此处编辑池值：一键一值，各节点共享（同名参数全部生效）
+                  </template>
+                  <template v-else>
+                    此处编辑「{{ currentScopeNodeLabel }}」独有值：压过池值，其他节点不受影响
+                  </template>
+                </div>
+
                 <div class="node-params">
+                  <EmptyState
+                    v-if="!filteredParams.length"
+                    :description="searchKey || onlyUnfilled ? '没有匹配的变量（调整搜索/过滤条件）' : '暂无变量'"
+                    :image-size="60"
+                  />
                   <div
-                    v-for="p in currentParams"
+                    v-for="p in filteredParams"
                     :key="p.key"
                     class="param-row"
                     :class="{ manual: p.manual }"
@@ -189,10 +213,10 @@
                         <span class="badge badge-empty">未配置</span>
                       </el-tooltip>
                     </div>
-                    <!-- file 类型：值是文件中心文件 ID，弹文件选择器 -->
+                    <!-- file 类型：值是文件中心文件 ID，弹文件选择器；显示文件名（ID 备查） -->
                     <div v-if="p.type === 'file'" class="file-value-cell">
                       <el-input
-                        :model-value="editVal(p.key) ? `#${editVal(p.key)}` : ''"
+                        :model-value="editVal(p.key) ? fileLabel(String(editVal(p.key))) : ''"
                         readonly
                         placeholder="未选择文件"
                         class="file-value-input"
@@ -229,12 +253,6 @@
                 </div>
 
                 <div class="pool-tip">
-                  <template v-if="activeNodeId === '__all__'">
-                    「变量池总览」编辑池值（一键一值，各节点共享）；
-                  </template>
-                  <template v-else>
-                    节点页签编辑该节点独有值（压过池值），其他节点不受影响；
-                  </template>
                   徽标含义：<span class="badge badge-filled">已配置</span>=池中有值（执行取此值）；
                   <span class="badge badge-dynamic">已动态配置</span>=节点编排 ${} 运行时求值，优先生效；
                   <span class="badge badge-empty">未配置</span>=池中无值，留空时发送空值（“”/null）；
@@ -249,8 +267,17 @@
       </div>
     </div>
 
-    <!-- 编辑数据集信息（名称/描述） -->
-    <el-dialog v-model="dlgVisible" :title="editingId ? '编辑数据集' : `新建数据集（${currentCase?.name || ''}）`" width="560px">
+    <!-- 脏状态吸底保存条：长列表编辑后保存按钮不随滚动丢失 -->
+    <transition name="el-fade-in">
+      <div v-if="current && isDirty && !savingValues" class="save-dock">
+        <span class="save-dock-text">{{ dirtyCount }} 处未保存改动（含节点独有值）</span>
+        <el-button size="small" @click="discardEdits">放弃</el-button>
+        <el-button size="small" type="primary" @click="saveValues">保存</el-button>
+      </div>
+    </transition>
+
+    <!-- 编辑数据集信息（名称/描述）：新建走「保存用例自动建池」或「复制」，无手动新建 -->
+    <el-dialog v-model="dlgVisible" title="编辑数据集" width="560px">
       <el-form label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="如：运单数据-场景A" maxlength="100" />
@@ -289,19 +316,19 @@
       </template>
     </el-dialog>
 
-    <!-- 节点参数导入：粘贴 JSON → 预览（动态不覆盖/静态替换/忽略）→ 确认应用并保存 -->
-    <el-dialog v-model="importVisible" title="导入节点参数" width="760px" :close-on-click-modal="false">
+    <!-- 节点变量导入：粘贴 JSON → 预览（动态不覆盖/静态替换/忽略）→ 确认应用并保存 -->
+    <el-dialog v-model="importVisible" title="导入节点变量" width="760px" :close-on-click-modal="false">
       <el-input
         v-model="importText"
         type="textarea"
         :rows="8"
-        placeholder="粘贴 JSON 对象（{...}）；解析预览后仅「将被替换」的参数会被应用，动态绑定（${}）不会被覆盖"
+        placeholder="粘贴 JSON 对象（{...}）；解析预览后仅「将被替换」的变量会被应用，动态绑定（${}）不会被覆盖"
       />
       <div class="import-actions">
         <el-button size="small" @click="parseImport">解析预览</el-button>
       </div>
       <el-table v-if="importRows.length" :data="importRows" size="small" border max-height="320">
-        <el-table-column label="参数" prop="key" width="200" show-overflow-tooltip />
+        <el-table-column label="变量" prop="key" width="200" show-overflow-tooltip />
         <el-table-column label="状态" width="150">
           <template #default="{ row }">
             <span class="badge" :class="row.badge">{{ row.statusText }}</span>
@@ -403,7 +430,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, type DataSet, type TestCase, type CaseGroup, type DatasetParamsView, type DatasetParam, type TestFile } from '@/api'
+import { datasetApi, caseApi, caseGroupApi, fileApi, type DataSet, type TestCase, type CaseGroup, type DatasetParamsView, type DatasetParam, type TestFile } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { useFieldDict } from '@/composables/useFieldDict'
 import { useAppStore } from '@/stores'
@@ -434,8 +461,12 @@ const activeNodeId = ref('__all__')  // 默认总览：全部变量去重平铺
 const nodeEdits = ref<Record<string, Record<string, any>>>({})
 // 脏检测基线：node_id → key → 序列化初值（manual/dynamic 显示 manual_value，否则池值）
 const nodeBaselines = ref<Record<string, Record<string, string>>>({})
+// 池值基线（总览页签脏检测）：key → 序列化初值
+const poolBaseline = ref<Record<string, string>>({})
 // 动态绑定键（值含 ${}，编排配置）：节点页签只读，编辑/清除一律跳过
 const dynamicKeysByNode = ref<Record<string, Set<string>>>({})
+// file 类型值（文件 ID）→ 文件名映射（拉一次项目文件列表）
+const fileNames = ref<Record<string, string>>({})
 
 /** 当前页签的参数清单：总览 = all_params（用例级去重）；节点页签 = 该节点视角 */
 const currentParams = computed<DatasetParam[]>(() => {
@@ -443,6 +474,24 @@ const currentParams = computed<DatasetParam[]>(() => {
   if (activeNodeId.value === '__all__') return view.value.all_params
   return view.value.nodes.find((n) => n.node_id === activeNodeId.value)?.params ?? []
 })
+
+// ===== 检索工具：搜索（名/字典中文名）+ 只看未配置（manual/dynamic 有编排值来源，视为已配置） =====
+const searchKey = ref('')
+const onlyUnfilled = ref(false)
+
+const filteredParams = computed<DatasetParam[]>(() => {
+  const q = searchKey.value.trim().toLowerCase()
+  return currentParams.value.filter((p) => {
+    if (onlyUnfilled.value && (isFilled(p) || p.manual || p.dynamic)) return false
+    if (!q) return true
+    return p.key.toLowerCase().includes(q) || (dictLabel(p.key) || '').toLowerCase().includes(q)
+  })
+})
+
+/** 当前节点页签的显示名（作用域提示用） */
+const currentScopeNodeLabel = computed(
+  () => view.value?.nodes.find((n) => n.node_id === activeNodeId.value)?.label ?? activeNodeId.value,
+)
 
 const filledCount = computed(
   () => view.value?.all_params.filter(isFilled).length ?? 0,
@@ -526,6 +575,7 @@ async function loadParamsView(id: number) {
       if (!(k in data)) data[k] = ''
     }
     editingValues.value = data
+    poolBaseline.value = { ...data }
     // 节点级编辑态：manual/dynamic 显示绑定值（manual 可改，dynamic 只读），
     // 其余显示池值——改了即成该节点手动覆盖；基线用于保存时脏检测
     const edits: Record<string, Record<string, any>> = {}
@@ -549,12 +599,96 @@ async function loadParamsView(id: number) {
     nodeBaselines.value = bases
     dynamicKeysByNode.value = dyn
     activeNodeId.value = '__all__'  // 切换数据集回到总览
+    searchKey.value = ''
+    onlyUnfilled.value = false
+    await loadFileNames()
   } catch (e: any) {
     ElMessage.error(e.message || '加载变量池视图失败')
     view.value = null
   } finally {
     viewLoading.value = false
   }
+}
+
+/** file 值显示名：项目文件列表建 ID→文件名映射（查无时回退 #ID） */
+async function loadFileNames() {
+  const ids = new Set<string>()
+  for (const node of view.value?.nodes || []) {
+    for (const p of node.params) {
+      if (p.type === 'file' && p.value) ids.add(String(p.value))
+    }
+  }
+  for (const d of caseDatasets.value) {
+    for (const c of d.columns || []) {
+      if (c.type === 'file') {
+        const v = editingValues.value[c.key]
+        if (v) ids.add(String(v))
+      }
+    }
+  }
+  if (!ids.size) {
+    fileNames.value = {}
+    return
+  }
+  try {
+    const files = await fileApi.list(store.currentProjectId!)
+    const m: Record<string, string> = {}
+    for (const f of files) m[String(f.id)] = f.name || f.original_name || `#${f.id}`
+    fileNames.value = m
+  } catch {
+    fileNames.value = {}
+  }
+}
+
+function fileLabel(id: string) {
+  return fileNames.value[id] || `#${id}`
+}
+
+/** 悬空变量显式清理：从编辑清单移除并保存（键不进 values 即删列） */
+async function cleanOrphans() {
+  if (!view.value?.orphan_keys.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确认清理 ${view.value.orphan_keys.length} 个已不被编排使用的池变量？清理后不可恢复。`,
+      '清理悬空变量',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  for (const k of view.value.orphan_keys) {
+    delete editingValues.value[k]
+    delete addedVarTypes.value[k]
+  }
+  await saveValues()
+}
+
+// ===== 脏状态（吸底保存条）：池值增删改 + 节点独有值改动 =====
+const isDirty = computed(() => dirtyCount.value > 0)
+
+const dirtyCount = computed(() => {
+  let n = 0
+  const base = poolBaseline.value
+  const cur = editingValues.value
+  const keys = new Set([...Object.keys(base), ...Object.keys(cur)])
+  for (const k of keys) {
+    if (String(cur[k] ?? '') !== String(base[k] ?? '')) n++
+  }
+  for (const [nid, m] of Object.entries(nodeEdits.value)) {
+    const b = nodeBaselines.value[nid] || {}
+    const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
+    for (const [k, v] of Object.entries(m)) {
+      if (k in b && String(v) !== String(b[k]) && !dyn.has(k)) n++
+    }
+  }
+  return n
+})
+
+/** 放弃改动：重载变量池视图（回到服务端状态） */
+async function discardEdits() {
+  if (!current.value) return
+  await loadParamsView(current.value.id)
+  ElMessage.info('已放弃未保存改动')
 }
 
 /** JSON 文本判定：trim 后以 [ 或 { 开头（前导空格不逃逸美化/校验/保存拦截三道防线） */
@@ -610,7 +744,7 @@ function parseImport() {
     const neu = _ser(v)
     const p = byKey.get(k)
     if (!p) {
-      rows.push({ key: k, status: 'ignore', statusText: '非该节点参数，忽略', badge: 'badge-empty', cur: '', neu })
+      rows.push({ key: k, status: 'ignore', statusText: '非该节点变量，忽略', badge: 'badge-empty', cur: '', neu })
     } else if (p.dynamic) {
       rows.push({ key: k, status: 'dynamic', statusText: '动态绑定，不覆盖', badge: 'badge-dynamic', cur: _ser(p.manual_value), neu })
     } else if (String(editVal(k)) === neu) {
@@ -770,11 +904,13 @@ function openFilePicker(key: string) {
 
 function onFileSelect(file: TestFile) {
   if (filePickerKey.value) {
+    const id = String(file.id)
+    fileNames.value[id] = file.name || file.original_name || `#${file.id}`
     if (filePickerNode.value) {
       const m = nodeEdits.value[filePickerNode.value]
-      if (m) m[filePickerKey.value] = String(file.id)
+      if (m) m[filePickerKey.value] = id
     } else {
-      editingValues.value[filePickerKey.value] = String(file.id)
+      editingValues.value[filePickerKey.value] = id
     }
   }
   filePickerKey.value = ''
@@ -892,28 +1028,25 @@ function select(d: DataSet) {
 
 // ---------- 数据集信息（名称/描述）编辑 ----------
 const dlgVisible = ref(false)
-const editingId = ref<number | null>(null)
 const form = ref<{ name: string; description: string }>({ name: '', description: '' })
 
 function openEdit(d: DataSet) {
-  editingId.value = d.id
   form.value = { name: d.name, description: d.description || '' }
   dlgVisible.value = true
 }
 
 async function save() {
   if (!form.value.name.trim()) return ElMessage.warning('请填写名称')
+  if (!current.value) return
   saving.value = true
   try {
-    if (editingId.value) {
-      await datasetApi.update(editingId.value, {
-        name: form.value.name, description: form.value.description,
-      })
-    }
+    await datasetApi.update(current.value.id, {
+      name: form.value.name, description: form.value.description,
+    })
     ElMessage.success('已保存')
     dlgVisible.value = false
     await load()
-    if (editingId.value) current.value = caseDatasets.value.find((d) => d.id === editingId.value) || current.value
+    current.value = caseDatasets.value.find((d) => d.id === current.value!.id) || current.value
   } catch (e: any) {
     ElMessage.error(e.message || '保存失败')
   } finally {
@@ -1220,8 +1353,40 @@ watch(() => store.currentProjectId, () => {
 .stat-note {
   color: var(--app-text-faint);
 }
-.add-var-btn {
+.pool-search {
+  width: 220px;
   margin-left: auto;
+}
+.add-var-btn {
+  flex-shrink: 0;
+}
+/* 作用域就近提示：双作用域编辑是本页核心心智模型 */
+.scope-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  background: var(--app-hover);
+  border-radius: var(--app-radius-sm);
+  padding: 4px 10px;
+  margin: 8px 0 2px;
+}
+.save-dock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 18px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+}
+.save-dock-text {
+  font-size: 13px;
+  color: var(--app-text);
 }
 .del-var-btn {
   margin-left: auto;
@@ -1291,10 +1456,9 @@ watch(() => store.currentProjectId, () => {
   border-color: var(--el-color-primary);
 }
 .badge-empty {
-  color: var(--el-color-danger);
-  border-color: var(--el-color-danger);
-  background: var(--el-color-danger-light-9);
-  font-weight: 600;
+  color: var(--app-text-muted);
+  border-color: var(--app-border);
+  background: var(--app-hover);
 }
 .badge-manual {
   color: var(--el-color-warning);
