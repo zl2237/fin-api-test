@@ -447,6 +447,13 @@ def _pool_prefix_conflict(pool_keys: set, key: str) -> bool:
                for k in pool_keys)
 
 
+def _json_eq(a: Any, b: Any) -> bool:
+    """JSON 值相等（区分 bool/int：Python 中 1 == True，但 JSON 语义不等）。"""
+    if isinstance(a, bool) != isinstance(b, bool):
+        return False
+    return a == b
+
+
 _REF_EXPR_RE = re.compile(r"\$\{([^{}]+)\}")
 
 
@@ -544,7 +551,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             pending_values.pop(k, None)
 
     def _collect(leaves: dict, origin: str, col_type: str | None = None,
-                 force_collect: bool = False) -> str:
+                 force_collect: bool = False, path: str = "") -> str:
         """全部叶键无形状冲突才收集；返回 collected / in_pool / conflict。
 
         - 默认：键已在池 → in_pool（调用方保留为手动覆盖，幂等语义）；
@@ -569,11 +576,22 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                         return "conflict"
             # 键在池且有值（或本 run 已收集过，防拓扑序后值覆盖前值）→ in_pool
             # （保留为手动覆盖，幂等语义）；键在池但值为空（未配置）→ 允许吸收，
-            # pending_values 覆盖空值
+            # pending_values 覆盖空值；
+            # 例外（值相等收编，path 非空即节点字面量来源）：字面量与池中该
+            # path 键族现值完全一致 → 不视为 in_pool，落到下方收集并清空转引用。
+            # 执行行为零变化（运行时按名取到的仍是同值），池从此接管该键：
+            # 参数视图徽标由「手动覆盖」回落「已配置」，改池值开始生效。
+            # 池族须 ⊆ 叶集（无字面量之外的额外叶——否则清空后按名解析会
+            # 取到额外叶，请求多出字段，形状改变）
             if any(k in pool_keys and (pool_vals.get(k) not in (None, "")
                                        or k in pending_values)
                    for k in leaves):
-                return "in_pool"
+                fam = {k for k in pool_keys | set(pending_values)
+                       if k == path or k.startswith(path + ".")}
+                cur = {**pool_vals, **pending_values}
+                if not (path and fam and fam <= set(leaves)
+                        and all(_json_eq(cur.get(k), leaves.get(k)) for k in fam)):
+                    return "in_pool"
         else:
             for k in leaves:
                 _evict_family(k)
@@ -625,7 +643,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 stats["invalid"] += 1
             elif _collect(leaves, f"节点 {node_id}",
                           "file" if api_field_types.get(path) == "file" else None,
-                          force_collect=force) == "collected":
+                          force_collect=force, path=path) == "collected":
                 act["value"] = ""  # 清空转引用（节点保留占位行，运行时按名解析）
                 node_dirty = True
             else:
