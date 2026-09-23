@@ -79,6 +79,13 @@ class DagExecutor:
                             file_fields=file_fields, timeout=timeout, headers=headers)
 
     # ---------- 执行入口 ----------
+    def _terminated(self, execution_id: int) -> bool:
+        """查询手动终止标记（每步后 sink 已 commit，本查询开新事务能看到
+        terminate API 的跨会话提交；REPEATABLE READ 下同事务快照不可见）。"""
+        status = (self.db.query(models.ExecutionRecord.status)
+                  .filter(models.ExecutionRecord.id == execution_id).scalar())
+        return status == "terminated"
+
     def execute(self) -> models.ExecutionRecord:
         if self._precreated_record is not None:
             # 并发执行：复用外部已创建的 record（已在请求线程中落库）
@@ -110,7 +117,15 @@ class DagExecutor:
             order, leftover = topo_order(dag)
             nodes_map = {n["id"]: n for n in dag.get("nodes", [])}
 
+            terminated = False
             for idx, node_id in enumerate(order):
+                # 手动终止检查点：terminate API 已提交 terminated（每步后 sink
+                # commit 开新事务，此查询能读到外部提交）→ 剩余节点并入 leftover
+                # 同口径统计，最终保留 terminated 状态不被汇总覆盖
+                if self._terminated(record.id):
+                    terminated = True
+                    leftover = leftover + order[idx:]
+                    break
                 step_passed, wait_ms = self._execute_node(record.id, node_id, nodes_map.get(node_id, {"id": node_id}))
                 if step_passed:
                     total_passed += 1
@@ -129,13 +144,20 @@ class DagExecutor:
                 # 未执行的节点计入失败统计但不落步骤记录
                 total_failed += len(leftover)
 
-            record.status = "failed" if total_failed > 0 else "success"
-            record.summary = {
-                "total": total_passed + total_failed,
-                "passed": total_passed,
-                "failed": total_failed,
-                "leftover": leftover,
-            }
+            if terminated:
+                record.status = "terminated"
+                record.summary = {
+                    "total": total_passed + total_failed, "passed": total_passed,
+                    "failed": total_failed, "leftover": leftover, "error": "手动终止",
+                }
+            else:
+                record.status = "failed" if total_failed > 0 else "success"
+                record.summary = {
+                    "total": total_passed + total_failed,
+                    "passed": total_passed,
+                    "failed": total_failed,
+                    "leftover": leftover,
+                }
         except Exception as e:
             error_msg = str(e)
             record.status = "failed"

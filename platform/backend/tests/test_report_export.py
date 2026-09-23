@@ -137,25 +137,19 @@ class TestExportReportHtml:
 
     # ===== 前置处理（注入情况）/ 后置提取 =====
 
-    def test_pre_process_rendered_in_request_tab(self):
-        """请求 Tab 顶部渲染前置处理：类型文案 + path = value；exec_sql 只显示 SQL"""
+    def test_pre_process_not_rendered_in_request_tab(self):
+        """请求 Tab 不再渲染前置处理：配置原文与请求体重复，信息噪音大于价值"""
         steps = [_Step(pre_process=[
             {"type": "set_field", "path": "$.orderNo", "value": "${bl_no}"},
             {"type": "exec_sql", "sql": "SELECT id FROM t_order LIMIT 1"},
         ])]
         html = export_report_html(_Record(), steps)
-        assert "前置处理（2）" in html
-        assert "设置字段" in html
-        assert "$.orderNo" in html
-        assert "${bl_no}" in html
-        assert "执行 SQL" in html
-        assert "SELECT id FROM t_order LIMIT 1" in html
-
-    def test_pre_process_empty_shows_placeholder(self):
-        """无前置处理时请求 Tab 内显示占位文案"""
-        html = export_report_html(_Record(), [_Step()])
-        assert "前置处理（0）" in html
-        assert "无前置处理" in html
+        assert "前置处理" not in html
+        assert "设置字段" not in html
+        assert "执行 SQL" not in html
+        assert "SELECT id FROM t_order LIMIT 1" not in html
+        # 请求头/请求体等既有区块不受影响
+        assert "请求头" in html and "请求体" in html
 
     def test_extract_tab_with_rules_and_actual_values(self):
         """提取 Tab：变量名/来源/规则/实际提取结果；缺失结果标注未提取到"""

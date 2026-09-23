@@ -285,13 +285,6 @@ input.sp-radio { display: none; }
 .kv { font-size: 13px; }
 .kv b { font-weight: 700; }
 
-/* 前置处理条目（请求 Tab 顶部的注入情况） */
-.pre-list { display: flex; flex-direction: column; gap: 6px; }
-.pre-item { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
-.pre-type { flex-shrink: 0; padding: 1px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--skip-soft); color: var(--text-2); }
-.pre-item .mono { font-family: Consolas, Menlo, monospace; overflow-wrap: anywhere; }
-.pre-item .muted { color: var(--text-3); }
-
 /* 断言表 */
 .assert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .assert-table th, .assert-table td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
@@ -435,16 +428,7 @@ def _json_sec(title: str, val: Any) -> str:
             f'<pre class="code-block">{_esc(_fmt_json(val))}</pre></div>')
 
 
-# ===== 前置处理 / 后置提取展示辅助（文案与前端 ReportDetail 一致） =====
-
-_PRE_TYPE_TEXT = {
-    "set_field": "设置字段",
-    "add_field": "新增字段",
-    "delete_field": "删除字段",
-    "iterate_set": "遍历赋值",
-    "exec_sql": "执行 SQL",
-}
-
+# ===== 后置提取展示辅助（文案与前端 ReportDetail 一致；_value_text 供提取值展示复用） =====
 
 def _value_text(v: Any) -> str:
     """快照值为执行时规则原文：字符串原样（可含 ${} 引用），对象/数组 JSON 化，None 显示 '—'"""
@@ -456,27 +440,6 @@ def _value_text(v: Any) -> str:
         return json.dumps(v, ensure_ascii=False, default=str)
     except Exception:
         return str(v)
-
-
-def _pre_sec(pre_list: list[Any]) -> str:
-    """请求 Tab 顶部的注入情况区：类型 + path = value；exec_sql 显示 SQL"""
-    title = f"前置处理（{len(pre_list)}）"
-    if not pre_list:
-        return f'<div class="sec"><div class="sec-title">{title}</div><div class="sec-empty">无前置处理</div></div>'
-    items: list[str] = []
-    for it in pre_list:
-        if not isinstance(it, dict):
-            continue
-        t = it.get("type")
-        if t == "exec_sql":
-            body = f'<span class="mono">{_esc(_value_text(it.get("sql")))}</span>'
-        else:
-            body = f'<span class="mono">{_esc(str(it.get("path") or "—"))}</span>'
-            if t != "delete_field":
-                body += f'<span class="muted">=</span><span class="mono">{_esc(_value_text(it.get("value")))}</span>'
-        items.append(f'<div class="pre-item"><span class="pre-type">{_esc(_PRE_TYPE_TEXT.get(str(t), t or "—"))}</span>{body}</div>')
-    return (f'<div class="sec"><div class="sec-title">{title}</div>'
-            f'<div class="pre-list">{"".join(items)}</div></div>')
 
 
 def _extract_pane(post_extract: list[Any], extracted_vars: Any) -> str:
@@ -511,7 +474,6 @@ def _extract_pane(post_extract: list[Any], extracted_vars: Any) -> str:
 def _step_pane(s: Any, idx: int, sid: str) -> str:
     name = s.api_name or s.node_id or "未命名步骤"
     assertions = getattr(s, "assertions", None) or []
-    pre_list = getattr(s, "pre_process", None) or []
     post_extract = getattr(s, "post_extract", None) or []
     extracted_vars = getattr(s, "extracted_vars", None) or {}
     p: list[str] = []
@@ -545,9 +507,9 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     p.append(f'<label class="sp-tab sp-tab-assert" for="tab-{sid}-as">断言（{len(assertions)}）</label>')
     p.append("</div>")
 
-    # 请求（前置处理 = 注入情况，置于请求头/请求体之前，与平台详情页顺序一致）
+    # 请求（前置处理快照不再展示：配置原文与请求体重复，信息噪音大于价值）
     p.append('<div class="sp-panes">')
-    p.append(f'<div class="sp-pane sp-pane-req">{_pre_sec(pre_list)}{_json_sec("请求头", s.request_headers)}{_json_sec("请求体", s.request_body)}</div>')
+    p.append(f'<div class="sp-pane sp-pane-req">{_json_sec("请求头", s.request_headers)}{_json_sec("请求体", s.request_body)}</div>')
     # 响应
     resp = (f'<div class="sp-pane sp-pane-resp">'
             f'<div class="sec"><div class="sec-title">状态码</div>'
