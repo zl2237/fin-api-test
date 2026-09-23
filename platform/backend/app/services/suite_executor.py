@@ -87,7 +87,15 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
         if first_env:
             record.env_id = first_env.id
 
+    terminated = False
     for member in members:
+        # 手动终止检查点：terminate API 已提交 terminated（上一成员执行后已
+        # commit，本查询开新事务能看到跨会话提交）→ 剩余成员不再执行，
+        # 最终保留 terminated 状态不被汇总覆盖
+        if db.query(models.ExecutionRecord.status).filter(
+                models.ExecutionRecord.id == record.id).scalar() == "terminated":
+            terminated = True
+            break
         member_report: dict[str, Any] = {"sort_order": member.sort_order, "rows": []}
         member_case = crud.get_testcase(db, member.member_case_id)
         member_env = crud.get_environment(db, member.env_id)
@@ -202,7 +210,8 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
             snapshots = row_snapshots
         total += 1
 
-    record.status = "failed" if (failed or blocked) else "success"
+    record.status = ("terminated" if terminated
+                     else "failed" if (failed or blocked) else "success")
     record.ended_at = datetime.now()
     final_shared = next((s for s in reversed(snapshots) if s is not None), None)
     record.summary = {
@@ -210,6 +219,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
         "total": total, "passed": passed, "failed": failed, "blocked": blocked,
         "members": member_reports,
         "shared_vars": final_shared or {},
+        **({"error": "手动终止"} if terminated else {}),
     }
     db.commit()
 

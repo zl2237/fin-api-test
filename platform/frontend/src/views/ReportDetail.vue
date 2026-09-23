@@ -71,6 +71,15 @@
           >
             重新执行
           </el-button>
+          <el-button
+            v-if="record?.status === 'running'"
+            size="small"
+            type="danger"
+            :loading="terminating"
+            @click="onTerminate"
+          >
+            终止
+          </el-button>
           <el-button size="small" @click="exportCsv" :disabled="!steps.length">导出 CSV</el-button>
           <el-button size="small" @click="exportHtml" :disabled="!steps.length">导出 HTML</el-button>
           <el-button text @click="router.back()">返回</el-button>
@@ -173,23 +182,6 @@
           </div>
           <el-tabs v-model="activeTab" class="detail-tabs">
             <el-tab-pane label="请求" name="request">
-              <div class="section">
-                <div class="section-title">前置处理 ({{ currentStep.pre_process?.length || 0 }})</div>
-                <template v-if="currentStep.pre_process?.length">
-                  <div v-for="(p, i) in currentStep.pre_process" :key="i" class="pre-item">
-                    <el-tag size="small" type="info" effect="light">{{ preTypeText(p.type) }}</el-tag>
-                    <span v-if="p.type === 'exec_sql'" class="mono pre-val pre-sql">{{ p.sql || '—' }}</span>
-                    <template v-else>
-                      <span class="mono">{{ p.path || '—' }}</span>
-                      <template v-if="p.type !== 'delete_field'">
-                        <span class="muted">=</span>
-                        <span class="mono pre-val">{{ preValueText(p.value) }}</span>
-                      </template>
-                    </template>
-                  </div>
-                </template>
-                <EmptyState v-else description="无前置处理" :image-size="40" />
-              </div>
               <div class="section">
                 <div class="section-title">请求头</div>
                 <VueJsonPretty v-if="currentStep.request_headers" :data="currentStep.request_headers" />
@@ -348,7 +340,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading, Search, CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
@@ -416,6 +408,33 @@ async function onRerun() {
     ElMessage.error(e.message || '重跑失败')
   } finally {
     rerunning.value = false
+  }
+}
+
+// ===== 手动终止：僵尸记录（进程重启致线程丢失）直接落状态；活动执行由 =====
+// ===== runner 节点/成员间检查点感知后提前退出，轮询自动刷到最终状态   =====
+const terminating = ref(false)
+async function onTerminate() {
+  const id = Number(route.params.id)
+  if (!id || !record.value) return
+  try {
+    await ElMessageBox.confirm(
+      '确认终止本次执行？正在运行的请求不会被强杀，剩余节点/成员将不再执行。',
+      '终止执行',
+      { type: 'warning', confirmButtonText: '终止', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  terminating.value = true
+  try {
+    await execApi.terminate(id)
+    ElMessage.success('已发出终止指令')
+    await load(true)
+  } catch (e: any) {
+    ElMessage.error(e.message || '终止失败')
+  } finally {
+    terminating.value = false
   }
 }
 
@@ -546,6 +565,7 @@ const stampText = computed(() => {
   if (s === 'success') return '通过'
   if (s === 'failed') return '未通过'
   if (s === 'running') return '执行中'
+  if (s === 'terminated') return '已终止'
   return '—'
 })
 /** 结论分子配色：通过=绿、失败=红、执行中/未知=墨色 */
@@ -576,19 +596,7 @@ function httpStatusType(code?: number) {
   return 'info'
 }
 
-// ===== 前置处理 / 后置提取展示辅助（文案与 PreProcessTable 配置端一致） =====
-const PRE_TYPE_TEXT: Record<string, string> = {
-  set_field: '设置字段',
-  add_field: '新增字段',
-  delete_field: '删除字段',
-  iterate_set: '遍历赋值',
-  exec_sql: '执行 SQL',
-}
-
-function preTypeText(t?: string) {
-  return (t && PRE_TYPE_TEXT[t]) || t || '—'
-}
-
+// ===== 后置提取展示辅助（文案与 PreProcessTable 配置端一致；preValueText 供提取值展示复用） =====
 /** 快照值为执行时规则原文：字符串原样（可含 ${} 引用），对象/数组 JSON 化 */
 function preValueText(v: any): string {
   if (v == null) return '—'
@@ -1088,25 +1096,11 @@ onUnmounted(stopPolling)
   padding: 0 4px;
 }
 
-/* 前置处理动作行：标签 + path = 值（值可含 ${} 引用，规则原文快照） */
-.pre-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 0;
-  flex-wrap: wrap;
-}
-
+/* 提取值/规则原文展示（后置提取区复用） */
 .pre-val {
   color: var(--app-text);
   max-width: 420px;
   vertical-align: middle;
-}
-
-/* 前置 SQL 原文（单行长 SQL 自动换行） */
-.pre-sql {
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 
 

@@ -36,7 +36,7 @@ export function execStatusType(s?: string): 'success' | 'warning' | 'danger' | '
   if (s === 'success') return 'success'
   if (s === 'running') return 'warning'
   if (s === 'blocked') return 'warning'
-  if (s === 'skipped' || s == null) return 'info'
+  if (s === 'skipped' || s === 'terminated' || s == null) return 'info'
   return 'danger'
 }
 
@@ -47,6 +47,7 @@ export function execStatusText(s?: string): string {
   if (s === 'failed') return '失败'
   if (s === 'blocked') return '阻断'
   if (s === 'skipped') return '跳过'
+  if (s === 'terminated') return '已终止'
   return s ?? '-'
 }
 

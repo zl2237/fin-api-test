@@ -220,3 +220,40 @@ def get_execution(exec_id: int, db: Session = Depends(get_db), user: models.User
     crud.fill_audit_names(db, obj)
     crud.fill_exec_names(db, obj)
     return obj
+
+
+@router.post("/executions/{exec_id}/terminate", response_model=schemas.ExecutionRecordOut)
+def terminate_execution(exec_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """手动终止执行。
+
+    两类场景统一入口：
+    - 僵尸记录：进程重启致后台线程丢失，记录永远停在 running——直接落 terminated
+    - 活动执行：runner 在节点间/套件成员间检查点感知本状态后提前退出，
+      剩余节点/成员并入未执行统计；套件主记录终止时级联标记其名下
+      running 的成员行记录（成员 DagExecutor 检查点只看自己的记录状态）
+    """
+    obj = crud.get_execution(db, exec_id)
+    if not obj:
+        raise HTTPException(404, "执行记录不存在")
+    if obj.status != "running":
+        raise HTTPException(400, "仅运行中的执行可终止")
+    obj.status = "terminated"
+    obj.ended_at = datetime.now()
+    obj.summary = {**(obj.summary or {}),
+                   "error": f"用户 {user.username} 手动终止"}
+    cascaded = 0
+    if (obj.summary or {}).get("suite"):
+        for child in (db.query(models.ExecutionRecord)
+                      .filter(models.ExecutionRecord.suite_execution_id == exec_id,
+                              models.ExecutionRecord.status == "running").all()):
+            child.status = "terminated"
+            child.ended_at = datetime.now()
+            child.summary = {**(child.summary or {}), "error": "套件主执行被手动终止"}
+            cascaded += 1
+    db.commit()
+    db.refresh(obj)
+    crud.fill_audit_names(db, obj)
+    crud.fill_exec_names(db, obj)
+    if cascaded:
+        obj.summary = {**(obj.summary or {}), "cascaded": cascaded}
+    return obj

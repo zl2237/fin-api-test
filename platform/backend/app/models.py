@@ -294,7 +294,7 @@ class ExecutionRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
     case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
     env_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("environments.id"), comment="执行环境ID")
-    status: Mapped[str] = mapped_column(String(20), default="running", comment="执行状态：running 进行中 / success 成功 / failed 失败")
+    status: Mapped[str] = mapped_column(String(20), default="running", comment="执行状态：running 进行中 / success 成功 / failed 失败 / terminated 手动终止")
     trigger_type: Mapped[str] = mapped_column(String(20), default="manual", comment="触发方式：manual 手动 / schedule 定时任务")
     started_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="开始执行时间")
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="结束时间")

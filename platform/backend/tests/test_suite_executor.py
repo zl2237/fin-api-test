@@ -30,6 +30,11 @@ class FakeQuery:
     def all(self):
         return self._items
 
+    def scalar(self):
+        # 终止检查点查询（ExecutionRecord.status）：成员列表非对象查询，
+        # 直接回 record 语义——返回 None（未终止）即可满足检查点
+        return None
+
 
 class FakeDB:
     def __init__(self, members):

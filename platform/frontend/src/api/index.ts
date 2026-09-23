@@ -531,6 +531,8 @@ export const execApi = {
   stats: (params?: { days?: number; project_id?: number }) =>
     http.get<{ count: number; passed: number; rate: number | null; days: number }>('/executions/stats', { params }).then((r) => r.data),
   get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
+  // 手动终止（运行中记录）：僵尸记录直接落状态；活动执行由 runner 检查点提前退出
+  terminate: (id: number) => http.post<ExecutionRecord>(`/executions/${id}/terminate`).then((r) => r.data),
   report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
   // 报告导出（后端组装：csv=Excel 兼容 BOM+CRLF；html=自包含单文件报告）
   exportReport: (id: number, format: 'csv' | 'html') =>
