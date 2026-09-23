@@ -104,7 +104,18 @@ watch(
   () => props.visible,
   (v) => {
     if (v) {
-      draft.value = JSON.parse(JSON.stringify(props.config))
+      const d = JSON.parse(JSON.stringify(props.config))
+      draft.value = d
+      // 前置处理对象/数组值（数据集页保存的手动覆盖）序列化为 JSON 文本编辑：
+      // 直接绑输入框会显示 [Object]，且触碰输入框即把对象覆盖成字符串（数据损坏）。
+      // 行内标记 _obj=1，onSave 时解析回对象——存储与运行时行为保持不变
+      for (const act of d.pre_process || []) {
+        if (act && ['set_field', 'add_field'].includes(act.type)
+            && act.value !== null && typeof act.value === 'object') {
+          act._obj = true
+          act.value = JSON.stringify(act.value, null, 2)
+        }
+      }
     }
   },
   { immediate: true },
@@ -128,6 +139,17 @@ function onSave() {
   if (!draft.value.api_id) {
     ElMessage.warning('请先绑定接口，未绑定接口的节点不会执行')
     return
+  }
+  // 对象值行：编辑文本解析回对象（非法 JSON 阻断保存，防静默丢值）；去掉临时标记
+  for (const act of draft.value.pre_process || []) {
+    if (!act?._obj) continue
+    try {
+      act.value = JSON.parse(String(act.value ?? ''))
+    } catch {
+      ElMessage.error(`前置处理「${act.path}」的值不是合法 JSON，请修正后再保存`)
+      return
+    }
+    delete act._obj
   }
   emit('save', JSON.parse(JSON.stringify(draft.value)))
   emit('update:visible', false)
