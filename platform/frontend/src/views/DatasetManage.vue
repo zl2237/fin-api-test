@@ -176,11 +176,11 @@
                       <!-- 状态徽标：手动覆盖 / 已动态配置 / 已配置 / 未配置 -->
                       <el-tooltip
                         v-if="p.manual"
-                        :content="`节点手动覆盖中：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
+                        :content="`节点手动覆盖：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
                         placement="top"
                         popper-class="app-tip"
                       >
-                        <span class="badge badge-manual">手动覆盖中</span>
+                        <span class="badge badge-manual">手动覆盖</span>
                       </el-tooltip>
                       <el-tooltip
                         v-else-if="p.dynamic"
@@ -254,7 +254,7 @@
                   徽标含义：<span class="badge badge-filled">已配置</span>=池中有值（执行取此值）；
                   <span class="badge badge-dynamic">已动态配置</span>=节点编排 ${} 运行时求值，优先生效；
                   <span class="badge badge-empty">未配置</span>=池中无值，留空时发送空值（“”/null）；
-                  <span class="badge badge-manual">手动覆盖中</span>=节点编排字面量优先，池值暂不生效。
+                  <span class="badge badge-manual">手动覆盖</span>=节点编排字面量优先，池值暂不生效。
                   优先级：手动覆盖 &gt; 套件注入 &gt; 数据集变量池；运行时变量不自动按名取值，仅 ${} 显式引用
                   <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
                 </div>
