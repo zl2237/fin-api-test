@@ -459,13 +459,14 @@ class TestSendSuiteNotify:
         assert "None" not in content
         assert "发起融资：执行失败：授信金额应大于0" in content
 
-    def test_dataset_member_failure_keeps_row_number(self):
-        """数据驱动成员失败：保留「第N行失败」并带原因"""
+    def test_dataset_member_failure_generic_head(self):
+        """成员失败摘要统一为「执行失败：原因」（单套语义，无行号概念）"""
         members = [{"case_name": "发起融资", "status": "failed", "rows": [
-            {"row_index": 3, "execution_id": 101, "status": "failed", "reason": "断言失败"},
+            {"row_index": 1, "execution_id": 101, "status": "failed", "reason": "断言失败"},
         ]}]
         content = self._run(members).return_value.send_markdown.call_args[0][1]
-        assert "发起融资：第3行失败：断言失败" in content
+        assert "发起融资：执行失败：断言失败" in content
+        assert "第1行" not in content
 
     def test_member_level_error_takes_priority(self):
         """成员级 error（成员/环境被删等）：优先于行级文案"""
