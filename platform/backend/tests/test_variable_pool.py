@@ -107,10 +107,11 @@ class TestSaveNodeValues:
 
 
 class TestCollectAndClear:
-    """清空转引用：字面量入池后值清空，节点保留占位行"""
+    """清空转引用：字面量入池后，接口字段的行直接删除（占位冗余——字段本身
+    参与运行时按名解析）；非接口字段（add_field 自定义键）保留空占位行"""
 
     def test_literal_collected_and_cleared_with_pool_created(self):
-        """无绑定数据集：自动创建「用例名-变量池」+ 绑定 + 1 行快照，字面量清空"""
+        """无绑定数据集：自动创建「用例名-变量池」+ 绑定 + 1 行快照，接口字段行删除"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": "BL001"}])
         case = _case()
         db, added = _db([cfg], [_api(fields=[_field("bl_no")])])
@@ -118,7 +119,7 @@ class TestCollectAndClear:
         stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["columns"] == 1
-        assert cfg.pre_process == [{"type": "set_field", "path": "bl_no", "value": ""}]
+        assert cfg.pre_process == []  # 接口字段收集后删行（不再保留空占位）
         pool = added[0]
         assert isinstance(pool, models.DataSet)
         assert pool.case_id == 11 and pool.name == "下单用例-变量池"
@@ -129,7 +130,7 @@ class TestCollectAndClear:
         assert len(rows) == 1 and rows[0].data == {"bl_no": "BL001"}
 
     def test_collect_idempotent(self):
-        """二次保存幂等：空占位不收集，池不重复建"""
+        """二次保存幂等：空占位行被清理（接口字段），池不重复建"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": ""}])
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11,
@@ -140,7 +141,7 @@ class TestCollectAndClear:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["columns"] == 0
-        assert cfg.pre_process == [{"type": "set_field", "path": "bl_no", "value": ""}]
+        assert cfg.pre_process == []  # 接口字段空占位行被清理（幂等）
         assert pool.columns == [{"key": "bl_no", "type": "string"}]  # 无重复列
         assert not added
 
@@ -171,7 +172,7 @@ class TestCollectAndClear:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["kept"] == 0 and stats["collected"]
-        assert cfg.pre_process[0]["value"] == ""        # 清空转引用
+        assert cfg.pre_process == []                  # 接口字段收编后删行
         assert pool.rows[0].data == {"bl_no": "BL001"}  # 池值不变（本来就相等）
         assert pool.columns == [{"key": "bl_no", "type": "string"}]  # 列不重复追加
 
@@ -191,7 +192,7 @@ class TestCollectAndClear:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["kept"] == 0 and stats["collected"]
-        assert cfg.pre_process[0]["value"] == ""
+        assert cfg.pre_process == []  # 接口字段（to_customer）收编后删行
         assert pool.rows[0].data == {"to_customer.put_amount": 1, "to_customer.remark": "r"}
         assert [c["key"] for c in pool.columns] == ["to_customer.put_amount", "to_customer.remark"]
 
@@ -227,7 +228,7 @@ class TestCollectAndClear:
             stats = svc.sync_case_variable_pool(db, case, user_id=1, force=True)
 
         assert stats["kept"] == 0 and stats["collected"]
-        assert cfg.pre_process[0]["value"] == ""  # 清空转引用
+        assert cfg.pre_process == []  # 接口字段收口后删行
         assert pool.rows[0].data == {"bl_no": "NODE_VAL"}  # 以节点值为准（当前生效值）
         assert pool.columns == [{"key": "bl_no", "type": "string"}]  # 列不重复追加
 
@@ -272,11 +273,12 @@ class TestCollectAndClear:
             svc.sync_case_variable_pool(db, case, user_id=1, force=True)
         keys = {c["key"] for c in pool.columns}
         assert keys == {"service_project"}  # 拆叶默认未入池（节点显式配置优先）
-        assert cfg.pre_process[0]["value"] == ""
+        assert cfg.pre_process == []  # 接口字段收口后删行
         assert pool.rows[0].data == {"service_project": "customs_clearance"}
 
     def test_list_index_path_collected(self):
-        """列表下标路径（select_node_user.0.user_id）原样成键入池"""
+        """列表下标路径（select_node_user.0.user_id）原样成键入池；
+        下标路径非接口字段名 → 保留空占位行（按名解析的键来源）"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "select_node_user.0.user_id",
                          "value": 60}])
         case = _case()
@@ -289,7 +291,7 @@ class TestCollectAndClear:
         assert pool.columns[0]["key"] == "select_node_user.0.user_id"
         rows = [o for o in added if isinstance(o, models.DataSetRow)]
         assert rows[0].data == {"select_node_user.0.user_id": 60}
-        assert cfg.pre_process[0]["value"] == ""
+        assert cfg.pre_process == [{"type": "set_field", "path": "select_node_user.0.user_id", "value": ""}]
 
     def test_dynamic_binding_kept(self):
         """${} 动态绑定原样保留（属手动层显式引用），不入池不清空"""
@@ -315,7 +317,7 @@ class TestCollectAndClear:
         assert stats["columns"] == 2
         pool = added[0]
         assert [c["key"] for c in pool.columns] == ["to_customer.put_amount", "to_customer.remark"]
-        assert cfg.pre_process[0]["value"] == ""  # 清空转引用（父路径占位）
+        assert cfg.pre_process == []  # 接口字段收集后删行
         rows = [o for o in added if isinstance(o, models.DataSetRow)]
         assert rows[0].data == {"to_customer.put_amount": 1, "to_customer.remark": "r"}
 
@@ -453,10 +455,10 @@ class TestApiDefaultsMigration:
 
         rows = [o for o in added if isinstance(o, models.DataSetRow)]
         assert rows[0].data == {"bl_no": "CASE"}
-        assert cfg.pre_process[0]["value"] == ""
+        assert cfg.pre_process == []  # 接口字段收集后删行
 
     def test_node_explicit_config_shields_default(self):
-        """节点已显式配置该 path（含空占位）→ 默认值不再迁移"""
+        """节点已显式配置该 path（空占位被清理但 path 已记录）→ 默认值不再迁移"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": ""}])
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11, columns=[{"key": "other", "type": "string"}],
@@ -466,7 +468,10 @@ class TestApiDefaultsMigration:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["columns"] == 0
-        assert cfg.pre_process == [{"type": "set_field", "path": "bl_no", "value": ""}]
+        assert cfg.pre_process == []  # 接口字段空占位行被清理
+        # other 键无人使用被悬空清理（既有行为，与本测试点无关）；
+        # 默认值 DEFAULT 未迁入池（node_paths 屏蔽生效）
+        assert pool.rows[0].data == {}
 
 
 class TestExistingPool:
