@@ -246,7 +246,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Upload, Search, QuestionFilled } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
@@ -627,29 +627,10 @@ function onBack() {
   router.push('/apis')
 }
 
-// ===== 未保存改动防丢失：路由离开 + 关闭/刷新标签页双层拦截 =====
-// 与 CaseDesigner/EnvEdit 同法：编辑页是带 :id? 的临时页，守卫放行时统一关闭自身标签，
-// 避免残留标签 + keep-alive 缓存让 dirty 状态的页面可反复点回
-onBeforeRouteLeave(async () => {
-  // removeTab 对已不存在的标签（点 X 关闭流已先移除）返回 null，无副作用，可安全重入
-  const closeSelfTab = () => tabStore.removeTab(route.path)
-  if (!dirty.value) {
-    closeSelfTab()
-    return true
-  }
-  try {
-    await ElMessageBox.confirm(
-      '有未保存的接口配置改动，离开后将丢失。确定离开？',
-      '未保存提示',
-      { type: 'warning', confirmButtonText: '放弃改动并离开', cancelButtonText: '留在本页' },
-    )
-    closeSelfTab()
-    return true
-  } catch {
-    // 留在本页：标签原样保留
-    return false
-  }
-})
+// ===== 未保存改动防丢失（浏览器标签模型）：切换标签不弹窗不关签（多开并行编辑），
+// dirty 上报全局登记；关闭标签（X/右键/批量）时由 MainLayout 统一弹未保存确认。
+// 刷新/关闭浏览器仍由 beforeunload 原生拦截。
+watch(dirty, (v) => tabStore.setDirty(route.path, v ? '接口编辑' : null), { immediate: true })
 
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (dirty.value) {
@@ -688,7 +669,7 @@ async function onSave() {
     } else {
       await apiApi.create(payload)
       ElMessage.success('已创建')
-      // 先复位 dirty 再导航：onBeforeRouteLeave 守卫会读它，避免依赖微任务时序
+      // 先复位 dirty 再导航：watch 会据此清标签的未保存登记
       dirty.value = false
       router.push('/apis')
       return
