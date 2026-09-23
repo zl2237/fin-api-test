@@ -944,9 +944,20 @@ function groupHasContent(id: number) {
   return groups.value.some((g) => g.parent_id === id) || casesOfGroup(id).length > 0
 }
 
-/** 分组节点计数：组内直接用例的数据集合计（不含子组，避免与子组重复） */
+/** 分组节点计数：组内直接用例 + 全部子孙分组用例的数据集合计
+ *  （父分组自身无直接用例时不再显示 0——用例都在子分组里是常态） */
 function groupDatasetCount(id: number) {
-  return casesOfGroup(id === UNGROUPED_ID ? null : id).reduce((n, c) => n + caseDatasetCount(c.id), 0)
+  const sum = (gid: number | null) =>
+    casesOfGroup(gid).reduce((n, c) => n + caseDatasetCount(c.id), 0)
+  if (id === UNGROUPED_ID) return sum(null)
+  // BFS 收集该分组及全部后代分组（分组规模小，数组去重足够）
+  const ids: number[] = [id]
+  for (let i = 0; i < ids.length; i++) {
+    for (const g of groups.value) {
+      if (g.parent_id === ids[i] && !ids.includes(g.id)) ids.push(g.id)
+    }
+  }
+  return ids.reduce((n, gid) => n + sum(gid), 0)
 }
 
 interface SideRow { kind: 'group' | 'case'; id: number; name: string; depth: number }

@@ -620,8 +620,9 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
         pre = deepcopy(cfg.pre_process or [])
         node_dirty = False
         node_paths: set[str] = set()  # 本节点显式配置的 path（字段默认迁移的去重基准）
+        dropped: set[int] = set()  # 待删除行下标（接口字段的空占位行：占位冗余）
         # 先 pre_process：静态字面量拆叶入池 + 清空转引用；${} 动态绑定原样保留
-        for act in pre:
+        for i, act in enumerate(pre):
             if act.get("type") not in ("set_field", "add_field"):
                 continue
             path = act.get("path") or ""
@@ -634,6 +635,14 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 continue
             if val is None or val == "":
                 node_paths.add(path)
+                # 接口字段的空占位行 = 清空转引用的遗留，直接删除：接口字段本身
+                # 参与运行时按名解析（prepare_request 的 resolve_keys 含全部字段），
+                # 占位行纯冗余；大接口 200+ 占位行会拖垮节点配置抽屉渲染（双击
+                # 卡死）。非接口字段（add_field 自定义键/模板体键）保留——空占位
+                # 是它们参与按名解析的唯一键来源
+                if path in api_field_types:
+                    dropped.add(i)
+                    node_dirty = True
                 continue
             if not _COL_KEY_RE.match(path):
                 stats["invalid"] += 1
@@ -644,11 +653,18 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             elif _collect(leaves, f"节点 {node_id}",
                           "file" if api_field_types.get(path) == "file" else None,
                           force_collect=force, path=path) == "collected":
-                act["value"] = ""  # 清空转引用（节点保留占位行，运行时按名解析）
+                # 清空转引用：接口字段直接删行（占位冗余，同上）；非接口字段
+                # 保留空占位行（运行时按名解析的键来源）
+                if path in api_field_types:
+                    dropped.add(i)
+                else:
+                    act["value"] = ""
                 node_dirty = True
             else:
                 stats["kept"] += 1  # 形状冲突 → 保留为手动覆盖（force 下仅此不收口）
             node_paths.add(path)
+        if dropped:
+            pre = [a for j, a in enumerate(pre) if j not in dropped]
         # 后字段默认值（一刀切迁移源：运行时不再兜底，保存时迁入池/编排）
         for f in getattr(api, "fields", None) or []:
             key = f.key
