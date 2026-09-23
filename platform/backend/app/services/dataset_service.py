@@ -620,7 +620,8 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
         pre = deepcopy(cfg.pre_process or [])
         node_dirty = False
         node_paths: set[str] = set()  # 本节点显式配置的 path（字段默认迁移的去重基准）
-        dropped: set[int] = set()  # 待删除行下标（接口字段的空占位行：占位冗余）
+        dropped_empty: set[int] = set()  # 空占位行下标（无值，删除无损）
+        dropped_collected: set[int] = set()  # 值转移行下标（删前须确认池已接住值）
         # 先 pre_process：静态字面量拆叶入池 + 清空转引用；${} 动态绑定原样保留
         for i, act in enumerate(pre):
             if act.get("type") not in ("set_field", "add_field"):
@@ -641,7 +642,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 # 卡死）。非接口字段（add_field 自定义键/模板体键）保留——空占位
                 # 是它们参与按名解析的唯一键来源
                 if path in api_field_types:
-                    dropped.add(i)
+                    dropped_empty.add(i)
                     node_dirty = True
                 continue
             if not _COL_KEY_RE.match(path):
@@ -656,13 +657,25 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 # 清空转引用：接口字段直接删行（占位冗余，同上）；非接口字段
                 # 保留空占位行（运行时按名解析的键来源）
                 if path in api_field_types:
-                    dropped.add(i)
+                    dropped_collected.add(i)
                 else:
                     act["value"] = ""
                 node_dirty = True
             else:
                 stats["kept"] += 1  # 形状冲突 → 保留为手动覆盖（force 下仅此不收口）
             node_paths.add(path)
+        if dropped_collected:
+            # 数据完整性保险丝：删"值转移行"前确认值确已落在池（pending 待写值
+            # 或池现值，含拆叶族/整对象列）。未接住则恢复原行——宁可占位冗余，
+            # 不可丢值（曾致 case 90 开票金额参数变 None、用例失败）
+            def _family_valued(p: str) -> bool:
+                fam = [p] + [q for q in list(pool_keys) + list(pending_values)
+                             if q.startswith(p + ".")]
+                return any(pending_values.get(q) not in (None, "")
+                           or pool_vals.get(q) not in (None, "") for q in fam)
+            dropped_collected = {j for j in dropped_collected
+                                 if _family_valued(pre[j].get("path") or "")}
+        dropped = dropped_empty | dropped_collected
         if dropped:
             pre = [a for j, a in enumerate(pre) if j not in dropped]
         # 后字段默认值（一刀切迁移源：运行时不再兜底，保存时迁入池/编排）
