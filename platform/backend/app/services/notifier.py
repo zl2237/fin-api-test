@@ -1,4 +1,4 @@
-"""执行通知服务：用例执行完成后的企微通知（单条 + 数据驱动批量聚合）。
+"""执行通知服务：用例执行完成后的企微通知（用例单条 + 套件汇总）。
 
 深模块约定：取数与门控都在本模块内部——执行人/项目名、环境/数据集名由
 notifier 自己查表，webhook 存在性与 enable_on_success/enable_on_failure
@@ -6,7 +6,7 @@ notifier 自己查表，webhook 存在性与 enable_on_success/enable_on_failure
 与 id，不替通知查表；改门控语义只需改这里。失败不影响主流程；失败通知
 附失败原因（失败接口/断言消息/请求异常/执行异常）。
 """
-from .. import crud, models
+from .. import models
 
 # 企微 markdown content 上限 4096 字节（UTF-8），失败原因区块按字节预算控制，
 # 给正文（用例名/环境等）留余量；中文 3 字节/字，不能按字符数截断
@@ -72,34 +72,6 @@ def _build_fail_section(record) -> str:
     if len(failed_steps) > 5:
         _line(f"> …另有 {len(failed_steps) - 5} 个失败步骤已省略，详见执行报告", lines, budget)
 
-    return "\n".join(lines)
-
-
-def build_batch_notify_content(records, case_name: str, dataset_name: str):
-    """数据驱动批量执行聚合通知内容（方案定案 #7）。
-
-    - 全成功 → None（不发，沿用 enable_on_success 语义）
-    - 有失败 → 一条汇总：用例名 + 数据集名 + 失败行号列表（#行号 首列值）+ 首个失败原因
-    """
-    failed = [r for r in records if getattr(r, "status", None) != "success"]
-    if not failed:
-        return None
-    row_list = "、".join(
-        f"#{r.dataset_row['row_index']} {r.dataset_row.get('label', '')}".rstrip()
-        for r in failed if r.dataset_row
-    )
-    first_error = next((str((r.summary or {}).get("error")) for r in failed
-                        if (r.summary or {}).get("error")), "无失败摘要（详见执行报告）")
-    passed = len(records) - len(failed)
-    lines = [
-        "**数据驱动批量执行通知**",
-        f"> 用例：{case_name}",
-        f"> 数据集：{dataset_name}",
-        f"> 状态：❌ {len(failed)}/{len(records)} 行失败（通过 {passed}/{len(records)}）",
-    ]
-    if row_list:
-        lines += ["> ", "**失败行**", f"> {row_list}"]
-    lines += ["> ", "**首个失败原因**", f"> {_clip(first_error, 300)}"]
     return "\n".join(lines)
 
 
@@ -172,27 +144,6 @@ def send_notify(db, env, case, record) -> None:
     except Exception as e:
         # 通知失败不影响执行结果
         print(f"[通知发送] 企微通知发送失败（忽略）: {e}")
-
-
-def send_batch_notify(db, env_id: int, dataset_id: int, records, case_name: str) -> None:
-    """数据驱动批量执行的聚合通知：环境/数据集名取数与门控都收敛在本模块。
-
-    全成功不发（enable_on_success 语义）；有失败发一条汇总。失败不影响主流程。
-    """
-    try:
-        env = crud.get_environment(db, env_id)
-        dataset = crud.get_dataset(db, dataset_id)
-        if not env or not dataset:
-            return
-        content = build_batch_notify_content(records, case_name, dataset.name)
-        if content is None:
-            print("[聚合通知] 跳过：数据驱动批量全部成功")
-            return
-        _send_wecom(env.notify_config or {}, "数据驱动批量执行通知", content,
-                    success_event=False)
-    except Exception as e:
-        # 聚合通知失败不影响执行结果
-        print(f"[聚合通知] 发送失败（忽略）: {e}")
 
 
 def _member_error_text(member: dict) -> str:

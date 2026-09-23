@@ -1,5 +1,4 @@
 """执行入口：从数据库加载用例与环境，驱动 DAG 执行"""
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -7,47 +6,25 @@ from .. import crud, models
 from ..database import SessionLocal
 from .dag_executor import DagExecutor
 
-# 内部后台任务池：聚合通知等零散提交。用例执行一律走批次专用池
-# （见 submit_batch_execution），互不复用避免两套池并存时并发额度互相不可见。
-_executor_lock = threading.Lock()
-_executor: ThreadPoolExecutor | None = None
-
 # 批量执行默认并发数：用户未指定时的并发上限
 DEFAULT_CONCURRENCY = 4
 
 
 @dataclass
 class ExecutionSpec:
-    """单条执行的提交规格：record 已建为 running，executor 按此执行。
-
-    这是 submit_batch_execution 的接口——替代此前的 5 个平行数组，
-    调用方（execution_launcher）不再需要知道实现内部按索引 zip 的表示。
-    """
+    """单条执行的提交规格：record 已建为 running，executor 按此执行。"""
 
     execution_id: int
     case_id: int
-    # 数据驱动：行变量（数据集域，点路径键）——编排按用例当前配置执行
+    # 数据集域变量（点路径键）——编排按用例当前配置执行
     row_vars: dict | None = None
-    # 多行数据驱动批量时抑制逐条通知（由聚合器汇总发送）
-    suppress_notify: bool = False
-
-
-def _get_executor() -> ThreadPoolExecutor:
-    """懒加载内部任务池（线程安全）"""
-    global _executor
-    with _executor_lock:
-        if _executor is None:
-            _executor = ThreadPoolExecutor(max_workers=DEFAULT_CONCURRENCY, thread_name_prefix="case-runner")
-    return _executor
 
 
 def run_execution_background(execution_id: int, case_id: int, env_id: int,
-                             row_vars: dict | None = None,
-                             suppress_notify: bool = False) -> None:
+                             row_vars: dict | None = None) -> None:
     """在后台线程中执行用例，使用独立的数据库会话。
     execution_id 对应的 ExecutionRecord 已由调用方创建（status=running）。
-    row_vars：数据驱动执行的数据行变量（数据集域，prepare_request 第 3 层解析）。
-    suppress_notify：数据驱动批量执行时抑制逐条通知（由聚合器汇总发送）。"""
+    row_vars：数据集域变量（prepare_request 第 3 层解析）。"""
     db = SessionLocal()
     try:
         case = crud.get_testcase(db, case_id)
@@ -79,8 +56,7 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
             from ..services.suite_executor import run_suite
             run_suite(db, case, record)
             return
-        DagExecutor(db, case, env, execution_record=record, row_vars=row_vars,
-                    suppress_notify=suppress_notify).execute()
+        DagExecutor(db, case, env, execution_record=record, row_vars=row_vars).execute()
     except Exception as e:
         # 兜底：任何异常都标记执行失败，避免 record 永远停在 running
         try:
@@ -109,46 +85,5 @@ def submit_batch_execution(specs: list[ExecutionSpec], env_id: int,
     pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix=f"case-c{concurrency}")
     for spec in specs:
         pool.submit(run_execution_background, spec.execution_id, spec.case_id, env_id,
-                    spec.row_vars, spec.suppress_notify)
+                    spec.row_vars)
     pool.shutdown(wait=False)  # 提交完即关闭，已提交任务继续执行完
-
-
-def submit_batch_aggregate_notify(execution_ids: list, case_id: int, env_id: int,
-                                  dataset_id: int, case_name: str) -> None:
-    """数据驱动批量执行的聚合通知（方案定案 #7）。
-
-    独立线程等待这批 record 全部到达终态（超时 30 分钟放弃），然后：
-    - 全成功 → 不发（enable_on_success 语义）
-    - 有失败 → 一条汇总（失败行号列表 + 首个失败原因）
-    """
-    _get_executor().submit(_wait_and_notify, list(execution_ids), case_id, env_id,
-                           dataset_id, case_name)
-
-
-def _wait_and_notify(execution_ids: list, case_id: int, env_id: int,
-                     dataset_id: int, case_name: str) -> None:
-    """聚合通知的等待侧：轮询批次到终态后调用 send_batch_notify。
-
-    环境名/数据集名取数与门控都在 notifier（单点），本函数只剩等待 + 调用。
-    """
-    import time as _time
-    db = SessionLocal()
-    try:
-        deadline = _time.time() + 30 * 60  # 超时上限：防 record 卡 running 死等
-        while _time.time() < deadline:
-            recs = (db.query(models.ExecutionRecord)
-                    .filter(models.ExecutionRecord.id.in_(execution_ids)).all())
-            if len(recs) == len(execution_ids) and all(r.status != "running" for r in recs):
-                break
-            db.expire_all()  # 后台线程各自独立会话，需强制刷新缓存
-            _time.sleep(2)
-        else:
-            print(f"[聚合通知] 等待超时放弃：case#{case_id} dataset#{dataset_id}")
-            return
-        from ..services.notifier import send_batch_notify
-        send_batch_notify(db, env_id, dataset_id, recs, case_name)
-    except Exception as e:
-        # 聚合通知失败不影响执行结果
-        print(f"[聚合通知] 发送失败（忽略）: {e}")
-    finally:
-        db.close()

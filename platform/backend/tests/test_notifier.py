@@ -10,7 +10,7 @@ from unittest.mock import patch
 import utils.wecom_util  # noqa: F401  显式绑定子模块：utils 为命名空间包，不导入则 patch("utils.wecom_util.WeComRobot") 解析目标失败
 
 from app import models
-from app.services.notifier import send_batch_notify, send_notify, send_suite_notify
+from app.services.notifier import send_notify, send_suite_notify
 
 
 def _env(name="测试环境", notify_config=None):
@@ -349,82 +349,6 @@ class TestSendNotify:
             send_notify(DB, _env(notify_config=WEBHOOK_CFG), _case(), record)
             content = MockRobot.return_value.send_markdown.call_args[0][1]
             assert "失败原因" not in content
-
-
-class TestSendBatchNotify:
-    """聚合通知发送：环境/数据集取数 + 门控与单条通知同点（_send_wecom）"""
-
-    @staticmethod
-    def _rec(status="failed"):
-        summary = {} if status == "success" else {"error": "断言失败"}
-        return SimpleNamespace(status=status,
-                               dataset_row={"row_index": 2, "label": "BL002", "data": {}},
-                               summary=summary)
-
-    _UNSET = object()  # 哨兵：区分"未提供"与"显式传 None（查无）"
-
-    def _run(self, notify_config, records, env=_UNSET, dataset=_UNSET):
-        from app.services import notifier
-        if env is self._UNSET:
-            env = _env(notify_config=notify_config)
-        if dataset is self._UNSET:
-            dataset = SimpleNamespace(name="运单数据")
-        with patch("utils.wecom_util.WeComRobot") as MockRobot, \
-             patch.object(notifier.crud, "get_environment", return_value=env), \
-             patch.object(notifier.crud, "get_dataset", return_value=dataset):
-            send_batch_notify(DB, env_id=1, dataset_id=2, records=records, case_name="下单用例")
-        return MockRobot
-
-    def test_all_success_skips(self):
-        """全成功 → 不发（enable_on_success 语义）"""
-        MockRobot = self._run(WEBHOOK_CFG, [self._rec("success"), self._rec("success")])
-        MockRobot.return_value.send_markdown.assert_not_called()
-
-    def test_failure_sends_summary(self):
-        """有失败 → 一条汇总（标题/用例名/失败行/数据集名）"""
-        MockRobot = self._run(WEBHOOK_CFG, [self._rec("success"), self._rec()])
-        mock_instance = MockRobot.return_value
-        mock_instance.send_markdown.assert_called_once()
-        title, content = mock_instance.send_markdown.call_args[0]
-        assert title == "数据驱动批量执行通知"
-        assert "下单用例" in content
-        assert "#2 BL002" in content
-        assert "运单数据" in content  # 数据集名由 notifier 查表解析
-
-    def test_skips_when_no_webhook(self):
-        MockRobot = self._run({}, [self._rec()])
-        MockRobot.return_value.send_markdown.assert_not_called()
-
-    def test_skips_when_enable_on_failure_false(self):
-        cfg = {"wecom_webhook": "http://fake/webhook", "enable_on_failure": False}
-        MockRobot = self._run(cfg, [self._rec()])
-        MockRobot.return_value.send_markdown.assert_not_called()
-
-    def test_sends_when_enable_on_failure_unset(self):
-        """未配 enable_on_failure → 默认开（与单条通知同一默认值）"""
-        cfg = {"wecom_webhook": "http://fake/webhook"}
-        MockRobot = self._run(cfg, [self._rec()])
-        MockRobot.return_value.send_markdown.assert_called_once()
-
-    def test_env_missing_skips_silently(self):
-        """环境查无（已删除）→ 静默跳过不抛"""
-        MockRobot = self._run(WEBHOOK_CFG, [self._rec()], env=None)
-        MockRobot.return_value.send_markdown.assert_not_called()
-
-    def test_dataset_missing_skips_silently(self):
-        MockRobot = self._run(WEBHOOK_CFG, [self._rec()], dataset=None)
-        MockRobot.return_value.send_markdown.assert_not_called()
-
-    def test_wecom_exception_swallowed(self):
-        with patch("utils.wecom_util.WeComRobot") as MockRobot, \
-             patch("app.services.notifier.crud.get_environment",
-                   return_value=_env(notify_config=WEBHOOK_CFG)), \
-             patch("app.services.notifier.crud.get_dataset",
-                   return_value=SimpleNamespace(name="运单数据")):
-            MockRobot.return_value.send_markdown.side_effect = RuntimeError("网络不可达")
-            # 不应抛出
-            send_batch_notify(DB, env_id=1, dataset_id=2,
-                              records=[self._rec()], case_name="下单用例")
 
 
 class TestSendSuiteNotify:
