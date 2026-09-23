@@ -69,6 +69,26 @@ class TestDatasetCrud:
         ], user_id=1)
         assert [c["key"] for c in ds.columns] == ["to_customer.put_amount", "bl_no"]
 
+    def test_create_accepts_php_bracket_column_key(self):
+        """PHP 表单风格方括号键合法（真实参数名原样成列，整名平铺发送）：
+        search_time[x]、file[]（空括号=追加数组）、点路径混合 a.b[x]"""
+        captured = {}
+        db = SimpleNamespace(add=lambda o: captured.update(obj=o),
+                             commit=lambda: None, refresh=lambda o: None)
+        keys = ["search_time[schedule_actual_delivery_date]", "file[]", "a.b[x]", "notice_11[]"]
+        ds = svc.create_dataset(db, project_id=1, name="方括号列",
+                                columns=[{"key": k, "type": "string"} for k in keys],
+                                user_id=1)
+        assert [c["key"] for c in ds.columns] == keys
+
+    def test_create_rejects_malformed_bracket_column_key(self):
+        """方括号内含非法字符（空格/${}/数字开头段）/ 悬空中括号仍拒绝"""
+        for bad in ["a[b c]", "a[${x}]", "a[1b]", "a[b", "a]b", "[x]y"]:
+            with pytest.raises(ValueError, match="列名.*合法|非法"):
+                svc.create_dataset(_fake_db(), project_id=1, name="坏方括号", columns=[
+                    {"key": bad, "type": "string"},
+                ], user_id=1)
+
     def test_update_columns_rejects_in_use_key_change(self):
         """改列定义时若行数据含已删列 → 拒绝（防行数据悬空）"""
         ds = SimpleNamespace(id=1, columns=[{"key": "a", "type": "string"}, {"key": "b", "type": "string"}],

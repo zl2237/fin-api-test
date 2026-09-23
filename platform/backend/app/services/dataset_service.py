@@ -28,10 +28,14 @@ from ..engine.topo import topo_order
 from .body_builder import parse_field_value
 
 # 列 key 合法字符：点路径段。段 = 标识符（字母/数字/下划线，不以数字开头）或纯数字
-# （列表下标，如 select_node_user.0.user_id——编排声明的参数路径原样成键，行为等价）。
+# （列表下标，如 select_node_user.0.user_id——编排声明的参数路径原样成键，行为等价），
+# 可带 [name] 下标后缀（PHP 表单风格真实参数名，如 search_time[order_updated_date] /
+# file[]——空括号为追加数组语义；运行时按整名平铺发送/取值，不做嵌套展开）。
 # 数据集模式：列键是参数的点路径名（嵌套 JSON 递归拆叶，如 to_customer.put_amount），
 # 段内仍不允许空格/${}（撞表达式语法与变量引用）；收集器拆叶不拆数组下标（数组值整列保存）
-_COL_KEY_RE = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d+))*$")
+_COL_KEY_RE = re.compile(
+    r"^(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[(?:[A-Za-z_][A-Za-z0-9_]*)?\])*"
+    r"(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[(?:[A-Za-z_][A-Za-z0-9_]*)?\])*)*$")
 
 _VALID_COL_TYPES = {"string", "int", "bool", "array", "object", "file"}
 

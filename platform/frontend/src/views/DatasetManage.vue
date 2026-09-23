@@ -621,7 +621,14 @@ async function loadFileNames() {
   const ids = new Set<string>()
   for (const node of view.value?.nodes || []) {
     for (const p of node.params) {
-      if (p.type === 'file' && p.value) ids.add(String(p.value))
+      if (p.type !== 'file') continue
+      // 池值 + 手动覆盖值都收集：file 参数的值可能是节点字面量（manual_value），
+      // 只收池值会漏建映射，节点页签的文件显示回退成 #ID
+      if (p.value) ids.add(String(p.value))
+      const mv = p.manual_value
+      if (mv !== undefined && mv !== null && mv !== '' && !String(mv).includes('${')) {
+        ids.add(String(mv))
+      }
     }
   }
   for (const d of caseDatasets.value) {
@@ -772,7 +779,7 @@ async function confirmImport() {
   await saveValues()
 }
 // 与后端 _COL_KEY_RE 一致：字母/数字/下划线/点路径段
-const VAR_KEY_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d+))*$/
+const VAR_KEY_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[(?:[A-Za-z_][A-Za-z0-9_]*)?\])*(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[(?:[A-Za-z_][A-Za-z0-9_]*)?\])*)*$/
 
 function openAddVariable() {
   addVarKey.value = ''

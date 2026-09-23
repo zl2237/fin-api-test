@@ -335,7 +335,7 @@ class TestCollectAndClear:
         assert rows[0].data == {"bl_no": "001"}
 
     def test_invalid_leaf_key_keeps_literal(self):
-        """对象内键不合法（含方括号/空格）→ 不入池，字面量保留为手动覆盖"""
+        """对象内键不合法（含空格/表达式符）→ 不入池，字面量保留为手动覆盖"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "obj", "value": '{"a b": 1}'}])
         case = _case()
         db, added = _db([cfg], [_api(fields=[_field("obj")])])
@@ -345,6 +345,23 @@ class TestCollectAndClear:
         assert stats["invalid"] == 1 and stats["columns"] == 0
         assert cfg.pre_process[0]["value"] == '{"a b": 1}'
         assert not added
+
+    def test_php_bracket_key_literal_collects(self):
+        """PHP 表单风格方括号键（真实参数名）合法入池：file[] 字面量按
+        接口 file 字段类型建列（文件 ID 值），search_time[x] 建字符串列"""
+        cfg = _cfg(pre=[{"type": "set_field", "path": "file[]", "value": "12"},
+                        {"type": "set_field", "path": "search_time[delivery]", "value": "d1"}])
+        case = _case()
+        db, added = _db([cfg], [_api(fields=[_field("file[]", "file"),
+                                             _field("search_time[delivery]")])])
+
+        svc.sync_case_variable_pool(db, case, user_id=1)
+
+        pool = added[0]
+        col_types = {c["key"]: c["type"] for c in pool.columns}
+        assert col_types == {"file[]": "file", "search_time[delivery]": "string"}
+        rows = [o for o in added if isinstance(o, models.DataSetRow)]
+        assert rows[0].data == {"file[]": "12", "search_time[delivery]": "d1"}
 
     def test_prefix_conflict_keeps_literal(self):
         """池已有 to_customer（整对象列），新字面量 to_customer.remark 与之父子冲突 → 保留"""
