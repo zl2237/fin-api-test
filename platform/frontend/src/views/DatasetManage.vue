@@ -143,7 +143,7 @@
                     此处编辑池值：一键一值，各节点共享（同名参数全部生效）
                   </template>
                   <template v-else>
-                    此处编辑「{{ currentScopeNodeLabel }}」独有值：压过池值，其他节点不受影响
+                    此处编辑「{{ currentScopeNodeLabel }}」的手动覆盖值：压过池值，其他节点不受影响；清空后回落池值
                   </template>
                 </div>
 
@@ -176,13 +176,11 @@
                       <!-- 状态徽标：手动覆盖 / 已动态配置 / 已配置 / 未配置 -->
                       <el-tooltip
                         v-if="p.manual"
-                        :content="activeNodeId === '__all__'
-                          ? `节点编排手动覆盖中：${String(p.manual_value ?? '')}——清空用例编排里该参数的值后，此处池值才会生效`
-                          : `该节点独有值：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
+                        :content="`节点手动覆盖中：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
                         placement="top"
                         popper-class="app-tip"
                       >
-                        <span class="badge badge-manual">{{ activeNodeId === '__all__' ? '手动覆盖中' : '节点独有' }}</span>
+                        <span class="badge badge-manual">手动覆盖中</span>
                       </el-tooltip>
                       <el-tooltip
                         v-else-if="p.dynamic"
@@ -196,7 +194,7 @@
                         v-else-if="isFilled(p)"
                         :content="activeNodeId === '__all__'
                           ? '变量池中已有值，执行时按参数名取此值'
-                          : '池值（各节点共享）；在此改值即为本节点独有，压过池值'"
+                          : '池值（各节点共享）；在此改值即成为该节点手动覆盖，压过池值'"
                         placement="top"
                         popper-class="app-tip"
                       >
@@ -206,7 +204,7 @@
                         v-else
                         :content="activeNodeId === '__all__'
                           ? '池中无值：留空时发送空值（“”/null）；需引用运行时变量请用 ${} 显式绑定'
-                          : '池中无值：填值即为本节点独有值；留空同池语义'"
+                          : '池中无值：填值即成为该节点手动覆盖；留空同池语义'"
                         placement="top"
                         popper-class="app-tip"
                       >
@@ -270,7 +268,7 @@
     <!-- 脏状态吸底保存条：长列表编辑后保存按钮不随滚动丢失 -->
     <transition name="el-fade-in">
       <div v-if="current && isDirty && !savingValues" class="save-dock">
-        <span class="save-dock-text">{{ dirtyCount }} 处未保存改动（含节点独有值）</span>
+        <span class="save-dock-text">{{ dirtyCount }} 处未保存改动（含节点手动覆盖）</span>
         <el-button size="small" @click="discardEdits">放弃</el-button>
         <el-button size="small" type="primary" @click="saveValues">保存</el-button>
       </div>
@@ -504,7 +502,7 @@ function isFilled(p: DatasetParam) {
   return v !== '' && v !== null && v !== undefined
 }
 
-/** 当前作用域的编辑值：总览 = 池值；节点页签 = 该节点独有值 */
+/** 当前作用域的编辑值：总览 = 池值；节点页签 = 该节点手动覆盖值 */
 function editVal(key: string): any {
   if (activeNodeId.value === '__all__') return editingValues.value[key]
   return nodeEdits.value[activeNodeId.value]?.[key]
@@ -663,7 +661,7 @@ async function cleanOrphans() {
   await saveValues()
 }
 
-// ===== 脏状态（吸底保存条）：池值增删改 + 节点独有值改动 =====
+// ===== 脏状态（吸底保存条）：池值增删改 + 节点手动覆盖改动 =====
 const isDirty = computed(() => dirtyCount.value > 0)
 
 const dirtyCount = computed(() => {
