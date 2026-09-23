@@ -3,10 +3,9 @@
     <div class="page-head">
       <div class="head-left">
         <span class="page-title">数据集</span>
-        <el-button :disabled="!current" @click="openMerge">从其他数据集覆盖…</el-button>
       </div>
       <div class="head-right">
-        <span class="head-tip">数据集按用例隔离 · 每个数据集一套数据（测试数据唯一来源） · 多场景建多个数据集 · 复用靠复制</span>
+        <span class="head-tip">变量按参数名自动匹配各节点同名入参 · 数据集按用例隔离 · 每个数据集一套数据（测试数据唯一来源） · 多场景建多个数据集 · 复用靠复制</span>
       </div>
     </div>
 
@@ -84,6 +83,7 @@
               <div class="main-actions">
                 <el-button size="small" type="primary" :loading="savingValues" :disabled="!view" @click="saveValues">保存</el-button>
                 <el-button size="small" @click="copyDataset">复制</el-button>
+                <el-button size="small" @click="openMerge">从其他数据集覆盖…</el-button>
                 <el-button size="small" @click="openEdit(current)">编辑信息</el-button>
                 <el-button size="small" type="danger" link @click="remove(current)">删除</el-button>
               </div>
