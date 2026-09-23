@@ -207,7 +207,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Connection, CaretRight, Search, Grid, Share, Scissor, Loading } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
@@ -445,29 +445,10 @@ async function confirmSplit() {
   }
 }
 
-// ===== 未保存改动防丢失（B1）：路由离开 + 关闭/刷新标签页双层拦截 =====
-// 设计器是带 :id 的临时页：经返回按钮/侧边菜单离开时无人 removeTab（只有点标签 X 才关），
-// 残留标签 + keep-alive 缓存会让 dirty 状态的设计器可反复点回。守卫放行时统一关闭自身标签。
-onBeforeRouteLeave(async () => {
-  // removeTab 对已不存在的标签（点 X 关闭流已先移除）返回 null，无副作用，可安全重入
-  const closeSelfTab = () => tabStore.removeTab(route.path)
-  if (!dirty.value) {
-    closeSelfTab()
-    return true
-  }
-  try {
-    await ElMessageBox.confirm(
-      '有未保存的编排改动，离开后将丢失。确定离开？',
-      '未保存提示',
-      { type: 'warning', confirmButtonText: '放弃改动并离开', cancelButtonText: '留在本页' },
-    )
-    closeSelfTab()
-    return true
-  } catch {
-    // 留在本页：标签原样保留
-    return false
-  }
-})
+// ===== 未保存改动防丢失（浏览器标签模型）：切换标签不弹窗不关签（多开并行编辑），
+// dirty 上报全局登记；关闭标签（X/右键/批量）时由 MainLayout 统一弹未保存确认。
+// 刷新/关闭浏览器仍由 beforeunload 原生拦截。
+watch(dirty, (v) => tabStore.setDirty(route.path, v ? '用例编排' : null), { immediate: true })
 
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (dirty.value) {

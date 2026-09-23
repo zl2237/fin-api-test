@@ -840,12 +840,44 @@ async function onUserCommand(cmd: string) {
 
 // ===== 标签页操作 =====
 /**
- * 关闭标签。关闭当前页面时须「先导航、成功后再移除」：
- * 页面级 onBeforeRouteLeave（未保存确认）可能取消导航，若先移除标签，
- * 取消后会出现「人还在页面、标签却没了 + 高亮错位」。vue-router 4 的 push
- * 被守卫拒绝时 resolve NavigationFailure（非 undefined），以此判定是否移除。
+ * 关闭前未保存确认（浏览器标签模型：切换标签永不弹，仅关闭时提示）。
+ * dirty 登记由各编辑页 watch(dirty) 上报（tabs.dirtyTabs）。
+ * 返回 false = 用户取消，调用方中止关闭。
+ */
+async function confirmCloseDirty(paths: string[]): Promise<boolean> {
+  const dirtyPaths = paths.filter((p) => tabStore.isDirty(p))
+  if (!dirtyPaths.length) return true
+  const names = dirtyPaths.map(
+    (p) => tabStore.tabs.find((t) => t.path === p)?.title || tabStore.dirtyTabs[p])
+  const msg = dirtyPaths.length === 1
+    ? `「${names[0]}」有未保存改动，关闭后将丢失。确定关闭？`
+    : `${dirtyPaths.length} 个标签页有未保存改动（${names.join('、')}），关闭后将丢失。确定关闭？`
+  try {
+    await ElMessageBox.confirm(msg, '未保存提示',
+      { type: 'warning', confirmButtonText: '放弃改动并关闭', cancelButtonText: '取消' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 批量关闭的受影响标签路径（left/right/others 相对 anchor，all 为全部可关标签） */
+function closablePaths(which: 'left' | 'right' | 'others' | 'all', anchor?: string): string[] {
+  const tabs = tabStore.tabs
+  if (which === 'all') return tabs.filter((t) => t.closable).map((t) => t.path)
+  const idx = tabs.findIndex((t) => t.path === anchor)
+  if (idx === -1) return []
+  return tabs.filter((t, i) =>
+    t.closable && (which === 'left' ? i < idx : which === 'right' ? i > idx : i !== idx)
+  ).map((t) => t.path)
+}
+
+/**
+ * 关闭标签。未保存确认已前置（confirmCloseDirty）；编辑页无路由守卫拦截，
+ * 导航不会被取消，push 后直接移除标签。
  */
 async function onTabClose(path: string) {
+  if (!(await confirmCloseDirty([path]))) return
   if (route.path !== path) {
     // 关闭非当前标签：无导航，直接移除
     tabStore.removeTab(path)
@@ -866,9 +898,8 @@ async function onTabClose(path: string) {
   }
   // 相邻目标：优先右侧，其次左侧（others 非空时必存在）
   const next = tabStore.tabs[idx + 1] || tabStore.tabs[idx - 1]!
-  const failure = await router.push(next.path)
-  // 导航成功（含守卫放行后由页面守卫自行 removeTab 的重入，此处为幂等空操作）才收尾
-  if (!failure) tabStore.removeTab(path)
+  await router.push(next.path)
+  tabStore.removeTab(path)
 }
 
 /** 中键关闭标签（浏览器 tab 习惯）：mousedown 时 button===1，preventDefault 阻止自动滚动 */
@@ -879,7 +910,10 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
   }
 }
 
-function onTabCommand(cmd: string) {
+async function onTabCommand(cmd: string) {
+  // 批量关闭前统一未保存确认（受影响标签里有 dirty 则弹窗）
+  const which = cmd.replace('close', '').toLowerCase() as 'left' | 'right' | 'others' | 'all'
+  if (!(await confirmCloseDirty(closablePaths(which, route.path)))) return
   if (cmd === 'closeLeft') {
     tabStore.removeLeft(route.path)
   } else if (cmd === 'closeRight') {
@@ -907,13 +941,18 @@ function hideTabCtx() {
   tabCtx.value.visible = false
 }
 
-function onCtxAction(action: 'close' | 'closeLeft' | 'closeRight' | 'closeOthers') {
+async function onCtxAction(action: 'close' | 'closeLeft' | 'closeRight' | 'closeOthers') {
   const tab = tabCtx.value.tab
   hideTabCtx()
   if (!tab) return
   if (action === 'close') {
     onTabClose(tab.path)
-  } else if (action === 'closeLeft') {
+    return
+  }
+  // 批量关闭前统一未保存确认
+  const which = action.replace('close', '').toLowerCase() as 'left' | 'right' | 'others'
+  if (!(await confirmCloseDirty(closablePaths(which, tab.path)))) return
+  if (action === 'closeLeft') {
     tabStore.removeLeft(tab.path)
   } else if (action === 'closeRight') {
     tabStore.removeRight(tab.path)

@@ -217,7 +217,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { envApi, type Environment } from '@/api'
@@ -353,27 +353,10 @@ function onBack() {
   router.push('/envs')
 }
 
-// ===== 未保存改动防丢失：路由离开 + 关闭/刷新标签页双层拦截 =====
-// 与 CaseDesigner 同法：编辑页是带 :id 的临时页，守卫放行时统一关闭自身标签，避免残留 + keep-alive 复活
-onBeforeRouteLeave(async () => {
-  const closeSelfTab = () => tabStore.removeTab(route.path)
-  if (!dirty.value) {
-    closeSelfTab()
-    return true
-  }
-  try {
-    await ElMessageBox.confirm(
-      '有未保存的环境配置改动，离开后将丢失。确定离开？',
-      '未保存提示',
-      { type: 'warning', confirmButtonText: '放弃改动并离开', cancelButtonText: '留在本页' },
-    )
-    closeSelfTab()
-    return true
-  } catch {
-    // 留在本页：标签原样保留
-    return false
-  }
-})
+// ===== 未保存改动防丢失（浏览器标签模型）：切换标签不弹窗不关签（多开并行编辑），
+// dirty 上报全局登记；关闭标签（X/右键/批量）时由 MainLayout 统一弹未保存确认。
+// 刷新/关闭浏览器仍由 beforeunload 原生拦截。
+watch(dirty, (v) => tabStore.setDirty(route.path, v ? '环境配置' : null), { immediate: true })
 
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (dirty.value) {

@@ -20,6 +20,21 @@ export interface TabItem {
 export const useTabStore = defineStore('tabs', () => {
   const tabs = ref<TabItem[]>([])
   const activePath = ref('')
+  /** 有未保存改动的标签登记：path → 页面类型描述（如 '用例编排'）。
+   * 编辑页 watch(dirty) 上报；关闭标签时 MainLayout 据此弹未保存确认
+   * （切换标签不弹——浏览器标签模型，提示只在关闭时触发） */
+  const dirtyTabs = ref<Record<string, string>>({})
+
+  function setDirty(path: string, label: string | null) {
+    if (label) dirtyTabs.value[path] = label
+    else delete dirtyTabs.value[path]
+  }
+  function isDirty(path: string): boolean {
+    return !!dirtyTabs.value[path]
+  }
+  function _clearDirty(paths: string[]) {
+    for (const p of paths) delete dirtyTabs.value[p]
+  }
 
   const activeIndex = computed(() =>
     tabs.value.findIndex((t) => t.path === activePath.value)
@@ -63,6 +78,7 @@ export const useTabStore = defineStore('tabs', () => {
     // 不可关闭的标签（如首页）
     if (!tabs.value[idx].closable) return null
     tabs.value.splice(idx, 1)
+    _clearDirty([path])
     // 如果关闭的是当前激活标签，需要导航到相邻标签
     if (activePath.value === path) {
       // 优先激活右侧，没有则左侧，都没有则首页
@@ -77,7 +93,9 @@ export const useTabStore = defineStore('tabs', () => {
    * 关闭其他标签（保留指定标签和不可关闭的标签）
    */
   function removeOthers(path: string) {
+    const removed = tabs.value.filter((t) => t.path !== path && t.closable)
     tabs.value = tabs.value.filter((t) => t.path === path || !t.closable)
+    _clearDirty(removed.map((t) => t.path))
     activePath.value = path
   }
 
@@ -87,7 +105,9 @@ export const useTabStore = defineStore('tabs', () => {
   function removeLeft(path: string) {
     const idx = tabs.value.findIndex((t) => t.path === path)
     if (idx <= 0) return
+    const removed = tabs.value.filter((t, i) => i < idx && t.closable)
     tabs.value = tabs.value.filter((t, i) => i >= idx || !t.closable)
+    _clearDirty(removed.map((t) => t.path))
   }
 
   /**
@@ -96,7 +116,9 @@ export const useTabStore = defineStore('tabs', () => {
   function removeRight(path: string) {
     const idx = tabs.value.findIndex((t) => t.path === path)
     if (idx === -1 || idx === tabs.value.length - 1) return
+    const removed = tabs.value.filter((t, i) => i > idx && t.closable)
     tabs.value = tabs.value.filter((t, i) => i <= idx || !t.closable)
+    _clearDirty(removed.map((t) => t.path))
   }
 
   /**
@@ -116,7 +138,9 @@ export const useTabStore = defineStore('tabs', () => {
    * 关闭所有标签，激活首页
    */
   function removeAll() {
+    const removed = tabs.value.filter((t) => t.closable)
     tabs.value = tabs.value.filter((t) => !t.closable)
+    _clearDirty(removed.map((t) => t.path))
     if (!tabs.value.length) {
       // 全部标签可关闭后：清空即空栏，直接重建首页标签兜底
       ensureHomeTab()
@@ -132,12 +156,16 @@ export const useTabStore = defineStore('tabs', () => {
   function reset() {
     tabs.value = []
     activePath.value = ''
+    dirtyTabs.value = {}
   }
 
   return {
     tabs,
     activePath,
     activeIndex,
+    dirtyTabs,
+    setDirty,
+    isDirty,
     addTab,
     removeTab,
     removeOthers,
