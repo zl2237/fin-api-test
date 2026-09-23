@@ -1,9 +1,7 @@
-"""execution_launcher 单测：编排收敛后的展开/聚合/提交语义。
+"""execution_launcher 单测：展开/提交语义的唯一事实源。
 
-此前这段编排散在 execute 路由、batch_execute 路由、scheduler 三处各自拷贝，
-测试也随之分裂（只有 scheduler 那份被测过）。收敛后这里成为唯一事实源：
-- build_launch_plan：展开 → 建记录 → specs/聚合组（suppress 语义）
-- commit_launch：多 plan 平铺一次提交 + 聚合注册 + concurrency 透传
+- build_launch_plan：单套值展开 → 建记录 → specs
+- commit_launch：多 plan 平铺一次提交 + concurrency 透传
 """
 from types import SimpleNamespace
 
@@ -13,7 +11,6 @@ from app.services import execution_launcher as launcher
 from app.services.execution_launcher import (
     ExecutionSpec,
     LaunchPlan,
-    AggregateGroup,
     build_launch_plan,
     commit_launch,
 )
@@ -27,7 +24,7 @@ def _row(idx: int, bl: str) -> dict:
 
 @pytest.fixture
 def patched(monkeypatch):
-    created, submitted, aggregates = [], [], []
+    created, submitted = [], []
 
     def fake_create(db, case_id, env_id, user_id, trigger_type="manual",
                     dataset_id=None, dataset_row=None):
@@ -40,13 +37,10 @@ def patched(monkeypatch):
     monkeypatch.setattr(launcher, "submit_batch_execution",
                         lambda specs, env_id, concurrency=4:
                             submitted.append((list(specs), env_id, concurrency)))
-    monkeypatch.setattr(launcher, "submit_batch_aggregate_notify",
-                        lambda ids, case_id, env_id, dataset_id, case_name:
-                            aggregates.append((tuple(ids), case_id, dataset_id, case_name)))
     monkeypatch.setattr(launcher, "crud",
                         SimpleNamespace(fill_audit_names=lambda *a: None,
                                         fill_exec_names=lambda *a: None))
-    return SimpleNamespace(created=created, submitted=submitted, aggregates=aggregates)
+    return SimpleNamespace(created=created, submitted=submitted)
 
 
 def _set_plan(monkeypatch, items):
@@ -57,7 +51,7 @@ def _set_plan(monkeypatch, items):
 class TestBuildLaunchPlan:
 
     def test_single_case_no_dataset(self, patched, monkeypatch):
-        """普通用例：1 条记录 1 个 spec，不抑制通知，无聚合组"""
+        """普通用例：1 条记录 1 个 spec"""
         _set_plan(monkeypatch, [{"dataset_id": None, "row": None,
                                  "overrides": None}])
 
@@ -67,11 +61,9 @@ class TestBuildLaunchPlan:
         spec = plan.specs[0]
         assert (spec.execution_id, spec.case_id) == (100, 11)
         assert spec.row_vars is None
-        assert spec.suppress_notify is False
-        assert plan.aggregate_groups == []
 
     def test_suite_skips_dataset_binding(self, patched, monkeypatch):
-        """套件：本体无变量池，不走数据集展开（未绑定也可执行），单条直发无聚合"""
+        """套件：本体无变量池，不走数据集展开（未绑定也可执行），单条直发"""
         called = []
         monkeypatch.setattr(launcher.dataset_service, "plan_case_expansion",
                             lambda db, case, **kw: called.append(1) or [])
@@ -83,29 +75,19 @@ class TestBuildLaunchPlan:
         assert len(plan.records) == 1
         assert plan.records[0].dataset_id is None
         assert plan.specs[0].row_vars is None
-        assert plan.specs[0].suppress_notify is False
-        assert plan.aggregate_groups == []
 
-    def test_multi_row_dataset_aggregates(self, patched, monkeypatch):
-        """数据驱动多行：每行一条记录，整组抑制逐条通知，登记一个聚合组"""
-        items = [
-            {"dataset_id": 7, "row": _row(1, "BL001"), "overrides": None},
-            {"dataset_id": 7, "row": _row(2, "BL002"), "overrides": None},
-        ]
-        _set_plan(monkeypatch, items)
+    def test_bound_dataset_row_vars_passthrough(self, patched, monkeypatch):
+        """绑定数据集：row 的单套值作为 row_vars 传入 spec"""
+        _set_plan(monkeypatch, [{"dataset_id": 7, "row": _row(1, "BL001"),
+                                 "overrides": None}])
 
         plan = build_launch_plan(object(), CASE, 22, 5)
 
-        assert [s.execution_id for s in plan.specs] == [100, 101]
-        assert all(s.suppress_notify for s in plan.specs)  # 抑制逐条
-        assert [s.row_vars for s in plan.specs] == [{"bl_no": "BL001"}, {"bl_no": "BL002"}]
-        assert len(plan.aggregate_groups) == 1
-        group = plan.aggregate_groups[0]
-        assert group.execution_ids == [100, 101]
-        assert (group.case_id, group.dataset_id, group.case_name) == (11, 7, "提单用例")
+        assert plan.records[0].dataset_id == 7
+        assert plan.specs[0].row_vars == {"bl_no": "BL001"}
 
-    def test_run_count_multiplies_with_single_group(self, patched, monkeypatch):
-        """执行次数 ×N：记录数翻倍，聚合组覆盖全部 N×行 的 id"""
+    def test_run_count_multiplies_records(self, patched, monkeypatch):
+        """执行次数 ×N：记录与 spec 数量翻倍"""
         _set_plan(monkeypatch, [
             {"dataset_id": 7, "row": _row(1, "BL001"), "overrides": None},
             {"dataset_id": 7, "row": _row(2, "BL002"), "overrides": None},
@@ -113,18 +95,8 @@ class TestBuildLaunchPlan:
 
         plan = build_launch_plan(object(), CASE, 22, 5, run_count=3)
 
-        assert len(plan.specs) == 6  # 3 轮 × 2 行
-        assert plan.aggregate_groups[0].execution_ids == [100, 101, 102, 103, 104, 105]
-
-    def test_single_row_dataset_no_aggregate(self, patched, monkeypatch):
-        """row_ids 只选 1 行：dataset_id 非空但 len(plan)==1，保持逐条通知"""
-        _set_plan(monkeypatch, [{"dataset_id": 7, "row": _row(1, "BL001"),
-                                 "overrides": None}])
-
-        plan = build_launch_plan(object(), CASE, 22, 5)
-
-        assert plan.specs[0].suppress_notify is False
-        assert plan.aggregate_groups == []
+        assert len(plan.specs) == 6  # 3 轮 × 2 条展开
+        assert [s.row_vars for s in plan.specs[:2]] == [{"bl_no": "BL001"}, {"bl_no": "BL002"}]
 
     def test_trigger_type_passthrough(self, patched, monkeypatch):
         """trigger_type 透传到每条记录（schedule/manual 溯源）"""
@@ -148,15 +120,11 @@ class TestBuildLaunchPlan:
 
 class TestCommitLaunch:
 
-    def _plan(self, ids, group=True):
-        plan = LaunchPlan(specs=[ExecutionSpec(execution_id=i, case_id=11) for i in ids])
-        if group:
-            plan.aggregate_groups = [AggregateGroup(execution_ids=ids, case_id=11,
-                                                    dataset_id=7, case_name="提单用例")]
-        return plan
+    def _plan(self, ids):
+        return LaunchPlan(specs=[ExecutionSpec(execution_id=i, case_id=11) for i in ids])
 
     def test_flattens_plans_into_one_submit(self, patched):
-        """多个 plan 一次提交：specs 平铺、concurrency 透传、每组各注册聚合"""
+        """多个 plan 一次提交：specs 平铺、concurrency 透传"""
         p1, p2 = self._plan([100, 101]), self._plan([200, 201])
 
         commit_launch([p1, p2], 22, concurrency=8)
@@ -165,12 +133,9 @@ class TestCommitLaunch:
         specs, env_id, concurrency = patched.submitted[0]
         assert [s.execution_id for s in specs] == [100, 101, 200, 201]
         assert (env_id, concurrency) == (22, 8)
-        assert patched.aggregates == [((100, 101), 11, 7, "提单用例"),
-                                      ((200, 201), 11, 7, "提单用例")]
 
     def test_empty_specs_no_submit(self, patched):
-        """无 specs：不建池不提交，也不注册聚合"""
+        """无 specs：不提交"""
         commit_launch([LaunchPlan()], 22)
 
         assert patched.submitted == []
-        assert patched.aggregates == []
