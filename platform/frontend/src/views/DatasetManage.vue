@@ -554,7 +554,13 @@ function _parse(v: any): any {
   return v
 }
 
+// 上次加载视图的数据集：id 变化（切换/复制）才重置视角；
+// 保存/覆盖合并后的原位刷新保留当前 tab、搜索词与过滤——用户视角不被动荡
+let lastViewDatasetId: number | null = null
+
 async function loadParamsView(id: number) {
+  const viewChanged = id !== lastViewDatasetId
+  lastViewDatasetId = id
   viewLoading.value = true
   try {
     view.value = await datasetApi.paramsView(id)
@@ -596,9 +602,11 @@ async function loadParamsView(id: number) {
     nodeEdits.value = edits
     nodeBaselines.value = bases
     dynamicKeysByNode.value = dyn
-    activeNodeId.value = '__all__'  // 切换数据集回到总览
-    searchKey.value = ''
-    onlyUnfilled.value = false
+    if (viewChanged) {
+      activeNodeId.value = '__all__'  // 切换数据集回到总览
+      searchKey.value = ''
+      onlyUnfilled.value = false
+    }
     await loadFileNames()
   } catch (e: any) {
     ElMessage.error(e.message || '加载变量池视图失败')
