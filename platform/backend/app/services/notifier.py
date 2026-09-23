@@ -196,18 +196,14 @@ def send_batch_notify(db, env_id: int, dataset_id: int, records, case_name: str)
 
 
 def _member_error_text(member: dict) -> str:
-    """成员失败摘要：成员级 error 优先；否则首个失败行（行号 + 回填原因）。
-
-    非数据驱动成员的行无 row_index（未绑定数据集时展开项 row 为 None），
-    此时回退「执行失败」，不能拼出「第None行失败」。
-    """
+    """成员失败摘要：成员级 error 优先；否则首个失败执行的回填原因。"""
     err = member.get("error")
     if err:
         return str(err)
     for r in member.get("rows") or []:
         if r.get("status") != "failed":
             continue
-        head = f"第{r['row_index']}行失败" if r.get("row_index") is not None else "执行失败"
+        head = "执行失败"
         return f"{head}：{r['reason']}" if r.get("reason") else head
     return ""
 

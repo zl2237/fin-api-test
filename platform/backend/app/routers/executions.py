@@ -51,8 +51,7 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     """批量执行多个用例：为每个用例创建 running 状态的执行记录并立即返回，
     后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
     缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
-    数据驱动：绑定数据集的用例按数据行展开，展开条目与普通条目一并平铺提交；
-    展开多条的用例失败聚合成一条通知。
+    绑定数据集的用例按该数据集的单套值展开为一条执行记录，与其他条目一并平铺提交。
     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。"""
     if not data.case_ids:
         raise HTTPException(400, "请至少选择一个用例")
