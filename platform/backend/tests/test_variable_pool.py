@@ -159,6 +159,62 @@ class TestCollectAndClear:
         assert cfg.pre_process[0]["value"] == "MANUAL"
         assert pool.rows[0].data == {"bl_no": "BL001"}  # 池值不被手动覆盖改写
 
+    def test_equal_value_absorbed_to_reference(self):
+        """值相等收编：字面量与池值一致 → 清空转引用（执行行为不变，池接管）"""
+        cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": "BL001"}])
+        case = _case(dataset_id=99)
+        pool = SimpleNamespace(id=99, case_id=11,
+                               columns=[{"key": "bl_no", "type": "string"}],
+                               rows=[SimpleNamespace(row_index=1, data={"bl_no": "BL001"})])
+        db, _ = _db([cfg], [_api(fields=[_field("bl_no")])])
+        with patch.object(svc.crud, "get_dataset", return_value=pool):
+            stats = svc.sync_case_variable_pool(db, case, user_id=1)
+
+        assert stats["kept"] == 0 and stats["collected"]
+        assert cfg.pre_process[0]["value"] == ""        # 清空转引用
+        assert pool.rows[0].data == {"bl_no": "BL001"}  # 池值不变（本来就相等）
+        assert pool.columns == [{"key": "bl_no", "type": "string"}]  # 列不重复追加
+
+    def test_equal_leaves_family_absorbed(self):
+        """整对象字面量与池中拆叶族逐键全等 → 收编清空（父路径占位）"""
+        cfg = _cfg(pre=[{"type": "set_field", "path": "to_customer",
+                         "value": '{"put_amount": 1, "remark": "r"}'}])
+        case = _case(dataset_id=99)
+        pool = SimpleNamespace(
+            id=99, case_id=11,
+            columns=[{"key": "to_customer.put_amount", "type": "int"},
+                     {"key": "to_customer.remark", "type": "string"}],
+            rows=[SimpleNamespace(row_index=1,
+                                  data={"to_customer.put_amount": 1, "to_customer.remark": "r"})])
+        db, _ = _db([cfg], [_api(fields=[_field("to_customer", ftype="object")])])
+        with patch.object(svc.crud, "get_dataset", return_value=pool):
+            stats = svc.sync_case_variable_pool(db, case, user_id=1)
+
+        assert stats["kept"] == 0 and stats["collected"]
+        assert cfg.pre_process[0]["value"] == ""
+        assert pool.rows[0].data == {"to_customer.put_amount": 1, "to_customer.remark": "r"}
+        assert [c["key"] for c in pool.columns] == ["to_customer.put_amount", "to_customer.remark"]
+
+    def test_extra_pool_leaf_blocks_absorb(self):
+        """池族有字面量之外的额外叶 → 不收编（清空后按名解析会取到额外叶，
+        请求多出字段改变形状），保留为手动覆盖"""
+        cfg = _cfg(pre=[{"type": "set_field", "path": "to_customer",
+                         "value": '{"put_amount": 1}'}])
+        case = _case(dataset_id=99)
+        pool = SimpleNamespace(
+            id=99, case_id=11,
+            columns=[{"key": "to_customer.put_amount", "type": "int"},
+                     {"key": "to_customer.remark", "type": "string"}],
+            rows=[SimpleNamespace(row_index=1,
+                                  data={"to_customer.put_amount": 1, "to_customer.remark": "r"})])
+        db, _ = _db([cfg], [_api(fields=[_field("to_customer", ftype="object")])])
+        with patch.object(svc.crud, "get_dataset", return_value=pool):
+            stats = svc.sync_case_variable_pool(db, case, user_id=1)
+
+        assert stats["kept"] == 1 and not stats["collected"]
+        assert cfg.pre_process[0]["value"] == '{"put_amount": 1}'  # 保留字面量
+        assert pool.rows[0].data["to_customer.remark"] == "r"      # 池不动
+
     def test_force_collects_in_pool_literal(self):
         """force 统一收口：键已在池也收集——以节点值为准覆盖池值后清空节点"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": "NODE_VAL"}])
