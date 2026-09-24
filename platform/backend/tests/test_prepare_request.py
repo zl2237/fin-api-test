@@ -129,13 +129,24 @@ class TestPriority:
         assert parts.body == {"bl_no": ""}
 
     def test_empty_placeholder_resolves_from_pools(self):
-        """空值占位（清空转引用后的形态）参与按名解析"""
+        """空值占位（清空转引用后的形态）参与按名解析——无标记维持自动引用（存量兼容）"""
         api = _api([])
         config = _config([{"type": "set_field", "path": "bl_no", "value": ""}])
 
         parts = _run(api, config, row_vars={"bl_no": "ROW"})
 
         assert parts.body == {"bl_no": "ROW"}
+
+    def test_explicit_empty_sends_empty_not_pool(self):
+        """显式空值（explicit_empty 标记）：发送空串，不回落变量池——
+        用户明确要求为空时不再被静默解释为取池值（case 92 交互实证）"""
+        api = _api([_field("customer_id")])
+        config = _config([{"type": "set_field", "path": "customer_id",
+                           "value": "", "explicit_empty": True}])
+
+        parts = _run(api, config, row_vars={"customer_id": ["343612351695552512"]})
+
+        assert parts.body == {"customer_id": ""}
 
 
 class TestLookup:

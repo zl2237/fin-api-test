@@ -175,9 +175,11 @@ def build_params_view(db: Session, dataset_id: int) -> dict:
         api = apis_by_id.get(cfg.api_id)
         if not api:
             continue
-        # 编排非空值分两类：字面量 = 手动覆盖；${} = 动态绑定（运行时求值）
+        # 编排非空值分两类：字面量 = 手动覆盖；${} = 动态绑定（运行时求值）；
+        # explicit_empty（值空+标记）= 显式发送空值（不回落池）
         manual: dict = {}
         dynamic: dict = {}
+        explicit_empties: set = set()
         ref_paths: list[str] = []
         for act in cfg.pre_process or []:
             if act.get("type") not in ("set_field", "add_field"):
@@ -186,7 +188,9 @@ def build_params_view(db: Session, dataset_id: int) -> dict:
             if not path:
                 continue
             val = act.get("value")
-            if val is None or val == "":
+            if act.get("explicit_empty"):
+                explicit_empties.add(path)
+            elif val is None or val == "":
                 ref_paths.append(path)
             elif isinstance(val, str) and "${" in val:
                 dynamic[path] = val
@@ -194,12 +198,13 @@ def build_params_view(db: Session, dataset_id: int) -> dict:
                 manual[path] = val
         field_types = {f.key: (f.field_type or "string")
                        for f in (getattr(api, "fields", None) or []) if f.key}
-        # 参数清单：接口字段 → 自动引用占位 → 动态/手动覆盖（去重保序）
+        # 参数清单：接口字段 → 自动引用占位 → 动态/手动/显式空值（去重保序）
         keys = list(dict.fromkeys([
             *(k for k in field_types if k),
             *ref_paths,
             *dynamic.keys(),
             *manual.keys(),
+            *explicit_empties,
         ]))
         params = []
         for k in keys:
@@ -213,6 +218,7 @@ def build_params_view(db: Session, dataset_id: int) -> dict:
                 "manual": k in manual,
                 "manual_value": manual.get(k) or dynamic.get(k),
                 "dynamic": k in dynamic,
+                "explicit_empty": k in explicit_empties,
             })
         nodes.append({
             "node_id": node_id,
@@ -232,6 +238,7 @@ def build_params_view(db: Session, dataset_id: int) -> dict:
                 continue
             cur["manual"] = cur["manual"] or p["manual"]
             cur["dynamic"] = cur["dynamic"] or p["dynamic"]
+            cur["explicit_empty"] = cur.get("explicit_empty") or p["explicit_empty"]
             if p["manual"] or (p["dynamic"] and not cur["manual"]):
                 cur["manual_value"] = p["manual_value"]
     return {
@@ -315,12 +322,22 @@ def save_node_values(db: Session, dataset_id: int, node_id: str,
         return (isinstance(a, dict) and a.get("type") in ("set_field", "add_field")
                 and a.get("path") == path)
 
+    # 显式空值哨兵：节点页签"发送空值"模式——值为空的参数不再静默回落变量池
+    EXPLICIT_EMPTY = "__EXPLICIT_EMPTY__"
+
+    def _merged_action(orig: dict, v) -> dict:
+        if v == EXPLICIT_EMPTY:
+            return {**orig, "value": "", "explicit_empty": True}
+        out = {**orig, "value": v}
+        out.pop("explicit_empty", None)  # 普通值清标记（原空值行改回普通值）
+        return out
+
     pre: list = []
     touched = 0
     for a in (cfg.pre_process or []):
         path = a.get("path") if isinstance(a, dict) else None
         if path in sets and _is_action(a, path):
-            pre.append({**a, "value": sets[path]})  # 就地更新（保留原动作类型）
+            pre.append(_merged_action(a, sets[path]))  # 就地更新（保留原动作类型）
             touched += 1
         elif path in clears and _is_action(a, path):
             if "${" in str(a.get("value") or ""):
@@ -330,7 +347,8 @@ def save_node_values(db: Session, dataset_id: int, node_id: str,
             pre.append(a)
     for k, v in sets.items():
         if not any(_is_action(a, k) for a in pre):
-            pre.append({"type": "set_field", "path": k, "value": v})
+            pre.append({"type": "set_field", "path": k, **({"value": "", "explicit_empty": True}
+                                                          if v == EXPLICIT_EMPTY else {"value": v})})
             touched += 1
     if touched:
         cfg.pre_process = pre  # 整列表重新赋值触发 JSON dirty
@@ -727,6 +745,8 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 continue
             if val is None or val == "":
                 node_paths.add(path)
+                if act.get("explicit_empty"):
+                    continue  # 显式空值（发送空）是有效配置，不作为占位冗余删除
                 # 接口字段的空占位行 = 清空转引用的遗留，直接删除：接口字段本身
                 # 参与运行时按名解析（prepare_request 的 resolve_keys 含全部字段），
                 # 占位行纯冗余；大接口 200+ 占位行会拖垮节点配置抽屉渲染（双击

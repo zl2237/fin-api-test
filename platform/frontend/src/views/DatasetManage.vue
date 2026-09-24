@@ -173,7 +173,7 @@
                       >
                         删除
                       </el-button>
-                      <!-- 状态徽标：手动覆盖 / 已动态配置 / 已配置 / 未配置 -->
+                      <!-- 状态徽标：手动覆盖 / 已动态配置 / 发送空值 / 已配置 / 未配置 -->
                       <el-tooltip
                         v-if="p.manual"
                         :content="`节点手动覆盖：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
@@ -189,6 +189,14 @@
                         popper-class="app-tip"
                       >
                         <span class="badge badge-dynamic">已动态配置</span>
+                      </el-tooltip>
+                      <el-tooltip
+                        v-else-if="isExplicitEmpty(p)"
+                        content="该参数已设为「发送空值」：执行时发送空串，不取变量池；点击切回「自动取变量池」"
+                        placement="top"
+                        popper-class="app-tip"
+                      >
+                        <span class="badge badge-explicit" @click="toggleExplicitEmpty(p)">发送空值</span>
                       </el-tooltip>
                       <el-tooltip
                         v-else-if="isFilled(p)"
@@ -208,7 +216,18 @@
                         placement="top"
                         popper-class="app-tip"
                       >
-                        <span class="badge badge-empty">未配置</span>
+                        <span class="badge badge-empty">
+                          {{ activeNodeId === '__all__' ? '未配置' : '未配置（自动）' }}
+                        </span>
+                      </el-tooltip>
+                      <!-- 空值模式切换：值为空且非动态/手动/已显式空时，提供"发送空值"入口 -->
+                      <el-tooltip
+                        v-if="canSetExplicitEmpty(p)"
+                        content="把该参数固定为「发送空值」：执行时发送空串，不回落变量池取值"
+                        placement="top"
+                        popper-class="app-tip"
+                      >
+                        <span class="badge badge-explicit-toggle" @click="toggleExplicitEmpty(p)">⇄ 发送空值</span>
                       </el-tooltip>
                     </div>
                     <!-- file 类型：值是文件中心文件 ID，弹文件选择器；显示文件名（ID 备查） -->
@@ -254,7 +273,9 @@
                   徽标含义：<span class="badge badge-filled">已配置</span>=池中有值（执行取此值）；
                   <span class="badge badge-dynamic">已动态配置</span>=节点编排 ${} 运行时求值，优先生效；
                   <span class="badge badge-empty">未配置</span>=池中无值，留空时发送空值（“”/null）；
-                  <span class="badge badge-manual">手动覆盖</span>=节点编排字面量优先，池值暂不生效。
+                  <span class="badge badge-manual">手动覆盖</span>=节点编排字面量优先，池值暂不生效；
+                  <span class="badge badge-explicit">发送空值</span>=该节点固定发空（不取池）——值为空时点
+                  <span class="badge badge-explicit-toggle">⇄ 发送空值</span>切换。
                   优先级：手动覆盖 &gt; 套件注入 &gt; 数据集变量池；运行时变量不自动按名取值，仅 ${} 显式引用
                   <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
                 </div>
@@ -463,8 +484,51 @@ const nodeBaselines = ref<Record<string, Record<string, string>>>({})
 const poolBaseline = ref<Record<string, string>>({})
 // 动态绑定键（值含 ${}，编排配置）：节点页签只读，编辑/清除一律跳过
 const dynamicKeysByNode = ref<Record<string, Set<string>>>({})
+// 显式空值（发送空值模式）：node_id → keys——值为空不再静默回落变量池，
+// 由用户显式选择"发送空值"（explicit_empty 标记）或"自动取变量池"（默认）
+const explicitEmptyEdits = ref<Record<string, Set<string>>>({})
+// 本次编辑中从"发送空值"切回"自动"的键：保存时移除标记行（clears）
+const explicitEmptyRemoved = ref<Record<string, Set<string>>>({})
+// 本次编辑中切换过空值模式的键（脏计数用：值可能未变但标记变了）
+const explicitEmptyTouched = ref<Record<string, Set<string>>>({})
 // file 类型值（文件 ID）→ 文件名映射（拉一次项目文件列表）
 const fileNames = ref<Record<string, string>>({})
+
+/** 该参数当前是否处于"发送空值"模式（总览看视图状态，节点页签看编辑态） */
+function isExplicitEmpty(p: DatasetParam) {
+  if (activeNodeId.value === '__all__') return !!p.explicit_empty
+  return (explicitEmptyEdits.value[activeNodeId.value] || new Set<string>()).has(p.key)
+}
+
+/** 空值模式切换入口可见：节点页签 + 非动态 + 未处于显式空 + 编辑值为空 */
+function canSetExplicitEmpty(p: DatasetParam) {
+  if (activeNodeId.value === '__all__' || p.dynamic || isExplicitEmpty(p)) return false
+  const v = (nodeEdits.value[activeNodeId.value] || {})[p.key]
+  return v === '' || v === null || v === undefined
+}
+
+/** 切换"发送空值"模式：开 = 值锁定空 + 保存落 explicit_empty 标记；
+ * 关 = 保存移除标记行，回落"自动取变量池" */
+function toggleExplicitEmpty(p: DatasetParam) {
+  const nid = activeNodeId.value
+  const cur = new Set(explicitEmptyEdits.value[nid] || [])
+  const rm = new Set(explicitEmptyRemoved.value[nid] || [])
+  const tp = new Set(explicitEmptyTouched.value[nid] || [])
+  tp.add(p.key)
+  if (cur.has(p.key)) {
+    cur.delete(p.key)
+    rm.add(p.key)
+    const base = (nodeBaselines.value[nid] || {})[p.key]
+    if (base !== undefined) (nodeEdits.value[nid] = nodeEdits.value[nid] || {})[p.key] = base
+  } else {
+    cur.add(p.key)
+    rm.delete(p.key)
+    ;(nodeEdits.value[nid] = nodeEdits.value[nid] || {})[p.key] = ''
+  }
+  explicitEmptyEdits.value = { ...explicitEmptyEdits.value, [nid]: cur }
+  explicitEmptyRemoved.value = { ...explicitEmptyRemoved.value, [nid]: rm }
+  explicitEmptyTouched.value = { ...explicitEmptyTouched.value, [nid]: tp }
+}
 
 /** 当前页签的参数清单：总览 = all_params（用例级去重）；节点页签 = 该节点视角 */
 const currentParams = computed<DatasetParam[]>(() => {
@@ -581,27 +645,35 @@ async function loadParamsView(id: number) {
     editingValues.value = data
     poolBaseline.value = { ...data }
     // 节点级编辑态：manual/dynamic 显示绑定值（manual 可改，dynamic 只读），
-    // 其余显示池值——改了即成该节点手动覆盖；基线用于保存时脏检测
+    // 其余显示池值——改了即成该节点手动覆盖；基线用于保存时脏检测；
+    // explicit_empty 参数基线为空（执行发空，与池值无关）
     const edits: Record<string, Record<string, any>> = {}
     const bases: Record<string, Record<string, string>> = {}
     const dyn: Record<string, Set<string>> = {}
+    const eeMap: Record<string, Set<string>> = {}
     for (const node of view.value.nodes) {
       const m: Record<string, any> = {}
-      const b: Record<string, string> = {}
+      const bk: Record<string, string> = {}
       const dk = new Set<string>()
+      const ek = new Set<string>()
       for (const p of node.params) {
-        const base = (p.manual || p.dynamic) ? p.manual_value : p.value
+        const base = p.explicit_empty ? '' : (p.manual || p.dynamic ? p.manual_value : p.value)
         m[p.key] = _ser(base)
-        b[p.key] = _ser(base)
+        bk[p.key] = _ser(base)
         if (p.dynamic) dk.add(p.key)
+        if (p.explicit_empty) ek.add(p.key)
       }
       edits[node.node_id] = m
-      bases[node.node_id] = b
+      bases[node.node_id] = bk
       dyn[node.node_id] = dk
+      eeMap[node.node_id] = ek
     }
     nodeEdits.value = edits
     nodeBaselines.value = bases
     dynamicKeysByNode.value = dyn
+    explicitEmptyEdits.value = eeMap
+    explicitEmptyRemoved.value = {}
+    explicitEmptyTouched.value = {}
     if (viewChanged) {
       activeNodeId.value = '__all__'  // 切换数据集回到总览
       searchKey.value = ''
@@ -693,6 +765,8 @@ const dirtyCount = computed(() => {
     for (const [k, v] of Object.entries(m)) {
       if (k in b && String(v) !== String(b[k]) && !dyn.has(k)) n++
     }
+    // 显式空值模式切换（值可能未变，但标记变了即脏）
+    for (const k of explicitEmptyTouched.value[nid] || []) if (!dyn.has(k)) n++
   }
   return n
 })
@@ -770,6 +844,9 @@ function parseImport() {
       rows.push({ key: k, status: 'ignore', statusText: '非该节点变量，忽略', badge: 'badge-empty', cur: '', neu })
     } else if (p.dynamic) {
       rows.push({ key: k, status: 'dynamic', statusText: '动态绑定，不覆盖', badge: 'badge-dynamic', cur: _ser(p.manual_value), neu })
+    } else if (neu === '') {
+      // 导入值为空（null/""）：覆盖后保持发送空值——不静默回落变量池取值
+      rows.push({ key: k, status: 'replace', statusText: '将设为发送空值', badge: 'badge-explicit', cur: String(editVal(k) ?? ''), neu })
     } else if (String(editVal(k)) === neu) {
       rows.push({ key: k, status: 'same', statusText: '值相同', badge: 'badge-filled', cur: neu, neu })
     } else {
@@ -781,9 +858,24 @@ function parseImport() {
 }
 
 async function confirmImport() {
-  // 仅替换项写入节点编辑态（与手输同一格式），复用保存链路（JSON 校验/脏检测）
+  // 仅替换项写入节点编辑态（与手输同一格式），复用保存链路（JSON 校验/脏检测）；
+  // 导入值为空的项落入「发送空值」模式（explicit_empty）——保持空不回落池
+  const nid = activeNodeId.value
+  const ee = new Set(explicitEmptyEdits.value[nid] || [])
+  const tp = new Set(explicitEmptyTouched.value[nid] || [])
+  let eeChanged = false
   for (const r of importRows.value) {
-    if (r.status === 'replace') setEditVal(r.key, r.neu)
+    if (r.status !== 'replace') continue
+    setEditVal(r.key, r.neu)
+    if (r.neu === '' && nid !== '__all__') {
+      ee.add(r.key)
+      tp.add(r.key)
+      eeChanged = true
+    }
+  }
+  if (eeChanged) {
+    explicitEmptyEdits.value = { ...explicitEmptyEdits.value, [nid]: ee }
+    explicitEmptyTouched.value = { ...explicitEmptyTouched.value, [nid]: tp }
   }
   importVisible.value = false
   await saveValues()
@@ -866,18 +958,29 @@ async function saveValues() {
     }
   }
   // 节点级脏检测：改动即该节点手动覆盖（写 pre_process 字面量，压过池值）；
-  // 清空 = 移除覆盖回落池值；动态绑定键只读不参与
+  // 清空 = 移除覆盖回落池值；动态绑定键只读不参与；
+  // 显式空值（发送空值模式）：提交 __EXPLICIT_EMPTY__ 哨兵落 explicit_empty 标记，
+  // 切回自动的键并入 clears（移除标记行）
   const nodeSaves: { node_id: string; sets: Record<string, any>; clears: string[] }[] = []
   for (const [nid, m] of Object.entries(nodeEdits.value)) {
     const base = nodeBaselines.value[nid] || {}
     const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
+    const ee = explicitEmptyEdits.value[nid] || new Set<string>()
     const sets: Record<string, any> = {}
     const clears: string[] = []
+    for (const k of explicitEmptyRemoved.value[nid] || []) {
+      if (!ee.has(k) && !dyn.has(k) && !(k in sets) && !clears.includes(k)) clears.push(k)
+    }
     for (const [k, v] of Object.entries(m)) {
+      if (dyn.has(k)) continue
+      if (ee.has(k)) {
+        sets[k] = '__EXPLICIT_EMPTY__'  // 显式空模式：无条件提交（切换后值未变也要落标记）
+        continue
+      }
       // 两侧统一 String 再比：池值 number/bool 经 _ser 原样保留非字符串，
       // 若只 String 一侧，String(123) !== 123 恒真 → 未改动的参数被误判脏，
       // 保存时整批写成节点 set_field 字面量（污染用例前置处理）
-      if (k in base && String(v) !== String(base[k]) && !dyn.has(k)) {
+      if (k in base && String(v) !== String(base[k])) {
         if (v === '' || v === null || v === undefined) clears.push(k)
         else sets[k] = _parse(v)
       }
@@ -1521,6 +1624,21 @@ watch(() => store.currentProjectId, () => {
 .badge-manual {
   color: var(--el-color-warning);
   border-color: var(--el-color-warning);
+}
+.badge-explicit {
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger);
+  cursor: pointer;
+}
+.badge-explicit-toggle {
+  color: var(--app-text-muted);
+  border-color: var(--app-border);
+  border-style: dashed;
+  cursor: pointer;
+}
+.badge-explicit-toggle:hover {
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger);
 }
 .json-err {
   font-size: 12px;
