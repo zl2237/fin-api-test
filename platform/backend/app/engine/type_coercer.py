@@ -144,6 +144,11 @@ def coerce_scalar(val: Any, field_type: str) -> Any:
         # 布尔值转小写字符串（与 body_builder.parse_field_value 的处理保持一致）
         if isinstance(val, bool):
             return "true" if val else "false"
+        # list/dict 转 JSON 文本：string 字段收到数组/对象（如池按名解析取到数组值，
+        # 「付款需求」customer_id 池值 ["343..."] 字段却是 string）时，服务端按
+        # JSON 数组文本解析——str(list) 产生 "['343...']" 单引号 repr 无法解析
+        if isinstance(val, (list, dict)):
+            return json.dumps(val, ensure_ascii=False)
         return str(val)
     if field_type == "int":
         if isinstance(val, bool):
