@@ -529,11 +529,38 @@ const prettyValue = computed(() => {
   return String(v)
 })
 
-async function copyValue() {
+/** 写剪贴板：navigator.clipboard 仅安全上下文（HTTPS/localhost）可用，线上以
+ *  http://IP 访问时为 undefined 直接抛错——降级隐藏 textarea + execCommand('copy') */
+async function writeClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // 权限被拒等场景落入降级方案
+    }
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.focus()
+  ta.select()
+  let ok = false
   try {
-    await navigator.clipboard.writeText(prettyValue.value)
-    ElMessage.success('已复制')
+    ok = document.execCommand('copy')
   } catch {
+    ok = false
+  }
+  document.body.removeChild(ta)
+  return ok
+}
+
+async function copyValue() {
+  if (await writeClipboard(prettyValue.value)) {
+    ElMessage.success('已复制')
+  } else {
     ElMessage.error('复制失败，请手动选择复制')
   }
 }
@@ -542,10 +569,9 @@ async function copyValue() {
  *  Ctrl+C 复制不出合法 JSON，直接按完整序列化文本写入剪贴板 */
 async function copyJson(v: any) {
   const text = typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : String(v ?? '')
-  try {
-    await navigator.clipboard.writeText(text)
+  if (await writeClipboard(text)) {
     ElMessage.success('已复制完整 JSON')
-  } catch {
+  } else {
     ElMessage.error('复制失败，请手动选择复制')
   }
 }

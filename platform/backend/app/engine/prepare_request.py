@@ -17,7 +17,9 @@
 （string/file → ""，其余 → null），不报错、不省略。
 
 按名解析（_lookup）在单域内的取值顺序：
-- 精确匹配（含点路径键，如 to_customer.put_amount）
+- 精确匹配（含点路径键，如 to_customer.put_amount）；整键与叶键并存时
+  （select_list 整列 + select_list.0.order_id 叶键），叶键覆盖整键值对应位置
+  ——细粒度配置压过粗粒度整值
 - 前缀拆叶展开：键为父路径（如 obj），池中存其拆叶键（obj.a / obj.b.c）——
   收集器把嵌套 JSON 递归拆叶入池，解析时逆向展开还原
 - 整对象列（存量兼容）：池键为键的前缀且值为 dict（如 to_customer 列），
@@ -53,11 +55,21 @@ def _lookup(pool: dict | None, key: str) -> dict | None:
     if not isinstance(pool, dict):
         return None
     v = pool.get(key)
+    # 叶键（细粒度配置，如 select_list.0.order_id = ${order_id}）
+    leaves = {k: lv for k, lv in pool.items()
+              if k.startswith(key + ".") and lv is not None and lv != ""}
     if v is not None and v != "":
-        return {key: v}
+        if not leaves:
+            return {key: v}
+        # 整键与叶键并存（如 select_list 整列字面量 + 细粒度叶键引用）：
+        # 以整键值为底，叶键覆盖对应位置——细粒度配置压过粗粒度整值，
+        # 否则精确匹配整键直接命中，叶键引用永远不生效（曾致请求发 666
+        # 而非上游 order_id）
+        merged = deepcopy(v)
+        for lk, lv in leaves.items():
+            set_nested_value(merged, lk[len(key) + 1:], lv)
+        return {key: merged}
     # 前缀拆叶展开：键是父路径，池中存收集时拆出的叶键
-    leaves = {k: v for k, v in pool.items()
-              if k.startswith(key + ".") and v is not None and v != ""}
     if leaves:
         return leaves
     # 整对象列（存量数据集）：池键是 key 的前缀且值为 dict，按剩余子路径取值
