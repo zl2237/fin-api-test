@@ -897,6 +897,30 @@ async function saveValues() {
     }
     values[k] = v
   })
+  // 防旧页面快照覆盖：页面打开后池可能被外部更新（平台修复/其他入口编辑），
+  // 提交前拉服务器最新行值——检测"服务器有值但本次提交为空/缺失"的参数，
+  // 整体替换语义下这些参数会被清空，弹确认防误伤（曾致跑通用例一保存就挂）
+  try {
+    const list = await datasetApi.list({ case_id: current.value.case_id, with_rows: true })
+    const latest: any = list.find((d) => d.id === current.value!.id)
+    const latestData: Record<string, any> = latest?.rows?.[0]?.data || {}
+    const willClear = Object.keys(latestData).filter(
+      (k) => latestData[k] !== '' && latestData[k] != null
+        && (values[k] === '' || values[k] == null || values[k] === undefined),
+    )
+    if (willClear.length) {
+      await ElMessageBox.confirm(
+        `服务器上有 ${willClear.length} 个参数当前有值，但本次保存会将其清空` +
+        `（页面数据可能已过期，建议刷新页面后再保存）：${willClear.slice(0, 6).join('、')}` +
+        `${willClear.length > 6 ? ' 等' : ''}`,
+        '保存将清空部分参数',
+        { confirmButtonText: '仍要保存', cancelButtonText: '取消', type: 'warning' },
+      )
+    }
+  } catch (e: any) {
+    if (e === 'cancel' || e?.message?.includes('cancel')) throw e // 用户取消保存
+    // 拉取失败不阻断保存
+  }
   savingValues.value = true
   try {
     const columnTypes = Object.keys(addedVarTypes.value).length ? { ...addedVarTypes.value } : undefined
