@@ -186,6 +186,8 @@ export interface StepRecord {
   request_headers?: any; request_body?: any; response_status?: number
   response_body?: any; response_time_ms?: number
   retry_count?: number | null  // 失败自动重试实际次数（0/空=未重试）
+  resumed?: boolean  // 断点续跑段产出的步骤（顶替旧失败记录）
+  replay_passed_at?: string | null  // 重放验证通过时间（「已重放通过」徽标）
   started_at?: string; ended_at?: string; status?: string
   pre_process?: { type?: string; path?: string; value?: any; sql?: string }[] | null
   post_extract?: Record<string, any>[] | null
@@ -543,10 +545,14 @@ export const execApi = {
   exportReport: (id: number, format: 'csv' | 'html') =>
     http.get<Blob>(`/reports/executions/${id}/export`, { responseType: 'blob', params: { format } }).then((r) => r.data),
   cleanup: (days: number) => http.delete<{ message: string; deleted: number; days: number }>('/executions/cleanup', { params: { days } }).then((r) => r.data),
-  // 报告页节点重放：bodyOverride 为编辑后的请求体（null=用原快照重发一次）
+  // 报告页节点重放：bodyOverride 为编辑后的请求体（null=用原快照重发一次）。
+  // 断点续跑配套：同口径跑断言与提取，passed=断言全过且请求成功（通过时后端打 replay_passed_at）
   replayStep: (stepId: number, bodyOverride: unknown) =>
-    http.post<{ status_code: number; response_body: any; error: string | null; elapsed_ms: number; request_body: any }>(
+    http.post<{ status_code: number; response_body: any; error: string | null; elapsed_ms: number; request_body: any; passed: boolean; assertions: { type: string; pass: boolean; message?: string }[]; extracted: Record<string, any> }>(
       `/executions/steps/${stepId}/replay`, { body_override: bodyOverride ?? null }).then((r) => r.data),
+  // 断点续跑：从首个未成功节点用当前配置+当前数据集重新执行（仅 failed 普通报告；编排结构需与报告时一致）
+  resume: (execId: number) =>
+    http.post<ExecutionRecord>(`/executions/${execId}/resume`).then((r) => r.data),
 }
 
 // ============ FieldDictionary 字段字典 ============

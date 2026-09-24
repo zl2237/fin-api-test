@@ -43,7 +43,9 @@ class DagExecutor:
                  sink: ExecutionSink | None = None,
                  row_vars: dict[str, Any] | None = None,
                  suite_vars: dict[str, Any] | None = None,
-                 suppress_notify: bool = False):
+                 suppress_notify: bool = False,
+                 start_node: str | None = None,
+                 context_seed: dict[str, Any] | None = None):
         self.db = db
         self.case = case
         self.env = env
@@ -63,6 +65,12 @@ class DagExecutor:
         self._precreated_record = execution_record
         # 事件出口：默认落库；测试/dry-run 注入内存 sink（持久化接缝）
         self.sink: ExecutionSink = sink or DbSink(db)
+        # 断点续跑：从 start_node（首个未成功节点）起执行，其前缀为已成功节点
+        # （不发请求直接计入 passed）；context_seed 为报告虚拟上下文（前缀成功
+        # 步骤的提取值），注入 ${} 统一池供后续节点引用
+        self.start_node = start_node
+        self.context_seed = context_seed or None
+        self._resume_mode = start_node is not None
 
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
@@ -102,6 +110,20 @@ class DagExecutor:
         # 时刻——排队等待不计入用例耗时（报告/通知的 duration = ended_at - started_at）
         record.started_at = datetime.now()
 
+        # 断点续跑：报告虚拟上下文注入 ${} 统一池（前缀成功步骤的提取值，
+        # 已含数据集行值打底，见 engine/report_context）
+        if self.context_seed:
+            self.context.update_extracted(self.context_seed)
+
+        # 编排结构指纹：执行时写入（结构级：节点/边/接口绑定，不含参数配置），
+        # 供续跑前重算比对；查询失败（测试替身无 all）时跳过不阻塞执行
+        try:
+            from .orchestration import collect_node_bindings, compute_structure_fingerprint
+            record.orchestration_fingerprint = compute_structure_fingerprint(
+                self.case.dag_config, collect_node_bindings(self.db, self.case.id))
+        except Exception as e:
+            print(f"[指纹写入] 跳过（查询失败）: {e}")
+
         self.http_client = build_http_client(self.env)
         self.db_client = build_db_client(self.env)
         # extractor / assertion_engine 共享 db_client，供 source=db 提取与 db_* 断言使用
@@ -117,8 +139,23 @@ class DagExecutor:
             order, leftover = topo_order(dag)
             nodes_map = {n["id"]: n for n in dag.get("nodes", [])}
 
+            # 断点续跑：首个未成功节点之前的步骤都已成功——跳过不发请求，
+            # 计入 passed；同时清掉该节点起的旧失败记录（本次续跑重新生成，
+            # 报告时间线收敛为「成功前缀 + 续跑段」）
+            start_idx = 0
+            if self._resume_mode:
+                if self.start_node in order:
+                    start_idx = order.index(self.start_node)
+                    self._prune_stale_steps(record.id)
+                else:
+                    # 节点已不在编排中（结构变更被端点拦截后的防御）：按新编排从头跑
+                    print(f"[断点续跑] 起点节点 {self.start_node} 不在编排中，改为全量执行")
+                total_passed = start_idx
+
             terminated = False
             for idx, node_id in enumerate(order):
+                if idx < start_idx:
+                    continue  # 续跑前缀：已成功，跳过
                 # 手动终止检查点：terminate API 已提交 terminated（每步后 sink
                 # commit 开新事务，此查询能读到外部提交）→ 剩余节点并入 leftover
                 # 同口径统计，最终保留 terminated 状态不被汇总覆盖
@@ -184,6 +221,25 @@ class DagExecutor:
         return record
 
     # ---------- 单节点执行 ----------
+    def _prune_stale_steps(self, execution_id: int) -> int:
+        """断点续跑前清理旧记录：首个非成功步骤起的所有步骤（含其断言）删除。
+
+        失败即停语义下通常只有一条失败记录；多次续跑场景同样适用（上一次
+        续跑段的失败记录也被本次重跑覆盖）。ORM 逐条 delete 走 cascade
+        清掉关联 AssertionRecord，避免批量 delete 绕过级联留孤儿。
+        """
+        steps = (self.db.query(models.StepRecord)
+                 .filter(models.StepRecord.execution_id == execution_id)
+                 .order_by(models.StepRecord.id).all())
+        removed = 0
+        for s in steps:
+            if s.status != "success":
+                self.db.delete(s)
+                removed += 1
+        if removed:
+            self.db.commit()
+        return removed
+
     def _resolve_node_config(self, node_id: str):
         """节点配置来源：用例当前 CaseNodeConfig（编排唯一来源，无快照覆盖）。"""
         return self.db.query(models.CaseNodeConfig).filter(
@@ -217,6 +273,7 @@ class DagExecutor:
                 pre_process=(config.pre_process if config else None) or None,
                 post_extract=(config.post_extract if config else None) or None,
                 extracted_vars={},
+                resumed=self._resume_mode,
             ))
             return False, 0
 
@@ -240,6 +297,7 @@ class DagExecutor:
                 pre_process=(config.pre_process if config else None) or None,
                 post_extract=(config.post_extract if config else None) or None,
                 extracted_vars={},
+                resumed=self._resume_mode,
             ))
             return False, 0
         body, headers, file_fields = parts.body, parts.headers, parts.file_fields
@@ -301,6 +359,7 @@ class DagExecutor:
             post_extract=(config.post_extract if config else None) or None,
             extracted_vars=extracted,
             retry_count=retry_count,
+            resumed=self._resume_mode,
             assertions=[
                 AssertionResult(
                     type=ar["type"], rule_config=ar, passed=ar["pass"],

@@ -592,7 +592,9 @@ class StepRecordOut(ORMBase):
     response_status: int | None = None
     response_body: Any | None = None
     response_time_ms: int | None = None
-    retry_count: int | None = None  # 失败自动重试实际次数（0/NULL=未重试）
+    retry_count: int | None = None  # 失败自动重试实际次数（0/空=未重试）
+    resumed: bool = False  # 断点续跑段产出的步骤（顶替旧失败记录）
+    replay_passed_at: datetime | None = None  # 重放验证通过时间（「已重放通过」徽标）
     started_at: datetime | None = None
     ended_at: datetime | None = None
     status: str | None = None

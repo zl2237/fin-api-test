@@ -310,6 +310,9 @@ class ExecutionRecord(Base):
     suite_execution_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True,
                                 comment="套件来源：非空表示本记录是套件链中某成员的一次执行，"
                                         "指向套件主执行记录ID；普通执行为 NULL")
+    orchestration_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True,
+                                comment="编排结构指纹（执行时快照：节点/边/接口绑定，不含参数配置）；"
+                                        "续跑前重算比对，结构变了拒绝续跑；旧报告 NULL=不可续跑")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="执行人 user_id")
 
     case: Mapped["TestCase"] = relationship("TestCase", back_populates="executions")
@@ -333,6 +336,10 @@ class StepRecord(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤开始时间")
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤结束时间")
     retry_count: Mapped[int | None] = mapped_column(Integer, comment="环境级失败重试实际发生的次数（0/NULL=未重试；仅请求层失败触发）")
+    resumed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0",
+                    comment="断点续跑标记：本步骤由续跑段产出（同 node 重跑成功后顶替旧失败记录）")
+    replay_passed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True,
+                    comment="重放验证通过时间：手改请求体重放断言全过时打点，报告页显示「已重放通过」徽标；不改变步骤内容")
     status: Mapped[str | None] = mapped_column(String(20), comment="步骤状态：success 成功 / failed 失败")
     pre_process: Mapped[Any] = mapped_column(JSON, comment="前置处理快照：[{type, path, value}]")
     post_extract: Mapped[Any] = mapped_column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")
