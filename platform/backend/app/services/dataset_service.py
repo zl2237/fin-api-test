@@ -705,6 +705,11 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             leaves = _flatten_leaves(key, parse_field_value(raw, f.field_type or "string"))
             if leaves is None:
                 stats["invalid"] += 1
+            elif all(isinstance(v, (list, dict)) and not v for v in leaves.values()):
+                # 空集合默认值（[] / {}，curl 抓包请求体携带的空数组）视为未配置：
+                # 不入池（运行时按字段类型发空占位），避免把变量池填成"值是数组/
+                # 对象"的困惑形态（case 194 实证：pay_settle_object_id 等一大批）
+                continue
             else:
                 # force 统一收口：接口默认值也以当前生效值为准刷新池中旧值；但多节点
                 # 同名默认值不同时按拓扑首个使用节点为准（本 run 该键已被更早节点的
