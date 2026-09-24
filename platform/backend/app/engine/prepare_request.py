@@ -107,6 +107,10 @@ def prepare_request(api, config, *, context, row_vars,
         path = act.get("path") or ""
         if not path:
             continue  # 空行占位（前端表格留空）非有效动作
+        if act.get("explicit_empty"):
+            # 显式空值：pre_process 阶段写空串，跳过按名解析（不取池值）
+            manual_paths.add(path)
+            continue
         val = act.get("value")
         if val is None or val == "":
             ref_paths.append(path)

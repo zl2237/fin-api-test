@@ -105,6 +105,32 @@ class TestSaveNodeValues:
             assert svc.save_node_values(db, ds.id, "n1", sets={}, clears=[]) == 0
         assert cfg.pre_process == [{"type": "set_field", "path": "status", "value": 1}]
 
+    def test_explicit_empty_sentinel_writes_marker(self):
+        """发送空值模式：__EXPLICIT_EMPTY__ 哨兵 → explicit_empty 标记行；
+        原空值/普通值行改回普通值时标记被清除"""
+        db, cfg, ds = self._env(pre=[{"type": "set_field", "path": "status", "value": 1}])
+        with patch.object(svc, "get_dataset", return_value=ds):
+            n = svc.save_node_values(db, ds.id, "n1",
+                                     sets={"status": "__EXPLICIT_EMPTY__", "bl_no": "__EXPLICIT_EMPTY__"},
+                                     clears=[])
+        assert n == 2
+        assert cfg.pre_process == [
+            {"type": "set_field", "path": "status", "value": "", "explicit_empty": True},
+            {"type": "set_field", "path": "bl_no", "value": "", "explicit_empty": True},
+        ]
+        # 改回普通值 → 标记清除
+        with patch.object(svc, "get_dataset", return_value=ds):
+            svc.save_node_values(db, ds.id, "n1", sets={"status": "NEW"}, clears=[])
+        assert cfg.pre_process[0] == {"type": "set_field", "path": "status", "value": "NEW"}
+
+    def test_clear_removes_explicit_empty_row(self):
+        """clears 移除 explicit_empty 行（回落池值/空占位）"""
+        db, cfg, ds = self._env(pre=[{"type": "set_field", "path": "x", "value": "",
+                                      "explicit_empty": True}])
+        with patch.object(svc, "get_dataset", return_value=ds):
+            assert svc.save_node_values(db, ds.id, "n1", sets={}, clears=["x"]) == 1
+        assert cfg.pre_process == []
+
 
 class TestCollectAndClear:
     """清空转引用：字面量入池后，接口字段的行直接删除（占位冗余——字段本身

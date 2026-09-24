@@ -470,6 +470,7 @@ export interface DatasetParam {
   manual: boolean       // 节点编排字面量 = 手动覆盖，池值不生效
   manual_value?: any    // 覆盖/绑定值（字面量或 ${} 表达式）
   dynamic: boolean      // 节点编排 ${} 动态绑定 = 运行时求值（非手动覆盖）
+  explicit_empty?: boolean  // 显式空值（发送空值模式）：执行发空串，不回落变量池
 }
 export interface DatasetParamsView {
   dataset_id: number

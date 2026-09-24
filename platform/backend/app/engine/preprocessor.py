@@ -132,8 +132,18 @@ class PreProcessor:
             if action_type in ("set_field", "add_field"):
                 path = action.get("path") or ""
                 raw_value = action.get("value")
-                if not path or raw_value is None or raw_value == "":
-                    # 空 path（前端表格空行占位）或三态空值占位（自动引用）：
+                if not path:
+                    # 空行占位（前端表格留空）非有效动作
+                    continue
+                if action.get("explicit_empty"):
+                    # 显式空值：用户明确要求发送空（不回落变量池按名解析）——
+                    # 空值不再静默等于"自动引用"，由 explicit_empty 标记显式区分
+                    set_nested_value(body, path, "")
+                    if extracted is not None:
+                        extracted[path.split(".")[-1]] = ""
+                    continue
+                if raw_value is None or raw_value == "":
+                    # 三态空值占位（自动引用）：
                     # 均非有效写入，参数值由 prepare_request 按名解析
                     continue
                 # 优先级 1（手动覆盖）：字面量直接生效；${} 动态绑定表达式求值
