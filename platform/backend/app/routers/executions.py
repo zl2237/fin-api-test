@@ -145,11 +145,20 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
     """报告页节点重放：按步骤快照定位接口（path+method+项目），用原执行环境重发一次。
 
     body_override（编辑后的请求体）优先，否则用原快照请求体；表达式求值与
-    调试/DAG 链路同口径（${timestamp()} 等生效）。纯调试口径：不写回报告。"""
+    调试/DAG 链路同口径（${timestamp()} 等生效）。
+    断点续跑配套（同口径验证）：
+    - ${} 求值上下文 = 报告虚拟上下文（该节点之前各成功步骤的提取值 + 当前数据集行值）
+    - 发送后同口径跑后置提取与断言（规则优先取当前节点配置，无配置回退步骤快照）
+    - 断言全过且请求成功 → 步骤打 replay_passed_at（「已重放通过」徽标），
+      供用户同步数据集后从此节点续跑；步骤内容不改动（报告只认真实执行）
+    """
     import time
     from copy import deepcopy
 
+    from ..engine.assertion_engine import AssertionEngine
     from ..engine.expression import ExpressionEngine
+    from ..engine.extractor import Extractor
+    from ..engine.report_context import build_report_context
     from ..engine.type_coercer import apply_field_types, coerce_json_strings
     from ..services.body_builder import pop_file_fields_from_body
     from ..services.request_sender import send_request
@@ -173,6 +182,19 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
     if not env:
         raise HTTPException(404, f"环境不存在: {execution.env_id}")
 
+    # 当前节点配置（断言/提取规则优先取当前值——参数配置可变原则）
+    config = (db.query(models.CaseNodeConfig)
+              .filter(models.CaseNodeConfig.case_id == execution.case_id,
+                      models.CaseNodeConfig.node_id == step.node_id)
+              .first()) if step.node_id else None
+    extract_rules = (config.post_extract if config and config.post_extract else step.post_extract)
+    assertion_rules = (config.assertions if config and config.assertions else None)
+
+    # 报告虚拟上下文：该节点之前各成功步骤提取值 + 当前数据集行值（同续跑 seed 口径）
+    steps = sorted(execution.steps, key=lambda s: s.id)
+    row_vars = _current_dataset_row_vars(db, execution)
+    ctx_extracted = build_report_context(steps, row_vars=row_vars, before_node=step.node_id)
+
     start_ts = time.time()
     client = build_http_client(env)
     try:
@@ -181,13 +203,14 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
         except Exception as e:
             return {"status_code": 0, "response_body": {"error": str(e)},
                     "error": "登录失败", "elapsed_ms": int((time.time() - start_ts) * 1000),
-                    "request_body": data.body_override}
+                    "request_body": data.body_override, "passed": False}
         client.headers = {**(client.headers or {}),
                           **(deepcopy(api.headers_template) or {})}
         client.headers = {k: v for k, v in client.headers.items() if v is not None}
         body = deepcopy(data.body_override) if data.body_override is not None \
             else deepcopy(step.request_body or {})
-        expr = ExpressionEngine({"extracted": {}}, db_client=build_db_client(env))
+        expr = ExpressionEngine({"extracted": deepcopy(ctx_extracted)},
+                                db_client=build_db_client(env))
         body = expr.evaluate(body)
         body = coerce_json_strings(body)
         body = apply_field_types(body, api)
@@ -198,18 +221,153 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
         req_timeout = getattr(env, "timeout", None) or 15
         status_code, response_data, error_msg = send_request(
             db, client, api, body, file_fields=file_fields, timeout=req_timeout)
+        elapsed = int((time.time() - start_ts) * 1000)
         crud.log_operation(db, user, "execute", "api", api.id,
                            f"replay step#{step_id} ({api.name})")
+
+        # 同口径后置提取（提取值并入上下文供断言 ${} 引用与结果展示）
+        extracted: dict = {}
+        if extract_rules and response_data is not None:
+            extractor = Extractor()
+            extractor.db_client = build_db_client(env)
+            extractor.set_extracted_vars(ctx_extracted)
+            extracted = extractor.extract(response_data, extract_rules)
+
+        # 同口径断言（规则取当前节点配置）
+        assertion_results: list[dict] = []
+        if assertion_rules:
+            engine = AssertionEngine({"extracted": {**ctx_extracted, **extracted}},
+                                     build_db_client(env))
+            assertion_results = engine.evaluate_all(response_data, status_code, elapsed, assertion_rules)
+        passed = (error_msg is None) and all(r["pass"] for r in assertion_results)
+
+        # 验证通过打点（徽标数据源）；步骤内容不动——报告只认真实执行
+        if passed and step.status != "success":
+            from datetime import datetime as _dt
+            step.replay_passed_at = _dt.now()
+            db.commit()
+
         return {"status_code": status_code, "response_body": response_data,
                 "error": error_msg,
-                "elapsed_ms": int((time.time() - start_ts) * 1000),
-                "request_body": body}
+                "elapsed_ms": elapsed,
+                "request_body": body,
+                "passed": passed,
+                "assertions": assertion_results,
+                "extracted": extracted}
     finally:
         try:
             if client.session:
                 client.session.close()
         except Exception:
             pass
+
+
+def _current_dataset_row_vars(db: Session, execution: models.ExecutionRecord) -> dict | None:
+    """执行记录绑定数据集的当前行值（首行）：重放/续跑共用「数据集取当前」口径。
+
+    数据集被用户修改后此处取到新值（与 dataset_row 快照解耦）；无绑定返回 None。
+    """
+    if not execution.dataset_id:
+        return None
+    row = (db.query(models.DataSetRow)
+           .filter(models.DataSetRow.dataset_id == execution.dataset_id)
+           .order_by(models.DataSetRow.row_index)
+           .first())
+    return dict(row.data) if row and isinstance(row.data, dict) else None
+
+
+@router.post("/executions/{exec_id}/resume", response_model=schemas.ExecutionRecordOut)
+def resume_execution(exec_id: int, db: Session = Depends(get_db),
+                     user: models.User = Depends(get_current_user)):
+    """断点续跑：从首个未成功节点起，用当前配置 + 当前数据集重新真实执行。
+
+    调试闭环（重放验证 → 手动同步数据集 → 续跑）：
+    - 前置校验：仅 failed 报告可续；套件（主/成员）不支持；编排结构指纹一致
+      （指纹只锁节点/边/接口绑定，参数配置与数据集允许变——续跑用当前值，
+      正是「改完参数不用整个重跑」的核心场景）
+    - 上下文：前缀成功步骤提取值 + 当前数据集行值拼成虚拟上下文注入 ${} 池
+    - 时间线：首个非成功步骤起的旧记录删除，续跑段重新生成（报告只认真实执行）
+    - 完成不发企微通知（调试动作，避免打扰）
+    """
+    import threading
+
+    from ..database import SessionLocal
+    from ..engine.dag_executor import DagExecutor
+    from ..engine.orchestration import collect_node_bindings, compute_structure_fingerprint
+    from ..engine.report_context import build_report_context
+
+    record = crud.get_execution(db, exec_id)
+    if not record:
+        raise HTTPException(404, f"执行记录不存在: {exec_id}")
+    if record.status != "failed":
+        raise HTTPException(400, f"仅失败报告可续跑（当前状态: {record.status}），成功/执行中请直接执行")
+    if record.suite_execution_id:
+        raise HTTPException(400, "套件成员报告不支持续跑：请单独执行该用例后在新报告上调试")
+    case = crud.get_testcase(db, record.case_id)
+    if not case:
+        raise HTTPException(404, f"用例不存在: {record.case_id}")
+    if getattr(case, "case_type", "normal") == "suite":
+        raise HTTPException(400, "套件用例不支持续跑：请单独执行成员用例")
+    env = crud.get_environment(db, record.env_id)
+    if not env:
+        raise HTTPException(404, f"环境不存在: {record.env_id}")
+
+    if not record.orchestration_fingerprint:
+        raise HTTPException(400, "该报告产生于续跑功能上线前（无编排指纹），请重新执行一次后再续跑")
+    current_fp = compute_structure_fingerprint(case.dag_config,
+                                               collect_node_bindings(db, case.id))
+    if current_fp != record.orchestration_fingerprint:
+        raise HTTPException(400, "编排结构已变更（节点/连线/接口绑定与报告时不一致），请重新执行")
+
+    # 起点节点：首个非成功步骤；无失败步骤（异常中断）回退 leftover 首节点
+    steps = sorted(record.steps, key=lambda s: s.id)
+    first_unsuccess = next((s for s in steps if s.status != "success"), None)
+    if first_unsuccess and first_unsuccess.node_id:
+        start_node = first_unsuccess.node_id
+    else:
+        leftover = (record.summary or {}).get("leftover") or []
+        if not leftover:
+            raise HTTPException(400, "报告中无可续跑的失败节点（异常中断且无未执行节点），请重新执行")
+        start_node = leftover[0]
+
+    row_vars = _current_dataset_row_vars(db, record)
+    context_seed = build_report_context(steps, row_vars=row_vars)
+
+    # 置 running（前端轮询立即感知），后台线程续跑（独立会话，请求会话随响应关闭）
+    record.status = "running"
+    db.commit()
+    crud.log_operation(db, user, "execute", "case", case.id,
+                       f"resume execution#{exec_id} from node {start_node}")
+
+    exec_id_val, case_id_val, env_id_val = record.id, case.id, env.id
+
+    def _run() -> None:
+        rdb = SessionLocal()
+        try:
+            rcase = crud.get_testcase(rdb, case_id_val)
+            renv = crud.get_environment(rdb, env_id_val)
+            rrecord = crud.get_execution(rdb, exec_id_val)
+            if not (rcase and renv and rrecord):
+                return
+            DagExecutor(rdb, rcase, renv, execution_record=rrecord,
+                        row_vars=row_vars, context_seed=context_seed,
+                        start_node=start_node, suppress_notify=True).execute()
+        except Exception as e:
+            try:
+                rrecord = crud.get_execution(rdb, exec_id_val)
+                if rrecord and rrecord.status == "running":
+                    rrecord.status = "failed"
+                    rrecord.summary = {**(rrecord.summary or {}), "error": f"续跑异常: {e}"}
+                    rdb.commit()
+            except Exception:
+                pass
+        finally:
+            rdb.close()
+
+    threading.Thread(target=_run, daemon=True,
+                     name=f"resume-{exec_id_val}").start()
+    db.refresh(record)
+    return record
 
 
 @router.get("/executions/{exec_id}", response_model=schemas.ExecutionRecordOut)

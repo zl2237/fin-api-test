@@ -65,6 +65,7 @@ class StubHttpClient:
 
     def __init__(self, response=None):
         self.headers: dict[str, str] = {}
+        self.session = None  # execute() 收尾会访问 .session（关闭连接池），替身置空
         self.response = response if response is not None else {"code": 200, "msg": "ok"}
         self.last_json_body = None
         self.last_path = None

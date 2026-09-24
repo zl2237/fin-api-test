@@ -71,6 +71,16 @@
           >
             重新执行
           </el-button>
+          <!-- 断点续跑：从首个失败节点用当前配置+数据集重新执行（改参数调试的主路径） -->
+          <el-button
+            v-if="record?.status === 'failed'"
+            size="small"
+            type="warning"
+            :loading="resuming"
+            @click="onResume"
+          >
+            断点续跑
+          </el-button>
           <el-button
             v-if="record?.status === 'running'"
             size="small"
@@ -164,6 +174,16 @@
                     <el-tag v-if="s.retry_count" size="small" type="warning" effect="light">
                       重试×{{ s.retry_count }}
                     </el-tag>
+                    <!-- 断点续跑徽标：本步骤由续跑段重新执行产出 -->
+                    <el-tag v-if="s.resumed" size="small" type="info" effect="plain">续跑</el-tag>
+                    <!-- 重放验证通过徽标：手改请求体重放断言全过（等待同步数据集后续跑实证） -->
+                    <el-tooltip
+                      v-if="s.replay_passed_at && s.status !== 'success'"
+                      :content="'重放验证已通过（' + (s.replay_passed_at || '').replace('T', ' ').slice(0, 19) + '）：请把正确参数同步到数据集后断点续跑'"
+                      placement="top" popper-class="app-tip"
+                    >
+                      <el-tag size="small" type="success" effect="light">已重放通过</el-tag>
+                    </el-tooltip>
                   </div>
                 </div>
               </div>
@@ -329,13 +349,13 @@
       </template>
     </el-dialog>
 
-    <!-- 节点编辑重放：编辑当前步骤请求体 → 按原执行环境重发一次（纯调试，不写回报告） -->
+    <!-- 节点编辑重放：改请求体 → 原环境重发 + 同口径断言/提取验证（通过挂徽标，不写回报告） -->
     <el-dialog v-model="replayVisible" title="编辑并重放节点" width="760px" :close-on-click-modal="false">
       <el-alert
         type="info"
         :closable="false"
         style="margin-bottom: 10px"
-        :title="'按原执行环境重发「' + (currentStep?.api_name || '') + '」一次；${} 表达式会重新求值，结果不写回报告'"
+        title="按原执行环境真实重发一次（写接口有副作用）；${} 用报告上下文重新求值，发送后同口径跑断言与提取——通过仅打「已重放通过」徽标，不写回报告"
       />
       <el-input
         v-model="replayBodyText"
@@ -346,10 +366,31 @@
         placeholder="JSON 请求体"
       />
       <template v-if="replayResult">
-        <div class="section-title" style="margin-top: 12px">
+        <div class="section-title" style="margin-top: 12px; display: flex; align-items: center; gap: 8px">
           重放结果：HTTP {{ replayResult.status_code }} · {{ replayResult.elapsed_ms }} ms
+          <el-tag v-if="replayResult.passed" type="success" size="small">断言全过</el-tag>
+          <el-tag v-else type="danger" size="small">未通过</el-tag>
         </div>
         <VueJsonPretty :data="replayResult.response_body" :deep="4" />
+        <template v-if="replayResult.assertions?.length">
+          <div class="section-title" style="margin-top: 12px">断言（{{ replayResult.assertions.filter(a => a.pass).length }}/{{ replayResult.assertions.length }} 通过）</div>
+          <div v-for="(a, i) in replayResult.assertions" :key="i" class="replay-assertion" :class="{ fail: !a.pass }">
+            <el-tag :type="a.pass ? 'success' : 'danger'" size="small" effect="light">{{ a.pass ? '通过' : '失败' }}</el-tag>
+            <span class="mono">{{ a.type }}</span>
+            <span v-if="a.message" class="replay-assertion-msg">{{ a.message }}</span>
+          </div>
+        </template>
+        <template v-if="replayResult.extracted && Object.keys(replayResult.extracted).length">
+          <div class="section-title" style="margin-top: 12px">本次提取（断点续跑时并入上下文）</div>
+          <VueJsonPretty :data="replayResult.extracted" :deep="2" />
+        </template>
+        <el-alert
+          v-if="replayResult.passed"
+          type="success"
+          :closable="false"
+          style="margin-top: 12px"
+          title="验证通过：请把正确参数同步到数据集/节点配置，然后点「断点续跑」从该节点真实重跑"
+        />
       </template>
       <template #footer>
         <el-button @click="replayVisible = false">关闭</el-button>
@@ -388,7 +429,7 @@ const jsonDeep = ref<number>(2)
 const replayVisible = ref(false)
 const replayLoading = ref(false)
 const replayBodyText = ref('')
-const replayResult = ref<{ status_code: number; response_body: any; elapsed_ms: number } | null>(null)
+const replayResult = ref<{ status_code: number; response_body: any; elapsed_ms: number; passed: boolean; assertions: { type: string; pass: boolean; message?: string }[]; extracted: Record<string, any> } | null>(null)
 
 function openReplay() {
   if (!currentStep.value) return
@@ -409,10 +450,38 @@ async function doReplay() {
   replayLoading.value = true
   try {
     replayResult.value = await execApi.replayStep(currentStep.value.id, body)
+    // 通过打点在后端步骤上：静默刷新让列表「已重放通过」徽标立即出现
+    if (replayResult.value.passed) await load(true)
   } catch (e: any) {
     ElMessage.error(e.message || '重放失败')
   } finally {
     replayLoading.value = false
+  }
+}
+
+// ===== 断点续跑：从首个失败节点用当前配置+当前数据集重新执行 =====
+const resuming = ref(false)
+async function onResume() {
+  const id = Number(route.params.id)
+  if (!id || !record.value) return
+  try {
+    await ElMessageBox.confirm(
+      '从首个失败节点重新真实执行（用当前节点配置 + 当前数据集），之前的成功节点不重跑；旧失败记录将被本次结果顶替。适合「重放验证通过 + 已同步数据集」后收尾。',
+      '断点续跑',
+      { type: 'warning', confirmButtonText: '续跑', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  resuming.value = true
+  try {
+    record.value = await execApi.resume(id)
+    ElMessage.success('已从断点续跑，执行中…')
+    schedulePollIfRunning()
+  } catch (e: any) {
+    ElMessage.error(e.message || '续跑失败')
+  } finally {
+    resuming.value = false
   }
 }
 
@@ -1223,5 +1292,26 @@ onUnmounted(stopPolling)
 
 :deep(.el-timeline-item__node) {
   cursor: pointer;
+}
+
+/* 重放弹窗断言行：通过/失败 + 类型 + 消息 */
+.replay-assertion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.replay-assertion.fail {
+  color: var(--el-color-danger);
+}
+
+.replay-assertion-msg {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
