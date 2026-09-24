@@ -146,8 +146,8 @@ class TestCollectAndClear:
         assert not added
 
     def test_key_already_in_pool_kept_as_manual_override(self):
-        """池值与字面量同名不同值 → 值冲突：字面量保留为手动覆盖、池值清空
-        （防"改池值静默改掉未配置节点取值"的串值覆盖）"""
+        """池值与字面量同名不同值 → 值冲突：字面量保留为手动覆盖、池存量值保留
+        （拦截收集已防串值；清存量会破坏"参数靠池"的用例——case 92 实证）"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": "MANUAL"}])
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11,
@@ -160,7 +160,7 @@ class TestCollectAndClear:
         assert stats["kept"] == 1 and stats["columns"] == 0
         assert stats["value_conflicts"] == ["bl_no"]
         assert cfg.pre_process[0]["value"] == "MANUAL"
-        assert pool.rows[0].data == {}  # 池值清空（列保留）
+        assert pool.rows[0].data == {"bl_no": "BL001"}  # 存量值保留
         assert pool.columns == [{"key": "bl_no", "type": "string"}]
 
     def test_equal_value_absorbed_to_reference(self):
@@ -420,8 +420,8 @@ class TestApiDefaultsMigration:
         assert cfg.pre_process == [{"type": "set_field", "path": "order_id", "value": "${oid}"}]
 
     def test_default_in_pool_skipped(self):
-        """池值与默认值同名不同值（非 force）→ 值冲突：默认不入池、池值清空
-        （防默认值经池串改已有配置；force 收口另测）"""
+        """池值与默认值同名不同值（非 force）→ 值冲突：默认不入池、池存量值保留
+        （防默认值经池串改已有配置——拦截收集即可；force 收口另测）"""
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11,
                                columns=[{"key": "bl_no", "type": "string"}],
@@ -432,7 +432,7 @@ class TestApiDefaultsMigration:
 
         assert stats["columns"] == 0
         assert stats["value_conflicts"] == ["bl_no"]
-        assert pool.rows[0].data == {}  # 池值清空（列保留）
+        assert pool.rows[0].data == {"bl_no": "POOL"}  # 存量值保留
 
     def test_force_refreshes_default_in_pool(self):
         """force 统一收口：接口默认值也刷新池中旧值——键已在池且节点未显式配置，

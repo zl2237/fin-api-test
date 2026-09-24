@@ -74,8 +74,9 @@ class TestTypeConflict:
         assert c1.pre_process[0]["value"] == "1"   # 字面量保留
         assert c2.pre_process[0]["value"] == [1]   # 字面量保留
 
-    def test_existing_pool_value_cleared_column_kept(self):
-        """池已有 id 值（历史收集）→ 保存后行值清空、列保留"""
+    def test_existing_pool_value_kept_on_conflict(self):
+        """池已有 id 值（历史收集）→ 保存后存量值保留（清存量会破坏"参数靠池"
+        的用例——case 92 实证一保存就清值致首节点参数缺失），仅拦截新收集"""
         c1 = _cfg("n1", 7)
         c2 = _cfg("n2", 8)
         case = _case(dataset_id=99)
@@ -89,10 +90,11 @@ class TestTypeConflict:
             _api(8, [_field("id", "array")]),
         ])
         with patch.object(svc.crud, "get_dataset", return_value=pool):
-            svc.sync_case_variable_pool(db, case, user_id=1)
+            stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
-        assert pool.rows[0].data == {"bl_no": "B1"}          # id 值清空
-        assert {c["key"] for c in pool.columns} == {"id", "bl_no"}  # 列保留
+        assert pool.rows[0].data == {"id": ["1"], "bl_no": "B1"}  # 存量值保留
+        assert {c["key"] for c in pool.columns} == {"id", "bl_no"}
+        assert stats["type_conflicts"] == ["id"]  # 冲突仍上报（不再收集新值）
 
     def test_default_values_not_collected_on_conflict(self):
         """接口默认值也不入池（string 默认 '1' / array 默认 ['1']）"""
@@ -204,8 +206,8 @@ class TestValueConflict:
         assert c1.pre_process[0]["value"] == "1"  # 字面量保留
         assert c2.pre_process[0]["value"] == "2"
 
-    def test_existing_pool_value_cleared_on_value_conflict(self):
-        """池已有值与字面量不同（非 force）→ 池值清空（列保留）"""
+    def test_existing_pool_value_kept_on_value_conflict(self):
+        """池已有值与字面量不同（非 force）→ 存量值保留（仅拦截收集），字面量保留为手动覆盖"""
         cfg = _cfg("n1", 7, pre=[{"type": "set_field", "path": "id", "value": "9"}])
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11,
@@ -217,8 +219,8 @@ class TestValueConflict:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["value_conflicts"] == ["id"]
-        assert pool.rows[0].data == {"bl_no": "B1"}  # id 清空
-        assert {c["key"] for c in pool.columns} == {"id", "bl_no"}  # 列保留
+        assert pool.rows[0].data == {"id": "1", "bl_no": "B1"}  # 存量值保留
+        assert {c["key"] for c in pool.columns} == {"id", "bl_no"}
         assert cfg.pre_process[0]["value"] == "9"  # 字面量保留
 
     def test_equal_values_across_nodes_still_collected(self):
