@@ -175,6 +175,33 @@ class TestLookup:
 
         assert parts.body == {"bl_no": ""}
 
+    def test_leaf_key_overrides_whole_list_value(self):
+        """整键与叶键并存：叶键（细粒度配置）覆盖整键值对应位置，其余元素保留。
+        曾致 select_list=[{order_id:666}] 精确命中后叶键 ${order_id} 引用不生效"""
+        api = _api([_field("select_list", field_type="array")])
+
+        parts = _run(
+            api,
+            ctx=_Ctx(vars={"order_id": 10293}),
+            row_vars={"select_list": [{"order_id": 666, "qty": 2}],
+                      "select_list.0.order_id": "${order_id}"},
+        )
+
+        assert parts.body == {"select_list": [{"order_id": 10293, "qty": 2}]}
+
+    def test_leaf_key_overrides_whole_dict_value(self):
+        """dict 整键同理：仅覆盖指定叶，未涉及的子键保留"""
+        api = _api([_field("to_customer", field_type="object")])
+
+        parts = _run(
+            api,
+            ctx=_Ctx(vars={"bl_no": "BL001"}),
+            row_vars={"to_customer": {"put_amount": 100, "remark": "r"},
+                      "to_customer.put_amount": "${bl_no}"},
+        )
+
+        assert parts.body == {"to_customer": {"put_amount": "BL001", "remark": "r"}}
+
 
 class TestTemplateBody:
     """无字段定义（request_template）接口的解析口径"""
