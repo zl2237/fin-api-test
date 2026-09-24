@@ -523,8 +523,8 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
     # 接口默认值/池现值）——同样不入池：任何一侧经池"串值"到另一侧都是
     # 异常覆盖（改池值会静默改掉未配置节点的取值）。同值多节点不受影响
     # （值相等收编语义保留，共享同值无害）。
-    # 两类冲突键统一处理：池存量值清空（列保留，视图仍可见）、字面量保留为
-    # 手动覆盖（不清空转引用）、接口默认值不入池
+    # 两类冲突键统一处理：只拦截收集（字面量保留为手动覆盖、不清空转引用，
+    # 接口默认值不入池），池存量值保留（清存量会破坏"参数靠池"的用例）
     # （case 194 的 pay_settle_object_id 实证：array 侧默认 ['1'] 先占池，
     # string 接口页签显示"类型 string 值是数组"）
     _key_types: dict[str, set[str]] = {}
@@ -860,12 +860,13 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 continue  # 前缀关联：拆叶族/整对象列服务于某 used 键
             drop_keys.add(k)
 
-    # 同名异型/异值键：池存量行值清空由下方落库分支统一处理（列保留——参数在
-    # 变量池视图仍可见，值回落"未配置"；pending 不含冲突键，行清理幂等）。
-    # ds 为 None（尚无池）时冲突键无值可清，不触发建池（columns 空非法）
-    if (pending_values or evict_keys or drop_keys) or (conflicted_keys and ds is not None):
+    # 同名异型/异值键：只拦截收集（字面量/默认值不入池），池存量值保留——
+    # 清存量会破坏"参数靠池"的用例（case 92 实证：存量清理后一保存就清值，
+    # 首节点参数缺失 403）；拦截新收集已足够防串值，存量值不变即无新覆盖。
+    # stats 的 type_conflicts/value_conflicts 仍上报（告知哪些键不再收集）
+    if pending_values or evict_keys or drop_keys:
         if ds is None:
-            assert case.project_id is not None  # 用例必然属于某项目
+            assert case.project_id is not None  # 用例必然属于某个项目
             suffix = "-变量池"
             name = f"{case.name}{suffix}"
             if len(name) > 100:
@@ -879,7 +880,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             case.dataset_id = ds.id
         else:
             if evict_keys or drop_keys:
-                # 键族替换/悬空清理：对应列从池中剔除（异型键不删列，仅清值）
+                # 键族替换/悬空清理：对应列从池中剔除
                 gone = evict_keys | drop_keys
                 ds.columns = [c for c in (ds.columns or [])
                               if not (isinstance(c, dict) and c.get("key") in gone)]
@@ -887,8 +888,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             if ds.rows:
                 gone = evict_keys | drop_keys
                 for r in ds.rows:
-                    data = {k: v for k, v in (r.data or {}).items()
-                            if k not in gone and k not in conflicted_keys}
+                    data = {k: v for k, v in (r.data or {}).items() if k not in gone}
                     r.data = {**data, **pending_values}
             elif pending_values:
                 db.add(models.DataSetRow(dataset_id=ds.id, row_index=1, data=dict(pending_values)))
