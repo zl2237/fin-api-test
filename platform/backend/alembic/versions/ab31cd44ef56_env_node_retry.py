@@ -13,7 +13,9 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "ab31cd44ef56"
-down_revision = "dd44ee55ff66"
+# dev/main 链 head 为 a1b2c3d4e5f6（dd44ee55ff66 等 4 个迁移为 UI 分支专属，
+# 不在通用分支历史中；本文件在 UI 分支上的对应提交 down_revision=dd44ee55ff66）
+down_revision = "a1b2c3d4e5f6"
 branch_labels = None
 depends_on = None
 
