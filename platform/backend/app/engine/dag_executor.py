@@ -244,25 +244,43 @@ class DagExecutor:
             return False, 0
         body, headers, file_fields = parts.body, parts.headers, parts.file_fields
 
-        # 2. 发送请求（file_fields 非空时走 multipart 通道）
-        status_code, response_data, err = self._send_request(api, body, headers, file_fields)
-        elapsed = int((time.time() - start_ts) * 1000)
-
-        # 3. 后置提取（支持从响应或 DB 提取变量到上下文）
+        # 2~4. 发送请求 → 后置提取 → 断言；请求层失败（err 非空：HTTP 状态码/
+        # 业务码失败、超时、连接异常）按环境配置自动重试同一请求——被测系统
+        # 异步同步（如 ES 分钟级延迟）导致的瞬时失败，稍后原样重发即可恢复，
+        # 与报告页手工重放语义一致。断言失败不重试：避免掩盖真实断言问题，
+        # 也降低写接口重复提交风险。
+        retry_limit = max(0, getattr(self.env, "node_retry_count", 0) or 0)
+        retry_interval = max(1, getattr(self.env, "node_retry_interval", 1) or 1)
+        status_code, response_data, err = 0, None, None
         extracted: dict = {}
-        if config and config.post_extract and response_data is not None:
-            # 注入当前已提取变量，供 source=db 的 SQL 引用
-            self.extractor.set_extracted_vars(self.context.extracted)
-            extracted = self.extractor.extract(response_data, config.post_extract)
-            self.context.update_extracted(extracted)
-
-        # 4. 断言
         assertion_results: list[dict] = []
-        if config and config.assertions:
-            engine = AssertionEngine(self.context.to_dict(), self.db_client)
-            assertion_results = engine.evaluate_all(response_data, status_code, elapsed, config.assertions)
+        step_passed = False
+        retry_count = 0
+        for attempt in range(retry_limit + 1):
+            if attempt:
+                time.sleep(retry_interval)
+                retry_count = attempt
+            # 2. 发送请求（file_fields 非空时走 multipart 通道）
+            status_code, response_data, err = self._send_request(api, body, headers, file_fields)
+            elapsed = int((time.time() - start_ts) * 1000)
+            if err is not None and attempt < retry_limit:
+                continue  # 请求层失败且仍有重试额度：间隔后原样重发
+            # 成功 / 断言路径 / 重试额度耗尽：提取与断言后收尾
 
-        step_passed = (err is None) and all(r["pass"] for r in assertion_results)
+            # 3. 后置提取（支持从响应或 DB 提取变量到上下文）
+            if config and config.post_extract and response_data is not None:
+                # 注入当前已提取变量，供 source=db 的 SQL 引用
+                self.extractor.set_extracted_vars(self.context.extracted)
+                extracted = self.extractor.extract(response_data, config.post_extract)
+                self.context.update_extracted(extracted)
+
+            # 4. 断言
+            if config and config.assertions:
+                engine = AssertionEngine(self.context.to_dict(), self.db_client)
+                assertion_results = engine.evaluate_all(response_data, status_code, elapsed, config.assertions)
+
+            step_passed = (err is None) and all(r["pass"] for r in assertion_results)
+            break
 
         # 5. 产出步骤事件（落库/收集交给 sink）
         self.sink.record_step(StepResult(
@@ -282,6 +300,7 @@ class DagExecutor:
             pre_process=(config.pre_process if config else None) or None,
             post_extract=(config.post_extract if config else None) or None,
             extracted_vars=extracted,
+            retry_count=retry_count,
             assertions=[
                 AssertionResult(
                     type=ar["type"], rule_config=ar, passed=ar["pass"],

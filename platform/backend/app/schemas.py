@@ -139,6 +139,8 @@ class EnvironmentCreate(BaseModel):
     common_headers: dict[str, Any] = {}
     success_codes: str = "200"
     timeout: int = 15
+    node_retry_count: int = 0
+    node_retry_interval: int = 1
     is_default: bool = False
 
 
@@ -151,6 +153,8 @@ class EnvironmentUpdate(BaseModel):
     common_headers: dict[str, Any] | None = None
     success_codes: str | None = None
     timeout: int | None = None
+    node_retry_count: int | None = None
+    node_retry_interval: int | None = None
     is_default: bool | None = None
 
 
@@ -170,6 +174,9 @@ class EnvironmentOut(ORMBase, AuditMixin):
     common_headers: dict[str, Any] = {}
     success_codes: str = "200"
     timeout: int = 15
+    # 历史环境迁移前列为 NULL，响应容忍 None（getattr 侧引擎有兜底）
+    node_retry_count: int | None = 0
+    node_retry_interval: int | None = 1
     is_default: bool = False
     sort_order: int = 0
     updated_by: int | None = None
@@ -585,6 +592,7 @@ class StepRecordOut(ORMBase):
     response_status: int | None = None
     response_body: Any | None = None
     response_time_ms: int | None = None
+    retry_count: int | None = None  # 失败自动重试实际次数（0/NULL=未重试）
     started_at: datetime | None = None
     ended_at: datetime | None = None
     status: str | None = None
