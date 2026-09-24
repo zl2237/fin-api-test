@@ -13,6 +13,52 @@ router = APIRouter(prefix="/api/testcases", tags=["用例"])
 group_router = APIRouter(prefix="/api/case-groups", tags=["用例分组"])
 
 
+# ============ 后置提取 SQL 基本校验 ============
+# 目标是拦截"肉眼难察、运行时静默失败"的低级笔误（提取结果为空、报告里查不到原因）：
+# - 列名与关键字粘连（pay_invoice_apply_idfrom —— FROM 非独立词，TiDB 直接语法错误）
+# - SELECT 缺 FROM / 语句不以 SQL 关键字开头
+# ${} 变量先替换为占位字面量再扫描（避免 ${x}from 这类表达式写法误判）
+import re  # noqa: E402
+
+_SQL_START_RE = re.compile(r"^\s*(select|insert|update|delete|show|with|desc)\b", re.I)
+# 关键字前紧贴字母/数字（无空格/括号/下划线分隔）→ 粘连。只收长关键字，避免 in/is/as/on/set
+# 这类常见子串（login/visit）误报；下划线连接的合法列名（user_group/group_id）不命中
+# （下划线属标识符连接，不算粘连；\b 在 group_id 的 _g 处也不成立）
+_SQL_GLUED_RE = re.compile(
+    r"[A-Za-z0-9](?:from|where|select|insert|update|delete|values|into|order|group|limit|"
+    r"having|between|union|distinct|inner|outer)\b", re.I)
+
+
+def validate_post_extract_sql(node_configs: list | None) -> None:
+    """编排保存入口：校验各节点 post_extract 中 source=db 的 SQL 基本形态。"""
+    if not node_configs:
+        return
+    for nc in node_configs:
+        node_id = (nc or {}).get("node_id") or "?"
+        for rule in (nc or {}).get("post_extract") or []:
+            if not isinstance(rule, dict) or rule.get("source") != "db":
+                continue
+            sql = str(rule.get("sql") or "").strip()
+            if not sql:
+                continue
+            name = rule.get("name") or "?"
+            # ${xxx} → 占位（防表达式内容干扰词法扫描）
+            scanned = re.sub(r"\$\{[^{}]*\}", "1", sql)
+            if not _SQL_START_RE.match(scanned):
+                raise ValueError(
+                    f"节点 {node_id} 后置提取「{name}」的 SQL 未以 SELECT/UPDATE/DELETE 等关键字开头，请检查")
+            m = _SQL_GLUED_RE.search(scanned)
+            if m:
+                frag = m.group(0)
+                raise ValueError(
+                    f"节点 {node_id} 后置提取「{name}」的 SQL 疑似标识符与关键字粘连"
+                    f"（…{frag}…，缺少空格），请检查：{sql[:120]}")
+            if scanned.lstrip()[:6].lower() == "select" and not re.search(r"\bfrom\b", scanned, re.I):
+                raise ValueError(
+                    f"节点 {node_id} 后置提取「{name}」的 SELECT 缺少 FROM（可能列名与 FROM 粘连），请检查：{sql[:120]}")
+
+
+
 # ============ 用例分组 ============
 @group_router.post("", response_model=schemas.CaseGroupOut)
 def create_group(data: schemas.CaseGroupCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -53,6 +99,10 @@ def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User
 # ============ 用例 ============
 @router.post("", response_model=schemas.TestCaseOut)
 def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    try:
+        validate_post_extract_sql(getattr(data, "node_configs", None))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     obj = crud.create_testcase(db, data, user.id)
     # 变量池收集钩子：静态入参拆叶入池 + 清空转引用（失败不阻断保存，编排字面量仍在）
     from ..services.dataset_service import sync_case_variable_pool
@@ -141,6 +191,17 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     obj = crud.get_testcase(db, case_id)
     if not obj:
         raise HTTPException(404, "用例不存在")
+    # 执行中的用例禁止改编排：运行线程读库内配置，保存会串版本
+    from ..crud.executions import ensure_case_not_running
+    try:
+        ensure_case_not_running(db, case_id, "保存用例")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    # 后置提取 SQL 基本校验（关键字粘连/缺失——静默坏 SQL 运行时只会在报告里表现为提取为空）
+    try:
+        validate_post_extract_sql(getattr(data, "node_configs", None))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     # 数据集绑定校验（显式传 dataset_id 时）：须存在且与用例同项目
     if "dataset_id" in data.model_fields_set:
         from ..services.dataset_service import validate_binding
