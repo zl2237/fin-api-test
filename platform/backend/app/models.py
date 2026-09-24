@@ -97,6 +97,10 @@ class Environment(Base):
     variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="已退役：原业务变量（测试数据来源已统一为数据集变量池，不再注入执行变量池）")
     common_headers: Mapped[Any] = mapped_column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
     timeout: Mapped[int] = mapped_column(Integer, default=15, comment="接口请求超时时间（秒）")
+    node_retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
+                        comment="节点请求层失败自动重试次数（0=不重试；仅 HTTP 状态码/业务码失败、超时、连接异常触发，断言失败不重试）")
+    node_retry_interval: Mapped[int] = mapped_column(Integer, default=1, server_default="1",
+                        comment="节点重试间隔（秒），两次尝试之间的等待时间")
     success_codes: Mapped[str] = mapped_column(String(100), default="200", comment="业务成功码（逗号分隔，响应 code 命中任一即成功；不同系统约定不同，如 ThinkPHP 成功 code:1）")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否为项目默认环境")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序序号（支持拖拽排序）")
@@ -328,6 +332,7 @@ class StepRecord(Base):
     response_time_ms: Mapped[int | None] = mapped_column(Integer, comment="响应耗时（毫秒）")
     started_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤开始时间")
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤结束时间")
+    retry_count: Mapped[int | None] = mapped_column(Integer, comment="环境级失败重试实际发生的次数（0/NULL=未重试；仅请求层失败触发）")
     status: Mapped[str | None] = mapped_column(String(20), comment="步骤状态：success 成功 / failed 失败")
     pre_process: Mapped[Any] = mapped_column(JSON, comment="前置处理快照：[{type, path, value}]")
     post_extract: Mapped[Any] = mapped_column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")

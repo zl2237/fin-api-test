@@ -160,6 +160,10 @@
                     <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="light">
                       <span class="mono">{{ s.response_time_ms }} ms</span>
                     </el-tag>
+                    <!-- 失败自动重试徽标：>0 表示该步骤经过环境级重试（详情头部同款提示） -->
+                    <el-tag v-if="s.retry_count" size="small" type="warning" effect="light">
+                      重试×{{ s.retry_count }}
+                    </el-tag>
                   </div>
                 </div>
               </div>
@@ -213,6 +217,13 @@
               <div class="section">
                 <div class="section-title">响应耗时</div>
                 <span>{{ currentStep.response_time_ms ?? '-' }} ms</span>
+              </div>
+              <div v-if="currentStep.retry_count" class="section">
+                <div class="section-title">失败重试</div>
+                <el-tag type="warning" effect="light">重试×{{ currentStep.retry_count }}</el-tag>
+                <span class="muted" style="margin-left: 8px">
+                  {{ currentStep.status === 'success' ? '重试后成功（耗时含各次尝试与间隔等待）' : '重试后仍失败' }}
+                </span>
               </div>
               <div class="section">
                 <div class="section-title">

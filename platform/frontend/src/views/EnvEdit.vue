@@ -32,6 +32,14 @@
             <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" style="width: 140px" />
             <span class="form-hint">秒，接口请求超时时间（1-120）</span>
           </el-form-item>
+          <el-form-item label="失败重试次数">
+            <el-input-number v-model="formData.node_retry_count" :min="0" :max="10" controls-position="right" style="width: 140px" />
+            <span class="form-hint">请求层失败（状态码/业务码/超时）时自动重发，0=不重试；断言失败不重试</span>
+          </el-form-item>
+          <el-form-item label="重试间隔">
+            <el-input-number v-model="formData.node_retry_interval" :min="1" :max="600" controls-position="right" style="width: 140px" />
+            <span class="form-hint">秒，两次尝试之间的等待时间（被测系统有分钟级异步同步时可调大，如 60）</span>
+          </el-form-item>
           <el-form-item label="默认环境">
             <el-switch v-model="formData.is_default" />
             <span class="form-hint">设为默认后，执行用例时自动选中此环境</span>
@@ -245,6 +253,8 @@ interface EnvFormData {
   base_url: string
   success_codes: string
   timeout: number
+  node_retry_count: number
+  node_retry_interval: number
   is_default: boolean
   db_config: { host: string; port: number; user: string; password: string; database: string }
   login_config: {
@@ -274,6 +284,8 @@ const formData = reactive<EnvFormData>({
   base_url: '',
   success_codes: '200',
   timeout: 15,
+  node_retry_count: 0,
+  node_retry_interval: 1,
   is_default: false,
   db_config: { host: '', port: 3306, user: '', password: '', database: '' },
   login_config: {
@@ -309,6 +321,8 @@ async function loadEnv() {
   formData.base_url = env.base_url
   formData.success_codes = env.success_codes || '200'
   formData.timeout = env.timeout ?? 15
+  formData.node_retry_count = env.node_retry_count ?? 0
+  formData.node_retry_interval = env.node_retry_interval ?? 1
   formData.is_default = env.is_default
   // db_config
   const db = env.db_config || {}
@@ -383,6 +397,8 @@ async function onSave() {
       base_url: formData.base_url,
       success_codes: formData.success_codes.trim() || '200',
       timeout: formData.timeout,
+      node_retry_count: formData.node_retry_count,
+      node_retry_interval: formData.node_retry_interval,
       is_default: formData.is_default,
       db_config: formData.db_config,
       login_config: formData.login_config,

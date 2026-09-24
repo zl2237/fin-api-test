@@ -118,7 +118,10 @@ export interface Environment {
   db_config: Record<string, any>
   login_config: Record<string, any>
   notify_config: Record<string, any>
-  common_headers: Record<string, any>; success_codes?: string; timeout: number; is_default: boolean; sort_order?: number; created_at?: string
+  common_headers: Record<string, any>; success_codes?: string; timeout: number
+  node_retry_count?: number | null  // 节点请求层失败自动重试次数（0/空=不重试）
+  node_retry_interval?: number | null  // 节点重试间隔（秒）
+  is_default: boolean; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
@@ -182,6 +185,7 @@ export interface StepRecord {
   api_path?: string; api_method?: string
   request_headers?: any; request_body?: any; response_status?: number
   response_body?: any; response_time_ms?: number
+  retry_count?: number | null  // 失败自动重试实际次数（0/空=未重试）
   started_at?: string; ended_at?: string; status?: string
   pre_process?: { type?: string; path?: string; value?: any; sql?: string }[] | null
   post_extract?: Record<string, any>[] | null
