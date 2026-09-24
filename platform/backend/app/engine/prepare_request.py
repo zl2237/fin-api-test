@@ -132,7 +132,9 @@ def prepare_request(api, config, *, context, row_vars,
             if get_nested_value(target, key) is not None:
                 continue  # 模板静态值保留，不用空值占位覆盖
             ftype = field_types.get(key, "string")
-            got = {key: "" if ftype in ("string", "file") else None}
+            # array 空占位发 []（PHP 语义的空数组参数，与原"空数组默认值入池"行为
+            # 等价——收集器已把空集合默认视为未配置，空占位补位保持请求形态）
+            got = {key: "" if ftype in ("string", "file") else ([] if ftype == "array" else None)}
         for full, v in got.items():
             set_nested_value(target, full, v)
 
