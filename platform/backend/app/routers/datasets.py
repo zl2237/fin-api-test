@@ -37,6 +37,13 @@ def _get_or_404(db: Session, dataset_id: int) -> models.DataSet:
     return obj
 
 
+def _ensure_owner_not_running(db: Session, obj: models.DataSet, what: str) -> None:
+    """归属用例执行中 → 禁止改数据集（运行线程读的是库内值，保存会串版本）。"""
+    if obj.case_id:
+        from ..crud.executions import ensure_case_not_running
+        _svc_call(ensure_case_not_running, db, obj.case_id, what)
+
+
 @router.get("", response_model=list[schemas.DataSetOut])
 def list_datasets(case_id: int | None = None, project_id: int | None = None, with_rows: bool = False,
                   db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -119,7 +126,8 @@ def params_view(dataset_id: int, db: Session = Depends(get_db), user: models.Use
 def save_values(dataset_id: int, data: schemas.DataSetValuesSave, db: Session = Depends(get_db),
                 user: models.User = Depends(get_current_user)):
     """保存单套数据：values 即数据集唯一一套值；列定义随参数走（新键补列、悬空键剔除）。"""
-    _get_or_404(db, dataset_id)
+    obj = _get_or_404(db, dataset_id)
+    _ensure_owner_not_running(db, obj, "保存变量池")
     obj = _svc_call(svc.save_dataset_values, db, dataset_id, values=data.values,
                     user_id=user.id, column_types=data.column_types)
     crud.log_operation(db, user, "update", "dataset", dataset_id, f"save values ({len(data.values)} keys)")
@@ -131,7 +139,8 @@ def save_node_values(dataset_id: int, data: schemas.DataSetNodeValuesSave,
                      db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """保存节点级手动覆盖（节点页签编辑语义）：sets 写入该节点独有字面量（压过池值），
     clears 移除字面量回落池值；同字段跨节点异值靠此机制，池仍保持一键一值。"""
-    _get_or_404(db, dataset_id)
+    obj = _get_or_404(db, dataset_id)
+    _ensure_owner_not_running(db, obj, "保存节点参数")
     n = _svc_call(svc.save_node_values, db, dataset_id, node_id=data.node_id,
                   sets=data.sets, clears=data.clears)
     if n:

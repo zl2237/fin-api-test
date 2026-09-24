@@ -320,7 +320,7 @@
         v-model="importText"
         type="textarea"
         :rows="8"
-        placeholder="粘贴 JSON 对象（{...}）；解析预览后仅「将被替换」的变量会被应用，动态绑定（${}）不会被覆盖"
+        placeholder="粘贴 JSON 对象（{...}）或数组请求体（[{...}]，自动取首个元素）；解析预览后仅「将被替换」的变量会被应用，动态绑定（${}）不会被覆盖"
       />
       <div class="import-actions">
         <el-button size="small" @click="parseImport">解析预览</el-button>
@@ -737,7 +737,9 @@ function openImport() {
 }
 
 /** 解析预览：当前节点参数与导入 JSON 逐键比对——动态绑定（${}）不覆盖，
- *  非该节点参数忽略，其余标记替换（同值标记不变） */
+ *  非该节点参数忽略，其余标记替换（同值标记不变）。
+ *  顶层数组 = 数组请求体形态（body 本身是 [{...}]，如上传应收发票），取首个
+ *  对象元素继续逐键导入——与运行时数组请求体取首元素的组装口径一致 */
 function parseImport() {
   let obj: any
   try {
@@ -746,8 +748,16 @@ function parseImport() {
     ElMessage.error(`JSON 解析失败：${e.message}`)
     return
   }
-  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
-    ElMessage.error('请粘贴 JSON 对象（{...}）')
+  if (Array.isArray(obj)) {
+    if (!obj.length || typeof obj[0] !== 'object' || obj[0] === null || Array.isArray(obj[0])) {
+      ElMessage.error('顶层数组须为 [{...}] 形态（数组请求体），且首个元素为对象')
+      return
+    }
+    obj = obj[0]
+    ElMessage.info('识别为数组请求体，已取首个对象元素逐键比对')
+  }
+  if (typeof obj !== 'object' || obj === null) {
+    ElMessage.error('请粘贴 JSON 对象（{...}）或数组请求体（[{...}]）')
     return
   }
   const node = view.value?.nodes.find((n) => n.node_id === activeNodeId.value)
