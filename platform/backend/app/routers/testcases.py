@@ -30,12 +30,18 @@ _SQL_GLUED_RE = re.compile(
 
 
 def validate_post_extract_sql(node_configs: list | None) -> None:
-    """编排保存入口：校验各节点 post_extract 中 source=db 的 SQL 基本形态。"""
+    """编排保存入口：校验各节点 post_extract 中 source=db 的 SQL 基本形态。
+    兼容 dict 与 Pydantic 模型（路由入参经 schema 解析后是 NodeConfigIn 对象，
+    无 .get 方法——曾致线上保存用例 500）。"""
     if not node_configs:
         return
     for nc in node_configs:
-        node_id = (nc or {}).get("node_id") or "?"
-        for rule in (nc or {}).get("post_extract") or []:
+        if nc is None:
+            continue
+        if not isinstance(nc, dict):
+            nc = nc.model_dump() if hasattr(nc, "model_dump") else vars(nc)
+        node_id = nc.get("node_id") or "?"
+        for rule in nc.get("post_extract") or []:
             if not isinstance(rule, dict) or rule.get("source") != "db":
                 continue
             sql = str(rule.get("sql") or "").strip()

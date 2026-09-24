@@ -49,6 +49,23 @@ class TestValidatePostExtractSql:
         validate_post_extract_sql(None)
         validate_post_extract_sql([{"node_id": "n1", "post_extract": []}])
 
+    def test_pydantic_model_input_no_500(self):
+        """路由真实入参形态：node_configs 是 Pydantic 模型列表（非 dict）——
+        曾因 .get 不存在致线上保存用例 AttributeError 500"""
+        from app.schemas import NodeConfigIn
+
+        model_nc = NodeConfigIn(node_id="n1", api_id=1,
+                                post_extract=[{"name": "x", "source": "db",
+                                               "sql": "SELECT a from t where b=1", "field": "a"}])
+        # 合法 SQL 直过；粘连 SQL 正常拒绝（不抛 AttributeError）
+        validate_post_extract_sql([model_nc])
+        bad = NodeConfigIn(node_id="n1", api_id=1,
+                           post_extract=[{"name": "x", "source": "db",
+                                          "sql": "SELECT aidfrom t", "field": "a"}])
+        with pytest.raises(ValueError, match="粘连"):
+            validate_post_extract_sql([bad])
+        validate_post_extract_sql([None])  # None 项安全跳过
+
 
 class _Query:
     def __init__(self, first_val):
