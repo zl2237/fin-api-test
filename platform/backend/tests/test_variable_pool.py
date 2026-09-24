@@ -146,7 +146,8 @@ class TestCollectAndClear:
         assert not added
 
     def test_key_already_in_pool_kept_as_manual_override(self):
-        """键已在池 → 保留字面量为手动覆盖（有值=覆盖，不被收走）"""
+        """池值与字面量同名不同值 → 值冲突：字面量保留为手动覆盖、池值清空
+        （防"改池值静默改掉未配置节点取值"的串值覆盖）"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": "MANUAL"}])
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11,
@@ -157,8 +158,10 @@ class TestCollectAndClear:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["kept"] == 1 and stats["columns"] == 0
+        assert stats["value_conflicts"] == ["bl_no"]
         assert cfg.pre_process[0]["value"] == "MANUAL"
-        assert pool.rows[0].data == {"bl_no": "BL001"}  # 池值不被手动覆盖改写
+        assert pool.rows[0].data == {}  # 池值清空（列保留）
+        assert pool.columns == [{"key": "bl_no", "type": "string"}]
 
     def test_equal_value_absorbed_to_reference(self):
         """值相等收编：字面量与池值一致 → 清空转引用（执行行为不变，池接管）"""
@@ -417,7 +420,8 @@ class TestApiDefaultsMigration:
         assert cfg.pre_process == [{"type": "set_field", "path": "order_id", "value": "${oid}"}]
 
     def test_default_in_pool_skipped(self):
-        """键已在池 → 默认值跳过（池值优先，默认值就此退役）"""
+        """池值与默认值同名不同值（非 force）→ 值冲突：默认不入池、池值清空
+        （防默认值经池串改已有配置；force 收口另测）"""
         case = _case(dataset_id=99)
         pool = SimpleNamespace(id=99, case_id=11,
                                columns=[{"key": "bl_no", "type": "string"}],
@@ -427,7 +431,8 @@ class TestApiDefaultsMigration:
             stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
         assert stats["columns"] == 0
-        assert pool.rows[0].data == {"bl_no": "POOL"}
+        assert stats["value_conflicts"] == ["bl_no"]
+        assert pool.rows[0].data == {}  # 池值清空（列保留）
 
     def test_force_refreshes_default_in_pool(self):
         """force 统一收口：接口默认值也刷新池中旧值——键已在池且节点未显式配置，
@@ -445,34 +450,37 @@ class TestApiDefaultsMigration:
         assert pool.columns == [{"key": "entrust_status", "type": "int"}]  # 列不重复
 
     def test_force_first_user_default_wins(self):
-        """force 多节点同名默认值不同：按拓扑首个使用节点的默认值为准——
-        后续节点默认不覆盖（否则开票接口的 customer_id=[] 会误写进全池）"""
+        """force 多节点同名默认值不同（同型）→ 值冲突：都不入池、池存量值清空
+        （首个优先语义已被同名异值拦截取代——任何一侧经池串值都是异常覆盖）"""
         case = _case(dataset_id=99, nodes=("n1", "n2"))
         c1 = _cfg(node_id="n1", api_id=7)
         c2 = _cfg(node_id="n2", api_id=8)
         api1 = _api(api_id=7, fields=[_field("customer_id", default="34361")])
-        api2 = _api(api_id=8, fields=[_field("customer_id", ftype="array", default="[]")])
+        api2 = _api(api_id=8, fields=[_field("customer_id", default="99999")])
         pool = SimpleNamespace(id=99, case_id=11,
                                columns=[{"key": "customer_id", "type": "string"}],
                                rows=[SimpleNamespace(row_index=1, data={"customer_id": "OLD"})])
         db, _ = _db([c1, c2], [api1, api2])
         with patch.object(svc.crud, "get_dataset", return_value=pool):
-            svc.sync_case_variable_pool(db, case, user_id=1, force=True)
+            stats = svc.sync_case_variable_pool(db, case, user_id=1, force=True)
 
-        assert pool.rows[0].data == {"customer_id": "34361"}  # 首个使用节点（n1）的默认值
+        assert stats["value_conflicts"] == ["customer_id"]
+        assert stats["columns"] == 0
+        assert pool.rows[0].data == {}  # 池值清空（列保留）
         assert pool.columns == [{"key": "customer_id", "type": "string"}]
 
     def test_set_field_wins_over_default(self):
-        """同节点 set_field 覆盖默认值：池收到最终生效值（set_field 的字面量）"""
+        """同节点字面量与默认值同名不同值 → 值冲突：不入池，字面量保留为
+        手动覆盖（不再"清空转引用"，默认值也不迁）"""
         cfg = _cfg(pre=[{"type": "set_field", "path": "bl_no", "value": "CASE"}])
         case = _case()
         db, added = _db([cfg], [_api(fields=[_field("bl_no", default="DEFAULT")])])
 
-        svc.sync_case_variable_pool(db, case, user_id=1)
+        stats = svc.sync_case_variable_pool(db, case, user_id=1)
 
-        rows = [o for o in added if isinstance(o, models.DataSetRow)]
-        assert rows[0].data == {"bl_no": "CASE"}
-        assert cfg.pre_process == []  # 接口字段收集后删行
+        assert stats["value_conflicts"] == ["bl_no"]
+        assert not added  # 不建池
+        assert cfg.pre_process == [{"type": "set_field", "path": "bl_no", "value": "CASE"}]
 
     def test_node_explicit_config_shields_default(self):
         """节点已显式配置该 path（空占位被清理但 path 已记录）→ 默认值不再迁移"""
@@ -584,7 +592,8 @@ class TestNoCollectables:
             stats = svc.sync_case_variable_pool(db, case, user_id=1, unbind=True)
         assert case.dataset_id is None  # 解绑意图保留，未拉回
         assert stats == {"nodes": 0, "columns": 0, "collected": [],
-                         "kept": 0, "dynamic": 0, "conflicts": [], "invalid": 0}
+                         "kept": 0, "dynamic": 0, "conflicts": [], "invalid": 0,
+                         "type_conflicts": [], "value_conflicts": []}
         assert not added
 
     def test_no_configs_noop(self):
@@ -593,7 +602,8 @@ class TestNoCollectables:
         db, added = _db([], [])
         stats = svc.sync_case_variable_pool(db, case)
         assert stats == {"nodes": 0, "columns": 0, "collected": [],
-                         "kept": 0, "dynamic": 0, "conflicts": [], "invalid": 0}
+                         "kept": 0, "dynamic": 0, "conflicts": [], "invalid": 0,
+                         "type_conflicts": [], "value_conflicts": []}
         assert not added
 
     def test_all_dynamic_no_pool_created(self):
