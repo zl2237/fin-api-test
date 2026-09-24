@@ -528,6 +528,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
     # （case 194 的 pay_settle_object_id 实证：array 侧默认 ['1'] 先占池，
     # string 接口页签显示"类型 string 值是数组"）
     _key_types: dict[str, set[str]] = {}
+    _key_apis: dict[str, set[int]] = {}  # 键 → 声明它的接口 id 集合（跨接口同名检测）
     for cfg in cfgs:
         api = apis_by_id.get(cfg.api_id)
         if not api:
@@ -536,7 +537,16 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             k = f.key
             if k and _COL_KEY_RE.match(k):
                 _key_types.setdefault(k, set()).add(f.field_type or "string")
+                _key_apis.setdefault(k, set()).add(cfg.api_id)
     type_conflicted = {k for k, ts in _key_types.items() if len(ts) > 1}
+
+    def _cross_api_key(k: str) -> bool:
+        """同名参数被 ≥2 个接口声明：接口默认值（静态快照数据）不得入池——
+        入池后经按名解析串到其他同名接口的请求（实证 case 193：「追加服务项目」
+        order_sub 旧子单默认值串进「新建订单」请求，新订单被关联旧子单，
+        后续应收核销报"费用未核销金额已发生变化"）。单接口独有默认值不受影响；
+        节点字面量/池现值是用例编排数据，也不受此限制。"""
+        return len(_key_apis.get(k, ())) > 1
 
     ds = crud.get_dataset(db, case.dataset_id) if getattr(case, "dataset_id", None) else None
     if ds is None:
@@ -598,6 +608,8 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             if (not k or not _COL_KEY_RE.match(k) or raw is None
                     or (isinstance(raw, str) and (not raw.strip() or "${" in raw))):
                 continue
+            if _cross_api_key(k):
+                continue  # 跨接口同名字段：默认值不参与值候选（与收集口径一致）
             lv = _flatten_leaves(k, parse_field_value(raw, f.field_type or "string"))
             if lv and not all(isinstance(x, (list, dict)) and not x for x in lv.values()):
                 _note_leaf_vals(lv)
@@ -785,6 +797,11 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 node_paths.add(key)
                 stats["dynamic"] += 1
                 node_dirty = True
+                continue
+            if _cross_api_key(key):
+                # 跨接口同名字段：静态默认值（抓包遗留的业务 ID 等快照）只属于
+                # 本接口的抓包语境，入池会串进其他同名接口的请求——不入池，
+                # 需要时由节点显式配置或数据集手动录入
                 continue
             leaves = _flatten_leaves(key, parse_field_value(raw, f.field_type or "string"))
             if leaves is None:

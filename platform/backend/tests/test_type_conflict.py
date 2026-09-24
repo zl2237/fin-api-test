@@ -112,12 +112,13 @@ class TestTypeConflict:
         assert stats["type_conflicts"] == ["id"]
 
     def test_same_type_across_nodes_still_collected(self):
-        """两节点同类型（都是 string）不冲突，照常收集"""
-        c1 = _cfg("n1", 7)
+        """两节点同类型（都是 string）不冲突，节点字面量照常收集
+        （跨接口同名字段的接口默认值不收集，见 TestCrossApiDefault）"""
+        c1 = _cfg("n1", 7, pre=[{"type": "set_field", "path": "id", "value": "1"}])
         c2 = _cfg("n2", 8)
         case = _case()
         db, added = _db([c1, c2], [
-            _api(7, [_field("id", "string", "1")]),
+            _api(7, [_field("id", "string")]),
             _api(8, [_field("id", "string")]),
         ])
         stats = svc.sync_case_variable_pool(db, case, user_id=1)
@@ -125,6 +126,56 @@ class TestTypeConflict:
         rows = [o for o in added if isinstance(o, models.DataSetRow)]
         assert rows[0].data == {"id": "1"}
         assert stats["type_conflicts"] == []
+
+
+class TestCrossApiDefault:
+    """跨接口同名字段的接口默认值不入池（case 193 实证：「追加服务项目」
+    order_sub 旧子单默认值入池后经按名解析串进「新建订单」请求，
+    新订单被关联旧子单，后续应收核销报"费用未核销金额已发生变化"）"""
+
+    def test_cross_api_default_not_collected(self):
+        """多接口同名 order_sub（其余默认 [] 空集合、单个非空快照）→
+        非空默认值不建池、不算值冲突（默认值不参与候选）"""
+        c1 = _cfg("n1", 102)
+        c2 = _cfg("n2", 116)
+        case = _case()
+        db, added = _db([c1, c2], [
+            _api(102, [_field("order_sub", "array", "[]")]),
+            _api(116, [_field("order_sub", "array",
+                              '[{"order_sub_id": "348342269666918400"}]')]),
+        ])
+
+        stats = svc.sync_case_variable_pool(db, case, user_id=1)
+
+        assert not added
+        assert stats["collected"] == []
+        assert stats["value_conflicts"] == []
+
+    def test_single_api_default_still_collected(self):
+        """单接口独有字段默认值照旧入池（行为不变）"""
+        cfg = _cfg("n1", 7)
+        case = _case(nodes=("n1",))
+        db, added = _db([cfg], [_api(7, [_field("bl_no", "string", "B1")])])
+
+        svc.sync_case_variable_pool(db, case, user_id=1)
+
+        rows = [o for o in added if isinstance(o, models.DataSetRow)]
+        assert rows[0].data == {"bl_no": "B1"}
+
+    def test_cross_api_dynamic_default_still_migrates(self):
+        """跨接口同名的动态默认（${}）仍迁为节点引用：绑定语义只影响
+        本节点，不经池串值，不受跨接口拦截"""
+        cfg = _cfg("n1", 7)
+        case = _case()
+        db, _ = _db([cfg, _cfg("n2", 8)], [
+            _api(7, [_field("bl_no", "string", "${generate_bl_no()}")]),
+            _api(8, [_field("bl_no", "string")]),
+        ])
+
+        svc.sync_case_variable_pool(db, case, user_id=1)
+
+        assert cfg.pre_process == [{"type": "set_field", "path": "bl_no",
+                                    "value": "${generate_bl_no()}"}]
 
 
 class TestValueConflict:
