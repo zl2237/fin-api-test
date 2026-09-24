@@ -79,6 +79,15 @@ class TestCoerceScalar:
         assert coerce_scalar(True, "string") == "true"
         assert coerce_scalar(False, "string") == "false"
 
+    def test_string_from_list_is_json_text(self):
+        # string 字段收到数组值（池按名解析一键多形态）→ 合法 JSON 文本，
+        # 而非 Python repr（str(list) 的 "['343...']" 单引号形态服务端无法解析，
+        # case 92 付款需求 customer_id 实证）
+        assert coerce_scalar(["343612351695552512"], "string") == '["343612351695552512"]'
+
+    def test_string_from_dict_is_json_text(self):
+        assert coerce_scalar({"a": 1}, "string") == '{"a": 1}'
+
     def test_int_from_int(self):
         assert coerce_scalar(42, "int") == 42
 
