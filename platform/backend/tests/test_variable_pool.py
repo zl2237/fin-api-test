@@ -449,9 +449,10 @@ class TestApiDefaultsMigration:
         assert pool.rows[0].data == {"entrust_status": 2}   # 池值以当前默认刷新
         assert pool.columns == [{"key": "entrust_status", "type": "int"}]  # 列不重复
 
-    def test_force_first_user_default_wins(self):
-        """force 多节点同名默认值不同（同型）→ 值冲突：都不入池、池存量值清空
-        （首个优先语义已被同名异值拦截取代——任何一侧经池串值都是异常覆盖）"""
+    def test_force_cross_api_default_not_collected(self):
+        """force 多接口同名默认值不同（同型）→ 跨接口同名字段的默认值一律
+        不入池（单侧非空快照默认值也会经池串值，case 193 实证；更早的
+        "同名异值拦截"被跨接口声明拦截取代）；无冲突 → 池存量值保留"""
         case = _case(dataset_id=99, nodes=("n1", "n2"))
         c1 = _cfg(node_id="n1", api_id=7)
         c2 = _cfg(node_id="n2", api_id=8)
@@ -464,9 +465,9 @@ class TestApiDefaultsMigration:
         with patch.object(svc.crud, "get_dataset", return_value=pool):
             stats = svc.sync_case_variable_pool(db, case, user_id=1, force=True)
 
-        assert stats["value_conflicts"] == ["customer_id"]
+        assert stats["value_conflicts"] == []
         assert stats["columns"] == 0
-        assert pool.rows[0].data == {}  # 池值清空（列保留）
+        assert pool.rows[0].data == {"customer_id": "OLD"}  # 无冲突，池值保留
         assert pool.columns == [{"key": "customer_id", "type": "string"}]
 
     def test_set_field_wins_over_default(self):
