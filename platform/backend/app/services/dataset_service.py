@@ -507,13 +507,36 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
     cfgs = (db.query(models.CaseNodeConfig)
             .filter(models.CaseNodeConfig.case_id == case.id).all())
     stats: dict[str, Any] = {"nodes": 0, "columns": 0, "collected": [],
-                             "kept": 0, "dynamic": 0, "conflicts": [], "invalid": 0}
+                             "kept": 0, "dynamic": 0, "conflicts": [], "invalid": 0,
+                             "type_conflicts": [], "value_conflicts": []}
     if not cfgs:
         return stats
     api_ids = {c.api_id for c in cfgs if c.api_id}
     apis = (db.query(models.ApiDefinition)
             .filter(models.ApiDefinition.id.in_(api_ids)).all()) if api_ids else []
     apis_by_id = {a.id: a for a in apis}
+
+    # 同名异型检测（预扫描全部节点）：同一参数在不同接口声明了不同类型
+    # （如 id 在 A 接口是 string、B 接口是 array）——单池一键一值无法两全
+    # （string 接口发数组 / array 接口发标量必有一侧错）。
+    # 同名异值检测（第二遍预扫描）：同名参数跨节点出现多个不同值（字面量/
+    # 接口默认值/池现值）——同样不入池：任何一侧经池"串值"到另一侧都是
+    # 异常覆盖（改池值会静默改掉未配置节点的取值）。同值多节点不受影响
+    # （值相等收编语义保留，共享同值无害）。
+    # 两类冲突键统一处理：池存量值清空（列保留，视图仍可见）、字面量保留为
+    # 手动覆盖（不清空转引用）、接口默认值不入池
+    # （case 194 的 pay_settle_object_id 实证：array 侧默认 ['1'] 先占池，
+    # string 接口页签显示"类型 string 值是数组"）
+    _key_types: dict[str, set[str]] = {}
+    for cfg in cfgs:
+        api = apis_by_id.get(cfg.api_id)
+        if not api:
+            continue
+        for f in (getattr(api, "fields", None) or []):
+            k = f.key
+            if k and _COL_KEY_RE.match(k):
+                _key_types.setdefault(k, set()).add(f.field_type or "string")
+    type_conflicted = {k for k, ts in _key_types.items() if len(ts) > 1}
 
     ds = crud.get_dataset(db, case.dataset_id) if getattr(case, "dataset_id", None) else None
     if ds is None:
@@ -534,6 +557,58 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
     # 否则列存在但值空的键会让节点静态字面量永远收不进池（幂等保护误伤）
     _rows = (ds.rows if ds else None) or []
     pool_vals = dict(_rows[0].data or {}) if _rows else {}
+
+    # 同名异值第二遍预扫描：叶键粒度收集全部候选值（池现值 ∪ 各节点字面量
+    # ∪ 接口默认值；${} 动态与空值/空集合不参与），出现 >1 种值 → 冲突。
+    # 预扫描先于收集，冲突键从头就不收集——无"已收集后撤销"的回滚问题
+    _key_vals: dict[str, list] = {}
+
+    def _note_leaf_vals(leaves: dict) -> None:
+        for k, v in leaves.items():
+            vals = _key_vals.setdefault(k, [])
+            if not any(_json_eq(x, v) for x in vals):
+                vals.append(v)
+
+    # 池现值仅非 force 时参与值集合：force 收口语义=以当前编排值为准刷新池，
+    # 池中旧值是待刷新对象而非"另一处取值"；非 force 时池值与字面量/默认值
+    # 不同即冲突（防串值覆盖）
+    if not force:
+        for pk, pv in pool_vals.items():
+            if pv not in (None, ""):
+                _note_leaf_vals({pk: pv})
+    for cfg in cfgs:
+        for act in (cfg.pre_process or []):
+            if not isinstance(act, dict) or act.get("type") not in ("set_field", "add_field"):
+                continue
+            p = act.get("path") or ""
+            v = act.get("value")
+            if (not p or v is None or v == ""
+                    or (isinstance(v, str) and "${" in v)
+                    or not _COL_KEY_RE.match(p)):
+                continue
+            lv = _flatten_leaves(p, v)
+            if lv:
+                _note_leaf_vals(lv)
+        api = apis_by_id.get(cfg.api_id)
+        if not api:
+            continue
+        for f in (getattr(api, "fields", None) or []):
+            k = f.key
+            raw = getattr(f, "default_value", None)
+            if (not k or not _COL_KEY_RE.match(k) or raw is None
+                    or (isinstance(raw, str) and (not raw.strip() or "${" in raw))):
+                continue
+            lv = _flatten_leaves(k, parse_field_value(raw, f.field_type or "string"))
+            if lv and not all(isinstance(x, (list, dict)) and not x for x in lv.values()):
+                _note_leaf_vals(lv)
+    value_conflicted = {k for k, vs in _key_vals.items() if len(vs) > 1}
+    conflicted_keys = type_conflicted | value_conflicted
+    stats["type_conflicts"] = sorted(type_conflicted)
+    stats["value_conflicts"] = sorted(value_conflicted)
+
+    def _fam_conflicted(p: str) -> bool:
+        """顶层 path 或其任一拆叶键冲突（整对象字面量 path 的叶可能带 . 后缀）"""
+        return p in conflicted_keys or any(k.startswith(p + ".") for k in conflicted_keys)
     pending_cols: list = []   # 新列（按收集顺序）
     pending_values: dict = {}  # 新键初值（写入全部行）
     evict_keys: set = set()   # force 键族替换时被驱逐的池键（落库时从列/行剔除）
@@ -652,6 +727,13 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             if not _COL_KEY_RE.match(path):
                 stats["invalid"] += 1
                 continue
+            if _fam_conflicted(path):
+                # 同名异型/异值：字面量保留为手动覆盖（不清空转引用、不入池）——
+                # 池值形态无法同时满足两侧接口，交给各节点显式配置
+                stats["conflicts"].append(path)
+                stats["kept"] += 1
+                node_paths.add(path)
+                continue
             leaves = _flatten_leaves(path, val)
             if leaves is None:
                 stats["invalid"] += 1
@@ -695,6 +777,8 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 continue
             if key in node_paths:
                 continue  # 节点已显式配置（手动覆盖/动态绑定/空占位）
+            if _fam_conflicted(key):
+                continue  # 同名异型/异值：接口默认值不入池（只允许节点手动覆盖）
             if isinstance(raw, str) and "${" in raw:
                 # 动态默认 → 迁为节点动态引用（绑定语义不变，从接口定义搬到用例编排）
                 pre.append({"type": "set_field", "path": key, "value": raw})
@@ -759,7 +843,10 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 continue  # 前缀关联：拆叶族/整对象列服务于某 used 键
             drop_keys.add(k)
 
-    if pending_values or evict_keys or drop_keys:
+    # 同名异型/异值键：池存量行值清空由下方落库分支统一处理（列保留——参数在
+    # 变量池视图仍可见，值回落"未配置"；pending 不含冲突键，行清理幂等）。
+    # ds 为 None（尚无池）时冲突键无值可清，不触发建池（columns 空非法）
+    if (pending_values or evict_keys or drop_keys) or (conflicted_keys and ds is not None):
         if ds is None:
             assert case.project_id is not None  # 用例必然属于某项目
             suffix = "-变量池"
@@ -775,7 +862,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
             case.dataset_id = ds.id
         else:
             if evict_keys or drop_keys:
-                # 键族替换/悬空清理：对应列从池中剔除
+                # 键族替换/悬空清理：对应列从池中剔除（异型键不删列，仅清值）
                 gone = evict_keys | drop_keys
                 ds.columns = [c for c in (ds.columns or [])
                               if not (isinstance(c, dict) and c.get("key") in gone)]
@@ -784,7 +871,7 @@ def sync_case_variable_pool(db: Session, case, user_id: int | None = None,
                 gone = evict_keys | drop_keys
                 for r in ds.rows:
                     data = {k: v for k, v in (r.data or {}).items()
-                            if k not in gone}
+                            if k not in gone and k not in conflicted_keys}
                     r.data = {**data, **pending_values}
             elif pending_values:
                 db.add(models.DataSetRow(dataset_id=ds.id, row_index=1, data=dict(pending_values)))
