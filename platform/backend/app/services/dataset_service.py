@@ -210,10 +210,18 @@ def build_params_view(db: Session, dataset_id: int) -> dict:
         for k in keys:
             used_keys.add(k)
             has_value = k in values and values[k] is not None and values[k] != ""
+            # 类型来源优先级：接口契约声明 → 数据集列定义 → 值形状推断 → 兜底 string。
+            # 契约只声明顶层字段时（payment_list: array），嵌套叶键
+            # （payment_list.0.processed_order_ids）不会命中 field_types，
+            # 此时须按值形状定形，否则数组叶键被硬编码误标为 string
+            literal = manual.get(k) if k in manual else dynamic.get(k)
             params.append({
                 "key": k,
-                "type": field_types.get(k) or (
-                    ds_col_type(ds, k) if has_value else "string"),
+                "type": (field_types.get(k)
+                         or (ds_col_type(ds, k) if has_value else None)
+                         or _param_type_from_value(literal)
+                         or _param_type_from_value(values.get(k) if has_value else None)
+                         or "string"),
                 "value": values.get(k) if has_value else "",
                 "manual": k in manual,
                 "manual_value": manual.get(k) or dynamic.get(k),
@@ -419,6 +427,24 @@ def _infer_col_type(value) -> str:
     if isinstance(value, dict):
         return "object"
     return "string"
+
+
+def _param_type_from_value(value) -> str | None:
+    """按值形状推断参数类型（无法判定返回 None，由调用方兜底 string）。
+
+    数组/对象在编排里以 JSON 文本表达，且常含 ${} 占位（如 '[${order_id}]'），
+    故字符串值按外层括号定形；纯 ${} 标量占位运行时才知类型，不作猜测。
+    """
+    if isinstance(value, str):
+        s = value.strip()
+        if s[:1] == "[" and s[-1:] == "]":
+            return "array"
+        if s[:1] == "{" and s[-1:] == "}":
+            return "object"
+        return None
+    if isinstance(value, (bool, int, list, dict)):
+        return _infer_col_type(value)
+    return None
 
 
 def _topo_node_ids(dag: dict | None) -> list:

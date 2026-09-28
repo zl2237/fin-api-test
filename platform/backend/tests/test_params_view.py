@@ -117,6 +117,31 @@ class TestBuildParamsView:
         assert by_key["amount"]["type"] == "int"
         assert by_key["extra"]["type"] == "bool"
 
+    def test_nested_leaf_type_inferred_from_value_shape(self):
+        """契约只声明顶层数组时，嵌套叶键按值形状定形（不再硬编码 string）。
+
+        场景（用例 92 发起付款需求）：接口只声明 payment_list: array，
+        叶键 payment_list.0.processed_order_ids 由编排 pre_process 给出，
+        值 '[${order_id}]' 是数组文本 → 应显示 array，而非兜底的 string。
+        """
+        cfg = _cfg("n1", 7, pre=[
+            {"type": "set_field", "path": "payment_list.0.processed_order_ids",
+             "value": "[${order_id}]"},
+            {"type": "set_field", "path": "payment_list.0.bl_no", "value": "${bl_no}"},
+        ])
+        api = SimpleNamespace(id=7, name="发起付款需求",
+                              fields=[_field("payment_list", "array")])
+        ds = _ds()  # 数据集只有整列，无嵌套叶键列
+        db = _db([cfg], [api])
+        with patch.object(svc.crud, "get_dataset", return_value=ds), \
+             patch.object(svc.crud, "get_testcase", return_value=_case()), \
+             patch.object(svc.crud, "list_rows", return_value=ds.rows):
+            view = svc.build_params_view(db, 7)
+        by_key = {p["key"]: p for p in view["nodes"][0]["params"]}
+        assert by_key["payment_list.0.processed_order_ids"]["type"] == "array"
+        # 纯 ${} 标量占位运行时才知类型，不猜测 → 保持 string
+        assert by_key["payment_list.0.bl_no"]["type"] == "string"
+
     def test_required_flag_removed(self):
         """必填概念已取消：参数不再携带 required 字段"""
         cfg = _cfg("n1", 7)
