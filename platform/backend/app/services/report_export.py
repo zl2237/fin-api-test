@@ -235,7 +235,14 @@ body {
 /* 右侧详情 */
 .detail {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 14px; box-shadow: var(--shadow); overflow: hidden;
+  border-radius: 14px; box-shadow: var(--shadow);
+  /* overflow 改 visible：让内部 .sp-sticky 能相对视口固定（hidden 会成为 scroll container 截断 sticky） */
+  overflow: visible;
+}
+/* 步骤标题区粘顶：节点名 + meta + Tab 栏滚动时常驻视口顶部 */
+.sp-sticky {
+  position: sticky; top: 0; z-index: 10; background: var(--card);
+  border-radius: 14px 14px 0 0;
 }
 .step-pane { display: none; }
 .step-pane.active { display: block; }
@@ -260,17 +267,18 @@ body {
 }
 .sp-tab:hover { color: var(--text); }
 .sp-pane { display: none; padding: 18px 22px; }
-/* Tab 切换纯 CSS（radio 兄弟选择器，无 JS 参与）：radio 紧邻 sp-tabs 与 sp-panes 之前 */
+/* Tab 切换用 :has() 取代 ~ 兄弟选择器：radio 与 sp-tabs 同处 .sp-sticky 内、
+   sp-panes 在 .sp-sticky 外（包容器粘顶时不影响兄弟关系判断） */
 input.sp-radio { display: none; }
 .step-pane .sp-panes { position: relative; }
-.step-pane[data-tabbed="1"] input.sp-radio-req:checked ~ .sp-panes .sp-pane-req { display: block; }
-.step-pane[data-tabbed="1"] input.sp-radio-resp:checked ~ .sp-panes .sp-pane-resp { display: block; }
-.step-pane[data-tabbed="1"] input.sp-radio-extract:checked ~ .sp-panes .sp-pane-extract { display: block; }
-.step-pane[data-tabbed="1"] input.sp-radio-assert:checked ~ .sp-panes .sp-pane-assert { display: block; }
-.step-pane[data-tabbed="1"] input.sp-radio-req:checked ~ .sp-tabs label[for].sp-tab-req,
-.step-pane[data-tabbed="1"] input.sp-radio-resp:checked ~ .sp-tabs label.sp-tab-resp,
-.step-pane[data-tabbed="1"] input.sp-radio-extract:checked ~ .sp-tabs label.sp-tab-extract,
-.step-pane[data-tabbed="1"] input.sp-radio-assert:checked ~ .sp-tabs label.sp-tab-assert {
+.step-pane[data-tabbed="1"]:has(input.sp-radio-req:checked) .sp-pane-req,
+.step-pane[data-tabbed="1"]:has(input.sp-radio-resp:checked) .sp-pane-resp,
+.step-pane[data-tabbed="1"]:has(input.sp-radio-extract:checked) .sp-pane-extract,
+.step-pane[data-tabbed="1"]:has(input.sp-radio-assert:checked) .sp-pane-assert { display: block; }
+.step-pane[data-tabbed="1"]:has(input.sp-radio-req:checked) .sp-tabs label.sp-tab-req,
+.step-pane[data-tabbed="1"]:has(input.sp-radio-resp:checked) .sp-tabs label.sp-tab-resp,
+.step-pane[data-tabbed="1"]:has(input.sp-radio-extract:checked) .sp-tabs label.sp-tab-extract,
+.step-pane[data-tabbed="1"]:has(input.sp-radio-assert:checked) .sp-tabs label.sp-tab-assert {
   color: var(--primary); border-bottom-color: var(--primary);
 }
 .sec { margin-bottom: 16px; }
@@ -479,6 +487,9 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     p: list[str] = []
     p.append(f'<section class="step-pane" data-step="{sid}" data-tabbed="1">')
 
+    # 标题区粘顶容器：节点名 + meta + Tab 栏滚动时常驻视口顶部
+    p.append('<div class="sp-sticky">')
+
     # 头部（步骤名单行截断 + title 悬浮全文）
     p.append('<div class="sp-head">')
     p.append(f'<div class="sp-title"><span class="sp-idx">#{idx + 1}</span>'
@@ -495,7 +506,7 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     p.append(f'<span><em>结束</em>{_esc(s.ended_at or "-")}</span>')
     p.append("</div>")
 
-    # Tabs（radio 实现：选中态纯 CSS，无 JS 依赖；顺序 radio → tabs → panes 满足兄弟选择器）
+    # Tabs（radio 实现：选中态用 :has() 纯 CSS，无 JS 依赖；radio 与 sp-tabs 同在 sp-sticky 内）
     p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-req" id="tab-{sid}-req" checked>')
     p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-resp" id="tab-{sid}-resp">')
     p.append(f'<input type="radio" name="tab-{sid}" class="sp-radio sp-radio-extract" id="tab-{sid}-ex">')
@@ -506,6 +517,8 @@ def _step_pane(s: Any, idx: int, sid: str) -> str:
     p.append(f'<label class="sp-tab sp-tab-extract" for="tab-{sid}-ex">提取（{len(post_extract)}）</label>')
     p.append(f'<label class="sp-tab sp-tab-assert" for="tab-{sid}-as">断言（{len(assertions)}）</label>')
     p.append("</div>")
+
+    p.append("</div>")  # /sp-sticky
 
     # 请求（前置处理快照不再展示：配置原文与请求体重复，信息噪音大于价值）
     p.append('<div class="sp-panes">')

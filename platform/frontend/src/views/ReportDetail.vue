@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="report" v-loading="loading">
     <!-- 执行中提示条：running 态自动轮询，与列表页行为一致 -->
     <el-alert
@@ -349,49 +349,63 @@
       </template>
     </el-dialog>
 
-    <!-- 节点编辑重放：改请求体 → 原环境重发 + 同口径断言/提取验证（通过挂徽标，不写回报告） -->
-    <el-dialog v-model="replayVisible" title="编辑并重放节点" width="760px" :close-on-click-modal="false">
+    <!-- 节点编辑重放：左右布局——左请求体常驻不滚走，右结果独立滚动查看 -->
+    <el-dialog
+      v-model="replayVisible"
+      title="编辑并重放节点"
+      width="1080px"
+      :close-on-click-modal="false"
+      class="replay-dialog"
+    >
       <el-alert
         type="info"
         :closable="false"
         style="margin-bottom: 10px"
         title="按原执行环境真实重发一次（写接口有副作用）；${} 用报告上下文重新求值，发送后同口径跑断言与提取——通过仅打「已重放通过」徽标，不写回报告"
       />
-      <el-input
-        v-model="replayBodyText"
-        type="textarea"
-        :rows="14"
-        class="mono"
-        spellcheck="false"
-        placeholder="JSON 请求体"
-      />
-      <template v-if="replayResult">
-        <div class="section-title" style="margin-top: 12px; display: flex; align-items: center; gap: 8px">
-          重放结果：HTTP {{ replayResult.status_code }} · {{ replayResult.elapsed_ms }} ms
-          <el-tag v-if="replayResult.passed" type="success" size="small">断言全过</el-tag>
-          <el-tag v-else type="danger" size="small">未通过</el-tag>
+      <div class="replay-split">
+        <div class="replay-left">
+          <div class="section-title">请求体（编辑后点右下角「重放」）</div>
+          <el-input
+            v-model="replayBodyText"
+            type="textarea"
+            :rows="22"
+            class="mono replay-body-input"
+            spellcheck="false"
+            placeholder="JSON 请求体"
+          />
         </div>
-        <VueJsonPretty :data="replayResult.response_body" :deep="4" />
-        <template v-if="replayResult.assertions?.length">
-          <div class="section-title" style="margin-top: 12px">断言（{{ replayResult.assertions.filter(a => a.pass).length }}/{{ replayResult.assertions.length }} 通过）</div>
-          <div v-for="(a, i) in replayResult.assertions" :key="i" class="replay-assertion" :class="{ fail: !a.pass }">
-            <el-tag :type="a.pass ? 'success' : 'danger'" size="small" effect="light">{{ a.pass ? '通过' : '失败' }}</el-tag>
-            <span class="mono">{{ a.type }}</span>
-            <span v-if="a.message" class="replay-assertion-msg">{{ a.message }}</span>
-          </div>
-        </template>
-        <template v-if="replayResult.extracted && Object.keys(replayResult.extracted).length">
-          <div class="section-title" style="margin-top: 12px">本次提取（断点续跑时并入上下文）</div>
-          <VueJsonPretty :data="replayResult.extracted" :deep="2" />
-        </template>
-        <el-alert
-          v-if="replayResult.passed"
-          type="success"
-          :closable="false"
-          style="margin-top: 12px"
-          title="验证通过：请把正确参数同步到数据集/节点配置，然后点「断点续跑」从该节点真实重跑"
-        />
-      </template>
+        <div class="replay-right">
+          <template v-if="replayResult">
+            <div class="section-title" style="display: flex; align-items: center; gap: 8px">
+              重放结果：HTTP {{ replayResult.status_code }} · {{ replayResult.elapsed_ms }} ms
+              <el-tag v-if="replayResult.passed" type="success" size="small">断言全过</el-tag>
+              <el-tag v-else type="danger" size="small">未通过</el-tag>
+            </div>
+            <VueJsonPretty :data="replayResult.response_body" :deep="4" />
+            <template v-if="replayResult.assertions?.length">
+              <div class="section-title" style="margin-top: 12px">断言（{{ replayResult.assertions.filter(a => a.pass).length }}/{{ replayResult.assertions.length }} 通过）</div>
+              <div v-for="(a, i) in replayResult.assertions" :key="i" class="replay-assertion" :class="{ fail: !a.pass }">
+                <el-tag :type="a.pass ? 'success' : 'danger'" size="small" effect="light">{{ a.pass ? '通过' : '失败' }}</el-tag>
+                <span class="mono">{{ a.type }}</span>
+                <span v-if="a.message" class="replay-assertion-msg">{{ a.message }}</span>
+              </div>
+            </template>
+            <template v-if="replayResult.extracted && Object.keys(replayResult.extracted).length">
+              <div class="section-title" style="margin-top: 12px">本次提取（断点续跑时并入上下文）</div>
+              <VueJsonPretty :data="replayResult.extracted" :deep="2" />
+            </template>
+            <el-alert
+              v-if="replayResult.passed"
+              type="success"
+              :closable="false"
+              style="margin-top: 12px"
+              title="验证通过：请把正确参数同步到数据集/节点配置，然后点「断点续跑」从该节点真实重跑"
+            />
+          </template>
+          <EmptyState v-else description="点击右下角「重放」后在此查看结果" :image-size="60" />
+        </div>
+      </div>
       <template #footer>
         <el-button @click="replayVisible = false">关闭</el-button>
         <el-button type="primary" :loading="replayLoading" @click="doReplay">重放</el-button>
@@ -1313,5 +1327,49 @@ onUnmounted(stopPolling)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 重放弹窗左右布局：左请求体常驻 + 右结果独立滚动（解决滚动看结果时请求体滚走的痛点） */
+.replay-split {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.replay-left {
+  flex: 0 0 46%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* textarea 撑满左侧高度，与右侧等高 */
+.replay-body-input :deep(.el-textarea__inner) {
+  font-family: Consolas, Menlo, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.replay-right {
+  flex: 1;
+  min-width: 0;
+  max-height: 64vh;
+  overflow-y: auto;
+  padding-left: 14px;
+  border-left: 1px solid var(--el-border-color);
+}
+/* 窄屏回退上下布局（避免挤压不可用） */
+@media (max-width: 900px) {
+  .replay-split {
+    flex-direction: column;
+  }
+  .replay-left {
+    flex: none;
+  }
+  .replay-right {
+    max-height: none;
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--el-border-color);
+    padding-top: 10px;
+  }
 }
 </style>
