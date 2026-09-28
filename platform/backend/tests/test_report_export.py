@@ -135,6 +135,22 @@ class TestExportReportHtml:
         assert "断言（1）" in html
         assert "断言（0）" in html
 
+    def test_sticky_header_wraps_title_and_tabs(self):
+        """标题区（节点名+meta+Tab 栏）用 .sp-sticky 包容器粘顶；Tab 切换改用 :has() 选择器"""
+        steps = [_Step(assertions=[_Assert()])]
+        html = export_report_html(_Record(), steps)
+        # sp-sticky 包容器存在，且每个 step-pane 恰好一个
+        assert html.count('class="sp-sticky"') == 1
+        # sp-head/sp-meta/sp-tabs 均在 sp-sticky 内（出现在 sp-sticky 之后、sp-panes 之前）
+        sticky_open = html.find('class="sp-sticky"')
+        sp_head = html.find('class="sp-head"', sticky_open)
+        sp_tabs = html.find('class="sp-tabs"', sticky_open)
+        sp_panes = html.find('class="sp-panes"')
+        assert sticky_open < sp_head < sp_tabs < sp_panes
+        # Tab 切换选择器用 :has()（不再依赖 ~ 兄弟选择器）
+        assert ":has(input.sp-radio-req:checked)" in html
+        assert "~ .sp-panes" not in html
+
     # ===== 前置处理（注入情况）/ 后置提取 =====
 
     def test_pre_process_not_rendered_in_request_tab(self):
