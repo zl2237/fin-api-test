@@ -120,21 +120,21 @@
                       <span v-else class="meta-api none">未绑定接口（在用例编排中绑定，未绑定节点不执行）</span>
                     </div>
 
+                    <div class="node-actions">
+                      <el-button size="small" type="primary" :disabled="!isDirty(n.node_id)" :loading="savingNode" @click="saveNode(n.node_id)">
+                        保存
+                      </el-button>
+                      <el-button size="small" :loading="savingNode" @click="resetNode(n.node_id)">放弃改动</el-button>
+                      <el-button size="small" @click="openImport(n.node_id)">导入 JSON</el-button>
+                      <span class="node-tip">保存即整体替换该节点的全部参数取值来源（含引用拓扑/悬空校验）</span>
+                    </div>
+
                     <NodeParamsTable
                       :model-value="drafts[n.node_id].params"
                       :fields="(n.fields as any) || []"
                       :ref-groups="refGroupsFor(n.node_id)"
                       @update:model-value="(v) => onDraftChange(n.node_id, v)"
                     />
-
-                    <div class="node-actions">
-                      <el-button size="small" @click="openImport(n.node_id)">导入 JSON</el-button>
-                      <el-button size="small" :loading="savingNode" @click="resetNode(n.node_id)">放弃改动</el-button>
-                      <el-button size="small" type="primary" :disabled="!isDirty(n.node_id)" :loading="savingNode" @click="saveNode(n.node_id)">
-                        保存本节点入参
-                      </el-button>
-                      <span class="node-tip">保存即整体替换该节点的全部参数取值来源（含引用拓扑/悬空校验）</span>
-                    </div>
                   </div>
                 </el-tab-pane>
               </el-tabs>
@@ -818,13 +818,23 @@ watch(() => store.currentProjectId, () => {
   display: flex;
   flex-direction: column;
 }
-/* 数据集切换条 */
+/* 数据集切换条：吸顶（单行横向滚动，高度稳定供节点 tab sticky 对位） */
 .ds-bar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin: 0 -20px;
+  padding: 8px 20px;
+  background: var(--app-bg);
+}
+.ds-bar .ds-chip,
+.ds-bar .ds-add {
+  flex-shrink: 0;
 }
 .ds-chip {
   display: inline-flex;
@@ -881,6 +891,7 @@ watch(() => store.currentProjectId, () => {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: 12px; /* ds-bar 吸顶后由此留出间隔 */
   margin-bottom: 10px;
 }
 .main-title {
@@ -910,7 +921,15 @@ watch(() => store.currentProjectId, () => {
   gap: 10px;
   min-height: 200px;
 }
-/* 节点 tabs */
+/* 节点 tabs：header 吸顶在数据集条之下（ds-bar 单行 8+31+8≈47px） */
+.node-tabs :deep(.el-tabs__header) {
+  position: sticky;
+  top: 47px;
+  z-index: 5;
+  margin: 0 -20px;
+  padding: 0 20px;
+  background: var(--app-bg);
+}
 .tab-label {
   display: inline-flex;
   align-items: center;
@@ -949,8 +968,8 @@ watch(() => store.currentProjectId, () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-top: 4px;
-  border-top: 1px dashed var(--app-border);
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--app-border);
 }
 .node-tip {
   font-size: 12px;
