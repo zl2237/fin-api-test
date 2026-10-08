@@ -133,12 +133,13 @@ class TestResumeExecutor:
         assert record.summary["failed"] == 0
 
     def test_context_seed_injected_into_pool(self):
-        """报告虚拟上下文注入 ${} 统一池，后续节点可引用"""
-        ex, record, sink, db = _resume_executor("n2", context_seed={"seed_var": 42})
+        """报告虚拟上下文按节点命名空间还原注入注册表，后续节点 {{节点.变量}} 可引用"""
+        ex, record, sink, db = _resume_executor(
+            "n2", context_seed={"n1": {"seed_var": 42}})
 
         ex.execute()
 
-        assert ex.context.extracted["seed_var"] == 42
+        assert ex.context.registry.read("n1", "seed_var") == 42
 
     def test_resumed_steps_marked(self):
         """续跑段产出的步骤全部带 resumed=True"""

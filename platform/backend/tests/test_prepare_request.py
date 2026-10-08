@@ -1,18 +1,26 @@
-"""prepare_request 单测：参数解析优先级与编排顺序的直接测试面。
+# -*- coding: utf-8 -*-
+"""prepare_request 单测：四来源参数模型的取值与编排顺序（v3 直接测试面）。
 
-定案的取值优先级链（按参数名自动解析）：
-1. 手动覆盖：pre_process set_field/add_field 非空值（字面量或 ${}）
-2. 套件注入：context.suite_vars（上游成员白名单快照，最高优先级注入）
-3. 数据集域静态变量：row_vars（绑定数据集当前行，点路径键）
-运行时变量（extracted：后置提取 / set_field 同步）不参与按名解析，
-仅 ${} 显式引用可取；接口字段默认值不再兜底；无必填概念：
-三层皆空按类型发空值（""/null）。
+取值语义（2026-09-30 定案，取代旧三层按名解析 + ${} 双次求值；同日
+「动作概念退场」后前置处理动作已删除，容器常量/通配路径语义见
+test_row_override）：
+1. 参数取值唯一来自数据集行的 per-node 配置（config.params.body），
+   spec 四选一：constant / func / ref / sql——显式配置即取值，无优先级链
+2. 未配置字段按类型发空值占位（string/file → ""，array → []，其余 → None）；
+   接口字段默认值不兜底；无必填概念
+3. 运行时变量（后置提取 / 其他参数产出）不参与按名解析，须显式 ref
+   （{"node_id", "var_path"} 结构化引用，取不到抛 ReferenceError）
 """
 from types import SimpleNamespace
 
 import pytest
 
+from app.engine.context import ExecutionContext
+from app.engine.param_resolver import SqlExecutionError
 from app.engine.prepare_request import prepare_request
+from app.engine.variables import ReferenceError
+
+SELF = "n_case"
 
 
 def _field(key, field_type="string", default=None, required=False):
@@ -24,191 +32,176 @@ def _api(fields, template=None, **kw):
     return SimpleNamespace(fields=fields, request_template=template, **kw)
 
 
-def _config(pre_process=None):
-    return SimpleNamespace(pre_process=pre_process)
+def _config(body=None, headers=None):
+    return SimpleNamespace(params={"body": body or {}, "headers": headers or {}})
 
 
-class _Ctx:
-    """ExecutionContext 最小替身：to_dict 返回三池结构（env/extracted/global），
-    测试变量放 extracted（无前缀 ${name} 从该池取值）；extracted 保持引用，
-    set_field 回写对二次求值可见；suite_vars 为套件注入域（按名自动解析可见）
-    ——与真实 ExecutionContext 一致"""
-
-    def __init__(self, vars=None, suite_vars=None):
-        self.extracted = dict(vars or {})
-        self.suite_vars = dict(suite_vars or {})
-
-    def to_dict(self):
-        return {"env": {}, "extracted": self.extracted, "global": {}}
+def _ctx(suite_vars=None, seed=None):
+    return ExecutionContext(suite_vars=suite_vars, resume_seed=seed)
 
 
-def _run(api, config=None, ctx=None, row_vars=None, headers=None):
-    return prepare_request(api, config, context=ctx or _Ctx(),
-                           row_vars=row_vars,
+def _const(v):
+    return {"source": "constant", "value": v}
+
+
+def _ref(node_id, var_path, as_array=False):
+    spec = {"source": "ref", "node_id": node_id, "var_path": var_path}
+    if as_array:
+        spec["as_array"] = True
+    return spec
+
+
+def _run(api, config=None, ctx=None, headers=None, self_node=SELF):
+    return prepare_request(api, config, context=ctx or ExecutionContext(),
+                           self_node=self_node,
                            base_headers=headers or {}, db_client=None)
 
 
 class TestPriority:
-    """取值优先级：手动覆盖(1) > 套件注入(2) > 数据集域(3)；
-    运行时变量不参与按名解析（仅 ${} 显式引用）"""
+    """取值模型：constant 显式值生效 / 未配置不按名解析 / 空占位规则"""
 
-    def test_manual_literal_beats_suite_and_row(self):
-        """手动覆盖字面量压过套件注入与数据集域（有值=覆盖）"""
+    def test_constant_beats_suite_and_upstream(self):
+        """constant 显式配置即取值：注册表里同名套件/上游变量不参与（旧「手动覆盖优先」的等价迁移）"""
         api = _api([_field("bl_no")])
-        config = _config([{"type": "set_field", "path": "bl_no", "value": "MANUAL"}])
+        config = _config(body={"bl_no": _const("MANUAL")})
 
-        parts = _run(api, config, _Ctx(suite_vars={"bl_no": "SUITE"}),
-                     row_vars={"bl_no": "ROW"})
+        parts = _run(api, config, _ctx(suite_vars={"bl_no": "SUITE"},
+                                       seed={"n_up": {"bl_no": "UP"}}))
 
         assert parts.body == {"bl_no": "MANUAL"}
 
-    def test_suite_injection_beats_row_domain(self):
-        """套件注入（上游白名单快照）压过数据集域行值"""
+    def test_suite_ns_ref_resolves(self):
+        """ref __suite__：套件白名单注入（上游成员快照）直接可引用"""
         api = _api([_field("bl_no")])
 
-        parts = _run(api, ctx=_Ctx(suite_vars={"bl_no": "SUITE"}),
-                     row_vars={"bl_no": "ROW"})
+        parts = _run(api, _config(body={"bl_no": _ref("__suite__", "bl_no")}),
+                     _ctx(suite_vars={"bl_no": "SUITE"}))
 
         assert parts.body == {"bl_no": "SUITE"}
 
-    def test_row_domain_used_when_no_suite_var(self):
+    def test_row_config_value_used(self):
+        """数据集行配置（constant）即参数值（入参收敛到数据集行的直接体现）"""
         api = _api([_field("bl_no")])
 
-        parts = _run(api, row_vars={"bl_no": "ROW"})
+        parts = _run(api, _config(body={"bl_no": _const("ROW")}))
 
         assert parts.body == {"bl_no": "ROW"}
 
-    def test_runtime_vars_not_resolved_by_name(self):
-        """运行时变量（extracted：后置提取/set_field 同步）不参与按名解析，
-        仅 ${} 显式引用可取——非动态参数要么取自变量池，要么手动填"""
+    def test_unconfigured_param_not_resolved_by_name(self):
+        """运行时变量（上游提取等）不参与按名解析：未配置字段发空占位，
+        要取上游值必须显式 ref（旧按名解析已废止）"""
         api = _api([_field("bl_no"), _field("teu", field_type="int")])
 
-        parts = _run(api, ctx=_Ctx(vars={"bl_no": "RUNTIME", "teu": 3}))
+        parts = _run(api, ctx=_ctx(seed={"n_up": {"bl_no": "RUNTIME", "teu": 3}}))
 
         assert parts.body == {"bl_no": "", "teu": None}
 
     def test_api_default_not_used_as_fallback(self):
-        """接口字段默认值不再兜底：三层皆空发空值占位（默认值无效）"""
+        """接口字段默认值不兜底：未配置发空值占位（默认值无效）"""
         api = _api([_field("bl_no", default="DEFAULT")])
 
         parts = _run(api)
 
         assert parts.body == {"bl_no": ""}
 
-    def test_dynamic_binding_wins_as_manual(self):
-        """${} 动态绑定属手动层（显式引用），照常求值"""
+    def test_upstream_ref_resolves(self):
+        """ref 显式引用上游产出（旧 ${} 动态绑定的等价迁移）"""
         api = _api([_field("order_id")])
-        config = _config([{"type": "set_field", "path": "order_id", "value": "${oid}"}])
 
-        parts = _run(api, config, _Ctx({"oid": "A123"}), row_vars={"order_id": "ROWVAL"})
+        parts = _run(api, _config(body={"order_id": _ref("n_up", "oid")}),
+                     _ctx(seed={"n_up": {"oid": "A123"}}))
 
         assert parts.body == {"order_id": "A123"}
 
     def test_unfilled_param_sends_empty_by_type(self):
-        """无必填概念：三层皆空的参数按类型发空值（string → ""，其余 → None）"""
-        api = _api([_field("bl_no"), _field("teu", field_type="int")])
+        """无必填概念：未配置参数按类型发空值（string → ""，int → None，array → []）"""
+        api = _api([_field("bl_no"), _field("teu", field_type="int"),
+                    _field("ids", field_type="array")])
 
         parts = _run(api)
 
-        assert parts.body == {"bl_no": "", "teu": None}
+        assert parts.body == {"bl_no": "", "teu": None, "ids": []}
 
-    def test_unfilled_when_row_cell_empty(self):
-        """行单元格空值 = 未配置：同样发空值占位"""
+    def test_constant_empty_sends_empty(self):
+        """constant 空串（数据集空单元格迁移形态）= 显式空：发空串"""
         api = _api([_field("bl_no")])
 
-        parts = _run(api, row_vars={"bl_no": ""})
+        parts = _run(api, _config(body={"bl_no": _const("")}))
 
         assert parts.body == {"bl_no": ""}
 
     def test_no_required_error_any_more(self):
-        """必填概念已取消：任何参数三层皆空都不再报错"""
+        """必填概念已取消：任何参数未配置都不再报错"""
         api = _api([_field("bl_no", required=True)])
 
         parts = _run(api)
 
         assert parts.body == {"bl_no": ""}
 
-    def test_empty_placeholder_resolves_from_pools(self):
-        """空值占位（清空转引用后的形态）参与按名解析——无标记维持自动引用（存量兼容）"""
-        api = _api([])
-        config = _config([{"type": "set_field", "path": "bl_no", "value": ""}])
-
-        parts = _run(api, config, row_vars={"bl_no": "ROW"})
-
-        assert parts.body == {"bl_no": "ROW"}
-
-    def test_explicit_empty_sends_empty_not_pool(self):
-        """显式空值（explicit_empty 标记）：发送空串，不回落变量池——
-        用户明确要求为空时不再被静默解释为取池值（case 92 交互实证）"""
-        api = _api([_field("customer_id")])
-        config = _config([{"type": "set_field", "path": "customer_id",
-                           "value": "", "explicit_empty": True}])
-
-        parts = _run(api, config, row_vars={"customer_id": ["343612351695552512"]})
-
-        assert parts.body == {"customer_id": ""}
-
 
 class TestLookup:
-    """按名解析的三种形态：精确（含点路径）/ 拆叶展开 / 整对象列"""
+    """参数路径还原：点路径 / 叶路径合并 / 整对象 / 整键与叶键并存"""
 
-    def test_dot_path_exact_match(self):
-        """点路径键精确匹配：嵌套结构按路径还原"""
+    def test_dot_path_param_builds_nested(self):
+        """点路径参数（旧点路径列的等价迁移）：按路径还原嵌套结构"""
         api = _api([_field("to_customer.put_amount", field_type="int")])
 
-        parts = _run(api, row_vars={"to_customer.put_amount": 100})
+        parts = _run(api, _config(body={"to_customer.put_amount": _const(100)}))
 
         assert parts.body == {"to_customer": {"put_amount": 100}}
 
-    def test_prefix_leaves_expansion(self):
-        """父路径键解析：池存拆叶键（收集器拆叶入池的逆操作）"""
+    def test_leaf_params_merge_into_object(self):
+        """多个叶路径参数合并进同一父对象（旧拆叶展开的逆操作）"""
         api = _api([_field("to_customer", field_type="object")])
 
-        parts = _run(api, row_vars={"to_customer.put_amount": 100,
-                                    "to_customer.remark": "r"})
+        parts = _run(api, _config(body={"to_customer.put_amount": _const(100),
+                                        "to_customer.remark": _const("r")}))
 
         assert parts.body == {"to_customer": {"put_amount": 100, "remark": "r"}}
 
-    def test_whole_object_column(self):
-        """整对象列（存量数据集）：池键为前缀且值为 dict，按子路径取值"""
+    def test_whole_object_param(self):
+        """整对象参数（旧整对象列的等价迁移）：dict 值原样落到路径"""
         api = _api([_field("to_customer.put_amount", field_type="int")])
 
-        parts = _run(api, row_vars={"to_customer": {"put_amount": 200}})
+        parts = _run(api, _config(body={"to_customer": _const({"put_amount": 200})}))
 
         assert parts.body == {"to_customer": {"put_amount": 200}}
 
-    def test_empty_cell_sends_empty_not_runtime_var(self):
-        """空单元格 = 未配置：发空值占位，不再让位给运行时变量（按名解析已移除）"""
+    def test_unconfigured_field_ignores_same_name_runtime_var(self):
+        """未配置字段发空占位，同名运行时变量不生效（按名解析已移除）"""
         api = _api([_field("bl_no")])
 
-        parts = _run(api, ctx=_Ctx(vars={"bl_no": "RUNTIME"}),
-                     row_vars={"bl_no": ""})
+        parts = _run(api, ctx=_ctx(seed={"n_up": {"bl_no": "RUNTIME"}}))
 
         assert parts.body == {"bl_no": ""}
 
-    def test_leaf_key_overrides_whole_list_value(self):
-        """整键与叶键并存：叶键（细粒度配置）覆盖整键值对应位置，其余元素保留。
-        曾致 select_list=[{order_id:666}] 精确命中后叶键 ${order_id} 引用不生效"""
+    def test_leaf_param_overrides_whole_list_value(self):
+        """整键与叶键并存：叶参数（细粒度配置）写入整键值对应位置，其余元素保留。
+        曾致 select_list=[{order_id:666}] 精确命中后叶键引用不生效（等价迁移）"""
         api = _api([_field("select_list", field_type="array")])
 
         parts = _run(
             api,
-            ctx=_Ctx(vars={"order_id": 10293}),
-            row_vars={"select_list": [{"order_id": 666, "qty": 2}],
-                      "select_list.0.order_id": "${order_id}"},
+            _config(body={
+                "select_list": _const([{"order_id": 666, "qty": 2}]),
+                "select_list.0.order_id": _ref("n_up", "order_id"),
+            }),
+            ctx=_ctx(seed={"n_up": {"order_id": 10293}}),
         )
 
         assert parts.body == {"select_list": [{"order_id": 10293, "qty": 2}]}
 
-    def test_leaf_key_overrides_whole_dict_value(self):
+    def test_leaf_param_overrides_whole_dict_value(self):
         """dict 整键同理：仅覆盖指定叶，未涉及的子键保留"""
         api = _api([_field("to_customer", field_type="object")])
 
         parts = _run(
             api,
-            ctx=_Ctx(vars={"bl_no": "BL001"}),
-            row_vars={"to_customer": {"put_amount": 100, "remark": "r"},
-                      "to_customer.put_amount": "${bl_no}"},
+            _config(body={
+                "to_customer": _const({"put_amount": 100, "remark": "r"}),
+                "to_customer.put_amount": _ref("n_up", "bl_no"),
+            }),
+            ctx=_ctx(seed={"n_up": {"bl_no": "BL001"}}),
         )
 
         assert parts.body == {"to_customer": {"put_amount": "BL001", "remark": "r"}}
@@ -218,40 +211,57 @@ class TestTemplateBody:
     """无字段定义（request_template）接口的解析口径"""
 
     def test_template_statics_preserved(self):
-        """模板体静态值原样保留，未解析到的模板键不删除"""
+        """模板体静态值原样保留；模板顶层键可被参数覆盖"""
         api = _api([], template={"keep": "T1", "drop_me": "T2"})
 
-        parts = _run(api, row_vars={"drop_me": "ROW"})
+        parts = _run(api, _config(body={"drop_me": _const("ROW")}))
 
         assert parts.body == {"keep": "T1", "drop_me": "ROW"}
 
-    def test_template_top_keys_resolve_from_pools(self):
-        """模板顶层键即事实参数声明，参与按名解析"""
+    def test_template_top_key_param_ref(self):
+        """模板顶层键即事实参数声明，可配 ref 引用（旧模板键参与按名解析的等价迁移）"""
         api = _api([], template={"bl_no": "OLD"})
 
-        parts = _run(api, ctx=_Ctx(suite_vars={"bl_no": "SUITE"}))
+        parts = _run(api, _config(body={"bl_no": _ref("__suite__", "bl_no")}),
+                     _ctx(suite_vars={"bl_no": "SUITE"}))
 
         assert parts.body == {"bl_no": "SUITE"}
 
 
 class TestAssemblyOrder:
-    """编排顺序本身：求值后还原类型、pre_process 后二次求值"""
+    """编排顺序本身：解析后还原类型、参数结果注册进本节点命名空间"""
 
-    def test_array_string_evaluated_then_coerced(self):
-        """'[${a}, 2]' 求值成 '[1, 2]' 字符串后必须还原成原生 list"""
+    def test_array_string_coerced(self):
+        """'[1, 2]' 常量字符串（旧 '[${a}, 2]' 求值产物的等价迁移形态）还原成原生 list"""
         api = _api([_field("ids", field_type="array")])
-        config = _config([{"type": "set_field", "path": "ids", "value": "[${a}, 2]"}])
 
-        parts = _run(api, config, _Ctx({"a": 1}))
+        parts = _run(api, _config(body={"ids": _const("[1, 2]")}))
 
         assert parts.body == {"ids": [1, 2]}
 
-    def test_field_type_coercion_after_evaluation(self):
-        """int 提取值按字段定义 string 强转：12345 → '12345'"""
-        api = _api([_field("order_id", field_type="string")])
-        config = _config([{"type": "set_field", "path": "order_id", "value": "${oid}"}])
+    def test_ref_as_array_wraps_single_value(self):
+        """as_array: true——单值包成单元素数组（旧 '[${x}]' 写法的等价迁移）"""
+        api = _api([_field("ids", field_type="array")])
 
-        parts = _run(api, config, _Ctx({"oid": 12345}))
+        parts = _run(api, _config(body={"ids": _ref("n_up", "a", as_array=True)}),
+                     _ctx(seed={"n_up": {"a": 1}}))
+
+        assert parts.body == {"ids": [1]}
+
+    def test_array_field_empty_scalar_normalized(self):
+        """array 字段空标量归一（""/None → []）：数据集空值引用后路径参数才能按下标建元素"""
+        api = _api([_field("writeoff_object", field_type="array")])
+
+        parts = _run(api, _config(body={"writeoff_object": _const("")}))
+
+        assert parts.body == {"writeoff_object": []}
+
+    def test_field_type_coercion_after_resolution(self):
+        """int 引用值按字段定义 string 强转：12345 → '12345'"""
+        api = _api([_field("order_id", field_type="string")])
+
+        parts = _run(api, _config(body={"order_id": _ref("n_up", "oid")}),
+                     _ctx(seed={"n_up": {"oid": 12345}}))
 
         assert parts.body == {"order_id": "12345"}
 
@@ -259,113 +269,116 @@ class TestAssemblyOrder:
         """字段骨架 + list 模板 → 数组请求体 [{...}]"""
         api = _api([_field("bl_no")], template=[{"bl_no": "OLD"}])
 
-        parts = _run(api, row_vars={"bl_no": "ROW"})
+        parts = _run(api, _config(body={"bl_no": _const("ROW")}))
 
         assert parts.body == [{"bl_no": "ROW"}]
 
-    def test_set_field_value_synced_to_extracted(self):
-        """set_field 求值结果同步写入 extracted（后续节点 ${} 显式引用可取）"""
+    def test_param_result_registers_to_registry(self):
+        """参数求值结果注册进本节点命名空间（下游经 节点.路径 / 节点.末段 引用）"""
         api = _api([_field("bl_no")])
-        ctx = _Ctx()
-        config = _config([{"type": "set_field", "path": "bl_no", "value": "SYNCED"}])
+        ctx = _ctx()
 
-        _run(api, config, ctx)
+        _run(api, _config(body={"bl_no": _const("SYNCED")}), ctx)
 
-        assert ctx.extracted.get("bl_no") == "SYNCED"
-
-    def test_second_evaluation_injects_set_field_values(self):
-        """pre_process 写入上下文后二次求值：后续字段引用 set_field 的产物"""
-        api = _api([
-            _field("src"),
-            _field("dst"),
-        ])
-        config = _config([
-            {"type": "set_field", "path": "src", "value": "FROM_CASE"},
-            {"type": "set_field", "path": "dst", "value": "${src}"},
-        ])
-
-        parts = _run(api, config)
-
-        assert parts.body == {"src": "FROM_CASE", "dst": "FROM_CASE"}
+        assert ctx.registry.read(SELF, "bl_no") == "SYNCED"
 
 
-class TestExecSql:
-    """前置处理 exec_sql：请求前执行 SQL 造数（如节点执行前先 INSERT 一条依赖数据）。
+class TestSqlParameter:
+    """SQL 来源参数：{{节点.变量}} 占位渲染后查询取值。
 
-    ${} 引用统一变量池（context.extracted + 前序 set_field 同步值），
-    转义与 post_extract 的 db 提取同一实现（inject_sql_vars）。"""
+    字符串单引号转义防注入；取不到值抛 ReferenceError（不静默放行）；
+    结果按 本节点.参数路径 注册（下游与本节点后续参数可引用）。"""
 
-    def _run_sql(self, ctx, actions, sqls):
-        fake_db = SimpleNamespace(execute=lambda sql: sqls.append(sql))
-        api = _api([_field("bl_no")])
-        return prepare_request(api, _config(actions), context=ctx,
-                               row_vars={"bl_no": "B1"},
-                               base_headers={}, db_client=fake_db)
+    def _run_sql(self, ctx, body, sqls, rows=None, fields=None):
+        fake_db = SimpleNamespace(query=lambda sql: (sqls.append(sql), rows or [])[1])
+        api = _api(fields if fields is not None else [_field("order_id")])
+        return prepare_request(api, _config(body=body), context=ctx,
+                               self_node=SELF, base_headers={}, db_client=fake_db), sqls
 
-    def test_exec_sql_with_vars(self):
-        """${} 注入：字符串单引号转义包裹 / int 直接替换 / 未定义变量保留原样"""
+    def test_sql_param_renders_placeholders(self):
+        """{{}} 渲染：字符串单引号转义包裹 / int 直接替换"""
         sqls = []
-        ctx = _Ctx({"bl_no": "BL'001", "teu": 2})
-        self._run_sql(ctx, [{"type": "exec_sql",
-                             "sql": "INSERT INTO t (bl_no, teu, memo) VALUES (${bl_no}, ${teu}, ${missing})"}],
-                      sqls)
-        assert sqls == ["INSERT INTO t (bl_no, teu, memo) VALUES ('BL''001', 2, '${missing}')"]
+        parts, _ = self._run_sql(
+            _ctx(seed={"n_up": {"bl_no": "BL'001", "teu": 2}}),
+            {"order_id": {"source": "sql", "column": "id",
+                          "sql": "SELECT id FROM t WHERE bl_no={{n_up.bl_no}} AND teu={{n_up.teu}}"}},
+            sqls, rows=[{"id": "77"}])
+        assert sqls == ["SELECT id FROM t WHERE bl_no='BL''001' AND teu=2"]
+        assert parts.body == {"order_id": "77"}
 
-    def test_exec_sql_sees_set_field_synced_vars(self):
-        """同批前序 set_field 求值结果同步到变量池，exec_sql 可引用"""
-        sqls = []
-        self._run_sql(_Ctx(), [
-            {"type": "set_field", "path": "memo", "value": "BL-SET"},
-            {"type": "exec_sql", "sql": "INSERT INTO t (memo) VALUES (${memo})"},
-        ], sqls)
-        assert sqls == ["INSERT INTO t (memo) VALUES ('BL-SET')"]
+    def test_sql_param_missing_ref_raises(self):
+        """占位符取不到值 → ReferenceError（旧「未定义变量保留原样」的行为已废止）"""
+        with pytest.raises(ReferenceError):
+            self._run_sql(_ctx(seed={"n_up": {}}),
+                          {"order_id": {"source": "sql",
+                                        "sql": "SELECT {{n_up.missing}}"}},
+                          [])
 
-    def test_exec_sql_no_db_client_raises(self):
-        """环境未配置数据库连接 → RuntimeError（上层兜底为失败步骤，原因可见）"""
-        api = _api([])
-        with pytest.raises(RuntimeError, match="数据库连接"):
-            prepare_request(api, _config([{"type": "exec_sql", "sql": "SELECT 1"}]),
-                            context=_Ctx(), row_vars=None,
+    def test_sql_param_no_db_client_raises(self):
+        """环境未配置数据库连接 → SqlExecutionError（上层兜底为失败步骤，原因可见）"""
+        api = _api([_field("order_id")])
+        with pytest.raises(SqlExecutionError, match="数据库连接"):
+            prepare_request(api, _config(body={"order_id": {"source": "sql",
+                                                            "sql": "SELECT 1"}}),
+                            context=ExecutionContext(), self_node=SELF,
                             base_headers={}, db_client=None)
 
-    def test_exec_sql_empty_skipped(self):
-        """空 SQL（前端表格空行占位）→ 跳过不炸"""
+    def test_sql_param_result_registered_for_downstream_param(self):
+        """SQL 参数结果按 本节点.参数路径 注册：本节点后续参数直接引用"""
         sqls = []
-        self._run_sql(_Ctx(), [{"type": "exec_sql", "sql": "   "}], sqls)
-        assert sqls == []
+        parts, _ = self._run_sql(
+            _ctx(),
+            {"oid": {"source": "sql", "sql": "SELECT 1", "column": "id"},
+             "memo": _ref(SELF, "oid")},
+            sqls, rows=[{"id": "ID5"}], fields=[_field("oid"), _field("memo")])
+        assert parts.body == {"oid": "ID5", "memo": "ID5"}
+
+    def test_sql_param_orders_after_referenced_self_param(self):
+        """{{self.参数}} 依赖：SQL 参数在本节点被引用参数解析之后执行（order_params）"""
+        sqls = []
+        parts, _ = self._run_sql(
+            _ctx(),
+            {"memo": _const("M1"),
+             "oid": {"source": "sql",
+                     "sql": "SELECT {{%s.memo}} AS v" % SELF, "column": "v"}},
+            sqls, rows=[{"v": "OK"}], fields=[_field("oid"), _field("memo")])
+        assert sqls == ["SELECT 'M1' AS v"]
+        assert parts.body["oid"] == "OK"
 
 
 class TestFileAndHeaders:
 
     def test_file_field_popped_from_body(self):
-        """file 字段剥离出 JSON body，进入 file_fields 列表（池值=文件 ID）"""
+        """file 字段剥离出 JSON body，进入 file_fields 列表（参数值=文件 ID）"""
         api = _api([
             _field("bl_no"),
             _field("doc", field_type="file"),
         ])
 
-        parts = _run(api, row_vars={"bl_no": "BL1", "doc": "FILE123"})
+        parts = _run(api, _config(body={"bl_no": _const("BL1"),
+                                        "doc": _const("FILE123")}))
 
         assert parts.body == {"bl_no": "BL1"}
         assert parts.file_fields == [("doc", "FILE123")]
 
-    def test_headers_expression_evaluated(self):
+    def test_header_param_ref_resolved(self):
+        """params.headers 逐头解析（ref 引用）：覆盖/追加到环境公共头之上"""
         api = _api([_field("bl_no")])
-        ctx = _Ctx({"token": "T1"})
 
-        parts = _run(api, ctx=ctx, row_vars={"bl_no": "BL1"},
-                     headers={"Authorization": "Bearer ${token}", "X-Plain": "v"})
+        parts = _run(api, _config(headers={"Authorization": _ref("__suite__", "token")}),
+                     _ctx(suite_vars={"token": "T1"}),
+                     headers={"X-Plain": "v"})
 
-        assert parts.headers == {"Authorization": "Bearer T1", "X-Plain": "v"}
+        assert parts.headers == {"Authorization": "T1", "X-Plain": "v"}
 
     def test_base_headers_not_mutated(self):
-        """headers 深拷贝求值，不污染 http_client 共享的 headers"""
+        """headers 深拷贝组装，不污染 http_client 共享的 headers"""
         api = _api([_field("bl_no")])
-        base = {"Authorization": "Bearer ${token}"}
+        base = {"Authorization": "Bearer X"}
 
-        _run(api, ctx=_Ctx({"token": "T1"}), row_vars={"bl_no": "BL1"}, headers=base)
+        _run(api, _config(body={"bl_no": _const("BL1")}), headers=base)
 
-        assert base == {"Authorization": "Bearer ${token}"}  # 原引用保持占位符
+        assert base == {"Authorization": "Bearer X"}
 
     def test_api_headers_template_overrides_base(self):
         """接口 headers_template 覆盖环境公共头：curl 导入的表单 Content-Type 生效，
@@ -375,19 +388,20 @@ class TestFileAndHeaders:
             headers_template={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
-        parts = _run(api, row_vars={"order_no": "YHL1"},
+        parts = _run(api, _config(body={"order_no": _const("YHL1")}),
                      headers={"Content-Type": "application/json", "X-Req": "1"})
 
         assert parts.headers["Content-Type"] == "application/x-www-form-urlencoded"
         assert parts.headers["X-Req"] == "1"  # 未覆盖的公共头保留
 
-    def test_api_headers_support_expression(self):
-        """headers_template 的值支持 ${} 求值（与其他 headers 同口径）"""
+    def test_header_param_overrides_template(self):
+        """节点参数头压过接口模板头（最高优先级，旧模板 ${} 求值的等价迁移）"""
         api = SimpleNamespace(
             fields=[_field("a")], request_template={},
-            headers_template={"X-Bl": "${a}"},
+            headers_template={"X-Bl": "tpl"},
         )
 
-        parts = _run(api, ctx=_Ctx({"a": "V9"}), row_vars={"a": "1"})
+        parts = _run(api, _config(headers={"X-Bl": _ref("n_up", "a")}),
+                     _ctx(seed={"n_up": {"a": "V9"}}))
 
         assert parts.headers["X-Bl"] == "V9"

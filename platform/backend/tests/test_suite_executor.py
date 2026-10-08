@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.engine.variables import VariableRegistry
 from app.services import suite_executor as se
 
 
@@ -79,7 +80,8 @@ def harness(monkeypatch):
         return rec
 
     class FakeExecutor:
-        """按脚本顺序产出 (status, extracted[, record 补丁])；捕获构造入参供断言"""
+        """按脚本顺序产出 (status, 变量集[, record 补丁])；捕获构造入参供断言。
+        context.registry 用真实 VariableRegistry（_snapshot_vars 从注册表快照）"""
         script: list = []
         instances: list = []
 
@@ -89,13 +91,14 @@ def harness(monkeypatch):
             self.case, self.env, self.record = case, env, execution_record
             self.suite_vars = suite_vars
             self.suppress_notify = suppress_notify
-            self.context = SimpleNamespace(extracted={})
+            self.context = SimpleNamespace(registry=VariableRegistry())
             FakeExecutor.instances.append(self)
 
         def execute(self):
             item = FakeExecutor.script.pop(0)
             self.record.status = item[0]
-            self.context.extracted = dict(item[1])
+            for k, v in (item[1] or {}).items():
+                self.context.registry.write("n_last", k, v)
             for k, v in (item[2] if len(item) > 2 else {}).items():
                 setattr(self.record, k, v)
 
@@ -115,22 +118,34 @@ def harness(monkeypatch):
 
 
 def _plain_plan():
-    return [{"dataset_id": None, "row": None, "overrides": None}]
+    return [{"dataset_id": 7, "row": {"row_index": 1, "data": {"nodes": {}}, "label": ""}}]
 
 
 def _row_plan(*rows):
     """rows: (row_index, data) 序列 → 数据驱动展开项"""
-    return [{"dataset_id": 7, "row": {"row_index": idx, "data": data, "label": ""},
-             "overrides": None} for idx, data in rows]
+    return [{"dataset_id": 7, "row": {"row_index": idx, "data": data, "label": ""}}
+            for idx, data in rows]
 
 
 class TestSnapshotVars:
     def test_whitelist_filters_pool(self):
-        """只保留名单内且在池中的变量（名单外不外泄，池中缺失不报错）"""
-        assert se._snapshot_vars(["bl_no", "absent"], {"bl_no": "BL1", "seq_no": "S9"}) == {"bl_no": "BL1"}
+        """只保留名单内且在注册表中的变量（名单外不外泄，缺失不报错）"""
+        reg = VariableRegistry()
+        reg.write("n1", "bl_no", "BL1")
+        reg.write("n1", "seq_no", "S9")
+        assert se._snapshot_vars(["bl_no", "absent"], reg) == {"bl_no": "BL1"}
 
     def test_empty_whitelist_snapshots_nothing(self):
-        assert se._snapshot_vars(None, {"bl_no": "BL1"}) == {}
+        reg = VariableRegistry()
+        reg.write("n1", "bl_no", "BL1")
+        assert se._snapshot_vars(None, reg) == {}
+
+    def test_same_name_last_write_wins_across_ns(self):
+        """白名单是变量名（无节点维度）：跨命名空间同名按注册顺序后写覆盖"""
+        reg = VariableRegistry()
+        reg.write("n1", "bl_no", "BL1")
+        reg.write("n2", "bl_no", "BL2")
+        assert se._snapshot_vars(["bl_no"], reg) == {"bl_no": "BL2"}
 
 
 class TestRunSuite:
@@ -273,7 +288,7 @@ class TestRunSuite:
                      SimpleNamespace(id=77, shared_vars=None), record)
 
         row = record.summary["members"][0]["rows"][0]
-        assert row["row_index"] is None  # 未绑定数据集 → 无行号
+        assert row["row_index"] == 1  # 单行收敛：数据集恒一行（row_index=1）
         assert row["reason"] == "授信金额应大于0"
 
     def test_row_reason_prefers_summary_error(self, harness):

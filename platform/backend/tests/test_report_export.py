@@ -23,7 +23,6 @@ class _Step:
         self.started_at = kw.get("started_at", "2026-01-01 10:00:00")
         self.ended_at = kw.get("ended_at", "2026-01-01 10:00:01")
         self.assertions = kw.get("assertions", [])
-        self.pre_process = kw.get("pre_process", [])
         self.post_extract = kw.get("post_extract", [])
         self.extracted_vars = kw.get("extracted_vars", {})
 
@@ -151,21 +150,16 @@ class TestExportReportHtml:
         assert ":has(input.sp-radio-req:checked)" in html
         assert "~ .sp-panes" not in html
 
-    # ===== 前置处理（注入情况）/ 后置提取 =====
+    # ===== 请求 Tab 渲染口径 / 后置提取 =====
 
-    def test_pre_process_not_rendered_in_request_tab(self):
-        """请求 Tab 不再渲染前置处理：配置原文与请求体重复，信息噪音大于价值"""
-        steps = [_Step(pre_process=[
-            {"type": "set_field", "path": "$.orderNo", "value": "${bl_no}"},
-            {"type": "exec_sql", "sql": "SELECT id FROM t_order LIMIT 1"},
-        ])]
+    def test_request_tab_only_headers_and_body(self):
+        """请求 Tab 只渲染请求头/请求体：前置处理配置已随前置动作概念移除，
+        不再有配置原文展示（避免与请求体重复的信息噪音）"""
+        steps = [_Step()]
         html = export_report_html(_Record(), steps)
-        assert "前置处理" not in html
-        assert "设置字段" not in html
-        assert "执行 SQL" not in html
-        assert "SELECT id FROM t_order LIMIT 1" not in html
-        # 请求头/请求体等既有区块不受影响
         assert "请求头" in html and "请求体" in html
+        assert "前置处理" not in html
+        assert "设置字段" not in html and "执行 SQL" not in html
 
     def test_extract_tab_with_rules_and_actual_values(self):
         """提取 Tab：变量名/来源/规则/实际提取结果；缺失结果标注未提取到"""

@@ -20,10 +20,10 @@ def _edge(s, t):
     return {"id": f"e_{s}_{t}", "source": s, "target": t}
 
 
-def _nc(node_id, api_id=1, pre=None, extract=None, asserts=None, wait=0):
+def _nc(node_id, api_id=1, extract=None, asserts=None, wait=0):
     return SimpleNamespace(
         node_id=node_id, api_id=api_id,
-        pre_process=pre or [], post_extract=extract or [],
+        post_extract=extract or [],
         assertions=asserts or [], wait_after_ms=wait,
     )
 
@@ -107,12 +107,13 @@ class TestCombineCases:
         assert join[0]["source"] == "c1_b" and join[0]["target"] == "c2_c"
 
     def test_configs_copied_with_new_ids(self):
-        c1 = _case(1, nodes=[_node("a")], configs=[_nc("a", api_id=5, pre=[{"k": "v"}])])
+        """节点结构配置随迁：接口绑定与后置提取复制到新节点 ID（入参配置在数据集行，另行合并）"""
+        c1 = _case(1, nodes=[_node("a")], configs=[_nc("a", api_id=5, extract=[{"k": "v"}])])
         c2 = _case(2, nodes=[_node("b")], configs=[_nc("b", api_id=6)])
         _, data = self._run([c1, c2])
         by_node = {nc["node_id"]: nc for nc in data["node_configs"]}
         assert by_node["c1_a"]["api_id"] == 5
-        assert by_node["c1_a"]["pre_process"] == [{"k": "v"}]
+        assert by_node["c1_a"]["post_extract"] == [{"k": "v"}]
         assert by_node["c2_b"]["api_id"] == 6
 
     def test_positions_shifted_per_segment(self):
@@ -131,45 +132,83 @@ class TestCombineCases:
         assert data["project_id"] == 3
 
 
-class TestCollectRefs:
-    def test_plain_var(self):
-        assert svc._collect_refs("prefix-${order_id}-suffix") == {"order_id"}
+class TestSpecNodeRefs:
+    """_spec_node_refs：递归收集四来源 spec 内引用的节点 ID（拆分跨界扫描的引用口径）。
 
-    def test_function_call_excluded(self):
-        assert svc._collect_refs("${uuid()}") == set()
+    旧 _collect_refs（${}/context.x/函数调用三分类）已随 ${} 语法废止移除，
+    引用口径改为结构化 spec + {{节点.变量}} 占位。"""
 
-    def test_context_prefix_excluded(self):
-        assert svc._collect_refs("${context.foo}") == set()
+    def test_ref_collected(self):
+        assert svc._spec_node_refs({"source": "ref", "node_id": "n1", "var_path": "order_id"}) == {"n1"}
 
-    def test_nested_structures(self):
-        v = {"a": "${x}", "b": ["${y}", {"c": "${z}"}], "d": 123}
-        assert svc._collect_refs(v) == {"x", "y", "z"}
+    def test_constant_excluded(self):
+        assert svc._spec_node_refs({"source": "constant", "value": "x"}) == set()
+
+    def test_func_ref_arg_collected(self):
+        """func 入参的 ref 引用收集（const 入参不算引用）"""
+        spec = {"source": "func", "func": "upper", "args": [
+            {"name": "s", "kind": "const", "value": "a"},
+            {"name": "t", "kind": "ref", "node_id": "n2", "var_path": "x"}]}
+        assert svc._spec_node_refs(spec) == {"n2"}
+
+    def test_sql_placeholder_collected(self):
+        """SQL 占位 {{节点.变量}} 的节点 ID 收集"""
+        spec = {"source": "sql", "sql": "SELECT 1 WHERE bl={{n3.bl_no}} AND id={{n4.id}}"}
+        assert svc._spec_node_refs(spec) == {"n3", "n4"}
+
+    def test_nested_containers(self):
+        """容器（params.body 参数树）递归收集；constant 容器值内嵌 spec 深扫
+        （与 validation/引擎 iter_spec_refs 口径一致）；普通字符串不算引用"""
+        v = {"body": {"a": {"source": "ref", "node_id": "x", "var_path": "1"},
+                      "arr": {"source": "constant",
+                              "value": ["plain", {"source": "ref", "node_id": "y", "var_path": "2"}]}}}
+        assert svc._spec_node_refs(v) == {"x", "y"}
 
 
 class TestScanSplitBoundary:
-    def _run(self, case, node_ids):
+    def _run(self, case, node_ids, ds=None):
         with patch.object(svc.crud, "get_testcase", return_value=case):
+            if ds is not None:
+                with patch.object(svc.crud, "get_dataset", return_value=ds):
+                    return svc.scan_split_boundary(_fake_db(), case.id, node_ids)
             return svc.scan_split_boundary(_fake_db(), case.id, node_ids)
 
+    @staticmethod
+    def _ds(nodes):
+        """绑定数据集替身：行内 per-node 入参配置（引用与产出都算跨界口径）"""
+        return SimpleNamespace(id=33, rows=[SimpleNamespace(row_index=1,
+                                                            data={"nodes": nodes})])
+
     def test_outgoing_and_incoming(self):
-        """move 节点提取 order_id 被 stay 节点引用 → outgoing；
-        stay 节点提取 token 被 move 节点引用 → incoming"""
-        move_nc = _nc("m1", extract=[{"json_path": "$.id", "as": "order_id"}], pre=["${token}"])
-        stay_nc = _nc("s1", extract=[{"json_path": "$.t", "as": "token"}], asserts=[{"expected": "${order_id}"}])
+        """move 节点产出 order_id 被 stay 节点引用 → outgoing；
+        stay 节点产出 token 被 move 节点引用 → incoming（引用来自数据集行 spec）"""
+        move_nc = _nc("m1", extract=[{"name": "order_id"}])
+        stay_nc = _nc("s1", extract=[{"name": "token"}])
         case = _case(
             1,
             nodes=[_node("m1"), _node("s1")],
             configs=[move_nc, stay_nc],
+            dataset_id=33,
         )
-        result = self._run(case, ["m1"])
-        assert {"var": "order_id", "providers": ["m1"], "consumer": "s1"} in result["outgoing"]
-        assert {"var": "token", "providers": ["s1"], "consumer": "m1"} in result["incoming"]
+        ds = self._ds({
+            "m1": {"params": {"body": {"x": {"source": "ref", "node_id": "s1", "var_path": "token"}}}},
+            "s1": {"params": {"body": {"y": {"source": "ref", "node_id": "m1", "var_path": "order_id"}}}},
+        })
+        result = self._run(case, ["m1"], ds=ds)
+        assert {"var": "m1", "providers": ["m1"], "consumer": "s1"} in result["outgoing"]
+        assert {"var": "s1", "providers": ["s1"], "consumer": "m1"} in result["incoming"]
 
     def test_no_boundary_when_clean(self):
-        nc1 = _nc("m1", extract=[{"as": "x"}], pre=["${x}"])  # 自产自用
-        nc2 = _nc("s1", extract=[{"as": "y"}], pre=["${y}"])
-        case = _case(1, nodes=[_node("m1"), _node("s1")], configs=[nc1, nc2])
-        result = self._run(case, ["m1"])
+        """自产自用（引用本节点产出）不构成跨界"""
+        nc1 = _nc("m1", extract=[{"name": "x"}])
+        nc2 = _nc("s1", extract=[{"name": "y"}])
+        case = _case(1, nodes=[_node("m1"), _node("s1")],
+                     configs=[nc1, nc2], dataset_id=33)
+        ds = self._ds({
+            "m1": {"params": {"body": {"a": {"source": "ref", "node_id": "m1", "var_path": "x"}}}},
+            "s1": {"params": {"body": {"b": {"source": "ref", "node_id": "s1", "var_path": "y"}}}},
+        })
+        result = self._run(case, ["m1"], ds=ds)
         assert result["outgoing"] == [] and result["incoming"] == []
 
 
