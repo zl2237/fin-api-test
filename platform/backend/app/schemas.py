@@ -412,10 +412,11 @@ class CaseGroupOut(ORMBase):
 
 
 # ============ CaseNodeConfig ============
+# 入参配置（params/前置动作）已收敛到数据集行（2026-09-30 定案），
+# 节点配置只承载结构层：接口绑定 / 后置提取 / 断言 / 等待
 class NodeConfigIn(BaseModel):
     node_id: str
     api_id: int | None = None
-    pre_process: list[dict[str, Any]] = []
     post_extract: list[dict[str, Any]] = []
     assertions: list[dict[str, Any]] = []
     wait_after_ms: int = 0
@@ -426,7 +427,6 @@ class NodeConfigOut(ORMBase):
     case_id: int
     node_id: str
     api_id: int | None = None
-    pre_process: list[dict[str, Any]] = []
     post_extract: list[dict[str, Any]] = []
     assertions: list[dict[str, Any]] = []
     wait_after_ms: int = 0
@@ -598,7 +598,7 @@ class StepRecordOut(ORMBase):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     status: str | None = None
-    pre_process: list[dict[str, Any]] | None = None  # 前置处理快照（旧报告无此列时为 null）
+    pre_process: list[dict[str, Any]] | None = None  # 前置处理快照（历史遗留：仅老报告回显，新步骤恒 null）
     post_extract: list[dict[str, Any]] | None = None  # 后置提取规则快照
     extracted_vars: dict[str, Any] | None = None  # 后置提取实际结果
     assertions: list[AssertionRecordOut] = []
@@ -749,42 +749,22 @@ class FileOut(ORMBase, AuditMixin):
 
 
 # ============ DataSet 数据集（变量池，单套语义） ============
-class DataSetColumnIn(BaseModel):
-    """列定义：key 即执行时变量名（点路径键，校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）"""
-    key: str
-    type: str = "string"  # string/int/bool/array/object/file（file=文件中心文件 ID）
-    model_config = {"extra": "ignore"}
-
-
 class DataSetCreate(BaseModel):
     project_id: int
     case_id: int  # 归属用例（1:N 隔离）
     name: str
     description: str | None = None
-    columns: list[DataSetColumnIn]
 
 
 class DataSetUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    columns: list[DataSetColumnIn] | None = None
 
 
-class DataSetValuesSave(BaseModel):
-    """保存单套数据：values 即该数据集唯一一套值（列定义随参数走）；
-    column_types 可选：显式指定部分键的列类型（新增变量时空值默认推断为 string，
-    需指定 int/bool/file 等类型时传入；已有列类型保留不受影响）"""
-    values: dict[str, Any]
-    column_types: dict[str, str] | None = None
-
-
-class DataSetNodeValuesSave(BaseModel):
-    """保存节点级手动覆盖（数据集页节点页签编辑语义）：
-    sets = 该节点各参数的独有值（写入 pre_process 字面量，压过池值）；
-    clears = 清除的参数（移除字面量动作，回落池值）；动态绑定 ${} 不在二者之列"""
+# 数据集行内单节点入参配置保存（整体替换该节点的 params）
+class DataSetNodeConfigSave(BaseModel):
     node_id: str
-    sets: dict[str, Any] = {}
-    clears: list[str] = []
+    params: dict[str, Any] = {}       # {"body": {路径: spec}, "headers": {头名: spec}}
 
 
 class DataSetRowOut(ORMBase):
@@ -794,25 +774,38 @@ class DataSetRowOut(ORMBase):
     data: dict[str, Any] = {}
 
 
+# 数据集参数视图：按用例 DAG 节点组织（节点 tab 数据源）。
+# fields 为该节点接口的字段定义（入参路径下拉）；productions 为该节点静态产出
+# （参数路径 ∪ 末段别名 ∪ 提取名，前端引用下拉数据源）；edges 供前端算上游。
+class DatasetNodeView(BaseModel):
+    node_id: str
+    label: str = ""
+    api_id: int | None = None
+    api_name: str = ""
+    fields: list[dict[str, Any]] = []
+    params: dict[str, Any] = {}
+    productions: list[str] = []
+
+
+class DatasetParamsViewOut(BaseModel):
+    dataset_id: int
+    case_id: int
+    nodes: list[DatasetNodeView] = []
+    edges: list[dict[str, Any]] = []
+    orphan_node_ids: list[str] = []  # 行内已配置但画布已删的节点（提示清理）
+
+
 class DataSetOut(ORMBase, AuditMixin):
     id: int
     project_id: int
     case_id: int
     name: str
     description: str | None = None
-    columns: list[dict[str, Any]] = []
-    rows: list[DataSetRowOut] = []  # 单套语义：存储上恒为一行（变量池值集）
+    rows: list[DataSetRowOut] = []  # 单套语义：存储上恒为一行（数据值集）
     case_bound_count: int = 0  # 被引用用例数（列表展示）
     updated_at: datetime | None = None
     updated_by: int | None = None
     updated_by_name: str | None = None
-
-
-class DataSetMergeRequest(BaseModel):
-    """覆盖合并：源数据集单套值中相同节点涉及列，刷到目标数据集"""
-    source_dataset_id: int
-    api_ids: list[int] | None = None  # 不传=全部相同节点
-    source_row_index: int = 1  # 单套语义恒为 1（保留字段兼容旧客户端）
 
 
 # ============ 轻量契约（原裸 dict 出参） ============

@@ -1,7 +1,7 @@
 """编排结构指纹：续跑安全性的结构级锁定（断点续跑设计定稿）。
 
 只锁「结构」：DAG 节点集合、边、节点-接口绑定（含 UI 节点占位）。
-刻意不含参数配置（pre_process / post_extract / assertions / wait_after_ms）——
+刻意不含参数配置（数据集行 params / post_extract / assertions / wait_after_ms）——
 改参数后续跑用当前配置重新组装请求，正是「改完参数不用整个重跑」的
 核心场景；锁了参数就等于把痛点原样保留。
 

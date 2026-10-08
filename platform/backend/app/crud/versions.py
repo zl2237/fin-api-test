@@ -74,7 +74,6 @@ def _snapshot_cases(db: Session, project_id: int) -> list[dict]:
             "node_configs": [
                 {
                     "node_id": nc.node_id, "api_id": nc.api_id,
-                    "pre_process": nc.pre_process or [],
                     "post_extract": nc.post_extract or [],
                     "assertions": nc.assertions or [],
                     "wait_after_ms": nc.wait_after_ms or 0,
@@ -251,7 +250,7 @@ def rollback_project_version(
                     {"row_index": r.row_index, "data": r.data})
             ds_snap = [
                 {"id": d.id, "case_id": d.case_id, "name": d.name,
-                 "description": d.description, "columns": d.columns,
+                 "description": d.description,
                  "project_id": d.project_id}
                 for d in db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids)).all()
             ]
@@ -391,7 +390,6 @@ def rollback_project_version(
                 case_id=nc.id,
                 node_id=cfg["node_id"],
                 api_id=new_api_id,
-                pre_process=cfg.get("pre_process", []),
                 post_extract=cfg.get("post_extract", []),
                 assertions=cfg.get("assertions", []),
                 wait_after_ms=cfg.get("wait_after_ms", 0) or 0,
