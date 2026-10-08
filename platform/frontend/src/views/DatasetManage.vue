@@ -176,6 +176,7 @@
       />
       <div class="import-bar">
         <el-button size="small" type="primary" plain @click="parseImport">解析预览</el-button>
+        <span v-if="importArrayBody" class="import-note">顶层数组请求体：按首元素解析，路径对齐元素字段</span>
         <span v-if="importParsed && !importParsed.ok" class="import-err">{{ importParsed.error }}</span>
         <span v-else-if="importParsed?.ok" class="import-sum">
           替换 {{ importReplaceCount }} 个常量字段、新增 {{ importAddCount }} 个未配置字段；跳过 {{ importParsed.rows.length - importReplaceCount - importAddCount }} 个（非常量 / 通配 / 未命中）
@@ -337,6 +338,7 @@ interface ImportRow {
 const importVisible = ref(false)
 const importNodeId = ref('')
 const importText = ref('')
+const importArrayBody = ref(false) // 顶层数组请求体：按首元素解析
 const importParsed = ref<null | { ok: boolean; error?: string; rows: ImportRow[] }>(null)
 const importReplaceCount = computed(() =>
   importParsed.value?.ok ? importParsed.value.rows.filter((r) => r.hit && !r.add).length : 0)
@@ -380,6 +382,13 @@ function matchesWildcard(leaf: string, configured: string): boolean {
   return a.length === b.length && b.every((seg, i) => seg === '*' || seg === a[i])
 }
 
+/** 路径规范化：去掉数组下标段（0.currency→currency、lines.0.qty→lines.qty）。
+ *  数组体接口的入参路径以元素字段为锚（后端按字段骨架组 dict 再包 [body]），
+ *  导入叶子路径与已配置路径需做下标无关匹配 */
+function canonPath(p: string): string {
+  return p.split('.').filter((s) => !/^\d+$/.test(s)).join('.')
+}
+
 function parseImport() {
   let data: unknown
   try {
@@ -388,9 +397,21 @@ function parseImport() {
     importParsed.value = { ok: false, error: `JSON 解析失败：${e.message}`, rows: [] }
     return
   }
+  // 顶层数组请求体（如上传应付发票 [{...}]）按首元素解析：入参路径以元素字段为锚，
+  // 直接展开会产生 0.currency 这类下标路径，与已配置的 currency 对不上
+  importArrayBody.value = Array.isArray(data) && data.length > 0
+    && data[0] !== null && typeof data[0] === 'object' && !Array.isArray(data[0])
+  const bodyData = importArrayBody.value ? (data as unknown[])[0] : data
   const draft = drafts[importNodeId.value]
   const body = draft?.params?.body || {}
   const srcLabel: Record<string, string> = { func: '函数', ref: '引用', sql: 'SQL' }
+  const leaves = flattenLeaves(bodyData)
+  // 规范路径 → 首个命中叶子：配置与数据的数组下标形态不一致时也能对上
+  const canonLeaf = new Map<string, string>()
+  for (const p of Object.keys(leaves)) {
+    const c = canonPath(p)
+    if (c && !canonLeaf.has(c)) canonLeaf.set(c, p)
+  }
   const rows: ImportRow[] = []
   for (const [path, spec] of Object.entries(body)) {
     if (!spec || spec.source !== 'constant') {
@@ -401,17 +422,23 @@ function parseImport() {
       rows.push({ path, old: spec.value, neu: undefined, hit: false, note: '通配路径，不参与' })
       continue
     }
-    const v = getByPath(data, path)
+    let v = getByPath(bodyData, path)
+    if (v === undefined) {
+      const lp = canonLeaf.get(canonPath(path))
+      if (lp !== undefined) v = leaves[lp]
+    }
     if (v === undefined) {
       rows.push({ path, old: spec.value, neu: undefined, hit: false, note: '未命中，保持原值' })
       continue
     }
     rows.push({ path, old: spec.value, neu: v, hit: true })
   }
-  // JSON 中存在但未配置的字段：初始化为常量入参（已被通配参数覆盖的跳过）
+  // JSON 中存在但未配置的字段：初始化为常量入参（已被通配/已配置路径覆盖的跳过）
   const configured = Object.keys(body)
-  for (const [path, v] of Object.entries(flattenLeaves(data))) {
+  const configuredCanon = new Set(configured.map(canonPath).filter(Boolean))
+  for (const [path, v] of Object.entries(leaves)) {
     if (!path || configured.includes(path) || configured.some((c) => matchesWildcard(path, c))) continue
+    if (configuredCanon.has(canonPath(path))) continue // 下标形态不同但同一字段，上面已按配置路径替换
     rows.push({ path, old: undefined, neu: v, hit: true, add: true, note: '新增' })
   }
   importParsed.value = { ok: true, rows }
@@ -1026,6 +1053,10 @@ watch(() => store.currentProjectId, () => {
 .import-err {
   font-size: 12px;
   color: var(--el-color-danger);
+}
+.import-note {
+  font-size: 12px;
+  color: var(--el-color-primary);
 }
 .import-sum {
   font-size: 12px;
