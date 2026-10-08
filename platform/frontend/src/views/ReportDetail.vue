@@ -480,7 +480,7 @@ async function onResume() {
   if (!id || !record.value) return
   try {
     await ElMessageBox.confirm(
-      '从首个失败节点重新真实执行（用当前节点配置 + 当前数据集），之前的成功节点不重跑；旧失败记录将被本次结果顶替。适合「重放验证通过 + 已同步数据集」后收尾。',
+      '从首个失败节点按当前配置与数据集续跑，成功节点不重跑，结果覆盖本记录。',
       '断点续跑',
       { type: 'warning', confirmButtonText: '续跑', cancelButtonText: '取消' },
     )
