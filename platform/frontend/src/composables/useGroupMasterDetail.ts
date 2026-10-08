@@ -32,11 +32,44 @@ export interface GroupMasterDetailOptions<T extends ReorderableItem> {
   pageSize: Ref<number>
   /** 组内行拖拽落点持久化（提示与失败回滚由视图处理） */
   onRowDragEnd: (groupId: string | number, oldIndex: number, newIndex: number) => void | Promise<void>
+  /** 选中记忆（可选）：项目 ID 响应式引用，与 scope 配套使用 */
+  projectId?: Ref<number | null>
+  /** 选中记忆作用域：'apiManage' / 'caseList'（与 useGroupTree 展开记忆同粒度） */
+  scope?: string
 }
 
 export function useGroupMasterDetail<T extends ReorderableItem>(opts: GroupMasterDetailOptions<T>) {
-  // ===== 左导航选中态 =====
-  const selectedRowKey = ref<string | number>('all')
+  // ===== 左导航选中态 + 选中记忆（按项目 + 作用域持久化，重进页面停留在上次分组）=====
+  function lastStorageKey(): string {
+    return `fin_group_last_${opts.scope}_${opts.projectId?.value ?? 0}`
+  }
+
+  /** 读上次停留分组；损坏/缺失回 'all'（项目隔离编进 key，同 expandStorageKey 约定） */
+  function readLast(): string | number {
+    try {
+      const saved = localStorage.getItem(lastStorageKey())
+      if (saved === null) return 'all'
+      const key = JSON.parse(saved)
+      return typeof key === 'string' || typeof key === 'number' ? key : 'all'
+    } catch {
+      return 'all'
+    }
+  }
+
+  const selectedRowKey = ref<string | number>(opts.projectId && opts.scope ? readLast() : 'all')
+
+  if (opts.projectId && opts.scope) {
+    // 项目切换：重读新项目记忆；分组重载后 key 失效由下方回退 watch 兜底
+    watch(opts.projectId, () => { selectedRowKey.value = readLast() })
+    watch(selectedRowKey, (key) => {
+      if (!opts.projectId?.value) return
+      try {
+        localStorage.setItem(lastStorageKey(), JSON.stringify(key))
+      } catch {
+        // 忽略写入失败
+      }
+    })
+  }
   const selectedRow = computed(() => opts.visibleGroupRows.value.find((r) => r.key === selectedRowKey.value))
 
   /** 左栏 caret 仅在「有子分组」时显示（composable 的 expandable 含“组内有数据”的旧手风琴语义，叶子分组展开无意义） */

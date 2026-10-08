@@ -27,14 +27,16 @@
       </el-table-column>
       <el-table-column label="SQL" min-width="220" v-if="hasDb">
         <template #default="{ row }">
-          <el-input
-            v-if="row.source === 'db'"
-            v-model="row.sql"
-            size="small"
-            type="textarea"
-            :rows="1"
-            placeholder="SELECT order_id FROM sys_order WHERE bl_no='${bl_no}'"
-          />
+          <div v-if="row.source === 'db'" class="sql-cell">
+            <el-input
+              v-model="row.sql"
+              size="small"
+              type="textarea"
+              :autosize="{ minRows: 1, maxRows: 4 }"
+              placeholder="SELECT order_id FROM sys_order WHERE bl_no='{{n_create.bl_no}}'"
+            />
+            <SqlRefMenu :groups="refGroups" @insert="(t: string) => (row.sql = `${row.sql || ''}${t}`)" />
+          </div>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -61,8 +63,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import SqlRefMenu from '@/components/SqlRefMenu.vue'
+import type { RefVarGroup } from '@/components/VarRefSelect.vue'
 
-const props = defineProps<{ modelValue: any[] }>()
+const props = defineProps<{ modelValue: any[]; refGroups?: RefVarGroup[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
 
 const hasResponse = computed(() => props.modelValue.some((r) => r.source === 'response' || !r.source))
@@ -96,5 +100,14 @@ function remove(idx: number) {
 }
 .muted {
   color: var(--app-text-muted);
+}
+.sql-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.sql-cell .el-textarea {
+  width: 100%;
 }
 </style>

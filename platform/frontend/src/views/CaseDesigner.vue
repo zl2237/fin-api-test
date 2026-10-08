@@ -69,6 +69,7 @@
             <el-icon><ArrowLeft /></el-icon>返回列表
           </el-button>
           <el-input v-model="caseData.name" style="width: 260px" placeholder="用例名称" />
+          <el-input v-model="caseData.description" style="width: 260px" placeholder="用例描述（可选）" />
         </div>
         <div class="toolbar-right">
           <span class="dirty-tip">{{ dirty ? '有未保存改动' : '已保存' }}</span>
@@ -154,6 +155,7 @@
       v-model:visible="drawerVisible"
       :config="currentConfig"
       :apis="apiList"
+      :ref-groups="refGroups"
       @save="onConfigSave"
     />
 
@@ -176,12 +178,12 @@
         />
         <div class="split-vars">
           <div v-for="v in splitScan.outgoing" :key="'o-' + v.var + v.consumer" class="split-var-row">
-            <el-tag size="small" type="warning">{{ varExpr(v.var) }}</el-tag>
-            <span>由「{{ v.providers.map(nodeLabel).join('、') }}」提取，留驻节点「{{ nodeLabel(v.consumer) }}」引用 → 拆分后原用例将取不到</span>
+            <el-tag size="small" type="warning">{{ nodeLabel(v.var) }}</el-tag>
+            <span>该节点产出被留驻节点「{{ nodeLabel(v.consumer) }}」引用 → 拆分后原用例将取不到</span>
           </div>
           <div v-for="v in splitScan.incoming" :key="'i-' + v.var + v.consumer" class="split-var-row">
-            <el-tag size="small" type="warning">{{ varExpr(v.var) }}</el-tag>
-            <span>由留驻节点「{{ v.providers.map(nodeLabel).join('、') }}」提取，「{{ nodeLabel(v.consumer) }}」引用 → 拆分后新用例将取不到</span>
+            <el-tag size="small" type="warning">{{ nodeLabel(v.var) }}</el-tag>
+            <span>该节点（留驻侧）产出被抽离节点「{{ nodeLabel(v.consumer) }}」引用 → 拆分后新用例将取不到</span>
           </div>
         </div>
       </template>
@@ -212,10 +214,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Connection, CaretRight, Search, Grid, Share, Scissor, Loading } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
-import { caseApi, apiApi, apiGroupApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
+import { caseApi, apiApi, apiGroupApi, datasetApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
+import type { RefVarGroup } from '@/components/VarRefSelect.vue'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -323,14 +326,13 @@ const linkHint = computed(() => {
 
 const currentConfig = computed<NodeConfig>(() => {
   if (!selectedNodeId.value) {
-    return { node_id: '', api_id: null, pre_process: [], post_extract: [], assertions: [], wait_after_ms: 0 }
+    return { node_id: '', api_id: null, post_extract: [], assertions: [], wait_after_ms: 0 }
   }
   const found = configs.value.find((c) => c.node_id === selectedNodeId.value)
   if (found) return found
   const fresh: NodeConfig = {
     node_id: selectedNodeId.value,
     api_id: null,
-    pre_process: [],
     post_extract: [],
     assertions: [],
     wait_after_ms: 0,
@@ -392,10 +394,92 @@ function nodeLabel(id: string): string {
   return n?.data?.label || n?.label || id
 }
 
-// 变量名 → ${var} 表达式
-function varExpr(name: string): string {
-  return `\${${name}}`
+// ===== 引用选择器数据源（上游产出 / 本节点 SQL 参数）：产出 = 提取名 ∪ 数据集行内静态产出 =====
+// 入参已收敛到数据集行：绑定数据集的参数视图提供行内产出与 SQL 参数（未绑定则仅提取名）
+const dsProductions = ref<Record<string, string[]>>({})
+const dsSelfParams = ref<Record<string, any>>({})
+watch(
+  () => caseData.value.dataset_id,
+  async (dsId) => {
+    dsProductions.value = {}
+    dsSelfParams.value = {}
+    if (!dsId) return
+    try {
+      const pv = await datasetApi.paramsView(dsId)
+      dsProductions.value = Object.fromEntries(pv.nodes.map((n) => [n.node_id, n.productions]))
+      dsSelfParams.value = Object.fromEntries(pv.nodes.map((n) => [n.node_id, n.params || {}]))
+    } catch { /* 引用选择器降级为仅提取名 */ }
+  },
+  { immediate: true },
+)
+
+/** 节点静态产出变量（与后端 validation._productions 对齐）：
+ *  提取名（节点配置）∪ SQL 参数键/set/add 末段（数据集行，服务端 paramsView 已算好） */
+function nodeProductions(nid: string): string[] {
+  const out = new Set<string>(dsProductions.value[nid] || [])
+  const cfg = configs.value.find((c) => c.node_id === nid)
+  for (const r of cfg?.post_extract || []) {
+    if (r?.name) out.add(r.name)
+  }
+  return [...out]
 }
+
+/** 反向 BFS：目标节点的全部上游节点（拓扑前，含多跳） */
+function upstreamNodesOf(nodeId: string): string[] {
+  const rev = new Map<string, string[]>()
+  for (const e of edges.value) {
+    const arr = rev.get(e.target) || []
+    arr.push(e.source)
+    rev.set(e.target, arr)
+  }
+  const seen = new Set<string>()
+  const queue = [...(rev.get(nodeId) || [])]
+  while (queue.length) {
+    const cur = queue.shift()!
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    queue.push(...(rev.get(cur) || []))
+  }
+  // 按画布节点顺序稳定排序
+  return nodes.value.filter((n) => seen.has(n.id)).map((n) => n.id)
+}
+
+/** 当前选中节点的引用分组（供 VarRefSelect / 断言与提取的 SQL 引用） */
+const refGroups = computed<RefVarGroup[]>(() => {
+  const nid = selectedNodeId.value
+  if (!nid) return []
+  const groups: RefVarGroup[] = []
+  const upstream = upstreamNodesOf(nid)
+    .map((id) => ({
+      node_id: id,
+      node_label: nodeLabel(id),
+      vars: nodeProductions(id).map((p) => ({ path: p })),
+    }))
+    .filter((it) => it.vars.length)
+  if (upstream.length) groups.push({ key: 'upstream', label: '上游节点产出', items: upstream })
+  // 本节点 SQL 参数（数据集行内配置；参数解析期注册，断言/提取可引用）
+  const selfSql = Object.entries(dsSelfParams.value[nid]?.body || {})
+    .filter(([, s]) => (s as any)?.source === 'sql')
+    .map(([p]) => p)
+  if (selfSql.length) {
+    groups.push({
+      key: 'self',
+      label: '本节点 SQL 参数',
+      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfSql.map((p) => ({ path: p })) }],
+    })
+  }
+  // 本节点提取变量：提取按配置顺序逐行注册，后面的行可 {{本节点.提取名}} 引用前面的行
+  const selfExtracts = ((configs.value.find((c) => c.node_id === nid)?.post_extract || [])
+    .map((r: any) => r?.name).filter(Boolean)) as string[]
+  if (selfExtracts.length) {
+    groups.push({
+      key: 'self-extract',
+      label: '本节点提取变量（前面的行可引用）',
+      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfExtracts.map((p) => ({ path: p })) }],
+    })
+  }
+  return groups
+})
 
 async function onSplit() {
   if (!caseData.value.id) return ElMessage.warning('请先保存用例后再拆分')
@@ -474,7 +558,6 @@ function onAddNode(api: ApiDef) {
   configs.value.push({
     node_id: id,
     api_id: api.id,
-    pre_process: [],
     post_extract: [],
     assertions: [],
     wait_after_ms: 0,
@@ -489,7 +572,7 @@ function onNodeOpen(id: string) {
   drawerVisible.value = true
 }
 
-/** 粘贴节点：克隆对应 config（深拷贝 pre_process/post_extract/assertions 避免共享引用） */
+/** 粘贴节点：克隆对应 config（深拷贝 post_extract/assertions 避免共享引用） */
 function onNodesPasted(mapping: { oldId: string; newId: string }[]) {
   for (const { oldId, newId } of mapping) {
     const src = configs.value.find((c) => c.node_id === oldId)
@@ -583,6 +666,7 @@ async function onSave(): Promise<boolean> {
     }))
     await caseApi.update(caseData.value.id, {
       name: caseData.value.name,
+      description: caseData.value.description || '',
       dag_config: { nodes: payloadNodes, edges: edges.value },
       node_configs: cleanedConfigs,
     })

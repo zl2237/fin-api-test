@@ -739,7 +739,7 @@ function httpStatusType(code?: number) {
   return 'info'
 }
 
-// ===== 后置提取展示辅助（文案与 PreProcessTable 配置端一致；preValueText 供提取值展示复用） =====
+// ===== 后置提取展示辅助（文案与配置端一致；preValueText 供提取值展示复用） =====
 /** 快照值为执行时规则原文：字符串原样（可含 ${} 引用），对象/数组 JSON 化 */
 function preValueText(v: any): string {
   if (v == null) return '—'

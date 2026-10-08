@@ -39,25 +39,15 @@
         </el-form>
       </el-tab-pane>
 
-      <el-tab-pane label="前置处理" name="pre">
-        <PreProcessTable v-model="draft.pre_process" :fields="currentApiFields" />
-        <div class="tip-with-help">
-          <p class="tip">设置字段值支持表达式：<code>${order_id}</code>、<code>${generate_bl_no(prefix='smoke')}</code>。遍历赋值用于费用 unique_id 关联。</p>
-          <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
-            <el-icon><QuestionFilled /></el-icon> 查看表达式用法
-          </el-button>
-        </div>
-      </el-tab-pane>
-
       <el-tab-pane label="后置提取" name="extract">
-        <PostExtractTable v-model="draft.post_extract" />
-        <p class="tip">提取的变量存入上下文，供后续节点以 <code>${变量名}</code> 引用。</p>
+        <PostExtractTable v-model="draft.post_extract" :ref-groups="refGroups" />
+        <p class="tip">提取的变量存入本节点命名空间，供后续节点按 <code>{{ SQL_BRACE }}</code>（SQL 内）或引用来源（参数取值）引用。</p>
       </el-tab-pane>
 
       <el-tab-pane label="断言规则" name="assert">
-        <AssertionTable v-model="draft.assertions" />
+        <AssertionTable v-model="draft.assertions" :ref-groups="refGroups" />
         <div class="tip-with-help">
-          <p class="tip">DB 断言 SQL 中可用 <code>${变量名}</code> 引用已提取变量。</p>
+          <p class="tip">DB 断言 SQL 可用 <code>{{ SQL_BRACE }}</code> 引用已提取变量；期望值支持四来源。</p>
           <el-button text size="small" class="help-link" @click="store.openCoreCapability('assertion')">
             <el-icon><QuestionFilled /></el-icon> 查看断言规则
           </el-button>
@@ -77,11 +67,11 @@
 import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
-import PreProcessTable from './PreProcessTable.vue'
 import PostExtractTable from './PostExtractTable.vue'
 import AssertionTable from './AssertionTable.vue'
 import { useAppStore } from '@/stores'
-import type { ApiDef, NodeConfig, ApiField } from '@/api'
+import type { ApiDef, NodeConfig } from '@/api'
+import type { RefVarGroup } from './VarRefSelect.vue'
 
 const store = useAppStore()
 
@@ -89,11 +79,15 @@ const props = defineProps<{
   visible: boolean
   config: NodeConfig
   apis: ApiDef[]
+  refGroups?: RefVarGroup[]
 }>()
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'save', config: NodeConfig): void
 }>()
+
+// SQL 占位语法字面量（含 }}，不能内嵌进模板插值表达式，经此常量输出）
+const SQL_BRACE = '{{节点.变量}}'
 
 const activeTab = ref('basic')
 
@@ -106,27 +100,12 @@ watch(
     if (v) {
       const d = JSON.parse(JSON.stringify(props.config))
       draft.value = d
-      // 前置处理对象/数组值（数据集页保存的手动覆盖）序列化为 JSON 文本编辑：
-      // 直接绑输入框会显示 [Object]，且触碰输入框即把对象覆盖成字符串（数据损坏）。
-      // 行内标记 _obj=1，onSave 时解析回对象——存储与运行时行为保持不变
-      for (const act of d.pre_process || []) {
-        if (act && ['set_field', 'add_field'].includes(act.type)
-            && act.value !== null && typeof act.value === 'object') {
-          act._obj = true
-          act.value = JSON.stringify(act.value, null, 2)
-        }
-      }
     }
   },
   { immediate: true },
 )
 
-// 当前节点绑定接口的请求字段，供前置处理字段路径选择
-const currentApiFields = computed<ApiField[]>(() => {
-  if (!draft.value?.api_id) return []
-  const api = props.apis.find((a) => a.id === draft.value!.api_id)
-  return api?.fields || []
-})
+// 当前节点绑定接口的请求字段说明已随「入参来源/前置处理」两 tab 迁至数据集页（入参唯一收敛）
 
 // 节点间等待时间（ms），默认 0；用 computed 兼容旧数据未携带该字段的情况
 const waitAfterMs = computed<number>({
@@ -139,17 +118,6 @@ function onSave() {
   if (!draft.value.api_id) {
     ElMessage.warning('请先绑定接口，未绑定接口的节点不会执行')
     return
-  }
-  // 对象值行：编辑文本解析回对象（非法 JSON 阻断保存，防静默丢值）；去掉临时标记
-  for (const act of draft.value.pre_process || []) {
-    if (!act?._obj) continue
-    try {
-      act.value = JSON.parse(String(act.value ?? ''))
-    } catch {
-      ElMessage.error(`前置处理「${act.path}」的值不是合法 JSON，请修正后再保存`)
-      return
-    }
-    delete act._obj
   }
   emit('save', JSON.parse(JSON.stringify(draft.value)))
   emit('update:visible', false)

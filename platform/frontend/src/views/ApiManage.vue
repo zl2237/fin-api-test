@@ -565,6 +565,8 @@ const {
   pageMap,
   pageSize,
   onRowDragEnd: onApiRowDragEnd,
+  projectId: currentProjectId,
+  scope: 'apiManage',
 })
 
 // el-tree / el-tree-select 公共字段映射
