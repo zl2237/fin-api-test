@@ -31,7 +31,7 @@
                 <el-autocomplete
                   v-model="bodyRows[idx].path"
                   size="small"
-                  :fetch-suggestions="fetchFieldSuggestions"
+                  :fetch-suggestions="(qs: string, cb: any) => fetchFieldSuggestions(qs, cb, idx)"
                   placeholder="如 order_id / supplier.0.order_id / list.*.unique_id"
                   style="width: 100%"
                 >
@@ -135,10 +135,17 @@ const fieldTypeMap = computed(() => {
   return m
 })
 
-/** 路径建议（下拉打开时才调用/渲染）：前缀与中文名双向匹配 */
-function fetchFieldSuggestions(qs: string, cb: (items: { value: string }[]) => void) {
+/** 路径建议（下拉打开时才调用/渲染）：前缀与中文名双向匹配；
+ *  排除其他行已配置的路径——同一字段仅可搜索并添加一次 */
+function fetchFieldSuggestions(qs: string, cb: (items: { value: string }[]) => void, curIdx?: number) {
   const q = (qs || '').trim().toLowerCase()
-  const all = fieldOptions.value.map((o) => ({ value: o.value, label: o.label }))
+  const used = new Set<string>()
+  bodyRows.value.forEach((r, i) => {
+    if (i !== curIdx && r.path.trim()) used.add(r.path.trim())
+  })
+  const all = fieldOptions.value
+    .filter((o) => !used.has(o.value))
+    .map((o) => ({ value: o.value, label: o.label }))
   cb(q ? all.filter((o) => o.value.toLowerCase().includes(q) || (o.label || '').toLowerCase().includes(q)) : all)
 }
 
