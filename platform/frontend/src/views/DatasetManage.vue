@@ -5,7 +5,7 @@
         <span class="page-title">数据集</span>
       </div>
       <div class="head-right">
-        <span class="head-tip">变量按参数名自动匹配各节点同名入参 · 数据集按用例隔离 · 每个数据集一套数据（测试数据唯一来源） · 多场景建多个数据集 · 复用靠复制</span>
+        <span class="head-tip">每个数据集是一套完整的节点入参取值，多数据集即多场景；入参在各节点 tab 内配置</span>
       </div>
     </div>
 
@@ -13,7 +13,7 @@
     <div v-loading="loading" class="group-layout">
       <aside class="group-side">
         <template v-for="row in sideRows" :key="row.kind === 'group' ? `g${row.id}` : `c${row.id}`">
-          <!-- 分组节点：折叠/展开组内用例（样式与接口/用例页左树同规格） -->
+          <!-- 分组节点：折叠/展开组内用例 -->
           <div
             v-if="row.kind === 'group'"
             class="side-node"
@@ -67,236 +67,91 @@
             >
               <el-icon class="ds-icon"><Grid /></el-icon>
               <span class="ds-name">{{ d.name }}</span>
-              <span class="ds-cnt">{{ d.columns?.length ?? 0 }} 变量</span>
+              <span v-if="currentCase.dataset_id === d.id" class="ds-bound">使用中</span>
+              <span class="ds-cnt">{{ nodeCount(d) }} 节点</span>
             </div>
+            <el-button size="small" class="ds-add" :icon="Plus" @click="openCreate">新建数据集</el-button>
           </div>
 
           <EmptyState
             v-if="!caseDatasets.length"
-            description="该用例暂无数据集。保存用例会自动收集静态值生成默认数据集；需要多场景时复制现有数据集再改值"
+            description="该用例暂无数据集（未绑定数据集的用例无法执行）。点「新建数据集」建立一套入参取值"
           />
 
           <template v-else-if="current">
             <div class="main-head">
               <span class="main-title">{{ current.name }}</span>
-              <span class="group-count">{{ totalCount }}</span>
+              <span class="group-count">{{ view?.nodes.length || 0 }} 节点 · {{ configuredCount }} 已配置</span>
               <div class="main-actions">
-                <el-button size="small" type="primary" :loading="savingValues" :disabled="!view" @click="saveValues">保存</el-button>
                 <el-button size="small" @click="copyDataset">复制</el-button>
-                <el-button size="small" @click="openMerge">从其他数据集覆盖…</el-button>
                 <el-button size="small" @click="openEdit(current)">编辑信息</el-button>
                 <el-button size="small" type="danger" link @click="remove(current)">删除</el-button>
               </div>
             </div>
 
-            <div v-loading="viewLoading" class="params-area">
-              <EmptyState
-                v-if="!viewLoading && !view?.nodes.length"
-                description="当前用例编排没有可配置入参的节点（先在用例设计器绑定接口）"
-                :image-size="60"
-              />
-
-              <template v-else-if="view">
-                <!-- 悬空变量提示：池中存在但当前编排无节点使用；显式清理（普通保存不隐式删除） -->
-                <el-alert v-if="view.orphan_keys.length" type="info" :closable="false" class="orphan-tip">
-                  <template #title>
-                    {{ view.orphan_keys.length }} 个池变量已不被编排使用（节点已删/改参）：{{ view.orphan_keys.slice(0, 6).join('、') }}{{ view.orphan_keys.length > 6 ? '…' : '' }}
-                    <el-button link type="primary" size="small" :loading="savingValues" @click="cleanOrphans">立即清理</el-button>
-                  </template>
-                </el-alert>
-
-                <!-- 配置概览 + 检索工具：大池（数百变量）按名/中文名搜索，只看未配置快速补值 -->
-                <div class="pool-stat">
-                  <span>已配置 <b>{{ filledCount }}</b> / {{ totalCount }} 个变量</span>
-                  <span class="stat-note">未配置的变量执行时发送空值（""/null）</span>
-                  <el-input
-                    v-model="searchKey"
-                    size="small"
-                    clearable
-                    placeholder="搜索变量（名/中文名）"
-                    class="pool-search"
-                  />
-                  <el-checkbox v-model="onlyUnfilled" size="small">只看未配置</el-checkbox>
-                  <el-button v-if="activeNodeId === '__all__'" size="small" class="add-var-btn" @click="openAddVariable">新增变量</el-button>
-                  <el-button v-if="activeNodeId !== '__all__'" size="small" class="add-var-btn" @click="openImport">导入变量…</el-button>
-                </div>
-
-                <!-- 变量池 = 用例级单池；总览页签看全部变量（去重），节点页签按节点筛选 -->
-                <el-tabs v-model="activeNodeId" class="node-tabs">
-                  <el-tab-pane name="__all__">
-                    <template #label>
-                      <span class="tab-label">变量池总览</span>
-                      <span class="tab-cnt">{{ view.all_params.length }}</span>
-                    </template>
-                  </el-tab-pane>
-                  <el-tab-pane v-for="node in view.nodes" :key="node.node_id" :name="node.node_id">
-                    <template #label>
-                      <span class="tab-label">{{ node.label }}</span>
-                      <span class="tab-cnt">{{ node.params.length }}</span>
-                    </template>
-                  </el-tab-pane>
-                </el-tabs>
-
-                <!-- 就近作用域提示：双作用域编辑是本页核心心智模型 -->
-                <div class="scope-tip">
-                  <template v-if="activeNodeId === '__all__'">
-                    此处编辑池值：一键一值，各节点共享（同名参数全部生效）
-                  </template>
-                  <template v-else>
-                    此处编辑「{{ currentScopeNodeLabel }}」的手动覆盖值：压过池值，其他节点不受影响；清空后回落池值
-                  </template>
-                </div>
-
-                <div class="node-params">
-                  <EmptyState
-                    v-if="!filteredParams.length"
-                    :description="searchKey || onlyUnfilled ? '没有匹配的变量（调整搜索/过滤条件）' : '暂无变量'"
-                    :image-size="60"
-                  />
-                  <div
-                    v-for="p in filteredParams"
-                    :key="p.key"
-                    class="param-row"
-                    :class="{ manual: p.manual }"
-                  >
-                    <div class="param-label">
-                      <span>{{ colLabel(p.key) }}</span>
-                      <span class="col-type-tag">{{ p.type }}</span>
-                      <el-button
-                        v-if="activeNodeId === '__all__'"
-                        link
-                        type="danger"
-                        size="small"
-                        class="del-var-btn"
-                        :disabled="p.manual || p.dynamic"
-                        @click="removeVariable(p)"
-                      >
-                        删除
-                      </el-button>
-                      <!-- 状态徽标：手动覆盖 / 已动态配置 / 发送空值 / 已配置 / 未配置 -->
-                      <el-tooltip
-                        v-if="p.manual"
-                        :content="`节点手动覆盖：${String(p.manual_value ?? '')}——压过池值；清空后回落池值`"
-                        placement="top"
-                        popper-class="app-tip"
-                      >
-                        <span class="badge badge-manual">手动覆盖</span>
-                      </el-tooltip>
-                      <el-tooltip
-                        v-else-if="p.dynamic"
-                        :content="`节点已动态配置：${String(p.manual_value ?? '')}——运行时表达式求值（优先生效，请在用例编排中调整）`"
-                        placement="top"
-                        popper-class="app-tip"
-                      >
-                        <span class="badge badge-dynamic">已动态配置</span>
-                      </el-tooltip>
-                      <el-tooltip
-                        v-else-if="isExplicitEmpty(p)"
-                        content="该参数已设为「发送空值」：执行时发送空串，不取变量池；点击切回「自动取变量池」"
-                        placement="top"
-                        popper-class="app-tip"
-                      >
-                        <span class="badge badge-explicit" @click="toggleExplicitEmpty(p)">发送空值</span>
-                      </el-tooltip>
-                      <el-tooltip
-                        v-else-if="isFilled(p)"
-                        :content="activeNodeId === '__all__'
-                          ? '变量池中已有值，执行时按参数名取此值'
-                          : '池值（各节点共享）；在此改值即成为该节点手动覆盖，压过池值'"
-                        placement="top"
-                        popper-class="app-tip"
-                      >
-                        <span class="badge badge-filled">已配置</span>
-                      </el-tooltip>
-                      <el-tooltip
-                        v-else
-                        :content="activeNodeId === '__all__'
-                          ? '池中无值：留空时发送空值（“”/null）；需引用运行时变量请用 ${} 显式绑定'
-                          : '池中无值：填值即成为该节点手动覆盖；留空同池语义'"
-                        placement="top"
-                        popper-class="app-tip"
-                      >
-                        <span class="badge badge-empty">
-                          {{ activeNodeId === '__all__' ? '未配置' : '未配置（自动）' }}
-                        </span>
-                      </el-tooltip>
-                      <!-- 空值模式切换：值为空且非动态/手动/已显式空时，提供"发送空值"入口 -->
-                      <el-tooltip
-                        v-if="canSetExplicitEmpty(p)"
-                        content="把该参数固定为「发送空值」：执行时发送空串，不回落变量池取值"
-                        placement="top"
-                        popper-class="app-tip"
-                      >
-                        <span class="badge badge-explicit-toggle" @click="toggleExplicitEmpty(p)">⇄ 发送空值</span>
-                      </el-tooltip>
-                    </div>
-                    <!-- file 类型：值是文件中心文件 ID，弹文件选择器；显示文件名（ID 备查） -->
-                    <div v-if="p.type === 'file'" class="file-value-cell">
-                      <el-input
-                        :model-value="editVal(p.key) ? fileLabel(String(editVal(p.key))) : ''"
-                        readonly
-                        placeholder="未选择文件"
-                        class="file-value-input"
-                      />
-                      <el-button
-                        link
-                        type="primary"
-                        :disabled="p.dynamic && activeNodeId !== '__all__'"
-                        @click="openFilePicker(p.key)"
-                      >选择</el-button>
-                      <el-button
-                        v-if="editVal(p.key)"
-                        link
-                        type="danger"
-                        :disabled="p.dynamic && activeNodeId !== '__all__'"
-                        @click="setEditVal(p.key, '')"
-                      >清除</el-button>
-                    </div>
-                    <el-input
-                      v-else
-                      :model-value="editVal(p.key)"
-                      @update:model-value="(v: string) => setEditVal(p.key, v)"
-                      @blur="beautifyJson(p.key)"
-                      :type="isJsonText(editVal(p.key)) ? 'textarea' : 'text'"
-                      :autosize="{ minRows: 1, maxRows: 20 }"
-                      :placeholder="paramPlaceholder(p)"
-                      :disabled="p.dynamic && activeNodeId !== '__all__'"
-                    />
-                    <div
-                      v-if="!(p.dynamic && activeNodeId !== '__all__') && jsonError(editVal(p.key))"
-                      class="json-err"
-                    >{{ jsonError(editVal(p.key)) }}</div>
-                  </div>
-                </div>
-
-                <div class="pool-tip">
-                  徽标含义：<span class="badge badge-filled">已配置</span>=池中有值（执行取此值）；
-                  <span class="badge badge-dynamic">已动态配置</span>=节点编排 ${} 运行时求值，优先生效；
-                  <span class="badge badge-empty">未配置</span>=池中无值，留空时发送空值（“”/null）；
-                  <span class="badge badge-manual">手动覆盖</span>=节点编排字面量优先，池值暂不生效；
-                  <span class="badge badge-explicit">发送空值</span>=该节点固定发空（不取池）——值为空时点
-                  <span class="badge badge-explicit-toggle">⇄ 发送空值</span>切换。
-                  优先级：手动覆盖 &gt; 套件注入 &gt; 数据集变量池；运行时变量不自动按名取值，仅 ${} 显式引用
-                  <el-button text size="small" class="help-link" @click="store.openCoreCapability('dataset')">查看数据集用法</el-button>
-                </div>
+            <!-- 悬空节点配置：画布节点已删但行内仍有其入参配置 -->
+            <el-alert v-if="view?.orphan_node_ids.length" type="warning" :closable="false" class="orphan-alert">
+              <template #title>
+                {{ view.orphan_node_ids.length }} 个节点已从用例编排中删除，但本数据集仍保留其入参配置（不再被执行）
+                <el-button size="small" type="warning" plain :loading="cleaningOrphans" @click="clearOrphans">清理悬空配置</el-button>
               </template>
+            </el-alert>
+
+            <div v-loading="viewLoading" class="params-area">
+              <el-tabs v-if="view && view.nodes.length" v-model="activeNodeId" class="node-tabs" @tab-change="writeLast({})">
+                <el-tab-pane
+                  v-for="n in view.nodes"
+                  :key="n.node_id"
+                  :name="n.node_id"
+                >
+                  <template #label>
+                    <span class="tab-label" :class="{ dirty: isDirty(n.node_id) }">
+                      {{ n.label || n.node_id }}
+                      <span v-if="isDirty(n.node_id)" class="tab-dot">●</span>
+                    </span>
+                  </template>
+
+                  <!-- 只渲染当前激活节点：200+ 行参数表整棵 DOM 切走即销毁
+                       （el-tabs 默认保留全部已访问面板，21 节点累积到 GB 级内存）；
+                       编辑态存于 drafts（父级），切回无损重建 -->
+                  <div v-if="activeNodeId === n.node_id && drafts[n.node_id]" class="node-panel">
+                    <div class="node-meta">
+                      <span v-if="n.api_name" class="meta-api">{{ n.api_name }}</span>
+                      <span v-else class="meta-api none">未绑定接口（在用例编排中绑定，未绑定节点不执行）</span>
+                    </div>
+
+                    <NodeParamsTable
+                      :model-value="drafts[n.node_id].params"
+                      :fields="(n.fields as any) || []"
+                      :ref-groups="refGroupsFor(n.node_id)"
+                      @update:model-value="(v) => onDraftChange(n.node_id, v)"
+                    />
+
+                    <div class="node-actions">
+                      <el-button size="small" @click="openImport(n.node_id)">导入 JSON</el-button>
+                      <el-button size="small" :loading="savingNode" @click="resetNode(n.node_id)">放弃改动</el-button>
+                      <el-button size="small" type="primary" :disabled="!isDirty(n.node_id)" :loading="savingNode" @click="saveNode(n.node_id)">
+                        保存本节点入参
+                      </el-button>
+                      <span class="node-tip">保存即整体替换该节点的全部参数取值来源（含引用拓扑/悬空校验）</span>
+                    </div>
+                  </div>
+                </el-tab-pane>
+              </el-tabs>
+              <EmptyState v-else-if="!viewLoading" description="用例编排中暂无节点，先去编排画布添加节点" :image-size="60" />
+
+              <div class="pool-tip">
+                入参支持<b>常量 / 函数 / 引用 / SQL</b> 四种来源；常量可为对象或数组，内嵌引用自动求值。
+                <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">查看参数来源说明</el-button>
+              </div>
             </div>
           </template>
         </template>
       </div>
     </div>
 
-    <!-- 脏状态吸底保存条：长列表编辑后保存按钮不随滚动丢失 -->
-    <transition name="el-fade-in">
-      <div v-if="current && isDirty && !savingValues" class="save-dock">
-        <span class="save-dock-text">{{ dirtyCount }} 处未保存改动（含节点手动覆盖）</span>
-        <el-button size="small" @click="discardEdits">放弃</el-button>
-        <el-button size="small" type="primary" @click="saveValues">保存</el-button>
-      </div>
-    </transition>
-
-    <!-- 编辑数据集信息（名称/描述）：新建走「保存用例自动建池」或「复制」，无手动新建 -->
-    <el-dialog v-model="dlgVisible" title="编辑数据集" width="560px">
+    <!-- 新建/编辑数据集信息（名称/描述） -->
+    <el-dialog v-model="dlgVisible" :title="dlgMode === 'create' ? '新建数据集' : '编辑数据集'" width="560px">
       <el-form label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="如：运单数据-场景A" maxlength="100" />
@@ -307,157 +162,60 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ dlgMode === 'create' ? '创建' : '保存' }}</el-button>
       </template>
     </el-dialog>
 
-    <!-- 新增变量（变量池加列） -->
-    <el-dialog v-model="addVarVisible" title="新增变量" width="460px" :close-on-click-modal="false">
-      <el-alert
-        type="info"
-        :closable="false"
-        style="margin-bottom: 12px"
-        title="在变量池中新增一个变量（列）。同字段在不同节点取值不同的参数（如状态流转）建议不从池取值，改由各节点在用例编排中单独配置"
-      />
-      <el-form label-width="70px">
-        <el-form-item label="变量名" required>
-          <el-input v-model="addVarKey" placeholder="如：entrust_status 或 to_customer.remark（点路径）" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="addVarType" style="width: 100%">
-            <el-option v-for="t in ['string', 'int', 'bool', 'array', 'object', 'file']" :key="t" :label="t" :value="t" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="addVarVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmAddVariable">添加</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 节点变量导入：粘贴 JSON → 预览（动态不覆盖/静态替换/忽略）→ 确认应用并保存 -->
-    <el-dialog v-model="importVisible" title="导入节点变量" width="760px" :close-on-click-modal="false">
+    <!-- 导入请求体 JSON：仅替换常量字段（整组替换），非常量/通配/未命中不动，先进草稿 -->
+    <el-dialog v-model="importVisible" title="导入请求体 JSON（仅替换常量字段）" width="760px">
       <el-input
         v-model="importText"
         type="textarea"
         :rows="8"
-        placeholder="粘贴 JSON 对象（{...}）或数组请求体（[{...}]，自动取首个元素）；解析预览后仅「将被替换」的变量会被应用，动态绑定（${}）不会被覆盖"
+        placeholder='粘贴该节点新一套数据的请求体 JSON，如 {"bl_no":"SMOK2026...","amount":100}'
       />
-      <div class="import-actions">
-        <el-button size="small" @click="parseImport">解析预览</el-button>
+      <div class="import-bar">
+        <el-button size="small" type="primary" plain @click="parseImport">解析预览</el-button>
+        <span v-if="importParsed && !importParsed.ok" class="import-err">{{ importParsed.error }}</span>
+        <span v-else-if="importParsed?.ok" class="import-sum">
+          将替换 {{ importHitCount }} 个常量字段；跳过 {{ importParsed.rows.length - importHitCount }} 个（非常量 / 通配 / 未命中）
+        </span>
       </div>
-      <el-table v-if="importRows.length" :data="importRows" size="small" border max-height="320">
-        <el-table-column label="变量" prop="key" width="200" show-overflow-tooltip />
+      <el-table v-if="importParsed?.ok" :data="importParsed.rows" size="small" max-height="320">
+        <el-table-column prop="path" label="字段路径" min-width="150" show-overflow-tooltip />
+        <el-table-column label="旧值" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }"><code class="import-val">{{ fmtImportVal(row.old) }}</code></template>
+        </el-table-column>
+        <el-table-column label="新值" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }"><code class="import-val" :class="{ hit: row.hit }">{{ fmtImportVal(row.neu) }}</code></template>
+        </el-table-column>
         <el-table-column label="状态" width="150">
           <template #default="{ row }">
-            <span class="badge" :class="row.badge">{{ row.statusText }}</span>
+            <el-tag v-if="row.hit" size="small" type="success">替换</el-tag>
+            <el-tag v-else size="small" type="info">{{ row.note }}</el-tag>
           </template>
-        </el-table-column>
-        <el-table-column label="当前值" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.cur || '（空）' }}</template>
-        </el-table-column>
-        <el-table-column label="导入值" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.neu }}</template>
         </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!applyCount" :loading="savingValues" @click="confirmImport">
-          确认导入{{ applyCount ? `（${applyCount} 项替换）` : '' }}
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- file 参数取值：文件中心选择器 -->
-    <FilePicker
-      v-model="filePickerVisible"
-      :model-file-id="editingValues[filePickerKey] || ''"
-      @select="onFileSelect"
-    />
-
-    <!-- 从其他数据集覆盖（节点级对比合并） -->
-    <el-dialog v-model="mergeVisible" title="从其他数据集覆盖" width="720px" :close-on-click-modal="false">
-      <el-form label-width="90px" size="small">
-        <el-form-item label="源数据集">
-          <el-select
-            v-model="mergeSourceId"
-            placeholder="选择同项目其他数据集"
-            style="width: 100%"
-            filterable
-            fit-input-width
-            @change="doMergePreview"
-          >
-            <el-option
-              v-for="d in mergeCandidates"
-              :key="d.id"
-              :value="d.id"
-              :label="`${d.name}（${caseName(d.case_id)}，${d.columns?.length ?? 0} 变量）`"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
-
-      <div v-if="mergeLoading" v-loading="true" style="min-height: 120px" />
-
-      <template v-else-if="mergePreviewData">
-        <el-alert
-          v-if="!mergePreviewData.common_nodes.length"
-          type="info"
-          :closable="false"
-          title="两个数据集没有相同节点（相同接口），没有覆盖的必要"
-        />
-        <template v-else>
-          <el-table
-            ref="mergeTableRef"
-            :data="mergePreviewData.common_nodes"
-            size="small"
-            @selection-change="(rows: any[]) => (mergeSelectedApis = rows.map((r) => r.api_id))"
-          >
-            <el-table-column type="selection" width="40" />
-            <el-table-column prop="api_name" label="相同节点（接口）" min-width="140" />
-            <el-table-column label="涉及变量" min-width="300">
-              <template #default="{ row }">
-                <el-tooltip :content="row.columns.map(colLabel).join('、')" placement="top" popper-class="app-tip">
-                  <span class="merge-cols">{{ row.columns.map(colLabel).join('、') }}</span>
-                </el-tooltip>
-              </template>
-            </el-table-column>
-          </el-table>
-          <div class="merge-hint" style="margin-top: 8px">
-            已选 {{ mergeSelectedApis.length }} 个节点 · 源「{{ mergePreviewData.source.name }}」的单套值将覆盖勾选节点涉及变量 ·
-            目标独有变量保持不变 · 源空值不覆盖
-          </div>
-        </template>
-      </template>
-
-      <template #footer>
-        <el-button @click="mergeVisible = false">取消</el-button>
-        <el-button
-          type="primary"
-          :disabled="!mergePreviewData || !mergePreviewData.common_nodes.length || !mergeSelectedApis.length"
-          :loading="merging"
-          @click="confirmMerge"
-        >
-          覆盖合并
-        </el-button>
+        <el-button type="primary" :disabled="!importHitCount" @click="applyImport">应用到草稿</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CaretRight, Document, Grid, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, fileApi, type DataSet, type TestCase, type CaseGroup, type DatasetParamsView, type DatasetParam, type TestFile } from '@/api'
+import { CaretRight, Document, Grid, Plus, WarningFilled } from '@element-plus/icons-vue'
+import { datasetApi, caseApi, caseGroupApi, type DataSet, type DatasetParamsView, type NodeParams, type ParamSpec, type TestCase, type CaseGroup } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
-import { useFieldDict } from '@/composables/useFieldDict'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
-import FilePicker from '@/components/FilePicker.vue'
+import NodeParamsTable from '@/components/NodeParamsTable.vue'
+import type { RefVarGroup } from '@/components/VarRefSelect.vue'
 
 const store = useAppStore()
-const { dictLabel } = useFieldDict()
 const cases = ref<TestCase[]>([])
 const groups = ref<CaseGroup[]>([])
 const datasets = ref<DataSet[]>([])
@@ -467,607 +225,273 @@ const loading = ref(false)
 const loadError = ref('')
 const saving = ref(false)
 
-const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === currentCase.value?.id))
-
-// ===== 变量池视图（用例级单池；节点为筛选视角） =====
+// ===== 参数视图（节点 tab 数据源）：行内现值 × 接口字段 × 静态产出 =====
 const view = ref<DatasetParamsView | null>(null)
 const viewLoading = ref(false)
-const savingValues = ref(false)
-const editingValues = ref<Record<string, any>>({})
-const activeNodeId = ref('__all__')  // 默认总览：全部变量去重平铺
-// 节点级编辑态：node_id → key → 值（节点页签编辑 = 写该节点手动覆盖，压过池值；
-// 池总览页签编辑 = 池值本身，一键一值向各节点共享）
-const nodeEdits = ref<Record<string, Record<string, any>>>({})
-// 脏检测基线：node_id → key → 序列化初值（manual/dynamic 显示 manual_value，否则池值）
-const nodeBaselines = ref<Record<string, Record<string, string>>>({})
-// 池值基线（总览页签脏检测）：key → 序列化初值
-const poolBaseline = ref<Record<string, string>>({})
-// 动态绑定键（值含 ${}，编排配置）：节点页签只读，编辑/清除一律跳过
-const dynamicKeysByNode = ref<Record<string, Set<string>>>({})
-// 显式空值（发送空值模式）：node_id → keys——值为空不再静默回落变量池，
-// 由用户显式选择"发送空值"（explicit_empty 标记）或"自动取变量池"（默认）
-const explicitEmptyEdits = ref<Record<string, Set<string>>>({})
-// 本次编辑中从"发送空值"切回"自动"的键：保存时移除标记行（clears）
-const explicitEmptyRemoved = ref<Record<string, Set<string>>>({})
-// 本次编辑中切换过空值模式的键（脏计数用：值可能未变但标记变了）
-const explicitEmptyTouched = ref<Record<string, Set<string>>>({})
-// file 类型值（文件 ID）→ 文件名映射（拉一次项目文件列表）
-const fileNames = ref<Record<string, string>>({})
+const activeNodeId = ref('')
+const savingNode = ref(false)
+const cleaningOrphans = ref(false)
 
-/** 该参数当前是否处于"发送空值"模式（总览看视图状态，节点页签看编辑态） */
-function isExplicitEmpty(p: DatasetParam) {
-  if (activeNodeId.value === '__all__') return !!p.explicit_empty
-  return (explicitEmptyEdits.value[activeNodeId.value] || new Set<string>()).has(p.key)
+/** 每节点编辑草稿（params）；脏标记事件驱动（编辑事件置位，保存/放弃/重载复位）
+ * ——避免 tab 标签对参数级对象做深比较 */
+const drafts = reactive<Record<string, { params: NodeParams }>>({})
+const dirtyMap = reactive<Record<string, boolean>>({})
+
+const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === currentCase.value?.id))
+
+/** 数据集已配置节点数（行内 nodes 键数） */
+function nodeCount(d: DataSet): number {
+  return Object.keys(d.rows?.[0]?.data?.nodes || {}).length
 }
 
-/** 空值模式切换入口可见：节点页签 + 非动态 + 未处于显式空 + 编辑值为空 */
-function canSetExplicitEmpty(p: DatasetParam) {
-  if (activeNodeId.value === '__all__' || p.dynamic || isExplicitEmpty(p)) return false
-  const v = (nodeEdits.value[activeNodeId.value] || {})[p.key]
-  return v === '' || v === null || v === undefined
-}
-
-/** 切换"发送空值"模式：开 = 值锁定空 + 保存落 explicit_empty 标记；
- * 关 = 保存移除标记行，回落"自动取变量池" */
-function toggleExplicitEmpty(p: DatasetParam) {
-  const nid = activeNodeId.value
-  const cur = new Set(explicitEmptyEdits.value[nid] || [])
-  const rm = new Set(explicitEmptyRemoved.value[nid] || [])
-  const tp = new Set(explicitEmptyTouched.value[nid] || [])
-  tp.add(p.key)
-  if (cur.has(p.key)) {
-    cur.delete(p.key)
-    rm.add(p.key)
-    const base = (nodeBaselines.value[nid] || {})[p.key]
-    if (base !== undefined) (nodeEdits.value[nid] = nodeEdits.value[nid] || {})[p.key] = base
-  } else {
-    cur.add(p.key)
-    rm.delete(p.key)
-    ;(nodeEdits.value[nid] = nodeEdits.value[nid] || {})[p.key] = ''
-  }
-  explicitEmptyEdits.value = { ...explicitEmptyEdits.value, [nid]: cur }
-  explicitEmptyRemoved.value = { ...explicitEmptyRemoved.value, [nid]: rm }
-  explicitEmptyTouched.value = { ...explicitEmptyTouched.value, [nid]: tp }
-}
-
-/** 当前页签的参数清单：总览 = all_params（用例级去重）；节点页签 = 该节点视角 */
-const currentParams = computed<DatasetParam[]>(() => {
-  if (!view.value) return []
-  if (activeNodeId.value === '__all__') return view.value.all_params
-  return view.value.nodes.find((n) => n.node_id === activeNodeId.value)?.params ?? []
-})
-
-// ===== 检索工具：搜索（名/字典中文名）+ 只看未配置（manual/dynamic 有编排值来源，视为已配置） =====
-const searchKey = ref('')
-const onlyUnfilled = ref(false)
-
-const filteredParams = computed<DatasetParam[]>(() => {
-  const q = searchKey.value.trim().toLowerCase()
-  return currentParams.value.filter((p) => {
-    if (onlyUnfilled.value && (isFilled(p) || p.manual || p.dynamic)) return false
-    if (!q) return true
-    return p.key.toLowerCase().includes(q) || (dictLabel(p.key) || '').toLowerCase().includes(q)
-  })
-})
-
-/** 当前节点页签的显示名（作用域提示用） */
-const currentScopeNodeLabel = computed(
-  () => view.value?.nodes.find((n) => n.node_id === activeNodeId.value)?.label ?? activeNodeId.value,
+/** 当前视图内已配置（有 body/header 参数）的节点数 */
+const configuredCount = computed(() =>
+  (view.value?.nodes || []).filter((n) =>
+    Object.keys(n.params?.body || {}).length || Object.keys(n.params?.headers || {}).length,
+  ).length,
 )
 
-const filledCount = computed(
-  () => view.value?.all_params.filter(isFilled).length ?? 0,
-)
-const totalCount = computed(() => view.value?.all_params.length ?? 0)
-
-/** 池中已有值（编辑态实时：输入框非空即已配置） */
-function isFilled(p: DatasetParam) {
-  const v = editingValues.value[p.key]
-  return v !== '' && v !== null && v !== undefined
+function isDirty(nid: string): boolean {
+  return dirtyMap[nid] === true
 }
 
-/** 当前作用域的编辑值：总览 = 池值；节点页签 = 该节点手动覆盖值 */
-function editVal(key: string): any {
-  if (activeNodeId.value === '__all__') return editingValues.value[key]
-  return nodeEdits.value[activeNodeId.value]?.[key]
+/** 编辑事件：写入草稿并置脏（NodeParamsTable 换新对象 emit） */
+function onDraftChange(nid: string, v: NodeParams) {
+  if (!drafts[nid]) return
+  drafts[nid].params = v
+  dirtyMap[nid] = true
 }
 
-/** 当前作用域写值（v-model 无法绑三元表达式，经此分发） */
-function setEditVal(key: string, v: any) {
-  if (activeNodeId.value === '__all__') {
-    editingValues.value[key] = v
-    return
-  }
-  const m = nodeEdits.value[activeNodeId.value]
-  if (m) m[key] = v
-}
-
-/** 失焦自动美化：输入/粘贴的合法 JSON 文本统一缩进换行；非法（${} 动态绑定/尾逗号等）原样保留，错误由 jsonError 实时提示 */
-function beautifyJson(key: string) {
-  const v = editVal(key)
-  if (!isJsonText(v)) return
-  try {
-    setEditVal(key, JSON.stringify(JSON.parse(v.trim()), null, 2))
-  } catch {
-    // 非法 JSON（尾逗号/动态绑定占位等）：不动
-  }
-}
-
-/** 序列化（对象/数组转 JSON 文本，与池编辑同一格式；紧凑 JSON 文本字符串自动美化缩进换行） */
-function _ser(v: any): string {
-  if (typeof v === 'object' && v !== null) return JSON.stringify(v, null, 2)
-  if (isJsonText(v)) {
-    try {
-      return JSON.stringify(JSON.parse(v), null, 2)  // 合法 JSON 文本：统一美化
-    } catch {
-      return v  // 非法（${} 动态绑定/尾逗号等）：原样保留
+/** 由参数视图初始化全部节点草稿（并复位脏标记） */
+function initDrafts() {
+  for (const k of Object.keys(drafts)) delete drafts[k]
+  for (const k of Object.keys(dirtyMap)) delete dirtyMap[k]
+  for (const n of view.value?.nodes || []) {
+    drafts[n.node_id] = {
+      params: JSON.parse(JSON.stringify(n.params || {})),
     }
   }
-  return v ?? ''
 }
 
-/** 值文本还原：JSON 文本解析回对象/数组，其余原样 */
-function _parse(v: any): any {
-  if (isJsonText(v)) {
-    try {
-      return JSON.parse(v)
-    } catch {
-      return v
-    }
-  }
-  return v
-}
-
-// 上次加载视图的数据集：id 变化（切换/复制）才重置视角；
-// 保存/覆盖合并后的原位刷新保留当前 tab、搜索词与过滤——用户视角不被动荡
-let lastViewDatasetId: number | null = null
-
-async function loadParamsView(id: number) {
-  const viewChanged = id !== lastViewDatasetId
-  lastViewDatasetId = id
+async function loadView(keepTab = false) {
+  if (!current.value) { view.value = null; return }
   viewLoading.value = true
   try {
-    view.value = await datasetApi.paramsView(id)
-    // 编辑副本：对象/数组序列化为 JSON 文本（el-input 直接绑对象会显示 [object Object]，
-    // 且用户一旦触碰输入框，原对象就被覆盖成字符串导致数据损坏）
-    const data: Record<string, any> = {}
-    for (const node of view.value.nodes) {
-      for (const p of node.params) {
-        if (p.key in data) continue
-        const v = p.value
-        data[p.key] = _ser(v)
-      }
+    const prev = activeNodeId.value
+    view.value = await datasetApi.paramsView(current.value.id)
+    initDrafts()
+    if (!(keepTab && view.value.nodes.some((n) => n.node_id === prev))) {
+      // 恢复上次访问的节点 tab（不在本视图内则回落首节点）
+      const lastNode = readLast().nodeId
+      activeNodeId.value = view.value.nodes.some((n) => n.node_id === lastNode)
+        ? (lastNode || '') : (view.value.nodes[0]?.node_id || '')
     }
-    // 悬空变量保留在编辑副本（保存时可随清单清理，也可继续给值）
-    for (const k of view.value.orphan_keys) {
-      if (!(k in data)) data[k] = ''
-    }
-    editingValues.value = data
-    poolBaseline.value = { ...data }
-    // 节点级编辑态：manual/dynamic 显示绑定值（manual 可改，dynamic 只读），
-    // 其余显示池值——改了即成该节点手动覆盖；基线用于保存时脏检测；
-    // explicit_empty 参数基线为空（执行发空，与池值无关）
-    const edits: Record<string, Record<string, any>> = {}
-    const bases: Record<string, Record<string, string>> = {}
-    const dyn: Record<string, Set<string>> = {}
-    const eeMap: Record<string, Set<string>> = {}
-    for (const node of view.value.nodes) {
-      const m: Record<string, any> = {}
-      const bk: Record<string, string> = {}
-      const dk = new Set<string>()
-      const ek = new Set<string>()
-      for (const p of node.params) {
-        const base = p.explicit_empty ? '' : (p.manual || p.dynamic ? p.manual_value : p.value)
-        m[p.key] = _ser(base)
-        bk[p.key] = _ser(base)
-        if (p.dynamic) dk.add(p.key)
-        if (p.explicit_empty) ek.add(p.key)
-      }
-      edits[node.node_id] = m
-      bases[node.node_id] = bk
-      dyn[node.node_id] = dk
-      eeMap[node.node_id] = ek
-    }
-    nodeEdits.value = edits
-    nodeBaselines.value = bases
-    dynamicKeysByNode.value = dyn
-    explicitEmptyEdits.value = eeMap
-    explicitEmptyRemoved.value = {}
-    explicitEmptyTouched.value = {}
-    if (viewChanged) {
-      activeNodeId.value = '__all__'  // 切换数据集回到总览
-      searchKey.value = ''
-      onlyUnfilled.value = false
-    }
-    await loadFileNames()
+    writeLast({})
   } catch (e: any) {
-    ElMessage.error(e.message || '加载变量池视图失败')
+    ElMessage.error(e.message || '加载参数视图失败')
     view.value = null
   } finally {
     viewLoading.value = false
   }
 }
 
-/** file 值显示名：项目文件列表建 ID→文件名映射（查无时回退 #ID） */
-async function loadFileNames() {
-  const ids = new Set<string>()
-  for (const node of view.value?.nodes || []) {
-    for (const p of node.params) {
-      if (p.type !== 'file') continue
-      // 池值 + 手动覆盖值都收集：file 参数的值可能是节点字面量（manual_value），
-      // 只收池值会漏建映射，节点页签的文件显示回退成 #ID
-      if (p.value) ids.add(String(p.value))
-      const mv = p.manual_value
-      if (mv !== undefined && mv !== null && mv !== '' && !String(mv).includes('${')) {
-        ids.add(String(mv))
-      }
-    }
-  }
-  for (const d of caseDatasets.value) {
-    for (const c of d.columns || []) {
-      if (c.type === 'file') {
-        const v = editingValues.value[c.key]
-        if (v) ids.add(String(v))
-      }
-    }
-  }
-  if (!ids.size) {
-    fileNames.value = {}
-    return
-  }
+/** 保存单节点入参（整体替换；服务端含引用拓扑/悬空/依赖环静态校验） */
+async function saveNode(nid: string) {
+  if (!current.value || !drafts[nid]) return
+  savingNode.value = true
   try {
-    const files = await fileApi.list(store.currentProjectId!)
-    const m: Record<string, string> = {}
-    for (const f of files) m[String(f.id)] = f.name || f.original_name || `#${f.id}`
-    fileNames.value = m
-  } catch {
-    fileNames.value = {}
+    await datasetApi.saveNodeConfig(current.value.id, {
+      node_id: nid,
+      params: drafts[nid].params,
+    })
+    ElMessage.success(`节点「${nodeLabelOf(nid)}」入参已保存`)
+    await loadView(true)
+  } catch (e: any) {
+    ElMessage.error({ message: e.message || '保存失败', duration: 6000 })
+  } finally {
+    savingNode.value = false
   }
 }
 
-function fileLabel(id: string) {
-  return fileNames.value[id] || `#${id}`
+/** 放弃本节点改动：回到服务端快照 */
+function resetNode(nid: string) {
+  const n = view.value?.nodes.find((x) => x.node_id === nid)
+  if (!n) return
+  drafts[nid] = {
+    params: JSON.parse(JSON.stringify(n.params || {})),
+  }
+  dirtyMap[nid] = false
 }
 
-/** 悬空变量显式清理：从编辑清单移除并保存（键不进 values 即删列） */
-async function cleanOrphans() {
-  if (!view.value?.orphan_keys.length) return
-  try {
-    await ElMessageBox.confirm(
-      `确认清理 ${view.value.orphan_keys.length} 个已不被编排使用的池变量？清理后不可恢复。`,
-      '清理悬空变量',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  for (const k of view.value.orphan_keys) {
-    delete editingValues.value[k]
-    delete addedVarTypes.value[k]
-  }
-  await saveValues()
-}
-
-// ===== 脏状态（吸底保存条）：池值增删改 + 节点手动覆盖改动 =====
-const isDirty = computed(() => dirtyCount.value > 0)
-
-const dirtyCount = computed(() => {
-  let n = 0
-  const base = poolBaseline.value
-  const cur = editingValues.value
-  const keys = new Set([...Object.keys(base), ...Object.keys(cur)])
-  for (const k of keys) {
-    if (String(cur[k] ?? '') !== String(base[k] ?? '')) n++
-  }
-  for (const [nid, m] of Object.entries(nodeEdits.value)) {
-    const b = nodeBaselines.value[nid] || {}
-    const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
-    for (const [k, v] of Object.entries(m)) {
-      if (k in b && String(v) !== String(b[k]) && !dyn.has(k)) n++
-    }
-    // 显式空值模式切换（值可能未变，但标记变了即脏）
-    for (const k of explicitEmptyTouched.value[nid] || []) if (!dyn.has(k)) n++
-  }
-  return n
-})
-
-/** 放弃改动：重载变量池视图（回到服务端状态） */
-async function discardEdits() {
-  if (!current.value) return
-  await loadParamsView(current.value.id)
-  ElMessage.info('已放弃未保存改动')
-}
-
-/** JSON 文本判定：trim 后以 [ 或 { 开头（前导空格不逃逸美化/校验/保存拦截三道防线） */
-function isJsonText(v: any) {
-  const s = typeof v === 'string' ? v.trim() : ''
-  return s.startsWith('[') || s.startsWith('{')
-}
-
-// ===== 变量池新增/删除变量（保存时经 column_types 指定新列类型） =====
-const addVarVisible = ref(false)
-const addVarKey = ref('')
-const addVarType = ref('string')
-const addedVarTypes = ref<Record<string, string>>({})
-
-// ===== 节点参数导入（粘贴 JSON → 预览 → 应用编辑态并保存） =====
+// ===== 导入请求体 JSON：常量字段整组替换；非常量 / 通配路径 / 未命中不动；先进草稿 =====
 interface ImportRow {
-  key: string
-  status: 'replace' | 'dynamic' | 'ignore' | 'same'
-  statusText: string
-  badge: string
-  cur: string
-  neu: string
+  path: string
+  old: unknown        // 旧常量值（非常量行存来源摘要）
+  neu: unknown        // 新值（未命中为 undefined）
+  hit: boolean
+  note?: string
 }
 const importVisible = ref(false)
+const importNodeId = ref('')
 const importText = ref('')
-const importRows = ref<ImportRow[]>([])
-const applyCount = computed(() => importRows.value.filter((r) => r.status === 'replace').length)
+const importParsed = ref<null | { ok: boolean; error?: string; rows: ImportRow[] }>(null)
+const importHitCount = computed(() => (importParsed.value?.ok ? importParsed.value.rows.filter((r) => r.hit).length : 0))
 
-function openImport() {
+function openImport(nid: string) {
+  importNodeId.value = nid
   importText.value = ''
-  importRows.value = []
+  importParsed.value = null
   importVisible.value = true
 }
 
-/** 解析预览：当前节点参数与导入 JSON 逐键比对——动态绑定（${}）不覆盖，
- *  非该节点参数忽略，其余标记替换（同值标记不变）。
- *  顶层数组 = 数组请求体形态（body 本身是 [{...}]，如上传应收发票），取首个
- *  对象元素继续逐键导入——与运行时数组请求体取首元素的组装口径一致 */
+/** 按参数路径（a.b / arr.0.c）从导入 JSON 下钻取值；取不到返回 undefined */
+function getByPath(obj: unknown, path: string): unknown {
+  let cur: unknown = obj
+  for (const seg of path.split('.')) {
+    if (cur == null || typeof cur !== 'object') return undefined
+    cur = (cur as Record<string, unknown>)[seg]
+  }
+  return cur
+}
+
 function parseImport() {
-  let obj: any
+  let data: unknown
   try {
-    obj = JSON.parse(importText.value)
+    data = JSON.parse(importText.value)
   } catch (e: any) {
-    ElMessage.error(`JSON 解析失败：${e.message}`)
+    importParsed.value = { ok: false, error: `JSON 解析失败：${e.message}`, rows: [] }
     return
   }
-  if (Array.isArray(obj)) {
-    if (!obj.length || typeof obj[0] !== 'object' || obj[0] === null || Array.isArray(obj[0])) {
-      ElMessage.error('顶层数组须为 [{...}] 形态（数组请求体），且首个元素为对象')
-      return
-    }
-    obj = obj[0]
-    ElMessage.info('识别为数组请求体，已取首个对象元素逐键比对')
-  }
-  if (typeof obj !== 'object' || obj === null) {
-    ElMessage.error('请粘贴 JSON 对象（{...}）或数组请求体（[{...}]）')
-    return
-  }
-  const node = view.value?.nodes.find((n) => n.node_id === activeNodeId.value)
-  const byKey = new Map((node?.params || []).map((p) => [p.key, p]))
+  const draft = drafts[importNodeId.value]
+  const srcLabel: Record<string, string> = { func: '函数', ref: '引用', sql: 'SQL' }
   const rows: ImportRow[] = []
-  for (const [k, v] of Object.entries(obj)) {
-    const neu = _ser(v)
-    const p = byKey.get(k)
-    if (!p) {
-      rows.push({ key: k, status: 'ignore', statusText: '非该节点变量，忽略', badge: 'badge-empty', cur: '', neu })
-    } else if (p.dynamic) {
-      rows.push({ key: k, status: 'dynamic', statusText: '动态绑定，不覆盖', badge: 'badge-dynamic', cur: _ser(p.manual_value), neu })
-    } else if (neu === '') {
-      // 导入值为空（null/""）：覆盖后保持发送空值——不静默回落变量池取值
-      rows.push({ key: k, status: 'replace', statusText: '将设为发送空值', badge: 'badge-explicit', cur: String(editVal(k) ?? ''), neu })
-    } else if (String(editVal(k)) === neu) {
-      rows.push({ key: k, status: 'same', statusText: '值相同', badge: 'badge-filled', cur: neu, neu })
-    } else {
-      rows.push({ key: k, status: 'replace', statusText: '将被替换', badge: 'badge-manual', cur: String(editVal(k) ?? ''), neu })
+  for (const [path, spec] of Object.entries(draft?.params?.body || {})) {
+    if (!spec || spec.source !== 'constant') {
+      rows.push({ path, old: srcLabel[spec?.source || ''] || spec?.source, neu: undefined, hit: false, note: '非常量，不动' })
+      continue
     }
+    if (path.includes('*')) {
+      rows.push({ path, old: spec.value, neu: undefined, hit: false, note: '通配路径，不参与' })
+      continue
+    }
+    const v = getByPath(data, path)
+    if (v === undefined) {
+      rows.push({ path, old: spec.value, neu: undefined, hit: false, note: '未命中，保持原值' })
+      continue
+    }
+    rows.push({ path, old: spec.value, neu: v, hit: true })
   }
-  importRows.value = rows
-  if (!rows.length) ElMessage.info('导入内容为空')
+  importParsed.value = { ok: true, rows }
 }
 
-async function confirmImport() {
-  // 仅替换项写入节点编辑态（与手输同一格式），复用保存链路（JSON 校验/脏检测）；
-  // 导入值为空的项落入「发送空值」模式（explicit_empty）——保持空不回落池
-  const nid = activeNodeId.value
-  const ee = new Set(explicitEmptyEdits.value[nid] || [])
-  const tp = new Set(explicitEmptyTouched.value[nid] || [])
-  let eeChanged = false
-  for (const r of importRows.value) {
-    if (r.status !== 'replace') continue
-    setEditVal(r.key, r.neu)
-    if (r.neu === '' && nid !== '__all__') {
-      ee.add(r.key)
-      tp.add(r.key)
-      eeChanged = true
-    }
+function applyImport() {
+  const draft = drafts[importNodeId.value]
+  const parsed = importParsed.value
+  if (!draft || !parsed?.ok) return
+  const body: Record<string, ParamSpec> = { ...(draft.params.body || {}) }
+  for (const r of parsed.rows) {
+    if (r.hit) body[r.path] = { source: 'constant', value: r.neu }
   }
-  if (eeChanged) {
-    explicitEmptyEdits.value = { ...explicitEmptyEdits.value, [nid]: ee }
-    explicitEmptyTouched.value = { ...explicitEmptyTouched.value, [nid]: tp }
-  }
+  onDraftChange(importNodeId.value, { ...draft.params, body })
   importVisible.value = false
-  await saveValues()
-}
-// 与后端 _COL_KEY_RE 一致：字母/数字/下划线/点路径段
-const VAR_KEY_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[(?:[A-Za-z_][A-Za-z0-9_]*)?\])*(?:\.(?:[A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[(?:[A-Za-z_][A-Za-z0-9_]*)?\])*)*$/
-
-function openAddVariable() {
-  addVarKey.value = ''
-  addVarType.value = 'string'
-  addVarVisible.value = true
+  ElMessage.success(`已导入 ${importHitCount.value} 个常量字段，点「保存本节点入参」生效`)
 }
 
-function confirmAddVariable() {
-  const k = addVarKey.value.trim()
-  if (!k) return ElMessage.warning('请填写变量名')
-  if (!VAR_KEY_RE.test(k)) {
-    return ElMessage.error('变量名不合法：仅允许字母/数字/下划线/点号（点路径段，段内不以数字开头、不含空格/${}）')
-  }
-  if (k in editingValues.value) return ElMessage.warning(`变量「${k}」已存在`)
-  editingValues.value[k] = ''
-  addedVarTypes.value[k] = addVarType.value
-  addVarVisible.value = false
-  ElMessage.info(`已添加变量「${k}」，填写值后点「保存」生效`)
+/** 预览值显示：JSON 序列化截断，undefined 显示占位 */
+function fmtImportVal(v: unknown): string {
+  if (v === undefined) return '—'
+  const s = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)
+  return s.length > 80 ? s.slice(0, 80) + '…' : s
 }
 
-async function removeVariable(p: DatasetParam) {
-  if (!(p.key in editingValues.value)) return
+/** 清理悬空节点配置（画布已删节点的行内配置） */
+async function clearOrphans() {
+  if (!current.value || !view.value?.orphan_node_ids.length) return
   try {
     await ElMessageBox.confirm(
-      `确认从变量池删除「${colLabel(p.key)}」？删除后该参数不再从池取值：若节点未配置手动/动态值，执行时发送空值（""/null）。同字段节点取不同值时，请改由各节点在用例编排中单独配置。`,
-      '删除变量',
+      `确认清理 ${view.value.orphan_node_ids.length} 个悬空节点的入参配置？此操作不可恢复。`,
+      '清理悬空配置',
       { type: 'warning' },
     )
-  } catch {
-    return
-  }
-  delete editingValues.value[p.key]
-  delete addedVarTypes.value[p.key]
-  ElMessage.info('已从编辑清单移除，点「保存」后正式删除')
-}
-
-/** 即时 JSON 校验：文本以 {/[ 开头但解析失败时给出提示（不阻塞输入，保存时拦截） */
-function jsonError(v: any) {
-  if (!isJsonText(v)) return ''
+  } catch { return }
+  cleaningOrphans.value = true
   try {
-    JSON.parse(v)
-    return ''
+    for (const nid of view.value.orphan_node_ids) {
+      await datasetApi.removeNodeConfig(current.value.id, nid)
+    }
+    ElMessage.success('已清理')
+    await Promise.all([load(), loadView(true)])
   } catch (e: any) {
-    return `JSON 格式错误：${e.message}`
-  }
-}
-
-function paramPlaceholder(p: DatasetParam) {
-  if (p.type === 'array' || p.type === 'object')
-    return '池中无值；JSON 数组/对象文本'
-  return '池中无值；留空时发送空值（运行时变量需 ${} 显式引用）'
-}
-
-async function saveValues() {
-  if (!current.value) return
-  // 有 JSON 语法错误时阻止保存（提示第一个错误字段；池值 + 节点覆盖值都查）
-  for (const [k, v] of Object.entries(editingValues.value)) {
-    const err = jsonError(v)
-    if (err) {
-      ElMessage.error(`池值 ${colLabel(k)}：${err}`)
-      return
-    }
-  }
-  for (const [nid, m] of Object.entries(nodeEdits.value)) {
-    const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
-    for (const [k, v] of Object.entries(m)) {
-      if (dyn.has(k)) continue  // 动态绑定（${}）只读展示，非 JSON 文本不校验
-      const err = jsonError(v)
-      if (err) {
-        const label = view.value?.nodes.find((n) => n.node_id === nid)?.label || nid
-        ElMessage.error(`${label} / ${colLabel(k)}：${err}`)
-        return
-      }
-    }
-  }
-  // 节点级脏检测：改动即该节点手动覆盖（写 pre_process 字面量，压过池值）；
-  // 清空 = 移除覆盖回落池值；动态绑定键只读不参与；
-  // 显式空值（发送空值模式）：提交 __EXPLICIT_EMPTY__ 哨兵落 explicit_empty 标记，
-  // 切回自动的键并入 clears（移除标记行）
-  const nodeSaves: { node_id: string; sets: Record<string, any>; clears: string[] }[] = []
-  for (const [nid, m] of Object.entries(nodeEdits.value)) {
-    const base = nodeBaselines.value[nid] || {}
-    const dyn = dynamicKeysByNode.value[nid] || new Set<string>()
-    const ee = explicitEmptyEdits.value[nid] || new Set<string>()
-    const sets: Record<string, any> = {}
-    const clears: string[] = []
-    for (const k of explicitEmptyRemoved.value[nid] || []) {
-      if (!ee.has(k) && !dyn.has(k) && !(k in sets) && !clears.includes(k)) clears.push(k)
-    }
-    for (const [k, v] of Object.entries(m)) {
-      if (dyn.has(k)) continue
-      if (ee.has(k)) {
-        sets[k] = '__EXPLICIT_EMPTY__'  // 显式空模式：无条件提交（切换后值未变也要落标记）
-        continue
-      }
-      // 两侧统一 String 再比：池值 number/bool 经 _ser 原样保留非字符串，
-      // 若只 String 一侧，String(123) !== 123 恒真 → 未改动的参数被误判脏，
-      // 保存时整批写成节点 set_field 字面量（污染用例前置处理）
-      if (k in base && String(v) !== String(base[k])) {
-        if (v === '' || v === null || v === undefined) clears.push(k)
-        else sets[k] = _parse(v)
-      }
-    }
-    if (Object.keys(sets).length || clears.length) nodeSaves.push({ node_id: nid, sets, clears })
-  }
-  // JSON 文本还原为对象/数组；空串保持空串（未配置语义）
-  const values: Record<string, any> = {}
-  Object.entries(editingValues.value).forEach(([k, v]) => {
-    if (isJsonText(v)) {
-      try {
-        values[k] = JSON.parse(v)
-        return
-      } catch {
-        // 上方已校验，这里不会走到
-      }
-    }
-    values[k] = v
-  })
-  // 防旧页面快照覆盖：页面打开后池可能被外部更新（平台修复/其他入口编辑），
-  // 提交前拉服务器最新行值——检测"服务器有值但本次提交为空/缺失"的参数，
-  // 整体替换语义下这些参数会被清空，弹确认防误伤（曾致跑通用例一保存就挂）
-  try {
-    const list = await datasetApi.list({ case_id: current.value.case_id, with_rows: true })
-    const latest: any = list.find((d) => d.id === current.value!.id)
-    const latestData: Record<string, any> = latest?.rows?.[0]?.data || {}
-    const willClear = Object.keys(latestData).filter(
-      (k) => latestData[k] !== '' && latestData[k] != null
-        && (values[k] === '' || values[k] == null || values[k] === undefined),
-    )
-    if (willClear.length) {
-      await ElMessageBox.confirm(
-        `服务器上有 ${willClear.length} 个参数当前有值，但本次保存会将其清空` +
-        `（页面数据可能已过期，建议刷新页面后再保存）：${willClear.slice(0, 6).join('、')}` +
-        `${willClear.length > 6 ? ' 等' : ''}`,
-        '保存将清空部分参数',
-        { confirmButtonText: '仍要保存', cancelButtonText: '取消', type: 'warning' },
-      )
-    }
-  } catch (e: any) {
-    if (e === 'cancel' || e?.message?.includes('cancel')) throw e // 用户取消保存
-    // 拉取失败不阻断保存
-  }
-  savingValues.value = true
-  try {
-    const columnTypes = Object.keys(addedVarTypes.value).length ? { ...addedVarTypes.value } : undefined
-    await datasetApi.saveValues(current.value.id, values, columnTypes)
-    for (const ns of nodeSaves) {
-      await datasetApi.saveNodeValues(current.value.id, ns.node_id, ns.sets, ns.clears)
-    }
-    ElMessage.success('已保存')
-    await load()
-    if (current.value) await loadParamsView(current.value.id)
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
+    ElMessage.error(e.message || '清理失败')
+    await loadView(true)
   } finally {
-    savingValues.value = false
+    cleaningOrphans.value = false
   }
 }
 
-// ===== file 参数取值：文件中心选择器（值存文件 ID） =====
-const filePickerVisible = ref(false)
-const filePickerKey = ref('')
-const filePickerNode = ref<string | null>(null)  // null = 池总览；节点页签 = 该节点覆盖
-
-function openFilePicker(key: string) {
-  filePickerKey.value = key
-  filePickerNode.value = activeNodeId.value === '__all__' ? null : activeNodeId.value
-  filePickerVisible.value = true
+// ===== 引用选择器数据源：上游节点产出（BFS）∪ 本节点 SQL 参数 =====
+function nodeLabelOf(nid: string): string {
+  const n = view.value?.nodes.find((x) => x.node_id === nid)
+  return n?.label || nid
 }
 
-function onFileSelect(file: TestFile) {
-  if (filePickerKey.value) {
-    const id = String(file.id)
-    fileNames.value[id] = file.name || file.original_name || `#${file.id}`
-    if (filePickerNode.value) {
-      const m = nodeEdits.value[filePickerNode.value]
-      if (m) m[filePickerKey.value] = id
-    } else {
-      editingValues.value[filePickerKey.value] = id
+/** 反向 BFS：目标节点的全部上游节点（按画布节点顺序稳定排序） */
+function upstreamOf(nid: string): string[] {
+  const rev = new Map<string, string[]>()
+  for (const e of view.value?.edges || []) {
+    const arr = rev.get(e.target) || []
+    arr.push(e.source)
+    rev.set(e.target, arr)
+  }
+  const seen = new Set<string>()
+  const queue = [...(rev.get(nid) || [])]
+  while (queue.length) {
+    const cur = queue.shift()!
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    queue.push(...(rev.get(cur) || []))
+  }
+  return (view.value?.nodes || []).filter((n) => seen.has(n.node_id)).map((n) => n.node_id)
+}
+
+/** 引用选择器数据源（computed 缓存）：上游节点产出（BFS）∪ 本节点 SQL 参数。
+ * 函数式每渲染新数组会让全部行徽标重渲染（200 行表的卡顿源），此处只在
+ * view/edges/drafts 变化时整体重算 */
+const refGroupsMap = computed<Record<string, RefVarGroup[]>>(() => {
+  const out: Record<string, RefVarGroup[]> = {}
+  if (!view.value) return out
+  for (const n of view.value.nodes) {
+    const nid = n.node_id
+    const groups: RefVarGroup[] = []
+    const upstream = upstreamOf(nid)
+      .map((id) => ({
+        node_id: id,
+        node_label: nodeLabelOf(id),
+        vars: (view.value!.nodes.find((x) => x.node_id === id)?.productions || []).map((p) => ({ path: p })),
+      }))
+      .filter((it) => it.vars.length)
+    if (upstream.length) groups.push({ key: 'upstream', label: '上游节点产出', items: upstream })
+    // 本节点 SQL 参数（参数解析期注册，同节点后续参数可自引用）
+    const selfSql = Object.entries(drafts[nid]?.params?.body || {})
+      .filter(([, s]) => (s as any)?.source === 'sql')
+      .map(([p]) => p)
+    if (selfSql.length) {
+      groups.push({
+        key: 'self',
+        label: '本节点 SQL 参数',
+        items: [{ node_id: nid, node_label: `${nodeLabelOf(nid)}（本节点）`, vars: selfSql.map((p) => ({ path: p })) }],
+      })
     }
+    out[nid] = groups
   }
-  filePickerKey.value = ''
-  filePickerNode.value = null
+  return out
+})
+
+function refGroupsFor(nid: string): RefVarGroup[] {
+  return refGroupsMap.value[nid] || []
 }
 
-// ===== 左侧用例分组树（沿用用例列表的分组结构；树构建与展开记忆收敛进 useGroupTree）=====
+// ===== 左侧用例分组树（沿用用例列表的分组结构） =====
 const UNGROUPED_ID = -1
 const {
   tree: groupTree,
@@ -1075,26 +499,22 @@ const {
   toggleExpand: toggleGroup,
   expandedIds,
 } = useGroupTree(groups, computed(() => store.currentProjectId), 'datasetManage')
-// 未分组（-1 虚拟节点）不在 useGroupTree 的树里：与真实分组共用 expandedIds，
-// 同一持久化 key（fin_group_expand_datasetManage_{projectId}），展开/折叠语义一致
 
 function casesOfGroup(gid: number | null) {
   return cases.value.filter((c) => (c.group_id ?? null) === gid)
 }
 
-/** 分组可展开：有子分组或组内直接有用例（叶子分组折叠用例列表） */
+/** 分组可展开：有子分组或组内直接有用例 */
 function groupHasContent(id: number) {
   if (id === UNGROUPED_ID) return casesOfGroup(null).length > 0
   return groups.value.some((g) => g.parent_id === id) || casesOfGroup(id).length > 0
 }
 
-/** 分组节点计数：组内直接用例 + 全部子孙分组用例的数据集合计
- *  （父分组自身无直接用例时不再显示 0——用例都在子分组里是常态） */
+/** 分组节点计数：组内直接用例 + 全部子孙分组用例的数据集合计 */
 function groupDatasetCount(id: number) {
   const sum = (gid: number | null) =>
     casesOfGroup(gid).reduce((n, c) => n + caseDatasetCount(c.id), 0)
   if (id === UNGROUPED_ID) return sum(null)
-  // BFS 收集该分组及全部后代分组（分组规模小，数组去重足够）
   const ids: number[] = [id]
   for (let i = 0; i < ids.length; i++) {
     for (const g of groups.value) {
@@ -1107,22 +527,22 @@ function groupDatasetCount(id: number) {
 interface SideRow { kind: 'group' | 'case'; id: number; name: string; depth: number }
 
 const sideRows = computed<SideRow[]>(() => {
-  const rows: SideRow[] = []
+  const out: SideRow[] = []
   const walk = (nodes: GroupTreeNode[], depth: number) => {
     for (const n of nodes) {
-      rows.push({ kind: 'group', id: n.id, name: n.label, depth })
+      out.push({ kind: 'group', id: n.id, name: n.label, depth })
       if (isExpanded(n.id)) {
-        casesOfGroup(n.id).forEach((c) => rows.push({ kind: 'case', id: c.id, name: c.name, depth: depth + 1 }))
+        casesOfGroup(n.id).forEach((c) => out.push({ kind: 'case', id: c.id, name: c.name, depth: depth + 1 }))
         walk(n.children, depth + 1)
       }
     }
   }
   walk(groupTree.value, 0)
-  rows.push({ kind: 'group', id: UNGROUPED_ID, name: '未分组', depth: 0 })
+  out.push({ kind: 'group', id: UNGROUPED_ID, name: '未分组', depth: 0 })
   if (isExpanded(UNGROUPED_ID)) {
-    casesOfGroup(null).forEach((c) => rows.push({ kind: 'case', id: c.id, name: c.name, depth: 1 }))
+    casesOfGroup(null).forEach((c) => out.push({ kind: 'case', id: c.id, name: c.name, depth: 1 }))
   }
-  return rows
+  return out
 })
 
 function selectCaseById(id: number) {
@@ -1130,12 +550,26 @@ function selectCaseById(id: number) {
   if (c) selectCase(c)
 }
 
-// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有）。
-// dictLabel 来自 useFieldDict（含嵌套路径完整/末段/父级段匹配），不再本地弱化重写。
-function colLabel(key: string) {
-  const cn = dictLabel(key)
-  return cn ? `${key}（${cn}）` : key
+// ----- 上次访问记忆（按项目）：进入页面直接回到上次的数据集与节点 tab -----
+const LAST_KEY = 'fin_dataset_last'
+function readLast(): { caseId?: number; datasetId?: number; nodeId?: string } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LAST_KEY) || '{}')
+    return raw?.projectId === store.currentProjectId ? raw : {}
+  } catch { return {} }
 }
+function writeLast(patch: Record<string, unknown>) {
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify({
+      projectId: store.currentProjectId,
+      caseId: currentCase.value?.id,
+      datasetId: current.value?.id,
+      nodeId: activeNodeId.value,
+      ...patch,
+    }))
+  } catch { /* 存储失败忽略 */ }
+}
+
 function caseDatasetCount(caseId: number) {
   return datasets.value.filter((d) => d.case_id === caseId).length
 }
@@ -1150,24 +584,31 @@ async function load() {
       caseGroupApi.list(store.currentProjectId).catch(() => [] as CaseGroup[]),
       datasetApi.list({ project_id: store.currentProjectId, with_rows: true }),
     ])
-    // 套件不参与数据集（成员各自绑定变量池），左侧用例树不展示
+    // 套件不参与数据集（成员各自绑定数据），左侧用例树不展示
     cases.value = cs.filter((c) => c.case_type !== 'suite')
     groups.value = gs
     datasets.value = ds
-    // 展开记忆优先（useGroupTree 随 projectId 变化自动读写）；首次（无记忆）
-    // 默认全展开（含未分组虚拟节点）并落记忆
+    // 展开记忆优先；首次（无记忆）默认全展开（含未分组虚拟节点）并落记忆
     if (localStorage.getItem(expandStorageKey('datasetManage', store.currentProjectId)) === null) {
       expandedIds.value = [...gs.map((g) => g.id), UNGROUPED_ID]
     }
     if (currentCase.value) {
       currentCase.value = cases.value.find((c) => c.id === currentCase.value!.id) || null
     }
-    if (!currentCase.value && cases.value.length) currentCase.value = cases.value[0]
+    if (!currentCase.value && cases.value.length) {
+      // 优先恢复上次访问的用例
+      const last = readLast()
+      currentCase.value = cases.value.find((c) => c.id === last.caseId) || cases.value[0]
+    }
     if (current.value) {
       current.value = caseDatasets.value.find((d) => d.id === current.value!.id) || null
     }
-    if (!current.value && caseDatasets.value.length) current.value = caseDatasets.value[0]
-    if (current.value) await loadParamsView(current.value.id)
+    if (!current.value && caseDatasets.value.length) {
+      // 优先恢复上次访问的数据集
+      const last = readLast()
+      current.value = caseDatasets.value.find((d) => d.id === last.datasetId) || caseDatasets.value[0]
+    }
+    await loadView()
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -1177,37 +618,63 @@ async function load() {
 
 function selectCase(c: TestCase) {
   currentCase.value = c
-  current.value = caseDatasets.value[0] || null
-  if (current.value) loadParamsView(current.value.id)
-  else view.value = null
+  const last = readLast()
+  current.value = caseDatasets.value.find((d) => d.id === last.datasetId && d.case_id === c.id)
+    || caseDatasets.value[0] || null
+  loadView()
 }
 
 function select(d: DataSet) {
   current.value = d
-  loadParamsView(d.id)
+  writeLast({})
+  loadView()
 }
 
-// ---------- 数据集信息（名称/描述）编辑 ----------
+// ---------- 数据集信息（名称/描述）新建/编辑 ----------
 const dlgVisible = ref(false)
+const dlgMode = ref<'create' | 'edit'>('edit')
 const form = ref<{ name: string; description: string }>({ name: '', description: '' })
 
+function openCreate() {
+  if (!currentCase.value) return
+  dlgMode.value = 'create'
+  form.value = { name: '', description: '' }
+  dlgVisible.value = true
+}
+
 function openEdit(d: DataSet) {
+  dlgMode.value = 'edit'
   form.value = { name: d.name, description: d.description || '' }
   dlgVisible.value = true
 }
 
 async function save() {
   if (!form.value.name.trim()) return ElMessage.warning('请填写名称')
-  if (!current.value) return
   saving.value = true
   try {
-    await datasetApi.update(current.value.id, {
-      name: form.value.name, description: form.value.description,
-    })
-    ElMessage.success('已保存')
-    dlgVisible.value = false
-    await load()
-    current.value = caseDatasets.value.find((d) => d.id === current.value!.id) || current.value
+    if (dlgMode.value === 'create') {
+      if (!store.currentProjectId || !currentCase.value) return
+      const nd = await datasetApi.create({
+        project_id: store.currentProjectId,
+        case_id: currentCase.value.id,
+        name: form.value.name,
+        description: form.value.description,
+      })
+      ElMessage.success('已创建')
+      dlgVisible.value = false
+      await load()
+      current.value = caseDatasets.value.find((d) => d.id === nd.id) || current.value
+      await loadView()
+    } else {
+      if (!current.value) return
+      await datasetApi.update(current.value.id, {
+        name: form.value.name, description: form.value.description,
+      })
+      ElMessage.success('已保存')
+      dlgVisible.value = false
+      await load()
+      current.value = caseDatasets.value.find((d) => d.id === current.value!.id) || current.value
+    }
   } catch (e: any) {
     ElMessage.error(e.message || '保存失败')
   } finally {
@@ -1220,7 +687,7 @@ async function remove(d: DataSet) {
     await ElMessageBox.confirm(
       d.case_bound_count
         ? `数据集已被所属用例绑定，请先在用例管理解绑后再删除`
-        : `确认删除数据集「${d.name}」及其单套数据？`,
+        : `确认删除数据集「${d.name}」及其全部节点入参配置？`,
       '删除数据集',
       { type: 'warning', showCancelButton: !d.case_bound_count, confirmButtonText: d.case_bound_count ? '知道了' : '删除' },
     )
@@ -1237,7 +704,7 @@ async function remove(d: DataSet) {
   }
 }
 
-// ---------- 复制（隔离语义下的复用） ----------
+// ---------- 复制（多场景复用：换数据集执行 = 换全套入参） ----------
 async function copyDataset() {
   if (!current.value) return
   try {
@@ -1245,73 +712,9 @@ async function copyDataset() {
     ElMessage.success(`已复制为「${nd.name}」`)
     await load()
     current.value = caseDatasets.value.find((d) => d.id === nd.id) || current.value
-    if (current.value) loadParamsView(current.value.id)
+    await loadView()
   } catch (e: any) {
     ElMessage.error(e.message || '复制失败')
-  }
-}
-
-// ---------- 从其他数据集覆盖（节点级对比合并） ----------
-const mergeVisible = ref(false)
-const mergeSourceId = ref<number | null>(null)
-const mergeLoading = ref(false)
-const merging = ref(false)
-const mergePreviewData = ref<Awaited<ReturnType<typeof datasetApi.mergePreview>> | null>(null)
-const mergeSelectedApis = ref<number[]>([])
-const mergeTableRef = ref()
-
-/** 源候选：同项目其他数据集（项目内已全量加载，无需再请求） */
-const mergeCandidates = computed(() =>
-  datasets.value.filter((d) => d.id !== current.value?.id && (d.rows?.length ?? 0) > 0),
-)
-
-function caseName(caseId: number) {
-  return cases.value.find((c) => c.id === caseId)?.name || `用例#${caseId}`
-}
-
-function openMerge() {
-  mergeSourceId.value = null
-  mergePreviewData.value = null
-  mergeSelectedApis.value = []
-  mergeVisible.value = true
-}
-
-async function doMergePreview() {
-  if (!current.value || !mergeSourceId.value) return
-  mergeLoading.value = true
-  mergePreviewData.value = null
-  try {
-    mergePreviewData.value = await datasetApi.mergePreview(current.value.id, mergeSourceId.value)
-    mergeSelectedApis.value = mergePreviewData.value.common_nodes.map((n) => n.api_id)
-    // 表格默认全选（selection 列不记忆状态，需手动 toggle）
-    nextTick(() => {
-      mergePreviewData.value?.common_nodes.forEach((n) =>
-        mergeTableRef.value?.toggleRowSelection(n as any, true),
-      )
-    })
-  } catch (e: any) {
-    ElMessage.error(e.message || '对比失败')
-  } finally {
-    mergeLoading.value = false
-  }
-}
-
-async function confirmMerge() {
-  if (!current.value || !mergeSourceId.value || !mergeSelectedApis.value.length) return
-  merging.value = true
-  try {
-    const res = await datasetApi.merge(current.value.id, {
-      source_dataset_id: mergeSourceId.value,
-      api_ids: mergeSelectedApis.value,
-    })
-    ElMessage.success(`${res.message}：${res.keys.slice(0, 8).join('、')}${res.keys.length > 8 ? '…' : ''}`)
-    mergeVisible.value = false
-    await load()
-    if (current.value) await loadParamsView(current.value.id)
-  } catch (e: any) {
-    ElMessage.error(e.message || '覆盖合并失败')
-  } finally {
-    merging.value = false
   }
 }
 
@@ -1418,41 +821,51 @@ watch(() => store.currentProjectId, () => {
 /* 数据集切换条 */
 .ds-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
 }
 .ds-chip {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 5px 12px;
   border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  cursor: pointer;
-  user-select: none;
-  color: var(--app-text-muted);
+  border-radius: 14px;
   background: var(--app-card);
+  cursor: pointer;
+  max-width: 280px;
+  font-size: 13px;
+  color: var(--app-text-muted);
 }
 .ds-chip:hover {
   border-color: var(--app-primary);
-  color: var(--app-text);
 }
 .ds-chip.on {
-  background: var(--app-active);
   border-color: var(--app-primary);
   color: var(--app-primary);
-  font-weight: 500;
+  background: var(--app-active);
 }
 .ds-icon {
-  font-size: 14px;
+  font-size: 13px;
 }
 .ds-name {
-  max-width: 200px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ds-bound {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--app-active);
+  color: var(--app-primary);
+}
+.ds-chip.on .ds-bound {
+  background: var(--app-primary);
+  color: #fff;
 }
 .ds-cnt {
   font-size: 11px;
@@ -1461,229 +874,116 @@ watch(() => store.currentProjectId, () => {
 .ds-chip.on .ds-cnt {
   color: var(--app-primary);
 }
+.ds-add {
+  border-style: dashed;
+}
 .main-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .main-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--app-text);
 }
 .group-count {
-  background: var(--app-primary);
-  color: #fff;
-  border-radius: var(--app-radius-sm);
-  padding: 1px 10px;
   font-size: 12px;
-  font-weight: 500;
-  min-width: 24px;
-  text-align: center;
+  color: var(--app-text-faint);
 }
 .main-actions {
   margin-left: auto;
   display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-shrink: 0;
+  gap: 4px;
 }
-.tip {
-  color: var(--app-text-muted);
-  font-size: 12px;
-}
-/* 变量池视图：节点页签 + 参数状态徽标 */
-.params-area {
-  min-height: 120px;
-}
-.orphan-tip {
+.orphan-alert {
   margin-bottom: 10px;
 }
-.pool-stat {
+.orphan-alert :deep(.el-alert__title) {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+.params-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+}
+/* 节点 tabs */
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tab-label.dirty {
+  color: var(--el-color-warning);
+}
+.tab-dot {
+  font-size: 10px;
+}
+.node-panel {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
+  padding-top: 12px;
+}
+.node-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.meta-api {
   font-size: 12px;
-  color: var(--app-text-muted);
-  margin-bottom: 8px;
-}
-.pool-stat b {
-  color: var(--app-primary);
-}
-.stat-note {
-  color: var(--app-text-faint);
-}
-.pool-search {
-  width: 220px;
-  margin-left: auto;
-}
-.add-var-btn {
-  flex-shrink: 0;
-}
-/* 作用域就近提示：双作用域编辑是本页核心心智模型 */
-.scope-tip {
-  font-size: 12px;
+  font-family: var(--app-font-mono, monospace);
   color: var(--app-text-muted);
   background: var(--app-hover);
-  border-radius: var(--app-radius-sm);
-  padding: 4px 10px;
-  margin: 8px 0 2px;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
-.save-dock {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 18px;
-  z-index: 100;
+.meta-api.none {
+  color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9, #fdf6ec);
+}
+.node-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--app-border);
+}
+.node-tip {
+  font-size: 12px;
+  color: var(--app-text-faint);
+}
+.pool-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.8;
+}
+.help-link {
+  padding: 0 4px;
+}
+.import-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 18px;
-  background: var(--app-card);
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  margin: 8px 0;
 }
-.save-dock-text {
-  font-size: 13px;
-  color: var(--app-text);
-}
-.del-var-btn {
-  margin-left: auto;
-  margin-right: -6px;
-}
-.node-tabs {
-  border-top: 1px solid var(--app-border);
-}
-.tab-label {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-.tab-cnt {
-  margin-left: 6px;
-  font-size: 11px;
-  color: var(--app-text-faint);
-  vertical-align: middle;
-}
-.node-params {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px 20px;
-  padding: 8px 2px 4px;
-}
-.param-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.param-row.manual .param-label {
-  color: var(--app-text-muted);
-}
-.param-label {
+.import-err {
   font-size: 12px;
-  color: var(--app-text);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  color: var(--el-color-danger);
 }
-.col-type-tag {
-  font-size: 11px;
+.import-sum {
+  font-size: 12px;
   color: var(--app-text-muted);
-  border: 1px solid var(--el-border-color);
-  border-radius: 3px;
-  padding: 0 4px;
 }
-/* 参数状态徽标（四态） */
-.badge {
-  font-size: 11px;
-  border-radius: 3px;
-  padding: 0 5px;
-  border: 1px solid;
-  cursor: help;
-  line-height: 18px;
-  white-space: nowrap;
+.import-val {
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
-.badge-filled {
+.import-val.hit {
   color: var(--el-color-success);
-  border-color: var(--el-color-success);
-}
-.badge-dynamic {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-}
-.badge-empty {
-  color: var(--app-text-muted);
-  border-color: var(--app-border);
-  background: var(--app-hover);
-}
-.badge-manual {
-  color: var(--el-color-warning);
-  border-color: var(--el-color-warning);
-}
-.badge-explicit {
-  color: var(--el-color-danger);
-  border-color: var(--el-color-danger);
-  cursor: pointer;
-}
-.badge-explicit-toggle {
-  color: var(--app-text-muted);
-  border-color: var(--app-border);
-  border-style: dashed;
-  cursor: pointer;
-}
-.badge-explicit-toggle:hover {
-  color: var(--el-color-danger);
-  border-color: var(--el-color-danger);
-}
-.json-err {
-  font-size: 12px;
-  color: var(--el-color-danger);
-}
-.pool-tip {
-  margin-top: 10px;
-  color: var(--app-text-muted);
-  font-size: 12px;
-  line-height: 2;
-}
-.pool-tip .badge {
-  cursor: default;
-}
-.pool-tip .help-link {
-  padding: 2px 6px;
-  font-size: 12px;
-  margin-left: 4px;
-}
-.file-value-cell {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-}
-.file-value-input {
-  flex: 1;
-}
-/* 覆盖合并弹窗 */
-.import-actions {
-  margin: 8px 0 4px;
-  display: flex;
-  justify-content: flex-end;
-}
-.merge-hint {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin-left: 12px;
-}
-.merge-cols {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-weight: 600;
 }
 </style>

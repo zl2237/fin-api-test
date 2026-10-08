@@ -148,9 +148,38 @@ export interface HarPreviewItem {
   _selected?: boolean  // 前端勾选状态
 }
 export type CaseGroup = components['schemas']['CaseGroupOut']
+// ============ 四来源参数模型（2026-09-30 定案：节点入参取值单选四来源） ============
+export type ParamSource = 'constant' | 'func' | 'ref' | 'sql'
+/** 函数入参：常量或引用（引用允许上游变量/本节点 SQL 参数，后端逐参求值） */
+export interface FuncArgSpec {
+  name: string
+  kind: 'const' | 'ref'
+  value?: any          // kind=const
+  node_id?: string     // kind=ref
+  var_path?: string    // kind=ref
+}
+export interface ParamSpec {
+  source: ParamSource
+  value?: any          // constant：任意 JSON 值
+  func?: string        // func：函数名（见 constants/funcRegistry）
+  args?: FuncArgSpec[] // func：按关键字传参
+  node_id?: string     // ref：画布节点 / __dataset__ / __suite__ / 本节点（SQL 参数结果）
+  var_path?: string    // ref
+  as_array?: boolean   // ref/func：单值包成单元素数组
+  sql?: string         // sql：{{节点.变量}} 占位引用
+  column?: string      // sql：结果列名（缺省首行首列）
+}
+export interface NodeParams {
+  body?: Record<string, ParamSpec>
+  headers?: Record<string, ParamSpec>
+}
+/** 数据集行内单节点入参配置（入参唯一收敛到数据集；字段设置=参数取值来源声明） */
+export interface DatasetNodeParams {
+  params: NodeParams
+}
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
-  pre_process: any[]; post_extract: any[]; assertions: any[]
+  post_extract: any[]; assertions: any[]
   wait_after_ms?: number
 }
 export interface TestCase {
@@ -189,7 +218,7 @@ export interface StepRecord {
   resumed?: boolean  // 断点续跑段产出的步骤（顶替旧失败记录）
   replay_passed_at?: string | null  // 重放验证通过时间（「已重放通过」徽标）
   started_at?: string; ended_at?: string; status?: string
-  pre_process?: { type?: string; path?: string; value?: any; sql?: string }[] | null
+  pre_process?: { type?: string; path?: string; value?: any; sql?: string }[] | null  // 历史遗留：仅老报告回显，新步骤恒 null
   post_extract?: Record<string, any>[] | null
   extracted_vars?: Record<string, any> | null
   assertions: AssertionRecord[]
@@ -454,65 +483,57 @@ export const scheduleApi = {
   run: (id: number) => http.post<{ message: string }>(`/schedules/${id}/run`).then((r) => r.data),
 }
 
-// ============ DataSet 数据集（变量池，单套语义：每个数据集 = 一套数据） ============
-export interface DataSetColumn {
-  key: string; type: 'string' | 'int' | 'bool' | 'array' | 'object' | 'file'  // file=文件中心文件 ID；中文名实时引用字段字典，缺失显 key
-}
+// ============ DataSet 数据集（入参配置中心：每个数据集 = 各节点入参的一套完整取值） ============
+/** 行数据：{"nodes": {节点ID: {params}}}（单行收敛，多数据集 = 多场景） */
 export interface DataSetRow {
-  id: number; dataset_id: number; row_index: number; data: Record<string, any>
+  id: number; dataset_id: number; row_index: number; data: { nodes?: Record<string, DatasetNodeParams> }
 }
 export interface DataSet {
   id: number; project_id: number; case_id: number; name: string; description?: string | null
-  columns: DataSetColumn[]; rows: DataSetRow[]
-  case_bound_count?: number  // ≤1（用例私有），>0 时删除需先解绑
+  rows: DataSetRow[]
+  case_bound_count?: number  // >0 时删除需先解绑
   created_at?: string; updated_at?: string
   created_by?: number | null; created_by_name?: string | null
   updated_by?: number | null; updated_by_name?: string | null
 }
-// 变量池视图：用例级单池（all_params 去重）+ 按节点的筛选视角 × 接口字段 × 池值
-export interface DatasetParam {
-  key: string; type: string
-  value: any            // 池中现值（空串 = 未配置）
-  manual: boolean       // 节点编排字面量 = 手动覆盖，池值不生效
-  manual_value?: any    // 覆盖/绑定值（字面量或 ${} 表达式）
-  dynamic: boolean      // 节点编排 ${} 动态绑定 = 运行时求值（非手动覆盖）
-  explicit_empty?: boolean  // 显式空值（发送空值模式）：执行发空串，不回落变量池
+/** 参数视图单节点：接口字段定义 × 行内现值 × 静态产出（引用下拉数据源） */
+export interface DatasetNodeView {
+  node_id: string
+  label: string
+  api_id?: number | null
+  api_name?: string
+  fields: Record<string, any>[]
+  params: NodeParams
+  productions: string[]
 }
 export interface DatasetParamsView {
   dataset_id: number
-  all_params: DatasetParam[]  // 用例级去重清单（跨节点状态合并：手动 > 动态）
-  nodes: {
-    node_id: string; label: string; api_id: number; api_name: string
-    params: DatasetParam[]
-  }[]
-  orphan_keys: string[]     // 池中存在但当前编排无节点使用的键（悬空变量）
+  case_id: number
+  nodes: DatasetNodeView[]
+  edges: { source: string; target: string }[]
+  orphan_node_ids: string[]  // 行内已配置但画布已删的节点（提示清理）
 }
 
 export const datasetApi = {
   list: (params?: { project_id?: number; case_id?: number; with_rows?: boolean }) =>
     http.get<DataSet[]>('/datasets', { params }).then((r) => r.data),
-  update: (id: number, data: { name?: string; description?: string; columns?: DataSetColumn[] }) =>
+  create: (data: { project_id: number; case_id: number; name: string; description?: string }) =>
+    http.post<DataSet>('/datasets', data).then((r) => r.data),
+  get: (id: number) => http.get<DataSet>(`/datasets/${id}`).then((r) => r.data),
+  update: (id: number, data: { name?: string; description?: string }) =>
     http.put<DataSet>(`/datasets/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/datasets/${id}`),
-  // 复制：列/单套值全量深拷贝，归属同用例
+  // 复制：行内全部节点入参配置深拷贝，归属同用例（多场景复用）
   copy: (id: number) => http.post<DataSet>(`/datasets/${id}/copy`).then((r) => r.data),
-  // 变量池视图：用例级单池（all_params）+ 按节点分组视角
+  // 参数视图：按归属用例 DAG 节点组织（数据集页节点 tab 数据源）
   paramsView: (id: number) =>
     http.get<DatasetParamsView>(`/datasets/${id}/params-view`).then((r) => r.data),
-  // 保存单套数据：values 即该数据集唯一一套值（列定义随参数走）
-  saveValues: (id: number, values: Record<string, any>, columnTypes?: Record<string, string>) =>
-    http.put<DataSet>(`/datasets/${id}/values`, { values, column_types: columnTypes }).then((r) => r.data),
-  // 节点级手动覆盖：节点页签编辑的独有值写入该节点 pre_process（压过池值）；clears 移除回落池值
-  saveNodeValues: (id: number, nodeId: string, sets: Record<string, any>, clears: string[]) =>
-    http.put<{ message: string; touched: number }>(`/datasets/${id}/node-values`,
-      { node_id: nodeId, sets, clears }).then((r) => r.data),
-  // 数据集间对比：按 api_id 配对归属用例当前编排的相同节点，返回可覆盖列（空=无覆盖必要）
-  mergePreview: (id: number, sourceId: number) =>
-    http.get<{ source: { id: number; name: string; rows: number; row_labels: string[] }; common_nodes: { api_id: number; api_name: string; columns: string[] }[]; columns_total: number }>(
-      `/datasets/${id}/merge-preview`, { params: { source_dataset_id: sourceId } }).then((r) => r.data),
-  // 覆盖合并：源数据集单套值的相同节点涉及列刷到目标数据集
-  merge: (id: number, data: { source_dataset_id: number; api_ids?: number[]; source_row_index?: number }) =>
-    http.post<{ message: string; rows: number; columns: number; keys: string[] }>(`/datasets/${id}/merge`, data).then((r) => r.data),
+  // 保存单节点入参配置（整体替换该节点 params，服务端含静态校验）
+  saveNodeConfig: (id: number, data: { node_id: string; params: NodeParams }) =>
+    http.put<DataSet>(`/datasets/${id}/node-config`, data).then((r) => r.data),
+  // 清理悬空节点配置（画布节点已删）
+  removeNodeConfig: (id: number, nodeId: string) =>
+    http.delete(`/datasets/${id}/node-config/${encodeURIComponent(nodeId)}`).then((r) => r.data),
 }
 
 // ============ ProjectVersion 项目版本 ============

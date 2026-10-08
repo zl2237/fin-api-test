@@ -375,17 +375,16 @@
     class="corecap-dialog"
   >
     <el-tabs v-model="store.coreCapTab" class="corecap-tabs">
-      <!-- ========== 表达式引擎 ========== -->
-      <el-tab-pane label="表达式引擎" name="expression">
+      <!-- ========== 参数来源（四来源模型） ========== -->
+      <el-tab-pane label="参数来源" name="expression">
         <div class="corecap-intro">
-          在请求字段、SQL、断言期望值中均可使用 <code>${...}</code> 表达式动态求值。
-          整串为 <code>${func()}</code> 时返回原生类型（int/list 等），内嵌时做字符串替换。
-          接口调试与报告节点重放同样支持表达式求值。
+          节点入参与断言期望值从四种来源<b>单选</b>：<code>常量 / 函数 / 引用 / SQL</code>。
+          引用按「节点 · 变量」选取（上游产出 / 本节点 SQL 参数 / 套件注入）；SQL 内用 <code>{{ SQL_BRACE }}</code> 占位引用已产出值。入参在<b>数据集页的节点 tab</b> 配置。
         </div>
         <div class="corecap-group">
-          <div class="corecap-group-title">变量引用</div>
+          <div class="corecap-group-title">四种取值来源</div>
           <div class="corecap-cards">
-            <div v-for="fn in expressionData.variables" :key="fn.syntax" class="corecap-card">
+            <div v-for="fn in expressionData.sources" :key="fn.syntax" class="corecap-card">
               <div class="corecap-card-head">
                 <code class="corecap-syntax">{{ fn.syntax }}</code>
                 <span class="corecap-desc">{{ fn.desc }}</span>
@@ -395,7 +394,7 @@
           </div>
         </div>
         <div class="corecap-group">
-          <div class="corecap-group-title">时间与随机</div>
+          <div class="corecap-group-title">时间与随机（函数来源）</div>
           <div class="corecap-cards">
             <div v-for="fn in expressionData.timeRandom" :key="fn.syntax" class="corecap-card">
               <div class="corecap-card-head">
@@ -407,7 +406,7 @@
           </div>
         </div>
         <div class="corecap-group">
-          <div class="corecap-group-title">字符串处理</div>
+          <div class="corecap-group-title">字符串处理（函数来源）</div>
           <div class="corecap-cards">
             <div v-for="fn in expressionData.stringOps" :key="fn.syntax" class="corecap-card">
               <div class="corecap-card-head">
@@ -419,7 +418,7 @@
           </div>
         </div>
         <div class="corecap-group">
-          <div class="corecap-group-title">业务单号生成</div>
+          <div class="corecap-group-title">业务单号生成（函数来源）</div>
           <div class="corecap-cards">
             <div v-for="fn in expressionData.business" :key="fn.syntax" class="corecap-card">
               <div class="corecap-card-head">
@@ -431,9 +430,9 @@
           </div>
         </div>
         <div class="corecap-group">
-          <div class="corecap-group-title">数据库查询</div>
+          <div class="corecap-group-title">SQL 取值（{{ SQL_BRACE }} 占位）</div>
           <div class="corecap-cards">
-            <div v-for="fn in expressionData.dbFuncs" :key="fn.syntax" class="corecap-card">
+            <div v-for="fn in expressionData.sqlRefs" :key="fn.syntax" class="corecap-card">
               <div class="corecap-card-head">
                 <code class="corecap-syntax">{{ fn.syntax }}</code>
                 <span class="corecap-desc">{{ fn.desc }}</span>
@@ -499,42 +498,35 @@
         </div>
       </el-tab-pane>
 
-      <!-- ========== 数据集（变量池） ========== -->
+      <!-- ========== 数据集（入参配置中心） ========== -->
       <el-tab-pane label="数据集" name="dataset">
         <div class="corecap-intro">
-          数据集 = 用例的变量池（一套数据）。测试数据来源唯一为数据集：节点入参留空即按参数名自动取值
-          （套件注入 → 数据集变量池）；多场景建多个数据集切换执行，复用靠复制。
+          每个数据集承载<b>全部节点入参的一套完整取值</b>（常量/引用/函数/SQL 四来源）。
+          用例编排负责串联节点与后置提取、断言；多数据集即多场景。
         </div>
         <div class="corecap-group">
           <div class="corecap-group-title">核心概念</div>
           <div class="corecap-cards">
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">参数留空 = 自动引用</code>
-                <span class="corecap-desc">执行时按参数名取值：套件注入 → 数据集变量池；运行时变量需 ${} 显式引用</span>
+                <code class="corecap-syntax">节点 tab</code>
+                <span class="corecap-desc">数据集页按用例编排节点分 tab，每个 tab 配置该节点的 body/headers 入参</span>
               </div>
-              <div class="corecap-example">示例：入参 <code>order_id</code> 留空 → 自动取池中同名列值</div>
+              <div class="corecap-example">节点「新建订单」tab → 入参 bl_no ← 常量/函数/引用/SQL 任选</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">填值 = 覆盖</code>
-                <span class="corecap-desc">节点编排里填值是手动覆盖（最高优先级）；池里填值是静态数据</span>
+                <code class="corecap-syntax">四来源入参</code>
+                <span class="corecap-desc">常量（静态值）/ 函数（12 内置）/ 引用（上游节点产出）/ SQL（{{ SQL_BRACE }} 占位）</span>
               </div>
-              <div class="corecap-example">优先级：手动覆盖 &gt; 套件注入 &gt; 数据集变量池；运行时变量仅 ${} 显式引用，不自动按名取值</div>
+              <div class="corecap-example">SQL 示例：<code>{{ SQL_EXAMPLE }}</code>（结果注册为本节点参数路径供下游引用）</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">a.b.c</code>
-                <span class="corecap-desc">点号路径写嵌套对象（嵌套 JSON 保存时自动拆叶成列）</span>
+                <code class="corecap-syntax">套件注入</code>
+                <span class="corecap-desc">套件成员声明 shared_vars 后，下游成员入参经「引用 → 套件」取注入值</span>
               </div>
-              <div class="corecap-example">示例：<code>to_customer.put_amount</code></div>
-            </div>
-            <div class="corecap-card">
-              <div class="corecap-card-head">
-                <code class="corecap-syntax">节点独有 vs 池值</code>
-                <span class="corecap-desc">节点页签改值 = 节点独有（压过池值）；「变量池总览」改值 = 全部节点共享</span>
-              </div>
-              <div class="corecap-example">同字段各节点取值不同（如状态流转）→ 在节点页签单独配置</div>
+              <div class="corecap-example">套件成员 A 提取 bl_no 并共享 → 成员 B 引用：套件 · bl_no</div>
             </div>
           </div>
         </div>
@@ -543,31 +535,24 @@
           <div class="corecap-cards">
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">自动建池</code>
-                <span class="corecap-desc">保存用例自动收集静态参数建「{用例名}-变量池」并绑定，无需手动创建</span>
+                <code class="corecap-syntax">录入</code>
+                <span class="corecap-desc">数据集页左侧选用例 → 新建/选择数据集 → 逐节点 tab 配置入参 → 每节点单独保存（含静态校验）</span>
               </div>
-              <div class="corecap-example">编排新增参数后再次保存用例即自动入池</div>
+              <div class="corecap-example">保存校验：引用拓扑/悬空引用/依赖环，错误直接提示</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
                 <code class="corecap-syntax">绑定</code>
-                <span class="corecap-desc">用例私有数据集，在用例行内「数据」入口绑定/更换/解绑</span>
+                <span class="corecap-desc">用例必须绑定一个数据集才可执行；在用例行内「数据」入口绑定/更换/解绑</span>
               </div>
-              <div class="corecap-example">跨用例复用：在数据集页复制一份再改</div>
+              <div class="corecap-example">多场景：复制数据集后改部分入参，执行前临时换绑</div>
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">执行确认面板</code>
-                <span class="corecap-desc">仅多数据集用例弹出：勾选多个数据集各执行一次（临时换不改绑定）；单数据集点执行直接跑</span>
+                <code class="corecap-syntax">悬空清理</code>
+                <span class="corecap-desc">编排中删除节点后，数据集内其入参配置不再被执行，页面提示一键清理</span>
               </div>
-              <div class="corecap-example">编排始终按用例当前配置执行</div>
-            </div>
-            <div class="corecap-card">
-              <div class="corecap-card-head">
-                <code class="corecap-syntax">导入参数</code>
-                <span class="corecap-desc">节点页签粘贴 JSON 预览导入：动态绑定（${}）不会被覆盖，静态参数替换，非本节点参数忽略</span>
-              </div>
-              <div class="corecap-example">从报告/旧配置复制参数值批量回填节点</div>
+              <div class="corecap-example">清理不影响其余节点的入参配置</div>
             </div>
           </div>
         </div>
@@ -606,9 +591,13 @@ const tabStore = useTabStore()
 const cmdPaletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 const versionVisible = ref(false)
 
+// SQL 占位语法字面量（含 }}，不能内嵌进模板插值表达式，经此常量输出）
+const SQL_BRACE = '{{节点.变量}}'
+const SQL_EXAMPLE = 'SELECT order_no FROM sys_order WHERE id = {{n_create.order_id}}'
+
 // 核心能力弹窗标题按 tab 映射（三个 tab 后不再用内联三元）
 const CORE_CAP_TITLES: Record<string, string> = {
-  expression: '表达式引擎 · 内置函数与变量',
+  expression: '参数来源 · 四来源与内置函数',
   assertion: '17 种断言规则 · 用法示例',
   dataset: '数据集 · 用法',
 }
@@ -625,39 +614,35 @@ const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
 // Mac 用户快捷键标签按平台显示（实际监听 Ctrl/Cmd 双键）
 const isMac = /mac|iphone|ipad/i.test(navigator.userAgent)
 
-// 表达式引擎数据：与后端 expression.py 的内置函数 + 变量引用 + DB 函数对齐
-// （测试数据来源唯一为数据集，${env.key} 不可解析）
+// 参数来源数据：与后端 functions.py 注册表 + 四来源模型对齐（唯一维护点 funcRegistry.ts）
 const expressionData = {
-  variables: [
-    { syntax: '${var_name}', desc: '引用上下文中已提取的变量（数据集变量 / 后置提取 / 前序节点产出）', example: '${order_id}', result: '10293' },
-    { syntax: '${context.var}', desc: '兼容旧写法，等价于 ${var}', example: '${context.bl_no}', result: 'SMOK20260810' },
+  sources: [
+    { syntax: 'constant 常量', desc: '手动录入固定值；数字/布尔/合法 JSON 自动转类型，对象/数组以 JSON 文本编辑（数组元素可内嵌引用 spec）', example: "「60」 / [{\"user_id\":\"60\"}]", result: '原样发送' },
+    { syntax: 'func 函数', desc: '内置函数下拉单选；入参可填常量或引用上游变量（如 upper(引用 order_id)）', example: 'generate_bl_no(prefix=TEST)', result: 'TEST20260810143052' },
+    { syntax: 'ref 引用', desc: '按「节点 · 变量」选取：上游节点产出 / 本节点 SQL 参数 / 套件注入(__suite__)；as_array 可包成单元素数组', example: '引用：n_create · bl_no', result: 'SMOK20260810143052' },
+    { syntax: 'sql 参数级 SQL', desc: '前 3 类参数解析完后执行，取首行首列（或指定 column）为标量值；结果注册为 本节点.参数路径 供下游引用', example: 'SELECT id FROM sys_order WHERE bl_no={{n_create.bl_no}}', result: '10293' },
   ],
   timeRandom: [
-    { syntax: '${now()}', desc: '当前时间 ISO 字符串', example: '${now()}', result: '2026-08-10T14:25:07.353066' },
-    { syntax: '${now(format=\'%Y-%m-%d\')}', desc: '按指定格式输出时间', example: "${now(format='%Y-%m-%d %H:%M')}", result: '2026-08-10 14:25' },
-    { syntax: '${timestamp()}', desc: '当前 Unix 时间戳（秒，整数）', example: '${timestamp()}', result: '1786291200' },
-    { syntax: '${date_add(days=1)}', desc: '当前日期加 N 天，默认 %Y-%m-%d', example: '${date_add(days=7)}', result: '2026-08-17' },
-    { syntax: '${date_add(days=-1, format=\'%Y%m%d\')}', desc: '昨天，自定义格式', example: "${date_add(days=-1, format='%Y%m%d')}", result: '20260809' },
-    { syntax: '${random_int(min=1, max=100)}', desc: '指定区间随机整数', example: '${random_int(min=1000, max=9999)}', result: '5623' },
-    { syntax: '${random_string(length=8)}', desc: '随机字符串（字母+数字）', example: '${random_string(length=16)}', result: 'aB3kM9xZ2pQ7vN1w' },
-    { syntax: '${uuid()}', desc: 'UUID 字符串（小写带横杠）', example: '${uuid()}', result: '550e8400-e29b-41d4-a716-446655440000' },
+    { syntax: 'now(format?)', desc: '当前时间，缺省 ISO 字符串', example: "now(format='%Y-%m-%d %H:%M')", result: '2026-08-10 14:25' },
+    { syntax: 'timestamp()', desc: '当前 Unix 时间戳（秒，整数）', example: 'timestamp()', result: '1786291200' },
+    { syntax: 'date_add(days, format?)', desc: '当前日期加 N 天，默认 %Y-%m-%d', example: 'date_add(days=7)', result: '2026-08-17' },
+    { syntax: 'random_int(min?, max?)', desc: '指定区间随机整数（默认 0~100）', example: 'random_int(min=1000, max=9999)', result: '5623' },
+    { syntax: 'random_string(length?)', desc: '随机字符串（字母+数字，默认 8 位）', example: 'random_string(length=16)', result: 'aB3kM9xZ2pQ7vN1w' },
+    { syntax: 'uuid()', desc: 'UUID 字符串（小写带横杠）', example: 'uuid()', result: '550e8400-e29b-41d4-a716-446655440000' },
   ],
   stringOps: [
-    { syntax: '${upper(s=\'abc\')}', desc: '转大写', example: "${upper(s='hello')}", result: 'HELLO' },
-    { syntax: '${lower(s=\'ABC\')}', desc: '转小写', example: "${lower(s='WORLD')}", result: 'world' },
-    { syntax: '${md5(s=\'abc\')}', desc: 'MD5 哈希', example: "${md5(s='123456')}", result: 'e10adc3949ba59abbe56e057f20f883e' },
+    { syntax: 'upper(s)', desc: '转大写（s 可为常量或引用）', example: "upper(s='hello')", result: 'HELLO' },
+    { syntax: 'lower(s)', desc: '转小写（s 可为常量或引用）', example: "lower(s='WORLD')", result: 'world' },
+    { syntax: 'md5(s)', desc: 'MD5 哈希（s 可为常量或引用）', example: "md5(s='123456')", result: 'e10adc3949ba59abbe56e057f20f883e' },
   ],
   business: [
-    { syntax: '${generate_bl_no()}', desc: '生成提单号', example: '${generate_bl_no()}', result: 'SMOK20260810143052' },
-    { syntax: '${generate_bl_no(prefix=\'TEST\')}', desc: '指定前缀生成提单号', example: "${generate_bl_no(prefix='TEST')}", result: 'TEST20260810143052' },
-    { syntax: '${generate_invoice_number()}', desc: '生成发票号', example: '${generate_invoice_number()}', result: 'INV202608101430527823' },
-    { syntax: '${generate_invoice_number(prefix=\'TEST\')}', desc: '指定前缀生成发票号', example: "${generate_invoice_number(prefix='TEST')}", result: 'TEST202608101430527823' },
-    { syntax: '${generate_unique_id()}', desc: '生成唯一 ID', example: '${generate_unique_id()}', result: 'a1b2c3d4e5f6' },
+    { syntax: 'generate_bl_no(prefix?)', desc: '生成提单号（默认前缀 SMOK）', example: "generate_bl_no(prefix='TEST')", result: 'TEST20260810143052' },
+    { syntax: 'generate_invoice_number(prefix?)', desc: '生成发票号', example: "generate_invoice_number(prefix='TEST')", result: 'TEST202608101430527823' },
+    { syntax: 'generate_unique_id()', desc: '生成唯一 ID', example: 'generate_unique_id()', result: 'a1b2c3d4e5f6' },
   ],
-  dbFuncs: [
-    { syntax: '${db.query_value(sql, field)}', desc: '执行 SQL 返回标量值', example: "${db.query_value('SELECT order_id FROM sys_order WHERE bl_no=\\'${bl_no}\\'', field='order_id')}", result: '10293' },
-    { syntax: '${db.query_one(sql)}', desc: '执行 SQL 返回第一行 dict', example: "${db.query_one('SELECT * FROM sys_order WHERE id=1')}", result: '{id: 1, status: "paid"}' },
-    { syntax: '${db.query(sql)}', desc: '执行 SQL 返回全部行', example: "${db.query('SELECT id, name FROM sys_user LIMIT 5')}", result: '[{id:1,...}, {id:2,...}]' },
+  sqlRefs: [
+    { syntax: '{{节点.变量}}', desc: 'SQL 内占位引用已产出值：上游提取结果 / 本节点参数 SQL 结果', example: "SELECT status FROM sys_order WHERE bl_no='{{n_create.bl_no}}'", result: "占位替换后执行" },
+    { syntax: '参数级 SQL 来源', desc: '入参直接取 DB 标量：其余参数（常量/函数/引用）解析完后执行，结果入池供下游引用', example: 'SELECT order_id FROM sys_order WHERE bl_no={{n_create.bl_no}}', result: '10293' },
   ],
 }
 
@@ -677,15 +662,15 @@ const assertionData = {
     { type: 'response_time_less_than', desc: '响应时间小于期望(ms)', example: "{type:'response_time_less_than', expected:2000}" },
   ],
   db: [
-    { type: 'db_query_equals', desc: 'DB 查询字段等于期望', example: "{type:'db_query_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'${bl_no}\\'', field:'status', expected:'paid'}" },
+    { type: 'db_query_equals', desc: 'DB 查询字段等于期望', example: "{type:'db_query_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'{{n_create.bl_no}}\\'', field:'status', expected:'paid'}" },
     { type: 'db_query_not_equals', desc: 'DB 查询字段不等于期望', example: "{type:'db_query_not_equals', sql:'...', field:'status', expected:'deleted'}" },
-    { type: 'db_query_not_empty', desc: 'DB 查询结果非空', example: "{type:'db_query_not_empty', sql:'SELECT id FROM sys_order WHERE bl_no=\\'${bl_no}\\''}" },
-    { type: 'db_query_count_equals', desc: '查询行数等于期望', example: "{type:'db_query_count_equals', sql:'SELECT id FROM sys_order WHERE user_id=${uid}', expected:3}" },
+    { type: 'db_query_not_empty', desc: 'DB 查询结果非空', example: "{type:'db_query_not_empty', sql:'SELECT id FROM sys_order WHERE bl_no=\\'{{n_create.bl_no}}\\''}" },
+    { type: 'db_query_count_equals', desc: '查询行数等于期望', example: "{type:'db_query_count_equals', sql:'SELECT id FROM sys_order WHERE user_id={{n_create.user_id}}', expected:3}" },
     { type: 'db_query_count_greater_than', desc: '查询行数大于期望', example: "{type:'db_query_count_greater_than', sql:'...', expected:0}" },
     { type: 'db_query_count_less_than', desc: '查询行数小于期望', example: "{type:'db_query_count_less_than', sql:'...', expected:100}" },
   ],
   cross: [
-    { type: 'db_vs_jsonpath_equals', desc: 'DB 值等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'${bl_no}\\'', field:'status', path:'$.data.status'}" },
+    { type: 'db_vs_jsonpath_equals', desc: 'DB 值等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'{{n_create.bl_no}}\\'', field:'status', path:'$.data.status'}" },
     { type: 'db_vs_jsonpath_not_equals', desc: 'DB 值不等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_not_equals', sql:'...', field:'status', path:'$.data.status'}" },
   ],
 }

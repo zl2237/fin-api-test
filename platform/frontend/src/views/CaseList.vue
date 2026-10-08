@@ -144,6 +144,9 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.case_type === 'suite' ? '—' : (row.dag_config?.nodes?.length || 0) }}</template>
             </el-table-column>
+            <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.description || '—' }}</template>
+            </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
                 <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
@@ -240,6 +243,9 @@
             </el-table-column>
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.case_type === 'suite' ? '—' : (row.dag_config?.nodes?.length || 0) }}</template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.description || '—' }}</template>
             </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
@@ -408,11 +414,11 @@
     <!-- 绑定数据集 -->
     <el-dialog v-model="bindVisible" title="绑定数据集" width="480px">
       <div class="bind-tip">
-        绑定后执行该用例时使用该数据集的单套数据：参数留空处按名自动取数据集变量池值，取不到则发送空值；运行时变量需在编排中 ${} 显式引用。
+        绑定后执行时使用此数据集的全部节点入参取值；未绑定数据集的用例无法执行。
         数据集按用例隔离，仅可选本用例名下的数据集；多场景建多个数据集切换执行
       </div>
       <el-select v-model="bindDatasetId" placeholder="选择数据集（空=不绑定）" clearable style="width: 100%">
-        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${d.columns?.length ?? 0} 个变量值）`" :value="d.id" />
+        <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${Object.keys(d.rows?.[0]?.data?.nodes || {}).length} 个节点入参）`" :value="d.id" />
       </el-select>
       <div v-if="!projectDatasets.length" class="bind-empty">
         该用例暂无数据集（数据集为用例私有），
@@ -542,6 +548,8 @@ const {
   pageMap,
   pageSize,
   onRowDragEnd: onCaseRowDragEnd,
+  projectId: toRef(store, 'currentProjectId'),
+  scope: 'caseList',
 })
 
 // el-tree / el-tree-select 公共字段映射

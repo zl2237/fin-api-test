@@ -2,10 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import { WarningFilled } from '@element-plus/icons-vue'
 import type { DataSet, TestCase } from '@/api'
-import { useFieldDict } from '@/composables/useFieldDict'
 
 /**
- * 数据集执行确认面板（仅多数据集用例弹出）：多选数据集各执行一次（单套数据）。
+ * 数据集执行确认面板（仅多数据集用例弹出）：多选数据集各执行一次（每套 = 全部节点的一套入参取值）。
  * 名下仅一个数据集的用例在 CaseList 直接执行，不经此面板。
  * 确认后 emit('confirm', { datasetIds }) 并自关，执行编排在父视图完成。
  * （编排唯一来源是用例当前配置，无快照过期概念；临时换数据集不改绑定）
@@ -23,11 +22,9 @@ const emit = defineEmits<{
   (e: 'confirm', payload: { datasetIds: number[] }): void
 }>()
 
-// 字段名统一展示约定（全站一致）：原始 key + 字典中文名（如有，含嵌套路径匹配）
-const { dictLabel } = useFieldDict()
-function colLabel(key: string) {
-  const cn = dictLabel(key)
-  return cn ? `${key}（${cn}）` : key
+// 已配置节点清单（入参收敛后：行 data.nodes 的键 = 节点 ID）
+function nodeIds(d: DataSet): string[] {
+  return Object.keys(d.rows?.[0]?.data?.nodes || {})
 }
 
 const visible = computed({
@@ -58,21 +55,21 @@ function confirm() {
   <el-dialog v-model="visible" :title="`数据集执行：${caseItem?.name || ''}`" width="560px">
     <div class="dd-tip">
       <el-icon style="color: var(--el-color-warning)"><WarningFilled /></el-icon>
-      将使用所选的 <b>{{ datasetIds.length }} 个数据集各执行一次</b>（每个数据集单套数据），编排按用例当前配置；临时换数据集不改变用例绑定
+      将使用所选的 <b>{{ datasetIds.length }} 个数据集各执行一次</b>（每个数据集 = 全部节点的一套入参取值），编排按用例当前配置；临时换数据集不改变用例绑定
     </div>
     <el-select v-model="datasetIds" multiple collapse-tags style="width: 100%; margin-bottom: 10px">
       <el-option
         v-for="d in datasets"
         :key="d.id"
-        :label="`${d.name}（${d.columns?.length ?? 0} 个变量值）`"
+        :label="`${d.name}（${nodeIds(d).length} 个节点入参）`"
         :value="d.id"
       />
     </el-select>
-    <div v-if="current?.columns?.length" class="var-preview">
-      <span v-for="c in current.columns.slice(0, 12)" :key="c.key" class="var-chip">
-        {{ colLabel(c.key) }}
+    <div v-if="current && nodeIds(current).length" class="var-preview">
+      <span v-for="k in nodeIds(current).slice(0, 12)" :key="k" class="var-chip">
+        {{ k }}
       </span>
-      <span v-if="current.columns.length > 12" class="var-more">…共 {{ current.columns.length }} 个</span>
+      <span v-if="nodeIds(current).length > 12" class="var-more">…共 {{ nodeIds(current).length }} 个节点</span>
     </div>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>

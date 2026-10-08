@@ -1054,7 +1054,7 @@ export interface paths {
         put?: never;
         /**
          * Copy
-         * @description 复制数据集：列/单套值全量深拷贝，归属同用例（隔离语义下的复用方式）
+         * @description 复制数据集：行内全部节点入参配置深拷贝，归属同用例（多场景复用方式）
          */
         post: operations["copy_api_datasets__dataset_id__copy_post"];
         delete?: never;
@@ -1091,9 +1091,12 @@ export interface paths {
         };
         /**
          * Params View
-         * @description 按节点分组的入参视图（变量池界面数据源）：归属用例当前编排 × 接口字段 × 池值。
+         * @description 参数视图：按归属用例 DAG 节点组织（数据集页节点 tab 数据源）。
          *
-         *     manual=True 的参数为节点手动覆盖（编排非空值），池值不生效——展示覆盖值供解释。
+         *     - nodes：画布节点 × 接口字段定义（fields）× 行内现值（params）
+         *       × 静态产出（productions：参数路径 ∪ 末段别名 ∪ 提取名——引用下拉数据源）
+         *     - edges：画布连线（前端计算各节点上游引用分组）
+         *     - orphan_node_ids：行内已配置但画布已删的节点（提示清理）
          */
         get: operations["params_view_api_datasets__dataset_id__params_view_get"];
         put?: never;
@@ -1104,7 +1107,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/datasets/{dataset_id}/values": {
+    "/api/datasets/{dataset_id}/node-config": {
         parameters: {
             query?: never;
             header?: never;
@@ -1113,10 +1116,10 @@ export interface paths {
         };
         get?: never;
         /**
-         * Save Values
-         * @description 保存单套数据：values 即数据集唯一一套值；列定义随参数走（新键补列、悬空键剔除）。
+         * Save Node Config
+         * @description 保存单节点入参配置（整体替换该节点的 params，含静态校验）。
          */
-        put: operations["save_values_api_datasets__dataset_id__values_put"];
+        put: operations["save_node_config_api_datasets__dataset_id__node_config_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1124,50 +1127,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/datasets/{dataset_id}/node-values": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save Node Values
-         * @description 保存节点级手动覆盖（节点页签编辑语义）：sets 写入该节点独有字面量（压过池值），
-         *     clears 移除字面量回落池值；同字段跨节点异值靠此机制，池仍保持一键一值。
-         */
-        put: operations["save_node_values_api_datasets__dataset_id__node_values_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/{dataset_id}/merge-preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Merge Preview
-         * @description 对比目标数据集（当前）与源数据集：按 api_id 配对相同节点，返回可覆盖列。
-         *
-         *     common_nodes 为空 = 没有相同节点，无覆盖的必要（前端据此提示）。
-         */
-        get: operations["merge_preview_api_datasets__dataset_id__merge_preview_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/datasets/{dataset_id}/merge": {
+    "/api/datasets/{dataset_id}/node-config/{node_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1176,12 +1136,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        post?: never;
         /**
-         * Merge From
-         * @description 覆盖合并：源数据集指定行的相同节点涉及列值，刷到目标数据集全部行。
+         * Remove Node Config
+         * @description 清理悬空节点配置（画布节点已删，行内配置不再被执行）。
          */
-        post: operations["merge_from_api_datasets__dataset_id__merge_post"];
-        delete?: never;
+        delete: operations["remove_node_config_api_datasets__dataset_id__node_config__node_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1306,8 +1266,7 @@ export interface paths {
          * @description 批量执行多个用例：为每个用例创建 running 状态的执行记录并立即返回，
          *     后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
          *     缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
-         *     数据驱动：绑定数据集的用例按数据行展开，展开条目与普通条目一并平铺提交；
-         *     展开多条的用例失败聚合成一条通知。
+         *     绑定数据集的用例按该数据集的单套值展开为一条执行记录，与其他条目一并平铺提交。
          *     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。
          */
         post: operations["batch_execute_api_testcases_batch_execute_post"];
@@ -1393,9 +1352,42 @@ export interface paths {
          * @description 报告页节点重放：按步骤快照定位接口（path+method+项目），用原执行环境重发一次。
          *
          *     body_override（编辑后的请求体）优先，否则用原快照请求体；表达式求值与
-         *     调试/DAG 链路同口径（${timestamp()} 等生效）。纯调试口径：不写回报告。
+         *     调试/DAG 链路同口径（${timestamp()} 等生效）。
+         *     断点续跑配套（同口径验证）：
+         *     - ${} 求值上下文 = 报告虚拟上下文（该节点之前各成功步骤的提取值 + 当前数据集行值）
+         *     - 发送后同口径跑后置提取与断言（规则优先取当前节点配置，无配置回退步骤快照）
+         *     - 断言全过且请求成功 → 步骤打 replay_passed_at（「已重放通过」徽标），
+         *       供用户同步数据集后从此节点续跑；步骤内容不改动（报告只认真实执行）
          */
         post: operations["replay_step_api_executions_steps__step_id__replay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{exec_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Execution
+         * @description 断点续跑：从首个未成功节点起，用当前配置 + 当前数据集重新真实执行。
+         *
+         *     调试闭环（重放验证 → 手动同步数据集 → 续跑）：
+         *     - 前置校验：仅 failed 报告可续；套件（主/成员）不支持；编排结构指纹一致
+         *       （指纹只锁节点/边/接口绑定，参数配置与数据集允许变——续跑用当前值，
+         *       正是「改完参数不用整个重跑」的核心场景）
+         *     - 上下文：前缀成功步骤提取值 + 当前数据集行值拼成虚拟上下文注入 ${} 池
+         *     - 时间线：首个非成功步骤起的旧记录删除，续跑段重新生成（报告只认真实执行）
+         *     - 完成不发企微通知（调试动作，避免打扰）
+         */
+        post: operations["resume_execution_api_executions__exec_id__resume_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1413,6 +1405,32 @@ export interface paths {
         get: operations["get_execution_api_executions__exec_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{exec_id}/terminate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Terminate Execution
+         * @description 手动终止执行。
+         *
+         *     两类场景统一入口：
+         *     - 僵尸记录：进程重启致后台线程丢失，记录永远停在 running——直接落 terminated
+         *     - 活动执行：runner 在节点间/套件成员间检查点感知本状态后提前退出，
+         *       剩余节点/成员并入未执行统计；套件主记录终止时级联标记其名下
+         *       running 的成员行记录（成员 DagExecutor 检查点只看自己的记录状态）
+         */
+        post: operations["terminate_execution_api_executions__exec_id__terminate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2202,19 +2220,6 @@ export interface components {
             /** Text */
             text: string;
         };
-        /**
-         * DataSetColumnIn
-         * @description 列定义：key 即执行时变量名（点路径键，校验见 dataset_service._validate_columns；label 已废除，中文名实时引用字段字典）
-         */
-        DataSetColumnIn: {
-            /** Key */
-            key: string;
-            /**
-             * Type
-             * @default string
-             */
-            type: string;
-        };
         /** DataSetCreate */
         DataSetCreate: {
             /** Project Id */
@@ -2225,45 +2230,18 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /** Columns */
-            columns: components["schemas"]["DataSetColumnIn"][];
         };
-        /**
-         * DataSetMergeRequest
-         * @description 覆盖合并：源数据集单套值中相同节点涉及列，刷到目标数据集
-         */
-        DataSetMergeRequest: {
-            /** Source Dataset Id */
-            source_dataset_id: number;
-            /** Api Ids */
-            api_ids?: number[] | null;
-            /**
-             * Source Row Index
-             * @default 1
-             */
-            source_row_index: number;
-        };
-        /**
-         * DataSetNodeValuesSave
-         * @description 保存节点级手动覆盖（数据集页节点页签编辑语义）：
-         *     sets = 该节点各参数的独有值（写入 pre_process 字面量，压过池值）；
-         *     clears = 清除的参数（移除字面量动作，回落池值）；动态绑定 ${} 不在二者之列
-         */
-        DataSetNodeValuesSave: {
+        /** DataSetNodeConfigSave */
+        DataSetNodeConfigSave: {
             /** Node Id */
             node_id: string;
             /**
-             * Sets
+             * Params
              * @default {}
              */
-            sets: {
+            params: {
                 [key: string]: unknown;
             };
-            /**
-             * Clears
-             * @default []
-             */
-            clears: string[];
         };
         /** DataSetOut */
         DataSetOut: {
@@ -2283,13 +2261,6 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /**
-             * Columns
-             * @default []
-             */
-            columns: {
-                [key: string]: unknown;
-            }[];
             /**
              * Rows
              * @default []
@@ -2329,24 +2300,66 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
-            /** Columns */
-            columns?: components["schemas"]["DataSetColumnIn"][] | null;
         };
-        /**
-         * DataSetValuesSave
-         * @description 保存单套数据：values 即该数据集唯一一套值（列定义随参数走）；
-         *     column_types 可选：显式指定部分键的列类型（新增变量时空值默认推断为 string，
-         *     需指定 int/bool/file 等类型时传入；已有列类型保留不受影响）
-         */
-        DataSetValuesSave: {
-            /** Values */
-            values: {
+        /** DatasetNodeView */
+        DatasetNodeView: {
+            /** Node Id */
+            node_id: string;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Api Id */
+            api_id?: number | null;
+            /**
+             * Api Name
+             * @default
+             */
+            api_name: string;
+            /**
+             * Fields
+             * @default []
+             */
+            fields: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Params
+             * @default {}
+             */
+            params: {
                 [key: string]: unknown;
             };
-            /** Column Types */
-            column_types?: {
-                [key: string]: string;
-            } | null;
+            /**
+             * Productions
+             * @default []
+             */
+            productions: string[];
+        };
+        /** DatasetParamsViewOut */
+        DatasetParamsViewOut: {
+            /** Dataset Id */
+            dataset_id: number;
+            /** Case Id */
+            case_id: number;
+            /**
+             * Nodes
+             * @default []
+             */
+            nodes: components["schemas"]["DatasetNodeView"][];
+            /**
+             * Edges
+             * @default []
+             */
+            edges: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Orphan Node Ids
+             * @default []
+             */
+            orphan_node_ids: string[];
         };
         /** EnvironmentCreate */
         EnvironmentCreate: {
@@ -2394,6 +2407,16 @@ export interface components {
              * @default 15
              */
             timeout: number;
+            /**
+             * Node Retry Count
+             * @default 0
+             */
+            node_retry_count: number;
+            /**
+             * Node Retry Interval
+             * @default 1
+             */
+            node_retry_interval: number;
             /**
              * Is Default
              * @default false
@@ -2455,6 +2478,16 @@ export interface components {
              */
             timeout: number;
             /**
+             * Node Retry Count
+             * @default 0
+             */
+            node_retry_count: number | null;
+            /**
+             * Node Retry Interval
+             * @default 1
+             */
+            node_retry_interval: number | null;
+            /**
              * Is Default
              * @default false
              */
@@ -2505,6 +2538,10 @@ export interface components {
             success_codes?: string | null;
             /** Timeout */
             timeout?: number | null;
+            /** Node Retry Count */
+            node_retry_count?: number | null;
+            /** Node Retry Interval */
+            node_retry_interval?: number | null;
             /** Is Default */
             is_default?: boolean | null;
         };
@@ -2781,13 +2818,6 @@ export interface components {
             /** Api Id */
             api_id?: number | null;
             /**
-             * Pre Process
-             * @default []
-             */
-            pre_process: {
-                [key: string]: unknown;
-            }[];
-            /**
              * Post Extract
              * @default []
              */
@@ -2817,13 +2847,6 @@ export interface components {
             node_id: string;
             /** Api Id */
             api_id?: number | null;
-            /**
-             * Pre Process
-             * @default []
-             */
-            pre_process: {
-                [key: string]: unknown;
-            }[];
             /**
              * Post Extract
              * @default []
@@ -3006,6 +3029,15 @@ export interface components {
             response_body?: unknown | null;
             /** Response Time Ms */
             response_time_ms?: number | null;
+            /** Retry Count */
+            retry_count?: number | null;
+            /**
+             * Resumed
+             * @default false
+             */
+            resumed: boolean;
+            /** Replay Passed At */
+            replay_passed_at?: string | null;
             /** Started At */
             started_at?: string | null;
             /** Ended At */
@@ -5935,7 +5967,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DatasetParamsViewOut"];
                 };
             };
             /** @description Validation Error */
@@ -5949,7 +5981,7 @@ export interface operations {
             };
         };
     };
-    save_values_api_datasets__dataset_id__values_put: {
+    save_node_config_api_datasets__dataset_id__node_config_put: {
         parameters: {
             query?: never;
             header?: never;
@@ -5960,7 +5992,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DataSetValuesSave"];
+                "application/json": components["schemas"]["DataSetNodeConfigSave"];
             };
         };
         responses: {
@@ -5984,49 +6016,13 @@ export interface operations {
             };
         };
     };
-    save_node_values_api_datasets__dataset_id__node_values_put: {
+    remove_node_config_api_datasets__dataset_id__node_config__node_id__delete: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DataSetNodeValuesSave"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    merge_preview_api_datasets__dataset_id__merge_preview_get: {
-        parameters: {
-            query: {
-                source_dataset_id: number;
-            };
-            header?: never;
-            path: {
-                dataset_id: number;
+                node_id: string;
             };
             cookie?: never;
         };
@@ -6038,42 +6034,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    merge_from_api_datasets__dataset_id__merge_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                dataset_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DataSetMergeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DataSetOut"];
                 };
             };
             /** @description Validation Error */
@@ -6487,7 +6448,69 @@ export interface operations {
             };
         };
     };
+    resume_execution_api_executions__exec_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionRecordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_execution_api_executions__exec_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionRecordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    terminate_execution_api_executions__exec_id__terminate_post: {
         parameters: {
             query?: never;
             header?: never;

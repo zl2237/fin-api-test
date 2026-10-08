@@ -26,14 +26,16 @@
       </el-table-column>
       <el-table-column label="SQL" min-width="200">
         <template #default="{ row }">
-          <el-input
-            v-if="needsSql(row.type)"
-            v-model="row.sql"
-            size="small"
-            type="textarea"
-            :rows="1"
-            placeholder="SELECT status FROM sys_order WHERE bl_no='${bl_no}'"
-          />
+          <div v-if="needsSql(row.type)" class="sql-cell">
+            <el-input
+              v-model="row.sql"
+              size="small"
+              type="textarea"
+              :autosize="{ minRows: 1, maxRows: 4 }"
+              placeholder="SELECT status FROM sys_order WHERE bl_no='{{n_create.bl_no}}'"
+            />
+            <SqlRefMenu :groups="refGroups" @insert="(t: string) => (row.sql = `${row.sql || ''}${t}`)" />
+          </div>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -50,10 +52,10 @@
       </el-table-column>
       <el-table-column label="期望值" min-width="140">
         <template #default="{ row }">
-          <el-input
+          <ParamSourceBadge
             v-if="needsExpected(row.type)"
             v-model="row.expected"
-            size="small"
+            :ref-groups="refGroups"
             :placeholder="expectedPlaceholder(row.type)"
           />
           <span v-else class="muted">—</span>
@@ -75,7 +77,11 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ modelValue: any[] }>()
+import ParamSourceBadge from '@/components/ParamSourceBadge.vue'
+import SqlRefMenu from '@/components/SqlRefMenu.vue'
+import type { RefVarGroup } from '@/components/VarRefSelect.vue'
+
+const props = defineProps<{ modelValue: any[]; refGroups?: RefVarGroup[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
 
 const responseTypes = [
@@ -118,7 +124,7 @@ function expectedPlaceholder(type: string) {
   if (type === 'json_path_match_regex') return '正则表达式 ^\\d+$'
   if (type === 'json_path_type_equals') return 'string / int / bool / array / object'
   if (type.startsWith('db_query_count')) return '数字'
-  return '200 / ${xxx}'
+  return '常量值；可切换 引用/函数/SQL 取值'
 }
 
 function add() {
@@ -139,5 +145,14 @@ function remove(idx: number) {
 }
 .muted {
   color: var(--app-text-muted);
+}
+.sql-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.sql-cell .el-textarea {
+  width: 100%;
 }
 </style>
