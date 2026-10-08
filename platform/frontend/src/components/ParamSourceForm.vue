@@ -1,5 +1,5 @@
 <template>
-  <div class="psf">
+  <div ref="rootEl" class="psf">
     <div class="psf-src-row">
       <el-radio-group :model-value="source" size="small" @update:model-value="onSourceChange">
         <el-radio-button value="constant">常量</el-radio-button>
@@ -117,6 +117,9 @@
           style="width: 180px"
           @update:model-value="(v: string) => patch({ column: v })"
         />
+        <span class="psf-sql-ins">
+          <SqlRefMenu :groups="refGroups" @insert="onSqlInsert" />
+        </span>
       </div>
       <p class="psf-hint">SQL 在其余参数解析完成后执行，结果注册为 <code>本节点.参数路径</code> 供下游引用</p>
     </template>
@@ -126,12 +129,13 @@
 <script setup lang="ts">
 /** 四来源参数完整表单：constant/func/ref/sql 单选编辑。
  *  modelValue 兼容三类输入——spec dict / 裸字面量（规范化为 constant）/ 容器内嵌 spec（JSON 文本编辑）。 */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { ParamSpec, TestFile } from '@/api'
 import { fileApi } from '@/api'
 import { FUNC_REGISTRY, funcMeta } from '@/constants/funcRegistry'
 import VarRefSelect from './VarRefSelect.vue'
 import type { RefVarGroup } from './VarRefSelect.vue'
+import SqlRefMenu from './SqlRefMenu.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: any
@@ -261,6 +265,24 @@ function setArgKind(name: string, kind: 'const' | 'ref') {
   if (kind === 'ref') patchArg(name, { kind, value: undefined, node_id: '', var_path: '' })
   else patchArg(name, { kind, node_id: undefined, var_path: undefined, value: '' })
 }
+
+// ===== SQL：插入 {{节点.变量}} 引用到 SQL 末尾（与编排用例后置提取一致） =====
+function onSqlInsert(t: string) {
+  patch({ sql: `${spec.value.sql || ''}${t}` })
+}
+
+// ===== 自动聚焦：popover 打开（组件挂载）与切换来源后，聚焦当前来源第一个输入控件 =====
+const rootEl = ref<HTMLElement | null>(null)
+function focusFirstControl() {
+  nextTick(() => {
+    // 跳过顶部的来源单选钮，直接命中面板内第一个可聚焦元素
+    rootEl.value
+      ?.querySelector<HTMLElement>('textarea, .el-select__wrapper, input.el-input__inner:not(.el-radio-button__original-radio)')
+      ?.focus()
+  })
+}
+onMounted(focusFirstControl)
+watch(source, focusFirstControl)
 </script>
 
 <style scoped>
@@ -320,6 +342,9 @@ function setArgKind(name: string, kind: 'const' | 'ref') {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.psf-sql-ins {
+  margin-left: auto;
 }
 .psf-file {
   display: flex;

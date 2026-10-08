@@ -457,15 +457,17 @@ const refGroups = computed<RefVarGroup[]>(() => {
     }))
     .filter((it) => it.vars.length)
   if (upstream.length) groups.push({ key: 'upstream', label: '上游节点产出', items: upstream })
-  // 本节点 SQL 参数（数据集行内配置；参数解析期注册，断言/提取可引用）
-  const selfSql = Object.entries(dsSelfParams.value[nid]?.body || {})
-    .filter(([, s]) => (s as any)?.source === 'sql')
+  // 本节点参数值（数据集行内全部 body 参数，任意来源）：请求组装期统一注册为
+  // 节点.参数路径（+末段别名），后置提取/断言在本节点请求后即可引用；
+  // 通配路径（列表.*.字段）运行期按具体下标注册，静态列表不列
+  const selfParams = Object.entries(dsSelfParams.value[nid]?.body || {})
+    .filter(([p, s]) => !p.includes('*') && s && (s as any).source)
     .map(([p]) => p)
-  if (selfSql.length) {
+  if (selfParams.length) {
     groups.push({
       key: 'self',
-      label: '本节点 SQL 参数',
-      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfSql.map((p) => ({ path: p })) }],
+      label: '本节点参数值（请求后可引用）',
+      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfParams.map((p) => ({ path: p })) }],
     })
   }
   // 本节点提取变量：提取按配置顺序逐行注册，后面的行可 {{本节点.提取名}} 引用前面的行

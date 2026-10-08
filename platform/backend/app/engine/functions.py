@@ -20,7 +20,7 @@ from utils.generator_util import generate_bl_no, generate_invoice_number, genera
 FUNCTIONS: dict[str, dict[str, Any]] = {
     "generate_bl_no": {"fn": generate_bl_no, "params": ["prefix"]},
     "generate_unique_id": {"fn": generate_unique_id, "params": []},
-    "generate_invoice_number": {"fn": generate_invoice_number, "params": []},
+    "generate_invoice_number": {"fn": generate_invoice_number, "params": ["prefix"]},
     "now": {"fn": lambda **kw: datetime.now().strftime(kw["format"]) if kw.get("format")
             else datetime.now().isoformat(), "params": ["format"]},
     "timestamp": {"fn": lambda **kw: int(datetime.now().timestamp()), "params": []},

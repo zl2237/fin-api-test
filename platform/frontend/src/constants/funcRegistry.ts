@@ -14,7 +14,7 @@ export interface FuncMeta {
 export const FUNC_REGISTRY: FuncMeta[] = [
   { name: 'generate_bl_no', label: '生成提单号', params: [{ name: 'prefix', label: '前缀', placeholder: "默认 'SMOK'" }] },
   { name: 'generate_unique_id', label: '生成唯一 ID', params: [] },
-  { name: 'generate_invoice_number', label: '生成发票号', params: [] },
+  { name: 'generate_invoice_number', label: '生成发票号', params: [{ name: 'prefix', label: '前缀', placeholder: "默认 'INV'" }] },
   { name: 'now', label: '当前时间', params: [{ name: 'format', label: '格式', placeholder: "如 '%Y-%m-%d %H:%M'，缺省 ISO" }] },
   { name: 'timestamp', label: 'Unix 时间戳(秒)', params: [] },
   { name: 'date_add', label: '日期偏移', params: [
