@@ -235,14 +235,14 @@ class SuiteMember(Base):
 
 
 class DataSet(Base):
-    """数据集（用例私有，1:N）：用例的变量池（一套数据）。
+    """数据集（用例私有，1:N）：一套完整的节点入参配置（2026-09-30 收敛定案）。
 
     归属：case_id 用例级隔离（不同用例的数据集互相不可见，复用靠复制）；
     project_id 冗余保留（项目过滤仍可用）。
-    组成：
-    - columns/rows：列定义 + 单套值（列名即变量名，点路径键；列中文名实时引用项目字段字典，不落库）
-    - 编排唯一来源是用例当前配置（不做编排快照）
+    每个数据集 = 各节点入参配置的一套完整取值（多数据集 = 多场景）；
+    用例编排只负责结构（串联顺序/后置提取/断言），入参唯一入口收敛到数据集。
     """
+
     __tablename__ = "data_sets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
@@ -251,9 +251,8 @@ class DataSet(Base):
                      comment="归属用例ID（1:N，用例间隔离）")
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="数据集名称")
     description: Mapped[str | None] = mapped_column(Text, comment="描述")
-    columns: Mapped[Any] = mapped_column(JSON, default=list, comment="列定义：[{key, type}]，key 即执行时变量名（点路径键）；中文名实时引用字段字典")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
     updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
 
@@ -265,25 +264,26 @@ class DataSet(Base):
 
 
 class DataSetRow(Base):
-    """数据集行：一行 = 一次执行的变量组"""
+    """数据集行（单套语义，恒一行）：各节点的入参配置集"""
     __tablename__ = "data_set_rows"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
     dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("data_sets.id"), comment="所属数据集ID")
-    row_index: Mapped[int] = mapped_column(Integer, nullable=False, comment="行序（1 起，删行后重排保持连续）")
-    data: Mapped[Any] = mapped_column(JSON, default=dict, comment="行数据：{列key: 值}")
+    row_index: Mapped[int] = mapped_column(Integer, nullable=False, comment="行序（1 起，单套语义恒为 1）")
+    data: Mapped[Any] = mapped_column(JSON, default=dict, comment="行数据（节点入参配置集）："
+                      '{"nodes": {节点ID: {"params": {body/headers 四来源spec}}}}')
 
     dataset: Mapped["DataSet"] = relationship("DataSet", back_populates="rows")
 
 
 class CaseNodeConfig(Base):
+    """节点结构配置（编排侧）：入参配置已收敛到数据集行（2026-09-30 定案）。"""
     __tablename__ = "case_node_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
     case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
     node_id: Mapped[str] = mapped_column(String(100), nullable=False, comment="DAG 节点唯一ID")
     api_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("api_definitions.id"), comment="关联接口ID")
-    pre_process: Mapped[Any] = mapped_column(JSON, default=list, comment="前置处理动作列表：[{type, path, value}]")
     post_extract: Mapped[Any] = mapped_column(JSON, default=list, comment="后置提取规则列表：[{name, source, jsonpath, sql, field}]")
     assertions: Mapped[Any] = mapped_column(JSON, default=list, comment="断言规则列表：[{type, path, expected, sql, ...}]")
     wait_after_ms: Mapped[int] = mapped_column(Integer, default=0, comment="当前节点执行完后到下一节点请求前的等待毫秒数，默认0")
@@ -341,7 +341,8 @@ class StepRecord(Base):
     replay_passed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True,
                     comment="重放验证通过时间：手改请求体重放断言全过时打点，报告页显示「已重放通过」徽标；不改变步骤内容")
     status: Mapped[str | None] = mapped_column(String(20), comment="步骤状态：success 成功 / failed 失败")
-    pre_process: Mapped[Any] = mapped_column(JSON, comment="前置处理快照：[{type, path, value}]")
+    pre_process: Mapped[Any] = mapped_column(JSON, comment="前置处理快照（历史遗留列：前置动作已废止，"
+                      "新步骤不再写入，仅老报告回显）")
     post_extract: Mapped[Any] = mapped_column(JSON, comment="后置提取规则快照：[{name, source, jsonpath, sql, field}]")
     extracted_vars: Mapped[Any] = mapped_column(JSON, comment="后置提取实际结果：{name: value}")
 

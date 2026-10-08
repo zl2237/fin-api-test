@@ -28,14 +28,35 @@ from typing import Any
 
 from jsonpath_ng import parse
 
-from .expression import ExpressionEngine, inject_sql_vars
+from .param_resolver import render_placeholders, resolve_param
+from .variables import ReferenceError, VariableRegistry
 
 
 class AssertionEngine:
-    def __init__(self, context: dict[str, Any], db_client=None):
-        self.context = context
+    """断言引擎 v2（2026-09-30 参数模型）。
+
+    - expected 四来源：{"source": constant|func|ref|sql, ...} spec 经 resolve_param
+      求值；裸标量（数字/字符串字面量）按常量处理。期望求值失败 = 断言失败
+      （message 带引用链），不让单条断言异常打断整个节点
+    - DB 断言 SQL 的变量引用为 {{节点.变量}} 占位（旧 ${xxx} 废止），
+      占位取值失败 = 断言失败（原因可见）
+    """
+
+    def __init__(self, registry: VariableRegistry, db_client=None, self_node: str = ""):
+        self.registry = registry
         self.db_client = db_client
-        self.expr = ExpressionEngine(context, db_client=db_client)
+        self.self_node = self_node
+
+    def _eval_expected(self, rule: dict, label: str):
+        """期望值求值：spec → resolve_param；裸值常量。返回 (值, 失败原因)。"""
+        raw = rule.get("expected")
+        if isinstance(raw, dict) and raw.get("source"):
+            try:
+                return resolve_param(label, raw, registry=self.registry,
+                                     self_node=self.self_node, db_client=self.db_client), None
+            except (ReferenceError, ValueError, Exception) as e:
+                return None, f"期望值解析失败: {e}"
+        return raw, None
 
     def evaluate_all(
         self,
@@ -55,17 +76,23 @@ class AssertionEngine:
 
         if rule_type == "json_path_equals":
             actual = self._jsonpath_get(response_body, rule.get("path") or "")
-            expected = self.expr.evaluate(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:json_path_equals.expected")
+            if err:
+                return self._pack(False, rule_type, None, None, (message or rule.get("path") or "") + f" [{err}]")
             return self._pack(actual == expected, rule_type, actual, expected, message or f"{rule.get('path')} 期望 {expected}, 实际 {actual}")
 
         if rule_type == "json_path_not_equals":
             actual = self._jsonpath_get(response_body, rule.get("path") or "")
-            expected = self.expr.evaluate(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:json_path_not_equals.expected")
+            if err:
+                return self._pack(False, rule_type, None, None, (message or "") + f" [{err}]")
             return self._pack(actual != expected, rule_type, actual, expected, message)
 
         if rule_type == "json_path_contains":
             actual = self._jsonpath_get(response_body, rule.get("path") or "")
-            expected = self.expr.evaluate(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:json_path_contains.expected")
+            if err:
+                return self._pack(False, rule_type, None, None, (message or "") + f" [{err}]")
             passed = expected in actual if actual is not None else False
             return self._pack(passed, rule_type, actual, expected, message)
 
@@ -140,8 +167,9 @@ class AssertionEngine:
         return result
 
     def _eval_db(self, rule_type: str, rule: dict, message: str) -> dict:
-        sql = rule.get("sql", "")
-        sql = self._inject_extracted(sql)
+        sql, inject_err = self._inject_extracted(rule.get("sql", ""))
+        if inject_err:
+            return self._pack(False, rule_type, None, rule.get("expected"), message or inject_err)
         rows: list | None = None
         actual: Any = None
         if self.db_client:
@@ -162,7 +190,9 @@ class AssertionEngine:
                     actual = next(iter(first.values())) if first else None
                 else:
                     actual = first
-            expected = self.expr.evaluate(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:db_query_equals.expected")
+            if err:
+                return self._pack(False, rule_type, actual, None, (message or "") + f" [{err}]")
             return self._pack(self._loose_equals(actual, expected), rule_type, actual, expected, message or f"DB字段 {field or ''} 期望 {expected}, 实际 {actual}")
         if rule_type == "db_query_not_equals":
             # DB 字段不等于期望值（对应代码里的 not_equal）
@@ -175,7 +205,9 @@ class AssertionEngine:
                     actual = next(iter(first.values())) if first else None
                 else:
                     actual = first
-            expected = self.expr.evaluate(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:db_query_not_equals.expected")
+            if err:
+                return self._pack(False, rule_type, actual, None, (message or "") + f" [{err}]")
             return self._pack(not self._loose_equals(actual, expected), rule_type, actual, expected, message or f"DB字段 {field or ''} 不应等于 {expected}, 实际 {actual}")
         if rule_type == "db_query_not_empty":
             passed = bool(rows)
@@ -233,13 +265,14 @@ class AssertionEngine:
         规则格式：
         {
             "type": "db_vs_jsonpath_equals",
-            "sql": "SELECT status FROM sys_order WHERE bl_no='${bl_no}'",
+            "sql": "SELECT status FROM sys_order WHERE bl_no={{n_create.bl_no}}",
             "field": "status",
             "path": "$.data.status"
         }
         """
-        sql = rule.get("sql", "")
-        sql = self._inject_extracted(sql)
+        sql, inject_err = self._inject_extracted(rule.get("sql", ""))
+        if inject_err:
+            return self._pack(False, rule.get("type", "db_vs_jsonpath_equals"), None, None, message or inject_err)
         field = rule.get("field")
         json_path = rule.get("path")
 
@@ -276,10 +309,12 @@ class AssertionEngine:
             message or f"DB值({db_value}) 与 响应值({json_value}) 不一致",
         )
 
-    def _inject_extracted(self, sql: str) -> str:
-        """把 ${xxx} 替换为已提取变量值（${context.xxx} 兼容旧写法）"""
-        # 委托公共函数，消除三处重复的转义逻辑
-        return inject_sql_vars(sql, self.context.get("extracted", {}))
+    def _inject_extracted(self, sql: str) -> tuple[str, str | None]:
+        """{{节点.变量}} 占位渲染（旧 ${xxx} 废止）。失败返回 (sql, 失败原因)。"""
+        try:
+            return render_placeholders(sql, self.registry), None
+        except ReferenceError as e:
+            return sql, str(e)
 
     @staticmethod
     def _jsonpath_get(data: Any, path: str) -> Any:

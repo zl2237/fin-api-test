@@ -616,13 +616,12 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
     db.add(obj)
     db.commit()
     db.refresh(obj)
-    # 复制节点配置
+    # 复制节点配置（结构层；入参配置随数据集行克隆）
     for nc in (case.node_configs or []):
         nnc = models.CaseNodeConfig(
             case_id=obj.id,
             node_id=nc.node_id,
             api_id=nc.api_id,
-            pre_process=nc.pre_process or [],
             post_extract=nc.post_extract or [],
             assertions=nc.assertions or [],
             wait_after_ms=nc.wait_after_ms or 0,
@@ -652,14 +651,14 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
 
 
 def _sync_node_configs(db: Session, case_id: int, node_configs: list[dict]):
-    """全量覆盖用例的节点配置"""
+    """全量覆盖用例的节点配置（结构层：接口绑定/提取/断言/等待；
+    入参配置在数据集行，不随编排保存）"""
     db.query(models.CaseNodeConfig).filter(models.CaseNodeConfig.case_id == case_id).delete()
     for nc in node_configs:
         obj = models.CaseNodeConfig(
             case_id=case_id,
             node_id=nc["node_id"],
             api_id=nc.get("api_id"),
-            pre_process=nc.get("pre_process", []),
             post_extract=nc.get("post_extract", []),
             assertions=nc.get("assertions", []),
             wait_after_ms=nc.get("wait_after_ms", 0) or 0,

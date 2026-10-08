@@ -13,8 +13,10 @@ DAG 拓扑执行引擎。
    前置处理 → 发请求 → 后置提取 → 断言 → 落库 StepRecord/AssertionRecord
 4. 默认失败即停止（断言失败或请求异常）
 """
+import re
 import time
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -49,15 +51,14 @@ class DagExecutor:
         self.db = db
         self.case = case
         self.env = env
-        # 业务变量已退役：测试数据来源唯一为数据集（row_vars 为数据集单套数据，
-        # 数据集域第 3 层自动解析）；套件注入：suite_vars 为上游成员白名单快照
-        # （单独执行不传，行为不变）
-        self.context = ExecutionContext(row_vars=row_vars,
-                                         suite_vars=suite_vars)
+        # 参数模型 v2：节点命名空间注册表。数据集行数据（各节点入参配置）由
+        # context.dataset_vars 承载（不进注册表）；套件白名单注入 __suite__；
+        # 断点续跑 seed 注入 __resume__
+        self.context = ExecutionContext(dataset_vars=row_vars,
+                                        suite_vars=suite_vars,
+                                        resume_seed=context_seed)
         # 数据驱动批量执行时抑制逐条通知（由聚合器等全部完成后发一条汇总）
         self.suppress_notify = suppress_notify
-        # 数据集行值原始引用：数据集域取值处（prepare_request 第 3 层解析）
-        self.row_vars = row_vars or None
         self.extractor = Extractor()
         self.http_client: HttpClient | None = None
         self.db_client: Any = None
@@ -71,6 +72,18 @@ class DagExecutor:
         self.start_node = start_node
         self.context_seed = context_seed or None
         self._resume_mode = start_node is not None
+        # 节点 id → 画布中文名：错误消息可读性（node_xxx → 「审核」）
+        self._node_labels: dict[str, str] = {
+            n.get("id", ""): ((n.get("data") or {}).get("label") or n.get("label") or n.get("id", ""))
+            for n in ((case.dag_config or {}).get("nodes") if isinstance(case.dag_config, dict) else [])
+            if isinstance(n, dict)
+        }
+
+    def _pretty_err(self, msg: str) -> str:
+        """错误文本里的 node_xxx 引用替换为「中文名(node_xxx)」，报告一眼可读。"""
+        return re.sub(r"node_[A-Za-z0-9_]+",
+                      lambda m: f"{self._node_labels.get(m.group(0), m.group(0))}({m.group(0)})",
+                      msg)
 
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
@@ -110,10 +123,7 @@ class DagExecutor:
         # 时刻——排队等待不计入用例耗时（报告/通知的 duration = ended_at - started_at）
         record.started_at = datetime.now()
 
-        # 断点续跑：报告虚拟上下文注入 ${} 统一池（前缀成功步骤的提取值，
-        # 已含数据集行值打底，见 engine/report_context）
-        if self.context_seed:
-            self.context.update_extracted(self.context_seed)
+        # 断点续跑 seed 已在 ExecutionContext 构造时注入 __resume__ 命名空间
 
         # 编排结构指纹：执行时写入（结构级：节点/边/接口绑定，不含参数配置），
         # 供续跑前重算比对；查询失败（测试替身无 all）时跳过不阻塞执行
@@ -241,17 +251,30 @@ class DagExecutor:
         return removed
 
     def _resolve_node_config(self, node_id: str):
-        """节点配置来源：用例当前 CaseNodeConfig（编排唯一来源，无快照覆盖）。"""
+        """节点结构配置来源：用例当前 CaseNodeConfig（编排唯一来源，无快照覆盖）。
+        仅承载结构层（接口绑定/后置提取/断言/等待）；入参配置见 _resolve_param_config。"""
         return self.db.query(models.CaseNodeConfig).filter(
             models.CaseNodeConfig.case_id == self.case.id,
             models.CaseNodeConfig.node_id == node_id,
         ).first()
+
+    def _resolve_param_config(self, node_id: str):
+        """节点入参配置来源：数据集行内 per-node 配置（入参收敛到数据集，
+        2026-09-30 定案）。行数据 {"nodes": {节点ID: {params}}}。"""
+        nodes = self.context.dataset_vars.get("nodes")
+        if not isinstance(nodes, dict):
+            return None
+        rc = nodes.get(node_id)
+        if not isinstance(rc, dict):
+            return None
+        return SimpleNamespace(params=rc.get("params") or {})
 
     def _execute_node(self, execution_id: int, node_id: str, node: dict) -> tuple[bool, int]:
         """执行单个节点。返回 (是否通过, 节点配置的 wait_after_ms)。
         wait_after_ms 表示当前节点执行完后到下一节点请求前的等待毫秒数，由调用方在节点间应用。
         """
         config = self._resolve_node_config(node_id)
+        param_cfg = self._resolve_param_config(node_id)
 
         api = None
         if config and config.api_id:
@@ -270,20 +293,19 @@ class DagExecutor:
                 response_status=0, response_body={"error": "节点未绑定接口或配置缺失"},
                 response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
                 status="failed",
-                pre_process=(config.pre_process if config else None) or None,
                 post_extract=(config.post_extract if config else None) or None,
                 extracted_vars={},
                 resumed=self._resume_mode,
             ))
             return False, 0
 
-        # 1. 组装请求（三级优先级与编排顺序统一在 prepare_request，见其模块注释）；
-        # 前置处理 exec_sql 执行失败等组装期异常在这里兜底为失败步骤（原因可见），
+        # 1. 组装请求（优先级与编排顺序统一在 prepare_request，见其模块注释）；
+        # 组装期异常（引用取值失败/SQL 执行失败等）在这里兜底为失败步骤（原因可见），
         # 避免异常冒泡到 execute() 导致本节点无步骤记录
         assert self.http_client is not None  # execute() 前已 build_http_client，收窄 None 分支
         try:
-            parts = prepare_request(api, config, context=self.context,
-                                    row_vars=self.row_vars,
+            parts = prepare_request(api, param_cfg, context=self.context,
+                                    self_node=node_id,
                                     base_headers=self.http_client.headers,
                                     db_client=self.db_client)
         except Exception as e:
@@ -291,10 +313,9 @@ class DagExecutor:
                 execution_id=execution_id, node_id=node_id,
                 api_name=api.name, api_path=api.path, api_method=api.method,
                 request_headers={}, request_body={},
-                response_status=0, response_body={"error": f"请求组装/前置处理失败: {e}"},
+                response_status=0, response_body={"error": f"请求组装/前置处理失败: {self._pretty_err(str(e))}"},
                 response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
                 status="failed",
-                pre_process=(config.pre_process if config else None) or None,
                 post_extract=(config.post_extract if config else None) or None,
                 extracted_vars={},
                 resumed=self._resume_mode,
@@ -325,16 +346,14 @@ class DagExecutor:
                 continue  # 请求层失败且仍有重试额度：间隔后原样重发
             # 成功 / 断言路径 / 重试额度耗尽：提取与断言后收尾
 
-            # 3. 后置提取（支持从响应或 DB 提取变量到上下文）
+            # 3. 后置提取（响应/DB → 本节点命名空间注册表，同节点后续规则可互引）
             if config and config.post_extract and response_data is not None:
-                # 注入当前已提取变量，供 source=db 的 SQL 引用
-                self.extractor.set_extracted_vars(self.context.extracted)
-                extracted = self.extractor.extract(response_data, config.post_extract)
-                self.context.update_extracted(extracted)
+                extracted = self.extractor.extract(response_data, config.post_extract,
+                                                   self.context.registry, node_id)
 
             # 4. 断言
             if config and config.assertions:
-                engine = AssertionEngine(self.context.to_dict(), self.db_client)
+                engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
                 assertion_results = engine.evaluate_all(response_data, status_code, elapsed, config.assertions)
 
             step_passed = (err is None) and all(r["pass"] for r in assertion_results)
@@ -349,13 +368,12 @@ class DagExecutor:
             # 请求异常（超时/连接失败等）时 err 有值但响应体可能为 None，
             # 落 {"error": err} 让步骤记录（及失败通知）可读到具体原因
             response_body=(
-                {"error": err} if err is not None
+                {"error": self._pretty_err(err)} if err is not None
                 else response_data if isinstance(response_data, (dict, list))
                 else {"text": str(response_data)}
             ),
             response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
             status="success" if step_passed else "failed",
-            pre_process=(config.pre_process if config else None) or None,
             post_extract=(config.post_extract if config else None) or None,
             extracted_vars=extracted,
             retry_count=retry_count,

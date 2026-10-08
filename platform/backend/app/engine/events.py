@@ -40,7 +40,6 @@ class StepResult:
     ended_at: datetime
     status: str  # success / failed
     assertions: list[AssertionResult] = field(default_factory=list)
-    pre_process: list[dict[str, Any]] | None = None  # 前置处理快照
     post_extract: list[dict[str, Any]] | None = None  # 后置提取规则快照
     extracted_vars: dict[str, Any] | None = None  # 后置提取实际结果 {name: value}
     retry_count: int = 0  # 环境级失败重试实际发生的次数（重试后成功时 >0）
@@ -73,7 +72,7 @@ class DbSink:
             resumed=result.resumed,
             started_at=result.started_at, ended_at=result.ended_at,
             status=result.status,
-            pre_process=result.pre_process, post_extract=result.post_extract,
+            post_extract=result.post_extract,
             extracted_vars=result.extracted_vars,
         )
         self.db.add(step)
