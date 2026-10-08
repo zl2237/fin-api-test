@@ -166,8 +166,8 @@
       </template>
     </el-dialog>
 
-    <!-- 导入请求体 JSON：仅替换常量字段（整组替换），非常量/通配/未命中不动，先进草稿 -->
-    <el-dialog v-model="importVisible" title="导入请求体 JSON（仅替换常量字段）" width="760px">
+    <!-- 导入请求体 JSON：常量已配置字段替换，未配置字段初始化为常量入参，非常量不动，先进草稿 -->
+    <el-dialog v-model="importVisible" title="导入请求体 JSON（替换常量 + 初始化未配置字段）" width="760px">
       <el-input
         v-model="importText"
         type="textarea"
@@ -178,7 +178,7 @@
         <el-button size="small" type="primary" plain @click="parseImport">解析预览</el-button>
         <span v-if="importParsed && !importParsed.ok" class="import-err">{{ importParsed.error }}</span>
         <span v-else-if="importParsed?.ok" class="import-sum">
-          将替换 {{ importHitCount }} 个常量字段；跳过 {{ importParsed.rows.length - importHitCount }} 个（非常量 / 通配 / 未命中）
+          替换 {{ importReplaceCount }} 个常量字段、新增 {{ importAddCount }} 个未配置字段；跳过 {{ importParsed.rows.length - importReplaceCount - importAddCount }} 个（非常量 / 通配 / 未命中）
         </span>
       </div>
       <el-table v-if="importParsed?.ok" :data="importParsed.rows" size="small" max-height="320">
@@ -191,14 +191,15 @@
         </el-table-column>
         <el-table-column label="状态" width="150">
           <template #default="{ row }">
-            <el-tag v-if="row.hit" size="small" type="success">替换</el-tag>
+            <el-tag v-if="row.hit && row.add" size="small" type="warning">新增</el-tag>
+            <el-tag v-else-if="row.hit" size="small" type="success">替换</el-tag>
             <el-tag v-else size="small" type="info">{{ row.note }}</el-tag>
           </template>
         </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!importHitCount" @click="applyImport">应用到草稿</el-button>
+        <el-button type="primary" :disabled="!importReplaceCount && !importAddCount" @click="applyImport">应用到草稿</el-button>
       </template>
     </el-dialog>
   </div>
@@ -323,19 +324,24 @@ function resetNode(nid: string) {
   dirtyMap[nid] = false
 }
 
-// ===== 导入请求体 JSON：常量字段整组替换；非常量 / 通配路径 / 未命中不动；先进草稿 =====
+// ===== 导入请求体 JSON：已配置常量字段整组替换；非常量 / 通配路径不动；
+//      JSON 中未配置的字段初始化为常量入参；先进草稿 =====
 interface ImportRow {
   path: string
-  old: unknown        // 旧常量值（非常量行存来源摘要）
+  old: unknown        // 旧常量值（非常量行存来源摘要，新增行为 undefined）
   neu: unknown        // 新值（未命中为 undefined）
   hit: boolean
+  add?: boolean       // 未配置字段：应用时新增为 constant
   note?: string
 }
 const importVisible = ref(false)
 const importNodeId = ref('')
 const importText = ref('')
 const importParsed = ref<null | { ok: boolean; error?: string; rows: ImportRow[] }>(null)
-const importHitCount = computed(() => (importParsed.value?.ok ? importParsed.value.rows.filter((r) => r.hit).length : 0))
+const importReplaceCount = computed(() =>
+  importParsed.value?.ok ? importParsed.value.rows.filter((r) => r.hit && !r.add).length : 0)
+const importAddCount = computed(() =>
+  importParsed.value?.ok ? importParsed.value.rows.filter((r) => r.hit && r.add).length : 0)
 
 function openImport(nid: string) {
   importNodeId.value = nid
@@ -354,6 +360,26 @@ function getByPath(obj: unknown, path: string): unknown {
   return cur
 }
 
+/** 展开 JSON 全部叶子路径 → 值（嵌套对象/数组递归下钻，空对象/数组视为叶子） */
+function flattenLeaves(obj: unknown, prefix = '', out: Record<string, unknown> = {}): Record<string, unknown> {
+  if (obj !== null && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length) {
+    for (const [k, v] of Object.entries(obj)) flattenLeaves(v, prefix ? `${prefix}.${k}` : k, out)
+  } else if (Array.isArray(obj) && obj.length) {
+    obj.forEach((v, i) => flattenLeaves(v, `${prefix}.${i}`, out))
+  } else {
+    out[prefix] = obj
+  }
+  return out
+}
+
+/** 叶子路径是否已被通配参数覆盖（对应段 '*' 或相等，如 lines.*.qty 覆盖 lines.0.qty） */
+function matchesWildcard(leaf: string, configured: string): boolean {
+  if (!configured.includes('*')) return false
+  const a = leaf.split('.')
+  const b = configured.split('.')
+  return a.length === b.length && b.every((seg, i) => seg === '*' || seg === a[i])
+}
+
 function parseImport() {
   let data: unknown
   try {
@@ -363,11 +389,12 @@ function parseImport() {
     return
   }
   const draft = drafts[importNodeId.value]
+  const body = draft?.params?.body || {}
   const srcLabel: Record<string, string> = { func: '函数', ref: '引用', sql: 'SQL' }
   const rows: ImportRow[] = []
-  for (const [path, spec] of Object.entries(draft?.params?.body || {})) {
+  for (const [path, spec] of Object.entries(body)) {
     if (!spec || spec.source !== 'constant') {
-      rows.push({ path, old: srcLabel[spec?.source || ''] || spec?.source, neu: undefined, hit: false, note: '非常量，不动' })
+      rows.push({ path, old: srcLabel[spec?.source || ''] || spec?.source, neu: undefined, hit: false, note: '非常量，保持不动' })
       continue
     }
     if (path.includes('*')) {
@@ -380,6 +407,12 @@ function parseImport() {
       continue
     }
     rows.push({ path, old: spec.value, neu: v, hit: true })
+  }
+  // JSON 中存在但未配置的字段：初始化为常量入参（已被通配参数覆盖的跳过）
+  const configured = Object.keys(body)
+  for (const [path, v] of Object.entries(flattenLeaves(data))) {
+    if (!path || configured.includes(path) || configured.some((c) => matchesWildcard(path, c))) continue
+    rows.push({ path, old: undefined, neu: v, hit: true, add: true, note: '新增' })
   }
   importParsed.value = { ok: true, rows }
 }
@@ -394,7 +427,7 @@ function applyImport() {
   }
   onDraftChange(importNodeId.value, { ...draft.params, body })
   importVisible.value = false
-  ElMessage.success(`已导入 ${importHitCount.value} 个常量字段，点「保存本节点入参」生效`)
+  ElMessage.success(`已替换 ${importReplaceCount.value} 个常量、新增 ${importAddCount.value} 个入参，点「保存本节点入参」生效`)
 }
 
 /** 预览值显示：JSON 序列化截断，undefined 显示占位 */
@@ -471,15 +504,16 @@ const refGroupsMap = computed<Record<string, RefVarGroup[]>>(() => {
       }))
       .filter((it) => it.vars.length)
     if (upstream.length) groups.push({ key: 'upstream', label: '上游节点产出', items: upstream })
-    // 本节点 SQL 参数（参数解析期注册，同节点后续参数可自引用）
-    const selfSql = Object.entries(drafts[nid]?.params?.body || {})
-      .filter(([, s]) => (s as any)?.source === 'sql')
+    // 本节点参数值（任意来源）：请求组装期统一注册为 节点.参数路径，
+    // 同节点后续参数（拓扑序在后）可自引用；通配路径运行期按下标注册不列
+    const selfParams = Object.entries(drafts[nid]?.params?.body || {})
+      .filter(([p, s]) => !p.includes('*') && s && (s as any).source)
       .map(([p]) => p)
-    if (selfSql.length) {
+    if (selfParams.length) {
       groups.push({
         key: 'self',
-        label: '本节点 SQL 参数',
-        items: [{ node_id: nid, node_label: `${nodeLabelOf(nid)}（本节点）`, vars: selfSql.map((p) => ({ path: p })) }],
+        label: '本节点参数值（前序参数可引用）',
+        items: [{ node_id: nid, node_label: `${nodeLabelOf(nid)}（本节点）`, vars: selfParams.map((p) => ({ path: p })) }],
       })
     }
     out[nid] = groups
