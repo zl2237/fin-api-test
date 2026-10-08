@@ -156,7 +156,6 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
     from copy import deepcopy
 
     from ..engine.assertion_engine import AssertionEngine
-    from ..engine.expression import ExpressionEngine
     from ..engine.extractor import Extractor
     from ..engine.report_context import build_report_context
     from ..engine.type_coercer import apply_field_types, coerce_json_strings
@@ -190,10 +189,14 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
     extract_rules = (config.post_extract if config and config.post_extract else step.post_extract)
     assertion_rules = (config.assertions if config and config.assertions else None)
 
-    # 报告虚拟上下文：该节点之前各成功步骤提取值 + 当前数据集行值（同续跑 seed 口径）
+    # 报告虚拟注册表：前缀成功步骤提取值按节点命名空间还原
+    # （重放口径 = 续跑 seed 口径；{{节点.变量}} 引用链保持完整。
+    # 数据集行现为 per-node 入参配置（非键值），不再注入注册表）
     steps = sorted(execution.steps, key=lambda s: s.id)
-    row_vars = _current_dataset_row_vars(db, execution)
-    ctx_extracted = build_report_context(steps, row_vars=row_vars, before_node=step.node_id)
+    from ..engine.variables import VariableRegistry
+    replay_registry = VariableRegistry()
+    for nid, vars_ in build_report_context(steps, before_node=step.node_id).items():
+        replay_registry.inject(nid, vars_)
 
     start_ts = time.time()
     client = build_http_client(env)
@@ -209,14 +212,10 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
         client.headers = {k: v for k, v in client.headers.items() if v is not None}
         body = deepcopy(data.body_override) if data.body_override is not None \
             else deepcopy(step.request_body or {})
-        expr = ExpressionEngine({"extracted": deepcopy(ctx_extracted)},
-                                db_client=build_db_client(env))
-        body = expr.evaluate(body)
+        # 重放 body 不做表达式求值：快照/手改值原样发送（${} 语法已废止），
+        # 类型还原与字段强转保持与执行链路同口径
         body = coerce_json_strings(body)
         body = apply_field_types(body, api)
-        for k, v in list((client.headers or {}).items()):
-            if isinstance(v, str) and "${" in v:
-                client.headers[k] = expr.evaluate(v)
         body, file_fields = pop_file_fields_from_body(body, api)
         req_timeout = getattr(env, "timeout", None) or 15
         status_code, response_data, error_msg = send_request(
@@ -225,19 +224,19 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
         crud.log_operation(db, user, "execute", "api", api.id,
                            f"replay step#{step_id} ({api.name})")
 
-        # 同口径后置提取（提取值并入上下文供断言 ${} 引用与结果展示）
+        # 同口径后置提取（产出注册进本节点命名空间，供断言 {{}} 引用与结果展示）
         extracted: dict = {}
         if extract_rules and response_data is not None:
             extractor = Extractor()
             extractor.db_client = build_db_client(env)
-            extractor.set_extracted_vars(ctx_extracted)
-            extracted = extractor.extract(response_data, extract_rules)
+            extracted = extractor.extract(response_data, extract_rules,
+                                          replay_registry, step.node_id or "")
 
         # 同口径断言（规则取当前节点配置）
         assertion_results: list[dict] = []
         if assertion_rules:
-            engine = AssertionEngine({"extracted": {**ctx_extracted, **extracted}},
-                                     build_db_client(env))
+            engine = AssertionEngine(replay_registry, build_db_client(env),
+                                     self_node=step.node_id or "")
             assertion_results = engine.evaluate_all(response_data, status_code, elapsed, assertion_rules)
         passed = (error_msg is None) and all(r["pass"] for r in assertion_results)
 
@@ -263,10 +262,9 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
 
 
 def _current_dataset_row_vars(db: Session, execution: models.ExecutionRecord) -> dict | None:
-    """执行记录绑定数据集的当前行值（首行）：重放/续跑共用「数据集取当前」口径。
-
-    数据集被用户修改后此处取到新值（与 dataset_row 快照解耦）；无绑定返回 None。
-    """
+    """执行记录绑定数据集的当前行数据（首行，per-node 入参配置）：续跑共用
+    「数据集取当前」口径。数据集被用户修改后此处取到新配置（与 dataset_row
+    快照解耦）；无绑定/无行返回 None（执行强绑定下续跑被拒）。"""
     if not execution.dataset_id:
         return None
     row = (db.query(models.DataSetRow)
@@ -331,7 +329,9 @@ def resume_execution(exec_id: int, db: Session = Depends(get_db),
         start_node = leftover[0]
 
     row_vars = _current_dataset_row_vars(db, record)
-    context_seed = build_report_context(steps, row_vars=row_vars)
+    if row_vars is None:
+        raise HTTPException(400, "原执行未绑定数据集（或数据集已无数据行），续跑需绑定数据集，请重新执行")
+    context_seed = build_report_context(steps)
 
     # 置 running（前端轮询立即感知），后台线程续跑（独立会话，请求会话随响应关闭）
     record.status = "running"
