@@ -14,8 +14,8 @@ from app.crud import executions as exec_domain
 from app.services import dataset_service as svc
 
 
-def _ds(rows, columns=None, case_id=11):
-    return SimpleNamespace(id=7, case_id=case_id, columns=columns or [{"key": "bl_no", "type": "string"}],
+def _ds(rows, columns=None, case_id=11, name="运单数据"):
+    return SimpleNamespace(id=7, case_id=case_id, name=name,
                            rows=rows)
 
 
@@ -35,12 +35,13 @@ class TestPlanCaseExpansion:
         """绑定数据集 → 恒 1 条展开项：取首行（唯一一套数据），快照含 row_index/data/label"""
         case = SimpleNamespace(id=11, dataset_id=7)
         rows = _rows(3)  # 存量多行：只取第一行（多场景 = 多个数据集）
-        with patch.object(svc.crud, "get_dataset", return_value=_ds(rows)), \
+        ds = _ds(rows)
+        with patch.object(svc.crud, "get_dataset", return_value=ds), \
              patch.object(svc.crud, "list_rows", return_value=rows):
             plan = svc.plan_case_expansion(SimpleNamespace(), case)
         assert len(plan) == 1
         assert plan[0]["dataset_id"] == 7
-        assert plan[0]["row"] == {"row_index": 1, "data": {"bl_no": "BL001"}, "label": "BL001"}
+        assert plan[0]["row"] == {"row_index": 1, "data": {"bl_no": "BL001"}, "label": "运单数据"}
 
     def test_zero_rows_rejected(self):
         """绑定但数据集无数据 → 拒绝执行（先在变量池录入参数值）"""

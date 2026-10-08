@@ -33,7 +33,7 @@ def _api(aid, name="查询接口", method="POST", path="/api/x", group_id=1, fie
 def _nc(node_id, api_id=1):
     return SimpleNamespace(
         node_id=node_id, api_id=api_id,
-        pre_process=[{"k": "v"}], post_extract=[{"as": "order_id"}],
+        post_extract=[{"as": "order_id"}],
         assertions=[{"type": "response_status_equals", "expected": 200}],
         wait_after_ms=100,
     )

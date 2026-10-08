@@ -1,7 +1,11 @@
-"""dataset_service 单测：数据集 CRUD + 行操作 + 导入解析（数据驱动测试地基）。
+"""dataset_service 单测：数据集 CRUD + 单节点入参配置保存 + 删除级联。
 
 seam：services/dataset_service.py 公开函数（SimpleNamespace ORM 替身 + mock crud 落库），
 与 test_case_combine.py 同模式，不触真实数据库。
+
+注：列 schema（columns）概念已随「入参收敛到数据集行」移除——行数据承载
+{"nodes": {节点ID: {params}}}，列键合法性不再校验
+（旧列校验用例已删除：重复列/非法列名/方括号键/行数据悬空列）。
 """
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,8 +14,6 @@ import pytest
 
 from app import models
 from app.services import dataset_service as svc
-
-_COLS = [{"key": "bl_no", "type": "string"}, {"key": "put_amount", "type": "int"}]
 
 
 def _fake_db():
@@ -22,80 +24,35 @@ def _fake_db():
 
 class TestDatasetCrud:
     def test_create_dataset(self):
-        """建数据集：列定义落库，返回对象"""
-        captured = {}
+        """建数据集：基础字段落库；rows_data 原子写入（复制/克隆带行数据路径）"""
+        added = []
 
-        def fake_add(obj):
-            captured["obj"] = obj
-
-        db = SimpleNamespace(add=fake_add, commit=lambda: None, refresh=lambda o: None)
-        ds = svc.create_dataset(db, project_id=1, name="运单数据", columns=[
-            {"key": "bl_no", "label": "运单号", "type": "string"},
-            {"key": "put_amount", "label": "放款金额", "type": "int"},
-        ], user_id=1)
-        assert captured["obj"].name == "运单数据"
-        assert captured["obj"].project_id == 1
-        assert [c["key"] for c in captured["obj"].columns] == ["bl_no", "put_amount"]
-        assert ds is captured["obj"]
-
-    def test_create_rejects_empty_columns(self):
-        """数据集至少一列，空列拒绝"""
-        with pytest.raises(ValueError, match="至少.*一列"):
-            svc.create_dataset(_fake_db(), project_id=1, name="空", columns=[], user_id=1)
-
-    def test_create_rejects_duplicate_column_keys(self):
-        """列 key 重复拒绝（列名即变量名，重复会覆盖）"""
-        with pytest.raises(ValueError, match="重复"):
-            svc.create_dataset(_fake_db(), project_id=1, name="重复列", columns=[
-                {"key": "bl_no", "type": "string"}, {"key": "bl_no", "type": "int"},
-            ], user_id=1)
-
-    def test_create_rejects_invalid_column_key(self):
-        """列 key 不合法（空/空格/表达式符/非法段首）拒绝——点路径键合法（数据集模式）"""
-        for bad in ["", "a b", "a${x}", "1abc", "a.1b", "a..b", ".a", "a."]:
-            with pytest.raises(ValueError, match="列名.*合法|非法"):
-                svc.create_dataset(_fake_db(), project_id=1, name="坏列", columns=[
-                    {"key": bad, "type": "string"},
-                ], user_id=1)
-
-    def test_create_accepts_dot_path_column_key(self):
-        """点路径键（嵌套参数拆叶，如 to_customer.put_amount）合法"""
-        captured = {}
-        db = SimpleNamespace(add=lambda o: captured.update(obj=o),
+        db = SimpleNamespace(add=added.append, flush=lambda: None,
                              commit=lambda: None, refresh=lambda o: None)
-        ds = svc.create_dataset(db, project_id=1, name="点路径列", columns=[
-            {"key": "to_customer.put_amount", "type": "string"},
-            {"key": "bl_no", "type": "string"},
-        ], user_id=1)
-        assert [c["key"] for c in ds.columns] == ["to_customer.put_amount", "bl_no"]
+        ds = svc.create_dataset(db, project_id=1, case_id=9, name="运单数据", user_id=1,
+                                rows_data=[{"nodes": {"n1": {"params": {}}}}])
+        assert added[0] is ds and ds.name == "运单数据"
+        assert ds.project_id == 1 and ds.case_id == 9
+        assert added[1].row_index == 1
+        assert added[1].data == {"nodes": {"n1": {"params": {}}}}
 
-    def test_create_accepts_php_bracket_column_key(self):
-        """PHP 表单风格方括号键合法（真实参数名原样成列，整名平铺发送）：
-        search_time[x]、file[]（空括号=追加数组）、点路径混合 a.b[x]"""
-        captured = {}
-        db = SimpleNamespace(add=lambda o: captured.update(obj=o),
-                             commit=lambda: None, refresh=lambda o: None)
-        keys = ["search_time[schedule_actual_delivery_date]", "file[]", "a.b[x]", "notice_11[]"]
-        ds = svc.create_dataset(db, project_id=1, name="方括号列",
-                                columns=[{"key": k, "type": "string"} for k in keys],
-                                user_id=1)
-        assert [c["key"] for c in ds.columns] == keys
+    def test_create_rejects_empty_name(self):
+        """数据集名称不能为空"""
+        with pytest.raises(ValueError, match="名称不能为空"):
+            svc.create_dataset(_fake_db(), project_id=1, name="  ", user_id=1)
 
-    def test_create_rejects_malformed_bracket_column_key(self):
-        """方括号内含非法字符（空格/${}/数字开头段）/ 悬空中括号仍拒绝"""
-        for bad in ["a[b c]", "a[${x}]", "a[1b]", "a[b", "a]b", "[x]y"]:
-            with pytest.raises(ValueError, match="列名.*合法|非法"):
-                svc.create_dataset(_fake_db(), project_id=1, name="坏方括号", columns=[
-                    {"key": bad, "type": "string"},
-                ], user_id=1)
+    def test_create_rejects_non_dict_row(self):
+        """rows_data 元素必须是对象"""
+        with pytest.raises(ValueError, match="必须是对象"):
+            svc.create_dataset(SimpleNamespace(add=lambda o: None, flush=lambda: None),
+                               project_id=1, name="坏行", user_id=1, rows_data=["x"])
 
-    def test_update_columns_rejects_in_use_key_change(self):
-        """改列定义时若行数据含已删列 → 拒绝（防行数据悬空）"""
-        ds = SimpleNamespace(id=1, columns=[{"key": "a", "type": "string"}, {"key": "b", "type": "string"}],
-                             rows=[SimpleNamespace(row_index=1, data={"a": "1", "b": "2"})])
+    def test_update_dataset_rejects_empty_name(self):
+        """改名传空串 → 拒绝"""
+        ds = SimpleNamespace(id=1, name="旧名", description=None)
         with patch.object(svc.crud, "get_dataset", return_value=ds):
-            with pytest.raises(ValueError, match="行数据仍使用|已删列"):
-                svc.update_dataset(_fake_db(), 1, columns=[{"key": "a", "type": "string"}])
+            with pytest.raises(ValueError, match="名称不能为空"):
+                svc.update_dataset(_fake_db(), 1, name="  ")
 
     def test_delete_rejects_when_referenced_by_case(self):
         """数据集被用例绑定 → 删除拒绝"""
@@ -105,7 +62,7 @@ class TestDatasetCrud:
                 svc.delete_dataset(_fake_db(), 1)
 
     def test_delete_cascades_rows(self):
-        """删除数据集级联删行（无引用且名下非最后一个时）"""
+        """删除数据集级联删行"""
         deleted = {}
         with patch.object(svc.crud, "get_dataset",
                           return_value=SimpleNamespace(id=1, case_id=5)), \
@@ -183,70 +140,83 @@ class TestDeleteCascade:
         assert calls == [calls[0], "commit"] and calls[0].startswith("del_host:")
 
 
-# ============ 单套值保存（每个数据集 = 一套数据） ============
+# ============ 单节点入参配置保存（入参收敛到数据集行） ============
 
-class TestSaveValues:
-    """save_dataset_values：values 即唯一一套值；列定义随参数走"""
+class TestSaveNodeConfig:
+    """save_node_config：该节点的 params 整体替换写进数据集行"""
 
-    def _fake_db(self, added, bulk_deleted):
-        class FakeQuery:
+    def _fake_db(self, rows):
+        """query(DataSetRow).filter().order_by().all() → rows；其余落库动作记录"""
+        state = {"added": [], "commits": 0}
+
+        class _RowQuery:
             def filter(self, *a, **k):
-                return SimpleNamespace(delete=lambda: bulk_deleted.append(True))
+                return self
+
+            def order_by(self, *a, **k):
+                return self
+
+            def all(self):
+                return rows
 
         return SimpleNamespace(
-            query=lambda *a, **k: FakeQuery(),
-            add=lambda o: added.append(o),
-            commit=lambda: None,
+            query=lambda *a, **k: _RowQuery(),
+            add=state["added"].append,
+            delete=lambda o: None,
+            flush=lambda: None,
+            commit=lambda: state.update(commits=state["commits"] + 1),
             refresh=lambda o: None,
-        )
+        ), state
 
-    def test_save_writes_single_row(self):
-        """保存：旧行全删，落唯一一行（row_index=1），值即单套数据"""
-        added, bulk_deleted = [], []
-        ds = SimpleNamespace(id=1, columns=[{"key": "bl_no", "type": "string"}],
-                             rows=[SimpleNamespace(row_index=1), SimpleNamespace(row_index=2)])
-        db = self._fake_db(added, bulk_deleted)
-        with patch.object(svc.crud, "get_dataset", return_value=ds):
-            svc.save_dataset_values(db, 1, {"bl_no": "BL001", "amount": 5})
-        assert len(bulk_deleted) == 1  # 存量多行就地收敛为单行
-        assert len(added) == 1 and added[0].row_index == 1
-        assert added[0].data == {"bl_no": "BL001", "amount": 5}
+    def test_save_creates_row_when_absent(self):
+        """数据集无行：自动建唯一一行（row_index=1），节点配置写进行内 nodes"""
+        ds = SimpleNamespace(id=1, rows=[], updated_by=None)
+        db, state = self._fake_db([])
+        params = {"body": {"bl_no": {"source": "constant", "value": "BL1"}}}
 
-    def test_columns_follow_values(self):
-        """列定义随参数走：现有列类型保留，新键按值推断补列，悬空旧键剔除"""
-        added, bulk_deleted = [], []
-        ds = SimpleNamespace(id=1, columns=[
-            {"key": "bl_no", "type": "string"},          # 保留
-            {"key": "stale", "type": "string"},          # 悬空剔除
-            {"key": "amount", "type": "int"},            # 类型保留
-        ], rows=[])
-        db = self._fake_db(added, bulk_deleted)
         with patch.object(svc.crud, "get_dataset", return_value=ds):
-            svc.save_dataset_values(db, 1, {"bl_no": "BL9", "amount": 7, "memo": "m"})
-        assert ds.columns == [
-            {"key": "bl_no", "type": "string"},
-            {"key": "amount", "type": "int"},
-            {"key": "memo", "type": "string"},  # 新键按值推断
-        ]
+            svc.save_node_config(db, 1, "n1", params, user_id=9)
 
-    def test_invalid_key_rejected(self):
-        """键不合法（无法成为变量名）→ 拒绝保存"""
-        added, bulk_deleted = [], []
-        ds = SimpleNamespace(id=1, columns=[], rows=[])
-        db = self._fake_db(added, bulk_deleted)
-        with patch.object(svc.crud, "get_dataset", return_value=ds):
-            with pytest.raises(ValueError, match="列名.*合法|非法"):
-                svc.save_dataset_values(db, 1, {"a b": "x"})
-        assert bulk_deleted == [] and added == []  # 校验失败不动库
+        row = state["added"][0]
+        assert row.row_index == 1
+        assert row.data == {"nodes": {"n1": {"params": params}}}
+        assert ds.updated_by == 9 and state["commits"] == 1
 
-    def test_dot_path_key_accepted(self):
-        """点路径键（嵌套参数拆叶）合法"""
-        added, bulk_deleted = [], []
-        ds = SimpleNamespace(id=1, columns=[], rows=[])
-        db = self._fake_db(added, bulk_deleted)
+    def test_save_replaces_whole_node_config(self):
+        """整体替换：该节点旧 params 不留残余，其他节点配置保留"""
+        old_row = SimpleNamespace(dataset_id=1, row_index=1, data={"nodes": {
+            "n1": {"params": {"body": {"old": {"source": "constant", "value": 1}}}},
+            "n2": {"params": {"body": {}}},
+        }})
+        ds = SimpleNamespace(id=1, rows=[old_row], updated_by=None)
+        db, state = self._fake_db([old_row])
+        params = {"body": {"new": {"source": "ref", "node_id": "n0", "var_path": "v"}}}
+
         with patch.object(svc.crud, "get_dataset", return_value=ds):
-            svc.save_dataset_values(db, 1, {"to_customer.put_amount": 100})
-        assert added[0].data == {"to_customer.put_amount": 100}
+            svc.save_node_config(db, 1, "n1", params, user_id=2)
+
+        assert old_row.data["nodes"]["n1"] == {"params": params}
+        assert "n2" in old_row.data["nodes"]  # 其他节点不受影响
+
+    def test_empty_node_id_rejected(self):
+        """node_id 为空 → 拒绝"""
+        with pytest.raises(ValueError, match="node_id"):
+            svc.save_node_config(_fake_db(), 1, "", {"body": {}})
+
+    def test_spec_params_stored_verbatim(self):
+        """四来源 spec（含点路径参数键 / 引用 / SQL 占位）按原样 JSON 落行，服务层不做值解析"""
+        ds = SimpleNamespace(id=1, rows=[], updated_by=None)
+        db, state = self._fake_db([])
+        params = {"body": {
+            "to_customer.put_amount": {"source": "constant", "value": 100},
+            "oid": {"source": "ref", "node_id": "n_up", "var_path": "order_id"},
+            "fee": {"source": "sql", "sql": "SELECT fee FROM t WHERE id={{n_up.oid}}"},
+        }}
+
+        with patch.object(svc.crud, "get_dataset", return_value=ds):
+            svc.save_node_config(db, 1, "n1", params)
+
+        assert state["added"][0].data["nodes"]["n1"]["params"] == params
 
 
 # ============ 用例绑定校验（用例级隔离：只能绑自己名下的数据集） ============

@@ -1,181 +1,223 @@
-"""PreProcessor 取值优先级（数据集模式定案）。
+# -*- coding: utf-8 -*-
+"""参数声明语义（2026-09-30「动作概念退场」定案）。
 
-请求体参数取值：手动覆盖(1) > 套件注入(2) > 数据集域静态变量(3)。
-本文件测 PreProcessor 层（第 1 层）：set_field/add_field 的非空值直接生效
-（字面量或 ${} 动态绑定），不再被数据集行值压制——行值属第 3 层，由
-prepare_request 在自动解析阶段处理；pre_process 在其之后执行，天然取胜。
-
-- 非空值（字面量）：直接写入（手动覆盖，最高优先级）
-- 非空值（${}）：表达式求值（动态绑定）
-- 空值（None/""）：自动引用占位（清空转引用后的形态），不写空串——
-  参数值由 prepare_request 按名解析取值（套件注入 > 数据集域）
-- 求值结果同步进 extracted 池（下游 ${xxx} 显式引用可用；
-  运行时变量不参与按名解析）
-- iterate_set / delete_field / exec_sql / sleep 不受影响
+本文件测字段设置的全部语义在参数模型上的等价表达（旧 PreProcessor
+set_field/iterate_set 已删除，字段设置 = 声明该参数的取值来源）：
+- constant 容器值（list/dict）内嵌 spec 递归解析（常量元素原样保留）
+- 通配路径参数（列表.*.字段）：容器参数就位后逐元素独立求值
+  （iterate_set 的声明式等价）；同步列表用 ref 通配按下标配对取值
+- 参数解析结果注册进本节点命名空间（完整路径 + 末段别名，下游经
+  节点.变量 引用；SQL 占位 {{节点.末段}} 兼容旧引用名）
 """
-from app.engine.preprocessor import PreProcessor
+from types import SimpleNamespace
+
+import pytest
+
+from app.engine.context import ExecutionContext
+from app.engine.prepare_request import prepare_request
+
+SELF = "n_case"
 
 
-class TestManualOverrideWins:
-    """第 1 层手动覆盖：非空 set_field 值直接生效（不再让位数据集行值）"""
+def _field(key, field_type="string", default=None, required=False):
+    return SimpleNamespace(key=key, field_type=field_type, default_value=default,
+                           required=required)
 
-    def test_literal_value_always_wins(self):
-        """set_field 字面量直接写入（核心语义：有值=覆盖，行值压制已废除）"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {"voy": "old"},
-            [{"type": "set_field", "path": "voy", "value": "CASE-LITERAL"}],
+
+def _api(fields, template=None, **kw):
+    return SimpleNamespace(fields=fields, request_template=template, **kw)
+
+
+def _config(body=None, headers=None):
+    return SimpleNamespace(params={"body": body or {}, "headers": headers or {}})
+
+
+def _const(v):
+    return {"source": "constant", "value": v}
+
+
+def _ref(node_id, var_path):
+    return {"source": "ref", "node_id": node_id, "var_path": var_path}
+
+
+def _run(api, config=None, ctx=None, self_node=SELF, db_client=None):
+    return prepare_request(api, config, context=ctx or ExecutionContext(),
+                           self_node=self_node,
+                           base_headers={}, db_client=db_client)
+
+
+class TestConstantContainer:
+    """constant 容器值：内嵌 spec 递归解析，常量元素原样保留"""
+
+    def test_embedded_specs_in_list_value(self):
+        """数组整组值：list 容器内嵌 ref 独立求值，常量元素原样"""
+        api = _api([_field("tags", field_type="array")])
+        parts = _run(api, _config(body={"tags": _const([_ref("n_up", "id"), "keep"])}),
+                     ExecutionContext(resume_seed={"n_up": {"id": "A1"}}))
+        assert parts.body == {"tags": ["A1", "keep"]}
+
+    def test_embedded_specs_in_dict_value(self):
+        """对象整组值：dict 容器内嵌 spec 逐键求值，其余子键原样"""
+        api = _api([_field("to_customer", field_type="object")])
+        parts = _run(
+            api,
+            _config(body={"to_customer": _const({
+                "order_id": _ref("n_up", "oid"), "remark": "keep", "num": 2})}),
+            ExecutionContext(resume_seed={"n_up": {"oid": "O9"}}),
         )
-        assert body["voy"] == "CASE-LITERAL"
+        assert parts.body == {"to_customer": {"order_id": "O9", "remark": "keep", "num": 2}}
 
-    def test_dynamic_binding_evaluates(self):
-        """${} 动态绑定照常求值（生成函数）"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {},
-            [{"type": "set_field", "path": "bl_no", "value": "${generate_bl_no(prefix='smoke')}"}],
+    def test_embedded_func_evaluates(self):
+        """容器内嵌 func 照常求值"""
+        api = _api([_field("meta", field_type="object")])
+        parts = _run(
+            api,
+            _config(body={"meta": _const({"bl_no": {
+                "source": "func", "func": "generate_bl_no",
+                "args": [{"name": "prefix", "kind": "const", "value": "smoke"}]}})}),
         )
-        assert body["bl_no"].startswith("smoke")
+        assert parts.body["meta"]["bl_no"].startswith("smoke")
 
-    def test_dynamic_context_ref_evaluates(self):
-        """${context.x} 上游提取注入：取上下文池的值"""
-        pp = PreProcessor({"extracted": {"bl_no": "PREV"}})
-        body = pp.process(
-            {},
-            [{"type": "set_field", "path": "bl_no", "value": "${context.bl_no}"}],
+    def test_embedded_spec_nested_deep(self):
+        """深层嵌套容器（list<dict<list>>）内的 spec 逐层解析"""
+        api = _api([_field("payload", field_type="object")])
+        parts = _run(
+            api,
+            _config(body={"payload": _const(
+                {"rows": [{"oid": _ref("n_up", "oid"), "tags": ["x", _ref("n_up", "oid")]}]})}),
+            ExecutionContext(resume_seed={"n_up": {"oid": "OID"}}),
         )
-        assert body["bl_no"] == "PREV"
+        assert parts.body["payload"]["rows"][0] == {"oid": "OID", "tags": ["x", "OID"]}
 
-    def test_explicit_row_var_ref_still_works(self):
-        """既有机制不变：value 里显式 ${列名} 引用行值（行值由调用方合入 context 池）"""
-        pp = PreProcessor({"extracted": {"bl_no": "ROW004"}})
-        body = pp.process(
-            {},
-            [{"type": "set_field", "path": "track_bl_no", "value": "${bl_no}"}],
+    def test_embedded_sql_source_rejected(self):
+        """容器内嵌 SQL 来源禁用：读库取值须声明为独立参数（旧「动作值禁 SQL」同口径）"""
+        api = _api([_field("meta", field_type="object")])
+        with pytest.raises(ValueError, match="未知来源|SQL"):
+            _run(api, _config(body={"meta": _const(
+                {"x": {"source": "sql", "sql": "SELECT 1"}})}))
+
+
+class TestWildcardParam:
+    """通配路径参数（列表.*.字段）：iterate_set 的声明式等价"""
+
+    def test_func_per_element_fresh_values(self):
+        """func 每元素独立求值（逐行 generate_unique_id 各不相同）"""
+        api = _api([_field("items", field_type="array")])
+        parts = _run(
+            api,
+            _config(body={
+                "items": _const([{"sku": "a"}, {"sku": "b"}]),
+                "items.*.unique_id": {"source": "func", "func": "generate_unique_id",
+                                      "args": []},
+            }),
         )
-        assert body["track_bl_no"] == "ROW004"
+        ids = [it["unique_id"] for it in parts.body["items"]]
+        assert len(ids) == 2 and len(set(ids)) == 2  # 每行独立新值
 
-    def test_nested_literal_written(self):
-        """嵌套字面量正常写入（无行值整块替换的压制逻辑）"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {"to_customer": {"policy_sub_id": "old"}},
-            [{"type": "set_field", "path": "to_customer.policy_sub_id", "value": "NEW"}],
+    def test_sync_list_via_wildcard_ref(self):
+        """同步语义：第二列表声明来源为本节点另一列表的通配字段（同下标配对取值）"""
+        api = _api([_field("to_customer", field_type="object"),
+                    _field("to_supplier", field_type="object")])
+        wp = "to_customer.put_amount.standard_list.*.unique_id"
+        parts = _run(
+            api,
+            _config(body={
+                "to_customer": _const({"put_amount": {"standard_list": [
+                    {"num": "1"}, {"num": "2"}]}}),
+                "to_supplier": _const({"pay_amount": {"standard_list": [
+                    {"num": "1"}, {"num": "2"}]}}),
+                wp: {"source": "func", "func": "generate_unique_id", "args": []},
+                "to_supplier.pay_amount.standard_list.*.unique_id": _ref(SELF, wp),
+            }),
         )
-        assert body["to_customer"]["policy_sub_id"] == "NEW"
+        a = [it["unique_id"] for it in parts.body["to_customer"]["put_amount"]["standard_list"]]
+        b = [it["unique_id"] for it in parts.body["to_supplier"]["pay_amount"]["standard_list"]]
+        assert a == b and len(set(a)) == 2  # 逐下标同值（行关联键），各行互异
 
-    def test_nested_expression_written(self):
-        """嵌套 ${} 表达式写入（运行时注入仍执行）"""
-        pp = PreProcessor({"extracted": {"order_id": "OID-1"}})
-        body = pp.process(
-            {"to_customer": {"remark": "row"}},
-            [{"type": "set_field", "path": "to_customer.order_id", "value": "${context.order_id}"}],
+    def test_wildcard_after_container_param(self):
+        """通配参数在其容器参数之后展开（order_params 前缀依赖），
+        dict 键序上通配在前也不受影响"""
+        api = _api([_field("items", field_type="array")])
+        parts = _run(
+            api,
+            _config(body={
+                "items.*.uid": _ref("n_up", "uid"),  # 声明顺序在前
+                "items": _const([{"sku": "a"}, {"sku": "b"}]),
+            }),
+            ExecutionContext(resume_seed={"n_up": {"uid": "U1"}}),
         )
-        assert body["to_customer"]["order_id"] == "OID-1"
-        assert body["to_customer"]["remark"] == "row"
+        assert all(it["uid"] == "U1" for it in parts.body["items"])
 
-    def test_zero_and_false_values_are_manual(self):
-        """0 / False 是有效值不是空值：照常写入（边界：bool/int 语义）"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {"import_status": 1, "enabled": True},
-            [{"type": "set_field", "path": "import_status", "value": 0},
-             {"type": "set_field", "path": "enabled", "value": False}],
+    def test_non_list_prefix_skipped(self):
+        """前缀不是列表 → 静默跳过（与旧 iterate_set 口径一致）"""
+        api = _api([_field("items", field_type="object")])
+        parts = _run(
+            api,
+            _config(body={
+                "items": _const({"a": 1}),
+                "items.*.uid": _ref("n_up", "uid"),
+            }),
         )
-        assert body["import_status"] == 0
-        assert body["enabled"] is False
+        assert parts.body == {"items": {"a": 1}}
 
-
-class TestEmptyPlaceholder:
-    """三态之一：空值占位（自动引用）不写空串"""
-
-    def test_empty_string_value_skipped(self):
-        """value="" 的占位行不写字面空串——参数值由 prepare_request 按名解析"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {"voy": "RESOLVED"},
-            [{"type": "set_field", "path": "voy", "value": ""}],
+    def test_non_dict_element_skipped(self):
+        """标量元素跳过，dict 元素正常写入"""
+        api = _api([_field("items", field_type="array")])
+        parts = _run(
+            api,
+            _config(body={
+                "items": _const(["plain", {"sku": "a"}]),
+                "items.*.uid": _ref("n_up", "uid"),
+            }),
+            ExecutionContext(resume_seed={"n_up": {"uid": "U1"}}),
         )
-        assert body["voy"] == "RESOLVED"
+        assert parts.body["items"] == ["plain", {"sku": "a", "uid": "U1"}]
 
-    def test_none_value_skipped(self):
-        pp = PreProcessor({})
-        body = pp.process(
-            {},
-            [{"type": "set_field", "path": "voy", "value": None}],
+
+class TestRegistrySync:
+    """参数解析结果注册进本节点命名空间（下游经 节点.变量 引用）"""
+
+    def test_param_registers_full_path_and_tail(self):
+        """顶层参数注册路径本身；嵌套参数额外注册末段（旧 set_field 引用名兼容）"""
+        api = _api([_field("to_customer.put_amount", field_type="int")])
+        ctx = ExecutionContext()
+        _run(api, _config(body={"to_customer.put_amount": _const("100")}), ctx)
+        assert ctx.registry.read(SELF, "to_customer.put_amount") == "100"
+        assert ctx.registry.read(SELF, "put_amount") == "100"
+
+    def test_later_param_refs_earlier_param(self):
+        """参数拓扑序：后序参数引用先序参数的完整路径"""
+        api = _api([_field("src"), _field("dst")])
+        parts = _run(api, _config(body={
+            "src": _const("FROM_CASE"),
+            "dst": _ref(SELF, "src"),
+        }))
+        assert parts.body == {"src": "FROM_CASE", "dst": "FROM_CASE"}
+
+    def test_later_param_refs_earlier_param_tail(self):
+        """末段别名引用（旧 {{节点.末段}} 引用名）：依赖归一后仍按序解析"""
+        api = _api([_field("select_list", field_type="array"), _field("memo")])
+        parts = _run(
+            api,
+            _config(body={
+                "select_list": _const([{"x": 1}]),
+                "select_list.0.bl_no": _ref("n_up", "bl_no"),
+                "memo": _ref(SELF, "bl_no"),
+            }),
+            ExecutionContext(resume_seed={"n_up": {"bl_no": "BL9"}}),
         )
-        assert "voy" not in body
+        assert parts.body["memo"] == "BL9"
 
-    def test_empty_path_row_skipped(self):
-        """空 path（前端表格空行占位）→ 跳过不炸"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {},
-            [{"type": "set_field", "path": "", "value": "x"}],
+    def test_wildcard_registers_concrete_paths(self):
+        """通配参数按具体路径（列表.下标.字段）注册，供下游按下标引用"""
+        api = _api([_field("items", field_type="array"), _field("memo")])
+        wp = "items.*.uid"
+        parts = _run(
+            api,
+            _config(body={
+                "items": _const([{"sku": "a"}, {"sku": "b"}]),
+                wp: {"source": "func", "func": "generate_unique_id", "args": []},
+                "memo": _ref(SELF, "items.1.uid"),
+            }),
         )
-        assert body == {}
-
-
-class TestSyncPools:
-    """求值结果同步进 extracted 池（${} 显式引用；不参与按名解析）"""
-
-    def test_literal_syncs_to_extracted(self):
-        pp = PreProcessor({})
-        extracted = {}
-        pp.process(
-            {},
-            [{"type": "set_field", "path": "bl_no", "value": "BL-SET"}],
-            extracted,
-        )
-        assert extracted["bl_no"] == "BL-SET"
-
-    def test_nested_path_syncs_last_segment(self):
-        """嵌套 path 同步末段作 key（bl_no / order_id 等顶层名直接可引用）"""
-        pp = PreProcessor({})
-        extracted = {}
-        pp.process(
-            {},
-            [{"type": "set_field", "path": "to_customer.put_amount", "value": "100"}],
-            extracted,
-        )
-        assert extracted["put_amount"] == "100"
-
-    def test_dynamic_eval_syncs(self):
-        pp = PreProcessor({"extracted": {"order_id": "OID-9"}})
-        extracted = {}
-        pp.process(
-            {},
-            [{"type": "set_field", "path": "order_id", "value": "${order_id}"}],
-            extracted,
-        )
-        assert extracted["order_id"] == "OID-9"
-
-    def test_no_pools_passed_no_sync(self):
-        """不传池（兼容旧调用）：只写 body 不炸"""
-        pp = PreProcessor({})
-        body = pp.process(
-            {},
-            [{"type": "set_field", "path": "voy", "value": "LITERAL"}],
-        )
-        assert body["voy"] == "LITERAL"
-
-
-class TestOtherActionsUnaffected:
-    """iterate_set / delete_field 不受优先级改造影响"""
-
-    def test_delete_field(self):
-        pp = PreProcessor({})
-        body = pp.process(
-            {"a": 1, "b": 2},
-            [{"type": "delete_field", "path": "a"}],
-        )
-        assert body == {"b": 2}
-
-    def test_iterate_set(self):
-        pp = PreProcessor({"extracted": {"uid": "U1"}})
-        body = pp.process(
-            {"items": [{"sku": "a"}, {"sku": "b"}]},
-            [{"type": "iterate_set", "path": "items", "field": "unique_id",
-              "value": "${uid}-${generate_int(100,100)}"}],
-        )
-        assert all("unique_id" in it for it in body["items"])
+        assert parts.body["memo"] == parts.body["items"][1]["uid"]

@@ -89,7 +89,7 @@ def _api(**over):
 
 
 def _config(**over):
-    base = dict(api_id=10, pre_process=None, post_extract=None, assertions=None, wait_after_ms=0)
+    base = dict(api_id=10, post_extract=None, assertions=None, wait_after_ms=0)
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -157,8 +157,8 @@ class TestExecuteNodePostExtract:
         passed, _ = ex._execute_node(100, "n1", {"id": "n1"})
 
         assert passed is True
-        # 变量已入上下文统一池（供后续节点 ${order_id} 引用）
-        assert ex.context.extracted["order_id"] == 42
+        # 变量已写入本节点命名空间（后续节点经 {node_id, var_path} 结构化引用可取）
+        assert ex.context.registry.read("n1", "order_id") == 42
 
 
 class TestExecuteNodeUnboundApi:
