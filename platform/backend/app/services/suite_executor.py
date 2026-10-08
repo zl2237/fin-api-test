@@ -29,10 +29,17 @@ from . import dataset_service
 from .notifier import send_suite_notify
 
 
-def _snapshot_vars(whitelist: list[str], extracted: dict[str, Any]) -> dict[str, Any]:
-    """按白名单从变量池快照（名单外的变量不外泄，只保留名单内且在池中的）"""
-    keys = whitelist or []
-    return {k: extracted[k] for k in keys if k in (extracted or {})}
+def _snapshot_vars(whitelist: list[str], registry) -> dict[str, Any]:
+    """按白名单从节点命名空间注册表快照（名单外变量不外泄）。
+
+    白名单是变量名（无节点维度）：跨全部命名空间按名收集，同名按注册顺序
+    后写覆盖（近似旧统一池 dict.update 语义）；注入下游成员 __suite__ 伪命名空间。
+    """
+    flat: dict[str, Any] = {}
+    for _, vars_ in registry.to_dict().items():
+        for k, v in vars_.items():
+            flat[k] = v
+    return {k: flat[k] for k in (whitelist or []) if k in flat}
 
 
 def _row_fail_reason(record) -> str:
@@ -188,7 +195,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
                     row_report["reason"] = err[:200]
             member_report["rows"].append(row_report)
             row_snapshots.append(
-                _snapshot_vars(whitelist, executor.context.extracted)
+                _snapshot_vars(whitelist, executor.context.registry)
                 if ok and executor else None)
 
         # 成员整体状态：所有行成功 → success；全部被阻断 → blocked；否则 failed

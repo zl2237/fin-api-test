@@ -2,14 +2,15 @@
 
 组合（复制式）：
 - 按给定顺序把多个源用例的 DAG 拼成一个新用例：节点 ID 加前缀重映射防冲突，
-  节点配置整体复制；段间补 sink→entry 串接边强制先后（DAG 调度器对无依赖子图并行）。
-- 变量不做映射：执行器变量池是执行级共享（ExecutionContext.extracted），
-  前段提取的变量后段天然可引用。
+  节点结构配置整体复制；段间补 sink→entry 串接边强制先后（DAG 调度器对无依赖子图并行）。
+- 数据集入参配置合并：各源绑定数据集行的 per-node 配置按节点 ID 重映射后
+  合入新用例数据集（前缀保证节点不冲突）。
 
 拆分（选节点抽离）：
-- 前置扫描：找跨界变量（被抽离节点提取、留驻节点引用的变量，及反向），
+- 前置扫描：找跨界引用（被抽离节点产出、留驻节点引用的变量，及反向），
   调用方拿扫描结果先让用户确认处置，再执行拆分。
-- 执行：抽离节点 + 相关边 + 节点配置搬进新用例；原用例删节点删跨界边。
+- 执行：抽离节点 + 相关边 + 节点结构配置搬进新用例；原用例删节点删跨界边；
+  数据集行内 per-node 配置按节点归属分流（各自只留自己的节点）。
 """
 import re
 from copy import deepcopy
@@ -17,9 +18,51 @@ from copy import deepcopy
 from sqlalchemy.orm import Session
 
 from .. import crud, models
+from ..engine.variables import PLACEHOLDER_RE, extract_refs
 
-# 占位符 ${var} —— 与 engine/expression.py 的正则保持一致
-_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+
+def _spec_node_refs(obj) -> set[str]:
+    """递归收集四来源 spec 内引用的节点 ID（ref/func arg + sql 占位 {{节点.变量}}；
+    constant 容器值内嵌 spec 深扫——与 validation/引擎 iter_spec_refs 口径一致）。"""
+    from ..engine.variables import iter_spec_refs
+    return {str(node_id) for node_id, _vp in iter_spec_refs(obj) if node_id}
+
+
+def _remap_spec_refs(obj, id_map: dict[str, str]):
+    """递归重映射 spec 内引用的节点 ID（ref/func arg + sql 占位），返回新结构。"""
+    if isinstance(obj, dict):
+        src = obj.get("source")
+        if src == "ref":
+            nid = obj.get("node_id")
+            if nid in id_map:
+                return {**obj, "node_id": id_map[nid]}
+            return obj
+        if src == "func":
+            args = [
+                ({**a, "node_id": id_map[a["node_id"]]}
+                 if isinstance(a, dict) and a.get("kind") == "ref" and a.get("node_id") in id_map else a)
+                for a in (obj.get("args") or [])
+            ]
+            return {**obj, "args": args}
+        if src == "sql":
+            def _sub(m: "re.Match[str]") -> str:
+                full = m.group(0)
+                node_id, _, rest = full[2:-2].partition(".")
+                return "{{" + id_map.get(node_id, node_id) + "." + rest + "}}" if rest else full
+            return {**obj, "sql": PLACEHOLDER_RE.sub(_sub, obj.get("sql") or "")}
+        if src == "constant":
+            # 容器常量值内嵌 spec 同样重映射（与 _spec_node_refs 深扫口径一致）
+            return {**obj, "value": _remap_spec_refs(obj.get("value"), id_map)}
+        return {k: _remap_spec_refs(v, id_map) for k, v in obj.items()}  # 容器 dict
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_remap_spec_refs(v, id_map) for v in obj)
+    return obj
+
+
+def _remap_node_refs(nodes_cfg: dict, id_map: dict[str, str]) -> dict:
+    """数据集行 per-node 配置整体重映射：外层节点键 + spec 内引用节点 ID。"""
+    return {new_id: _remap_spec_refs(cfg, id_map)
+            for new_id, cfg in nodes_cfg.items()}
 
 
 def _entry_exit_ids(dag_config: dict) -> tuple[set, set]:
@@ -32,7 +75,6 @@ def _entry_exit_ids(dag_config: dict) -> tuple[set, set]:
     exits = {n for n in nodes if n not in has_out}
     return entries, exits
 
-
 def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | None, user_id: int) -> models.TestCase:
     """按 case_ids 顺序拼接为新用例（复制式），返回已落库的新用例。"""
     if len(case_ids) < 2:
@@ -42,8 +84,10 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
 
     new_nodes: list[dict] = []
     new_edges: list[dict] = []
-    # node_configs 载荷：[{node_id, api_id, pre_process, post_extract, assertions, wait_after_ms}]
+    # node_configs 载荷：[{node_id, api_id, post_extract, assertions, wait_after_ms}]
     config_payloads: list[dict] = []
+    # 各源绑定数据集行的 per-node 入参配置（按 id_map 重映射后的键）
+    remapped_nodes: list[dict] = []
     prev_exits: set[str] | None = None
     x_offset = 0  # 段间距：每段右移 420px，视觉分段
     project_id: int | None = None
@@ -81,11 +125,21 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
             if nc:
                 config_payloads.append({
                     "node_id": new_id, "api_id": nc.api_id,
-                    "pre_process": deepcopy(nc.pre_process or []),
                     "post_extract": deepcopy(nc.post_extract or []),
                     "assertions": deepcopy(nc.assertions or []),
                     "wait_after_ms": nc.wait_after_ms or 0,
                 })
+
+        # 源绑定数据集行的 per-node 入参配置：节点 ID 重映射（段间引用可跨段成立）
+        if case.dataset_id:
+            from . import dataset_service
+            src_ds = crud.get_dataset(db, case.dataset_id)
+            if src_ds:
+                src_nodes = dataset_service.node_configs(dataset_service.row_data(src_ds))
+                remapped = {id_map[k]: deepcopy(v) for k, v in src_nodes.items() if k in id_map}
+                # 段内引用的节点 ID 同步重映射（spec ref / func arg / sql 占位）
+                remapped = _remap_node_refs(remapped, id_map)
+                remapped_nodes.append(remapped)
 
         # 段间串接：上一段所有出口 → 本段所有入口
         if prev_exits is not None:
@@ -108,48 +162,43 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
         "node_configs": config_payloads,
     }
     obj = crud.create_testcase(db, crud.schemas.TestCaseCreate(**data), user_id)
-    # 池合并：各源绑定池按组合顺序合并（同键异值保留首个源，冲突记 description）
-    sources = []
-    for cid in case_ids:
-        c = crud.get_testcase(db, cid)
-        if c and c.dataset_id:
-            ds = crud.get_dataset(db, c.dataset_id)
-            if ds:
-                sources.append(ds)
-    if sources:
-        from .dataset_service import merge_datasets_for_case
-        merged = merge_datasets_for_case(db, sources, obj.id, project_id,
-                                         name=f"{name}-变量池", user_id=user_id)
-        if merged:
-            obj.dataset_id = merged.id
-            db.commit()
-            db.refresh(obj)
+    # 数据集合并：各源绑定数据集行的 per-node 入参配置（已重映射）合入新用例数据集
+    # 并绑定（执行强绑定）；段前缀保证节点 ID 不冲突
+    if remapped_nodes:
+        from .dataset_service import create_dataset
+        merged_nodes: dict = {}
+        for seg in remapped_nodes:
+            merged_nodes.update(seg)
+        ds = create_dataset(db, project_id=project_id, case_id=obj.id,
+                            name=f"{name}-数据", user_id=user_id,
+                            rows_data=[{"nodes": merged_nodes}])
+        obj.dataset_id = ds.id
+        db.commit()
+        db.refresh(obj)
     crud.fill_audit_names(db, obj)
     return obj
 
 
 # ============ 拆分 ============
 
-def _collect_refs(value) -> set[str]:
-    """递归收集 dict/list/str 里的 ${var} 引用（排除 ${uuid()} 等函数调用——带括号）"""
-    refs: set[str] = set()
-    if isinstance(value, str):
-        for m in _VAR_RE.finditer(value):
-            expr = m.group(1).strip()
-            # context.x 兼容写法与函数调用不算变量引用
-            if "(" not in expr and not expr.startswith("context."):
-                refs.add(expr)
-    elif isinstance(value, dict):
-        for v in value.values():
-            refs |= _collect_refs(v)
-    elif isinstance(value, list):
-        for v in value:
-            refs |= _collect_refs(v)
-    return refs
+def _sql_ref_nodes(text) -> set[str]:
+    """SQL/文本 {{节点.变量}} 占位引用的节点 ID 集"""
+    if not isinstance(text, str):
+        return set()
+    return {node_id for node_id, _vp in extract_refs(text)}
+
+
+def _rules_sql_ref_nodes(rules) -> set[str]:
+    """断言/提取规则列表内 SQL 占位引用的节点 ID 集（与 validation 逐规则取 sql 同口径）"""
+    out: set[str] = set()
+    for rule in rules or []:
+        if isinstance(rule, dict):
+            out |= _sql_ref_nodes(rule.get("sql") or "")
+    return out
 
 
 def _extracted_vars(nc) -> set[str]:
-    """节点配置 post_extract 里声明的变量名（json_path 提取器的 as 键）"""
+    """节点配置 post_extract 里声明的变量名"""
     names: set[str] = set()
     for rule in (nc.post_extract or []):
         if isinstance(rule, dict):
@@ -161,11 +210,15 @@ def _extracted_vars(nc) -> set[str]:
 
 
 def scan_split_boundary(db: Session, case_id: int, node_ids: list[str]) -> dict:
-    """拆分前置扫描：返回跨界变量清单，供用户确认处置。
+    """拆分前置扫描：返回跨界引用清单，供用户确认处置。
 
-    - outgoing：被抽离节点提取、留驻节点引用（不迁走则留驻方引用悬空）
-    - incoming：留驻节点提取、被抽离节点引用
-    每条含：变量名、提取节点（归属侧）、引用节点列表（另一侧）。
+    - outgoing：被抽离节点产出、留驻节点引用（不迁走则留驻方引用悬空）
+    - incoming：留驻节点产出、被抽离节点引用
+    每条含：变量名、产出节点（归属侧）、引用节点列表（另一侧）。
+
+    引用收集口径（四来源参数模型）：数据集行内该节点 params 的
+    spec 引用（ref/func arg/sql 占位）+ 节点结构配置（提取/断言）SQL 占位；
+    产出集 = 提取名 ∪ 参数路径 ∪ 参数末段别名（与 validation._productions 一致）。
     """
     case = crud.get_testcase(db, case_id)
     if not case:
@@ -175,34 +228,47 @@ def scan_split_boundary(db: Session, case_id: int, node_ids: list[str]) -> dict:
     all_ids = {n["id"] for n in (case.dag_config or {}).get("nodes", [])}
     stay_set = all_ids - move_set
 
-    # 每个节点的引用集合与提取集合
+    # 数据集行内 per-node 入参配置（引用与产出都算）
+    from . import dataset_service
+    ds_nodes: dict[str, dict] = {}
+    if case.dataset_id:
+        ds = crud.get_dataset(db, case.dataset_id)
+        if ds:
+            ds_nodes = dataset_service.node_configs(dataset_service.row_data(ds))
+
+    def _productions_of(nid: str) -> set[str]:
+        out = _extracted_vars(cfg_map[nid]) if nid in cfg_map else set()
+        rc = ds_nodes.get(nid) or {}
+        for path in ((rc.get("params") or {}).get("body") or {}):
+            out.add(path)
+            if "*" not in path:
+                out.add(path.rsplit(".", 1)[-1])
+        return out
+
+    # 每个节点的引用集合（引用了哪些节点）与产出集合
     refs_of: dict[str, set[str]] = {}
     ext_of: dict[str, set[str]] = {}
     for nid in all_ids:
+        refs: set[str] = set()
+        rc = ds_nodes.get(nid) or {}
+        refs |= _spec_node_refs(rc.get("params"))
         nc = cfg_map.get(nid)
-        if not nc:
-            refs_of[nid], ext_of[nid] = set(), set()
-            continue
-        refs = set()
-        refs |= _collect_refs(nc.pre_process)
-        refs |= _collect_refs(nc.assertions)
-        # post_extract 的 expected/value 里也可能引用既有变量
-        refs |= _collect_refs(nc.post_extract)
-        refs_of[nid] = refs
-        ext_of[nid] = _extracted_vars(nc)
+        if nc:
+            refs |= _rules_sql_ref_nodes(getattr(nc, "assertions", None))
+            refs |= _rules_sql_ref_nodes(getattr(nc, "post_extract", None))
+        refs_of[nid] = refs & all_ids  # 只看画布内节点（伪命名空间无跨界概念）
+        ext_of[nid] = _productions_of(nid)
 
     outgoing, incoming = [], []
     for nid in move_set:
-        for var in refs_of.get(nid, set()):
-            # 引用的变量由留驻节点提取 → incoming
-            providers = [s for s in stay_set if var in ext_of.get(s, set())]
-            if providers:
-                incoming.append({"var": var, "providers": providers, "consumer": nid})
+        for ref_node in refs_of.get(nid, set()):
+            # 引用的产出由留驻节点提供 → incoming（拆后引用悬空）
+            if ref_node in stay_set:
+                incoming.append({"var": ref_node, "providers": [ref_node], "consumer": nid})
     for nid in stay_set:
-        for var in refs_of.get(nid, set()):
-            providers = [m for m in move_set if var in ext_of.get(m, set())]
-            if providers:
-                outgoing.append({"var": var, "providers": providers, "consumer": nid})
+        for ref_node in refs_of.get(nid, set()):
+            if ref_node in move_set:
+                outgoing.append({"var": ref_node, "providers": [ref_node], "consumer": nid})
 
     return {"outgoing": outgoing, "incoming": incoming}
 
@@ -254,7 +320,6 @@ def split_case(
         if nc:
             new_cfg_payloads.append(crud.schemas.NodeConfigIn(
                 node_id=n["id"], api_id=nc.api_id,
-                pre_process=deepcopy(nc.pre_process or []),
                 post_extract=deepcopy(nc.post_extract or []),
                 assertions=deepcopy(nc.assertions or []),
                 wait_after_ms=nc.wait_after_ms or 0,
@@ -276,7 +341,7 @@ def split_case(
             dag_config={"nodes": old_nodes, "edges": old_edges},
             node_configs=[crud.schemas.NodeConfigIn(
                 node_id=nc.node_id, api_id=nc.api_id,
-                pre_process=nc.pre_process or [], post_extract=nc.post_extract or [],
+                post_extract=nc.post_extract or [],
                 assertions=nc.assertions or [], wait_after_ms=nc.wait_after_ms or 0,
             ) for nc in (case.node_configs or []) if nc.node_id not in move_set],
         ), user_id)
@@ -287,19 +352,23 @@ def split_case(
 
     crud.fill_audit_names(db, new_case)
     crud.fill_audit_names(db, updated)
-    # 数据资产随迁：新用例克隆原绑定池（整池拷贝，多出的键由下次保存时
-    # 钩子悬空清理自动裁剪）；原用例触发钩子清掉拆走节点留下的悬空键
+    # 数据资产分流：绑定数据集行内 per-node 入参配置按节点归属拆开——
+    # 新用例克隆数据集（只留抽离节点配置）并绑定；原用例数据集删抽离节点配置。
+    # 跨界引用两边都会保留原样，断裂的由用户事后在数据集页补（扫描已提示）。
     if case.dataset_id:
+        from . import dataset_service
         src_ds = crud.get_dataset(db, case.dataset_id)
         if src_ds:
-            from .dataset_service import clone_dataset_to_case
-            new_case.dataset_id = clone_dataset_to_case(
-                db, src_ds, new_case.id, user_id=user_id).id
-            db.commit()
-            db.refresh(new_case)
-    try:
-        from .dataset_service import sync_case_variable_pool
-        sync_case_variable_pool(db, updated)
-    except Exception as e:
-        print(f"[拆分] 原用例变量池悬空清理失败（忽略）: {e}")
+            src_nodes = dataset_service.node_configs(dataset_service.row_data(src_ds))
+            move_cfg = {nid: deepcopy(cfg) for nid, cfg in src_nodes.items() if nid in move_set}
+            if move_cfg:
+                new_case.dataset_id = dataset_service.create_dataset(
+                    db, project_id=case.project_id, case_id=new_case.id,
+                    name=new_name, user_id=user_id,
+                    rows_data=[{"nodes": move_cfg}]).id
+                db.commit()
+                db.refresh(new_case)
+            for nid in move_set:
+                if nid in src_nodes:
+                    dataset_service.remove_node_config(db, case.dataset_id, nid, user_id=user_id)
     return new_case, updated

@@ -203,8 +203,10 @@ def export_cases_excel(cases: list, group_names: dict[int, str]) -> bytes:
     return buf.getvalue()
 
 
-def export_cases_json(cases: list, group_names: dict[int, str], project_name: str) -> bytes:
-    """用例全量 JSON：含 DAG 结构与节点配置（断言/提取/前置处理），用于备份/迁移。"""
+def export_cases_json(cases: list, group_names: dict[int, str], project_name: str,
+                      datasets_by_case: dict[int, list] | None = None) -> bytes:
+    """用例全量 JSON：含 DAG 结构、节点结构配置（提取/断言）与数据集入参配置，用于备份/迁移。"""
+    datasets_by_case = datasets_by_case or {}
     items = []
     for c in cases:
         cfg_map = {nc.node_id: nc for nc in (c.node_configs or [])}
@@ -217,7 +219,6 @@ def export_cases_json(cases: list, group_names: dict[int, str], project_name: st
                 "api_id": nc.api_id if nc else None,
                 "position": n.get("position"),
                 "config": {
-                    "pre_process": (nc.pre_process or []) if nc else [],
                     "post_extract": (nc.post_extract or []) if nc else [],
                     "assertions": (nc.assertions or []) if nc else [],
                     "wait_after_ms": (nc.wait_after_ms or 0) if nc else 0,
@@ -229,6 +230,12 @@ def export_cases_json(cases: list, group_names: dict[int, str], project_name: st
             "description": c.description,
             "edges": (c.dag_config or {}).get("edges", []),
             "nodes": nodes_out,
+            # 数据集入参配置（绑定数据集优先；多数据集场景全量导出）
+            "datasets": [
+                {"name": d.name,
+                 "rows": [{"row_index": r.row_index, "data": r.data or {}} for r in (d.rows or [])]}
+                for d in datasets_by_case.get(c.id, [])
+            ],
             "updated_at": _fmt(c.updated_at),
         })
     data = {

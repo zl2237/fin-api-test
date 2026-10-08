@@ -48,8 +48,8 @@ def validate_post_extract_sql(node_configs: list | None) -> None:
             if not sql:
                 continue
             name = rule.get("name") or "?"
-            # ${xxx} → 占位（防表达式内容干扰词法扫描）
-            scanned = re.sub(r"\$\{[^{}]*\}", "1", sql)
+            # {{节点.变量}} 占位 → 字面量（防占位内容干扰词法扫描；旧 ${} 已废止）
+            scanned = re.sub(r"\{\{[^{}]*\}\}", "1", sql)
             if not _SQL_START_RE.match(scanned):
                 raise ValueError(
                     f"节点 {node_id} 后置提取「{name}」的 SQL 未以 SELECT/UPDATE/DELETE 等关键字开头，请检查")
@@ -62,7 +62,6 @@ def validate_post_extract_sql(node_configs: list | None) -> None:
             if scanned.lstrip()[:6].lower() == "select" and not re.search(r"\bfrom\b", scanned, re.I):
                 raise ValueError(
                     f"节点 {node_id} 后置提取「{name}」的 SELECT 缺少 FROM（可能列名与 FROM 粘连），请检查：{sql[:120]}")
-
 
 
 # ============ 用例分组 ============
@@ -110,12 +109,6 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
     except ValueError as e:
         raise HTTPException(400, str(e))
     obj = crud.create_testcase(db, data, user.id)
-    # 变量池收集钩子：静态入参拆叶入池 + 清空转引用（失败不阻断保存，编排字面量仍在）
-    from ..services.dataset_service import sync_case_variable_pool
-    try:
-        sync_case_variable_pool(db, obj, user.id)
-    except Exception as e:
-        print(f"[保存用例] 变量池收集失败（忽略）: {e}")
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "create", "testcase", obj.id, obj.name)
     return obj
@@ -155,7 +148,16 @@ def export_list(
 
     from ..services.export_service import export_cases_excel, export_cases_json
     if format == "json":
-        content = export_cases_json(objs, group_names, project_name)
+        # 数据集入参配置随用例全量导出（备份完整性）
+        case_ids = [c.id for c in objs]
+        dss = (db.query(models.DataSet)
+               .filter(models.DataSet.case_id.in_(case_ids))
+               .order_by(models.DataSet.id).all()) if case_ids else []
+        datasets_by_case: dict[int, list] = {}
+        for d in dss:
+            if d.rows:
+                datasets_by_case.setdefault(d.case_id, []).append(d)
+        content = export_cases_json(objs, group_names, project_name, datasets_by_case)
         crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（json）")
         return Response(
             content=content,
@@ -216,16 +218,6 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
         except ValueError as e:
             raise HTTPException(400, str(e))
     obj = crud.update_testcase(db, obj, data, user.id)
-    # 变量池收集钩子：静态入参拆叶入池 + 清空转引用（失败不阻断保存，编排字面量仍在）。
-    # 显式解绑（dataset_id 显式传 null）时跳过自动复用绑定，保留用户解绑意图
-    from ..services.dataset_service import sync_case_variable_pool
-    try:
-        sync_case_variable_pool(
-            db, obj, user.id,
-            unbind="dataset_id" in data.model_fields_set and data.dataset_id is None,
-        )
-    except Exception as e:
-        print(f"[保存用例] 变量池收集失败（忽略）: {e}")
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj
