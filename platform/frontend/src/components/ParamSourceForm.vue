@@ -108,6 +108,7 @@
         :autosize="{ minRows: 2, maxRows: 6 }"
         placeholder="SELECT order_id FROM sys_order WHERE bl_no = {{n_create.bl_no}}"
         @update:model-value="(v: string) => patch({ sql: v })"
+        @focus="onSqlFocus"
       />
       <div class="psf-sql-extra">
         <span class="psf-arg-name">结果列</span>
@@ -269,9 +270,26 @@ function setArgKind(name: string, kind: 'const' | 'ref') {
   else patchArg(name, { kind, node_id: undefined, var_path: undefined, value: '' })
 }
 
-// ===== SQL：插入 {{节点.变量}} 引用到 SQL 末尾（与编排用例后置提取一致） =====
+// ===== SQL：插入 {{节点.变量}} 引用到光标位置（未聚焦时追加末尾） =====
+let lastSqlTa: HTMLTextAreaElement | null = null
+function onSqlFocus(e: FocusEvent) {
+  lastSqlTa = e.target as HTMLTextAreaElement
+}
 function onSqlInsert(t: string) {
-  patch({ sql: `${spec.value.sql || ''}${t}` })
+  const ta = lastSqlTa
+  if (ta) {
+    const s = ta.selectionStart ?? 0
+    const e = ta.selectionEnd ?? s
+    const v = spec.value.sql || ''
+    patch({ sql: v.slice(0, s) + t + v.slice(e) })
+    nextTick(() => {
+      ta.focus()
+      const pos = s + t.length
+      ta.setSelectionRange(pos, pos)
+    })
+  } else {
+    patch({ sql: `${spec.value.sql || ''}${t}` })
+  }
 }
 
 // ===== 自动聚焦：popover 打开（组件挂载）与切换来源后，聚焦当前来源第一个输入控件 =====
