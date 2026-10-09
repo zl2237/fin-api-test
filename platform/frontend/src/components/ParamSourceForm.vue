@@ -67,6 +67,7 @@
         filterable
         placeholder="选择函数"
         style="width: 100%"
+        :teleported="false"
         @update:model-value="onFuncChange"
       >
         <el-option v-for="f in FUNC_REGISTRY" :key="f.name" :value="f.name" :label="`${f.label}（${f.name}）`" />
@@ -118,7 +119,9 @@
           @update:model-value="(v: string) => patch({ column: v })"
         />
         <span class="psf-sql-ins">
-          <SqlRefMenu :groups="refGroups" @insert="onSqlInsert" />
+          <!-- nested：本表单宿主在 ParamSourceBadge 的 popover 内，弹层不 teleport
+               才能免于被宿主 popover 的外部点击判定连累关闭 -->
+          <SqlRefMenu :groups="refGroups" nested @insert="onSqlInsert" />
         </span>
       </div>
       <p class="psf-hint">SQL 在其余参数解析完成后执行，结果注册为 <code>本节点.参数路径</code> 供下游引用</p>
