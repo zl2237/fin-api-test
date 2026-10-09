@@ -207,7 +207,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, Plus, WarningFilled } from '@element-plus/icons-vue'
 import { datasetApi, caseApi, caseGroupApi, type DataSet, type DatasetParamsView, type NodeParams, type ParamSpec, type TestCase, type CaseGroup } from '@/api'
@@ -275,6 +275,15 @@ function initDrafts() {
   }
 }
 
+/** 激活 tab 滚动进可视区：记忆的节点在长 tab 栏深处时，免每次手动点 > 翻页 */
+function scrollActiveTabIntoView() {
+  nextTick(() => {
+    document
+      .querySelector('.node-tabs .el-tabs__item.is-active')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  })
+}
+
 async function loadView(keepTab = false) {
   if (!current.value) { view.value = null; return }
   viewLoading.value = true
@@ -287,6 +296,7 @@ async function loadView(keepTab = false) {
       const lastNode = readLast().nodeId
       activeNodeId.value = view.value.nodes.some((n) => n.node_id === lastNode)
         ? (lastNode || '') : (view.value.nodes[0]?.node_id || '')
+      scrollActiveTabIntoView()
     }
     writeLast({})
   } catch (e: any) {

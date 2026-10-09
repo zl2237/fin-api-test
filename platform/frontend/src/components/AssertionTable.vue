@@ -33,8 +33,9 @@
               type="textarea"
               :autosize="{ minRows: 1, maxRows: 4 }"
               placeholder="SELECT status FROM sys_order WHERE bl_no='{{n_create.bl_no}}'"
+              @focus="onSqlFocus"
             />
-            <SqlRefMenu :groups="refGroups" @insert="(t: string) => (row.sql = `${row.sql || ''}${t}`)" />
+            <SqlRefMenu :groups="refGroups" @insert="(t: string) => onSqlInsert(row, t)" />
           </div>
           <span v-else class="muted">—</span>
         </template>
@@ -77,12 +78,35 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick } from 'vue'
 import ParamSourceBadge from '@/components/ParamSourceBadge.vue'
 import SqlRefMenu from '@/components/SqlRefMenu.vue'
 import type { RefVarGroup } from '@/components/VarRefSelect.vue'
 
 const props = defineProps<{ modelValue: any[]; refGroups?: RefVarGroup[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
+
+// 记录最后聚焦的 SQL 输入框，插入引用时在光标位置插入而非追加末尾
+let lastSqlTa: HTMLTextAreaElement | null = null
+function onSqlFocus(e: FocusEvent) {
+  lastSqlTa = e.target as HTMLTextAreaElement
+}
+function onSqlInsert(row: any, t: string) {
+  const ta = lastSqlTa
+  if (ta) {
+    const s = ta.selectionStart ?? 0
+    const e = ta.selectionEnd ?? s
+    const v = row.sql || ''
+    row.sql = v.slice(0, s) + t + v.slice(e)
+    nextTick(() => {
+      ta.focus()
+      const pos = s + t.length
+      ta.setSelectionRange(pos, pos)
+    })
+  } else {
+    row.sql = `${row.sql || ''}${t}`
+  }
+}
 
 const responseTypes = [
   { label: 'JSON Path 等于', value: 'json_path_equals' },
