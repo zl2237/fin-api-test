@@ -77,14 +77,16 @@ class DBClient:
         """
         self.connect()
         assert self.conn is not None  # connect() 保证已建连或抛异常，收窄 None 分支
-        args = args or []
-        logger.info(f"执行SQL查询:\n{sql}, args:{args}")
+        # 无参数时必须传 None：pymysql 对非 None 的 args 会做 sql % args 格式化，
+        # 字面量 %（如 LIKE '%'）会被误当占位符报 not enough arguments for format string
+        eff_args = args or None
+        logger.info(f"执行SQL查询:\n{sql}, args:{eff_args}")
         try:
             with self.conn.cursor() as cur:
-                cur.execute(sql, args)
+                cur.execute(sql, eff_args)
                 return cur.fetchall()
         except Exception as e:
-            raise DBQueryError(sql=sql, args=tuple(args), error_msg=str(e)) from e
+            raise DBQueryError(sql=sql, args=tuple(args or ()), error_msg=str(e)) from e
 
     def query_one(self, sql: str, args=None):
         """
@@ -105,13 +107,13 @@ class DBClient:
         """
         self.connect()
         assert self.conn is not None  # connect() 保证已建连或抛异常，收窄 None 分支
-        args = args or []
-        logger.info(f"执行SQL:\n{sql}, args:{args}")
+        eff_args = args or None  # 同 query：字面量 % 防误格式化
+        logger.info(f"执行SQL:\n{sql}, args:{eff_args}")
         try:
             with self.conn.cursor() as cur:
-                return cur.execute(sql, args)
+                return cur.execute(sql, eff_args)
         except Exception as e:
-            raise DBQueryError(sql=sql, args=tuple(args), error_msg=str(e)) from e
+            raise DBQueryError(sql=sql, args=tuple(args or ()), error_msg=str(e)) from e
 
     def close(self):
         """关闭数据库连接"""
