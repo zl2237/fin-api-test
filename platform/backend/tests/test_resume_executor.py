@@ -48,6 +48,9 @@ class RoutingFakeDb:
                     return db._configs.pop(0) if db._configs else None
                 if cls is models.ApiDefinition:
                     return db._apis.pop(0) if db._apis else None
+                if cls is models.StepRecord:
+                    # _pick_resume_replay：返回首条非成功步骤（测试只构造该形态）
+                    return next((s for s in db._steps if s.status != "success"), None)
                 return None
 
             def all(self):
@@ -184,3 +187,55 @@ class TestResumeExecutor:
 
         assert record.status == "success"
         assert all(not s.resumed for s in sink.steps)
+
+    def _replay_executor(self, stale_step):
+        """续跑提取重放场景：n2 当前配置含响应体提取规则"""
+        extract_rule = [{"name": "order_id", "source": "response",
+                         "json_path": "$.data.id", "sql": "", "field": ""}]
+        db = RoutingFakeDb(
+            configs=[_config(api_id=10, post_extract=extract_rule), _config(api_id=10)],
+            apis=[_api(), _api()],
+            steps=[stale_step],
+        )
+        record = ExecutionRecord(case_id=1, env_id=2, status="failed")
+        sink = MemorySink()
+        env = _env()
+        env._stub_client = StubHttpClient(response={"code": 200, "data": {"id": 1}})
+        ex = DagExecutor(db, _case(), env, execution_record=record, sink=sink,
+                         start_node="n2", suppress_notify=True)
+        return ex, record, sink, env
+
+    def test_resume_replays_extract_without_resend_when_response_ok(self):
+        """起点节点上次请求已成功（提取失败）：续跑用响应快照重跑提取，
+        不重发请求（写接口重复建单风险），按当前配置提取成功则节点转 success"""
+        stale = StepRecord(execution_id=1, node_id="n2", status="failed",
+                           response_status=200, response_time_ms=50,
+                           response_body={"code": 200, "data": {"id": 7}},
+                           request_headers={"Auth": "x"}, request_body={"bl_no": "BL1"})
+        ex, record, sink, env = self._replay_executor(stale)
+
+        ex.execute()
+
+        # 起点节点未重发请求：提取值来自快照响应（id=7；若重发则 stub 响应为 id=1）
+        assert record.status == "success"
+        first = sink.steps[0]
+        assert first.node_id == "n2"
+        assert first.extracted_vars == {"order_id": 7}
+        assert first.status == "success"
+        # 本节点入参按快照回放进命名空间，下游/提取 {{n2.bl_no}} 可引用
+        assert ex.context.registry.read("n2", "bl_no") == "BL1"
+
+    def test_resume_resends_when_previous_request_failed(self):
+        """起点节点上次请求层失败（响应体 {"error": ...}）：续跑正常重发请求"""
+        stale = StepRecord(execution_id=1, node_id="n2", status="failed",
+                           response_status=0, response_time_ms=0,
+                           response_body={"error": "请求组装/前置处理失败: 引用取值失败"},
+                           request_headers={}, request_body={})
+        ex, record, sink, env = self._replay_executor(stale)
+
+        ex.execute()
+
+        # 重发了请求（stub 收到调用），且当前配置对真实响应提取成功
+        assert env._stub_client.last_json_body is not None
+        assert record.status == "success"
+        assert sink.steps[0].extracted_vars == {"order_id": 1}

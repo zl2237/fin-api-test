@@ -13,9 +13,9 @@ from types import SimpleNamespace
 from app.engine.report_context import build_report_context
 
 
-def _step(node_id, status, extracted=None, sid=0):
+def _step(node_id, status, extracted=None, sid=0, body=None):
     return SimpleNamespace(id=sid, node_id=node_id, status=status,
-                           extracted_vars=extracted)
+                           extracted_vars=extracted, request_body=body)
 
 
 class TestBuildReportContext:
@@ -75,4 +75,38 @@ class TestBuildReportContext:
             _step("n2", "success", {"b": 2}, sid=2),
         ]
         ctx = build_report_context(steps)
-        assert ctx == {"n2": {"b": 2}}
+        assert ctx["n2"] == {"b": 2}
+
+    def test_request_body_replayed_as_input_vars(self):
+        """入参回放：请求体快照按执行期口径（完整路径+末段别名）进 seed——
+        续跑前缀节点被跳过不再真实执行，下游 {{节点.入参}} 引用靠此还原（915）"""
+        steps = [
+            _step("n_create", "success", {"order_id": 1}, sid=1,
+                  body={"bl_no": "BL001", "select_list": [{"order_id": 9}]}),
+        ]
+        ctx = build_report_context(steps)
+        assert ctx["n_create"]["bl_no"] == "BL001"
+        # 嵌套路径 + 末段别名（与 prepare_request._register 同口径）
+        assert ctx["n_create"]["select_list.0.order_id"] == 9
+        assert ctx["n_create"]["order_id"] == 1  # 提取名优先，入参别名不覆盖
+
+    def test_array_body_replayed_by_first_element(self):
+        """数组请求体：锚定首元素字段展开（配置路径口径 currency 而非 0.currency）"""
+        steps = [_step("n1", "success", body=[{"currency": "USD"}, {"currency": "CNY"}], sid=1)]
+        ctx = build_report_context(steps)
+        assert ctx["n1"]["currency"] == "USD"
+
+    def test_latest_success_body_overrides_history(self):
+        """同 node 重跑成功：入参回放同提取值一样「最新成功覆盖」"""
+        steps = [
+            _step("n1", "success", body={"bl_no": "OLD"}, sid=1),
+            _step("n1", "success", body={"bl_no": "NEW"}, sid=2),
+        ]
+        ctx = build_report_context(steps)
+        assert ctx["n1"]["bl_no"] == "NEW"
+
+    def test_body_string_json_parsed(self):
+        """request_body 为 JSON 字符串（如 pymysql 直查场景）也能回放"""
+        steps = [_step("n1", "success", body='{"bl_no": "BL9"}', sid=1)]
+        ctx = build_report_context(steps)
+        assert ctx["n1"]["bl_no"] == "BL9"

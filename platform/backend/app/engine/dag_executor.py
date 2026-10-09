@@ -13,6 +13,7 @@ DAG 拓扑执行引擎。
    前置处理 → 发请求 → 后置提取 → 断言 → 落库 StepRecord/AssertionRecord
 4. 默认失败即停止（断言失败或请求异常）
 """
+import json
 import re
 import time
 from datetime import datetime
@@ -36,6 +37,7 @@ from .context import ExecutionContext
 from .events import AssertionResult, DbSink, ExecutionSink, StepResult
 from .extractor import Extractor, is_extract_error
 from .prepare_request import prepare_request
+from .report_context import _iter_body_paths
 from .topo import topo_order
 
 
@@ -157,9 +159,12 @@ class DagExecutor:
             # 计入 passed；同时清掉该节点起的旧失败记录（本次续跑重新生成，
             # 报告时间线收敛为「成功前缀 + 续跑段」）
             start_idx = 0
+            resume_replay = None
             if self._resume_mode:
                 if self.start_node in order:
                     start_idx = order.index(self.start_node)
+                    # 起点节点上次「请求已成功」时取响应快照：本次仅重跑提取/断言不发请求
+                    resume_replay = self._pick_resume_replay(record.id, self.start_node)
                     self._prune_stale_steps(record.id)
                 else:
                     # 节点已不在编排中（结构变更被端点拦截后的防御）：按新编排从头跑
@@ -177,7 +182,9 @@ class DagExecutor:
                     terminated = True
                     leftover = leftover + order[idx:]
                     break
-                step_passed, wait_ms = self._execute_node(record.id, node_id, nodes_map.get(node_id, {"id": node_id}))
+                step_passed, wait_ms = self._execute_node(
+                    record.id, node_id, nodes_map.get(node_id, {"id": node_id}),
+                    replay=resume_replay if (resume_replay is not None and idx == start_idx) else None)
                 if step_passed:
                     total_passed += 1
                 else:
@@ -254,6 +261,36 @@ class DagExecutor:
             self.db.commit()
         return removed
 
+    def _pick_resume_replay(self, execution_id: int, node_id: str) -> SimpleNamespace | None:
+        """续跑起点的响应快照提取：上次失败仅因提取/断言（请求层已成功）时，
+        返回响应快照供本次仅重跑提取/断言；请求层失败（组装失败/HTTP 错误/
+        业务码失败/超时）返回 None——仍需真实重发。
+
+        判定口径：响应码 2xx/3xx 且响应体 dict 不含 error 键（请求层失败时
+        步骤响应体固定为 {"error": 原因}，见 _execute_node 各失败分支）。
+        """
+        s = (self.db.query(models.StepRecord)
+             .filter(models.StepRecord.execution_id == execution_id,
+                     models.StepRecord.node_id == node_id,
+                     models.StepRecord.status != "success")
+             .order_by(models.StepRecord.id.desc())
+             .first())
+        if not s:
+            return None
+        rb = s.response_body
+        if isinstance(rb, str):
+            try:
+                rb = json.loads(rb)
+            except Exception:
+                rb = None
+        ok_status = isinstance(s.response_status, int) and 200 <= s.response_status < 400
+        if not (ok_status and isinstance(rb, dict) and "error" not in rb):
+            return None
+        return SimpleNamespace(response_body=rb, response_status=s.response_status,
+                               response_time_ms=s.response_time_ms or 0,
+                               request_headers=s.request_headers or {},
+                               request_body=s.request_body or {})
+
     def _resolve_node_config(self, node_id: str):
         """节点结构配置来源：用例当前 CaseNodeConfig（编排唯一来源，无快照覆盖）。
         仅承载结构层（接口绑定/后置提取/断言/等待）；入参配置见 _resolve_param_config。"""
@@ -273,9 +310,13 @@ class DagExecutor:
             return None
         return SimpleNamespace(params=rc.get("params") or {})
 
-    def _execute_node(self, execution_id: int, node_id: str, node: dict) -> tuple[bool, int]:
+    def _execute_node(self, execution_id: int, node_id: str, node: dict,
+                      replay: SimpleNamespace | None = None) -> tuple[bool, int]:
         """执行单个节点。返回 (是否通过, 节点配置的 wait_after_ms)。
         wait_after_ms 表示当前节点执行完后到下一节点请求前的等待毫秒数，由调用方在节点间应用。
+        replay 非空 = 断点续跑·提取重放：上次请求已成功，本次不发请求，
+        直接用响应快照按当前配置重跑后置提取与断言（改提取/断言配置的核心场景，
+        也避免写接口重复建单）。
         """
         config = self._resolve_node_config(node_id)
         param_cfg = self._resolve_param_config(node_id)
@@ -302,6 +343,52 @@ class DagExecutor:
                 resumed=self._resume_mode,
             ))
             return False, 0
+
+        # 0. 断点续跑·提取重放：上次请求已成功（响应快照可用），本次不发请求，
+        #    直接用快照响应 + 当前配置重跑后置提取与断言；本节点入参也按快照
+        #    回放进命名空间（执行期注册发生在组装请求，重放跳过了该步）
+        if replay is not None:
+            body = replay.request_body
+            headers = replay.request_headers
+            status_code = replay.response_status
+            response_data = replay.response_body
+            elapsed = replay.response_time_ms
+            for path, val in _iter_body_paths(body):
+                self.context.registry.write(node_id, path, val)
+                tail = path.rsplit(".", 1)[-1]
+                if tail != path:
+                    self.context.registry.write(node_id, tail, val)
+            extracted: dict = {}
+            assertion_results: list[dict] = []
+            if config and config.post_extract and response_data is not None:
+                extracted = self.extractor.extract(response_data, config.post_extract,
+                                                   self.context.registry, node_id)
+            extract_failed = any(is_extract_error(v) for v in extracted.values())
+            if config and config.assertions:
+                engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
+                assertion_results = engine.evaluate_all(response_data, status_code, elapsed,
+                                                        config.assertions)
+            step_passed = not extract_failed and all(r["pass"] for r in assertion_results)
+            self.sink.record_step(StepResult(
+                execution_id=execution_id, node_id=node_id,
+                api_name=api.name, api_path=api.path, api_method=api.method,
+                request_headers=headers, request_body=body,
+                response_status=status_code, response_body=response_data,
+                response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
+                status="success" if step_passed else "failed",
+                post_extract=(config.post_extract if config else None) or None,
+                extracted_vars=extracted,
+                resumed=True,
+                assertions=[
+                    AssertionResult(
+                        type=ar["type"], rule_config=ar, passed=ar["pass"],
+                        actual=ar.get("actual"), expected=ar.get("expected"),
+                        message=ar.get("message", ""),
+                    ) for ar in assertion_results
+                ],
+            ))
+            wait_ms = getattr(config, "wait_after_ms", 0) or 0 if config else 0
+            return step_passed, wait_ms
 
         # 1. 组装请求（优先级与编排顺序统一在 prepare_request，见其模块注释）；
         # 组装期异常（引用取值失败/SQL 执行失败等）在这里兜底为失败步骤（原因可见），
