@@ -281,7 +281,8 @@
                   </el-table-column>
                   <el-table-column label="提取结果" min-width="180" show-overflow-tooltip>
                     <template #default="{ row }">
-                      <span v-if="extractActual(row.name) !== undefined" class="mono pre-val cell-expand"
+                      <span v-if="extractErrorOf(row.name)" class="extract-fail">未提取到：{{ extractErrorOf(row.name) }}</span>
+                      <span v-else-if="extractActual(row.name) !== undefined" class="mono pre-val cell-expand"
                         :title="'点击查看/复制'" @click="openValue(`提取 ${row.name}`, extractActual(row.name))">
                         {{ preValueText(extractActual(row.name)) }}
                       </span>
@@ -771,6 +772,15 @@ function extractActual(name?: string) {
   return vars && Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : undefined
 }
 
+/** 提取未取到的失败原因：值为 {__error__: 原因} 时返回原因（引擎据此判节点失败） */
+function extractErrorOf(name?: string): string | undefined {
+  const v = extractActual(name)
+  if (v && typeof v === 'object' && !Array.isArray(v) && '__error__' in (v as Record<string, unknown>)) {
+    return String((v as Record<string, unknown>).__error__)
+  }
+  return undefined
+}
+
 function stepTimeText(s: StepRecord) {
   const start = s.started_at ?? '-'
   const dur = s.started_at && s.ended_at
@@ -1249,6 +1259,11 @@ onUnmounted(stopPolling)
 
 .muted {
   color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.extract-fail {
+  color: var(--el-color-danger);
   font-size: 12px;
 }
 

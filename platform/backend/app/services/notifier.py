@@ -58,7 +58,13 @@ def _build_fail_section(record) -> str:
         for a in bad_asserts[:3]:  # 每步最多 3 条断言详情
             detail = a.message or f"{a.rule_type} 期望 {a.expected_value} 实际 {a.actual_value}"
             _line(f"> 　　· {_clip(detail, 160)}", lines, budget)
-        if not bad_asserts:
+        # 后置提取未取到的变量（值为 {__error__: 原因}）：失败原因直达通知
+        bad_extracts = [(k, v["__error__"])
+                        for k, v in (getattr(step, "extracted_vars", None) or {}).items()
+                        if isinstance(v, dict) and "__error__" in v]
+        for k, reason in bad_extracts[:3]:
+            _line(f"> 　　· 提取 {k} 未取到：{_clip(reason, 160)}", lines, budget)
+        if not bad_asserts and not bad_extracts:
             err_text = _request_error_text(step)
             hint = f"请求异常：{_clip(err_text, 160)}" if err_text else "无断言失败（接口请求失败或响应异常）"
             _line(f"> 　　· {hint}", lines, budget)
