@@ -34,7 +34,7 @@ from ..services.runtime_service import build_db_client, build_http_client, login
 from .assertion_engine import AssertionEngine
 from .context import ExecutionContext
 from .events import AssertionResult, DbSink, ExecutionSink, StepResult
-from .extractor import Extractor
+from .extractor import Extractor, is_extract_error
 from .prepare_request import prepare_request
 from .topo import topo_order
 
@@ -59,7 +59,11 @@ class DagExecutor:
                                         resume_seed=context_seed)
         # 数据驱动批量执行时抑制逐条通知（由聚合器等全部完成后发一条汇总）
         self.suppress_notify = suppress_notify
-        self.extractor = Extractor()
+        # DB 提取「查询无结果」重查配置同环境级失败重试（node_retry_count/interval）：
+        # 被测系统异步落库（如发起付款需求返回后写 sys_pay_demand）瞬时查不到，重查即恢复
+        self.extractor = Extractor(
+            retry=max(0, getattr(env, "node_retry_count", 0) or 0),
+            interval=max(1, getattr(env, "node_retry_interval", 1) or 1))
         self.http_client: HttpClient | None = None
         self.db_client: Any = None
         # 并发执行场景下由外部预先创建 record 并传入，避免后台线程重复创建
@@ -350,13 +354,17 @@ class DagExecutor:
             if config and config.post_extract and response_data is not None:
                 extracted = self.extractor.extract(response_data, config.post_extract,
                                                    self.context.registry, node_id)
+            # 提取未取到的变量（值为 {__error__: 原因}）判节点失败：原因在报告提取页
+            # 与失败通知可见；不在本节点静默放行 None 向下游扩散（下游引用会在组装期
+            # 以更模糊的「取值失败」报错）。与断言失败同口径：不触发请求重试。
+            extract_failed = any(is_extract_error(v) for v in extracted.values())
 
             # 4. 断言
             if config and config.assertions:
                 engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
                 assertion_results = engine.evaluate_all(response_data, status_code, elapsed, config.assertions)
 
-            step_passed = (err is None) and all(r["pass"] for r in assertion_results)
+            step_passed = (err is None) and not extract_failed and all(r["pass"] for r in assertion_results)
             break
 
         # 5. 产出步骤事件（落库/收集交给 sink）

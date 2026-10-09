@@ -303,6 +303,7 @@ input.sp-radio { display: none; }
 .assert-table .mono { font-family: Consolas, Menlo, monospace; font-size: 11px; }
 .assert-table .muted { color: var(--text-3); }
 .assert-table .fail-msg { color: var(--err); }
+.assert-table .fail-text { color: var(--err); }
 
 .foot { text-align: center; font-size: 11px; color: var(--text-3); padding: 4px 0 0; }
 
@@ -467,8 +468,14 @@ def _extract_pane(post_extract: list[Any], extracted_vars: Any) -> str:
         else:
             rule = r.get("json_path") or "—"
         has = name is not None and name in vars_dict
-        actual = (f'<span class="mono">{_esc(_value_text(vars_dict.get(name)))}</span>'
-                  if has else '<span class="muted">未提取到</span>')
+        val = vars_dict.get(name)
+        if has and isinstance(val, dict) and "__error__" in val:
+            # 提取未取到：值本身就是 {__error__: 原因}（引擎判节点失败）
+            actual = f'<span class="fail-text">未提取到：{_esc(str(val["__error__"]))}</span>'
+        elif has:
+            actual = f'<span class="mono">{_esc(_value_text(val))}</span>'
+        else:
+            actual = '<span class="muted">未提取到</span>'
         rows.append("<tr>"
                     f'<td class="mono">{_esc(name if name is not None else "—")}</td>'
                     f"<td>{'数据库' if r.get('source') == 'db' else '响应'}</td>"
