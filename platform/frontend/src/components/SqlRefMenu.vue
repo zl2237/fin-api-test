@@ -5,6 +5,7 @@
     placement="bottom-end"
     :width="360"
     :persistent="false"
+    :teleported="!nested"
     popper-class="srm-popper"
   >
     <template #reference>
@@ -56,7 +57,11 @@ import { computed, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import type { RefVarGroup } from './VarRefSelect.vue'
 
-const props = defineProps<{ groups?: RefVarGroup[] }>()
+/** nested：宿主自身在另一个弹层内（如参数编辑 popover）。此时弹层不 teleport——
+ *  teleport 到 body 后，弹层内的点击对宿主 popover 是「外部点击」（onClickOutside
+ *  的 click 监听挂在 window capture，stopPropagation 拦不住），会连累宿主关闭、
+ *  本弹层随 persistent=false 被销毁。不 teleport 时留在外层 DOM 树内即免疫。 */
+const props = defineProps<{ groups?: RefVarGroup[]; nested?: boolean }>()
 const emit = defineEmits<{ (e: 'insert', text: string): void }>()
 
 const keyword = ref('')

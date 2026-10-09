@@ -7,6 +7,7 @@
     :placeholder="placeholder"
     :size="size"
     style="width: 100%"
+    :teleported="false"
     @update:model-value="onPick"
     @visible-change="(v: boolean) => v && onSearch('')"
   >
@@ -45,7 +46,9 @@
 /** 四来源引用选择器（来源3）：分组下拉选「节点.变量」，
  *  禁止手输 —— 数据源由父级（CaseDesigner 上游产出/数据集/套件）组装。
  *  变量可达数千（前序节点全部入参+提取），el-select 全量渲染 option 会卡——
- *  remote 搜索模式自管过滤 + 截断渲染，当前选中项被截断时单独置顶保回显。 */
+ *  remote 搜索模式自管过滤 + 截断渲染，当前选中项被截断时单独置顶保回显。
+ *  teleported=false：本组件宿主在参数编辑 popover 内，下拉 teleport 到 body 后
+ *  的点击会被 popover 判为外部点击，连累表单整个收起。 */
 import { computed, ref } from 'vue'
 
 export interface RefVarItem {
