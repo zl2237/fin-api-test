@@ -11,6 +11,7 @@ from ..auth import get_current_user
 from ..database import get_db
 from ..engine.curl_parser import parse_curl_to_previews
 from ..engine.har_parser import parse_har_to_previews, previews_to_api_create
+from ..services.contract_sync import api_contract_impact, sync_api_contract
 from ..services.request_sender import send_request
 from ..services.spec_parser import extract_fields_from_spec, path_to_code, unique_code
 
@@ -162,6 +163,29 @@ def update(api_id: int, data: schemas.ApiUpdate, db: Session = Depends(get_db), 
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "api", obj.id, obj.name)
     return obj
+
+
+@router.get("/{api_id}/contract-impact")
+def contract_impact(api_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """接口契约变更影响面：所有引用该接口的数据集节点及参数出入（同步弹窗预览数据）。"""
+    if not crud.get_api(db, api_id):
+        raise HTTPException(404, "接口不存在")
+    return api_contract_impact(db, api_id)
+
+
+@router.post("/{api_id}/contract-sync")
+def contract_sync(api_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """按接口当前字段契约同步所有引用数据集（用户在预览弹窗许可后调用）。
+
+    红线：非 constant 来源（ref/func/sql）参数一律不动，仅计入跳过统计。
+    """
+    obj = crud.get_api(db, api_id)
+    if not obj:
+        raise HTTPException(404, "接口不存在")
+    result = sync_api_contract(db, api_id, user_id=user.id)
+    crud.log_operation(db, user, "update", "api", obj.id,
+                       f"{obj.name}：契约同步 {result['total']['nodes']} 个数据集节点")
+    return result
 
 
 @router.delete("/{api_id}", response_model=schemas.MessageOut)

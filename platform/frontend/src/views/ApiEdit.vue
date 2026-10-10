@@ -241,6 +241,9 @@
         <FieldTable v-model="formData.fields" />
       </div>
     </div>
+
+    <!-- 契约同步（保存后）：字段契约变更 ↔ 引用数据集参数出入预览，许可后全量同步 -->
+    <ContractSyncDialog v-model:visible="contractDlgVisible" :api-id="formData.id ?? null" :api-name="formData.name" />
   </div>
 </template>
 
@@ -251,6 +254,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Upload, Search, QuestionFilled } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
+import ContractSyncDialog from '@/components/ContractSyncDialog.vue'
 import FieldTable from '@/components/FieldTable.vue'
 import { useFieldDict } from '@/composables/useFieldDict'
 import { useAppStore } from '@/stores'
@@ -272,6 +276,8 @@ function colLabel(key: string) {
 const projectId = computed(() => currentProjectId.value)
 const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
+// 契约同步弹窗（接口保存后字段契约 ↔ 引用数据集出入预览）
+const contractDlgVisible = ref(false)
 const dirty = ref(false)
 const loading = ref(false)
 const groups = ref<ApiGroup[]>([])
@@ -666,6 +672,12 @@ async function onSave() {
     if (isEdit.value) {
       await apiApi.update(formData.id!, payload)
       ElMessage.success('已保存')
+      // 契约出入检测（Q4 触发点之一）：字段契约变更影响引用数据集时有出入弹同步预览；
+      // 查询失败静默（不影响保存结果）
+      try {
+        const impact = await apiApi.contractImpact(formData.id!)
+        if (impact.length) contractDlgVisible.value = true
+      } catch { /* 静默 */ }
     } else {
       await apiApi.create(payload)
       ElMessage.success('已创建')

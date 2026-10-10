@@ -194,6 +194,28 @@ export interface NodeParams {
 export interface DatasetNodeParams {
   params: NodeParams
 }
+// ============ 契约同步（2026-10-10 定案：数据集参数 ↔ 接口字段一致性） ============
+/** 契约外参数（动态来源红线：只标注不删） */
+export interface ContractGapExtra {
+  path: string
+  source: string
+  dynamic: boolean
+}
+export interface ContractGaps {
+  missing?: string[]        // 接口字段无参数覆盖（执行按空值占位发送）
+  extra?: ContractGapExtra[] // 参数路径不在接口契约内
+}
+/** 接口契约变更影响面条目（一个引用数据集节点） */
+export interface ContractImpactItem {
+  dataset_id: number; dataset_name: string
+  case_id: number; case_name: string
+  node_id: string; node_label: string
+  gaps: ContractGaps
+}
+export interface ContractSyncResult {
+  total: { nodes: number; added: number; removed: number; skipped_dynamic: number }
+  details: Array<{ dataset_id: number; dataset_name: string; node_id: string; added: number; removed: number; skipped_dynamic: number }>
+}
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
   post_extract: any[]; assertions: any[]
@@ -386,6 +408,11 @@ export const apiApi = {
   update: (id: number, data: Partial<ApiDef>) => http.put<ApiDef>(`/apis/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/apis/${id}`),
   copy: (id: number) => http.post<ApiDef>(`/apis/${id}/copy`).then((r) => r.data),
+  // 契约影响面/同步（接口保存或数据集保存后弹窗预览 + 用户许可后全量同步）
+  contractImpact: (id: number) =>
+    http.get<ContractImpactItem[]>(`/apis/${id}/contract-impact`).then((r) => r.data),
+  contractSync: (id: number) =>
+    http.post<ContractSyncResult>(`/apis/${id}/contract-sync`).then((r) => r.data),
   batchMove: (apiIds: number[], groupId: number | null) =>
     http.post<{ message: string; updated: number }>('/apis/batch-move', { api_ids: apiIds, group_id: groupId }).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>

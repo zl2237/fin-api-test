@@ -29,6 +29,7 @@ from .. import (
     models,
     path_setup,  # noqa: F401
 )
+from ..services.contract_sync import node_contract_gaps
 from ..services.notifier import send_notify
 from ..services.request_sender import send_request
 from ..services.runtime_service import build_db_client, build_http_client, login
@@ -92,6 +93,9 @@ class DagExecutor:
         # 替身路径），此时逐节点查库，与旧行为一致
         self._node_cache: dict[str, Any] | None = None
         self._api_cache: dict[int, Any] | None = None
+        # 契约出入收集（Q3 只标注不阻断）：节点 id → {missing/extra}，
+        # 执行收尾聚合进 record.summary.contract_gaps 供报告黄条展示
+        self._contract_gaps: dict[str, Any] = {}
         # 节点 id → 画布中文名：错误消息可读性（node_xxx → 「审核」）
         dag = case.dag_config if isinstance(case.dag_config, dict) else {}
         self._node_labels: dict[str, str] = {
@@ -233,10 +237,14 @@ class DagExecutor:
                     "failed": total_failed,
                     "leftover": leftover,
                 }
+            if self._contract_gaps:
+                record.summary["contract_gaps"] = self._contract_gaps
         except Exception as e:
             error_msg = str(e)
             record.status = "failed"
             record.summary = {"total": total_passed + total_failed, "passed": total_passed, "failed": total_failed, "error": error_msg}
+            if self._contract_gaps:
+                record.summary["contract_gaps"] = self._contract_gaps
         finally:
             record.ended_at = datetime.now()
             self.db.commit()
@@ -413,6 +421,14 @@ class DagExecutor:
         api = None
         if config and config.api_id:
             api = self._resolve_api(config.api_id)
+
+        # 契约出入检测（与接口字段比对；只标注不阻断，不改变任何取值行为）
+        if api is not None:
+            gaps = node_contract_gaps(
+                getattr(api, "fields", None),
+                (param_cfg.params if param_cfg is not None else {}).get("body"))
+            if gaps:
+                self._contract_gaps[node_id] = gaps
 
         started_at = datetime.now()
         start_ts = time.time()

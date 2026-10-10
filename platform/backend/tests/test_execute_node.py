@@ -192,6 +192,46 @@ class TestEngineLayering:
         assert "from ..routers" not in src, "engine 反向依赖 routers，应改走 services 层"
 
 
+class TestContractGapsCollection:
+    """契约出入检测（2026-10-10 定案 Q3）：只收集标注，不阻断不改变取值"""
+
+    def test_gaps_collected_and_not_blocking(self):
+        """参数有 extra（契约外）且字段 missing → 收集进 _contract_gaps，节点照常成功"""
+        config = _config(api_id=10)
+        api = _api(fields=[SimpleNamespace(key="bl_no", field_type="string",
+                                           default_value=None)])
+        db = FakeDb(first_results=[config, api])
+        sink = MemorySink()
+        ex = _executor(db, sink=sink)
+        ex.http_client = StubHttpClient(response={"code": 200, "data": {"id": 1}})
+        ex.context.dataset_vars = {"nodes": {"n1": {"params": {
+            "body": {"ghost": {"source": "constant", "value": "x"}}}}}}
+
+        passed, _ = ex._execute_node(100, "n1", {"id": "n1"})
+
+        assert passed is True  # 不阻断
+        assert sink.steps[0].status == "success"
+        assert ex._contract_gaps == {"n1": {
+            "missing": ["bl_no"],
+            "extra": [{"path": "ghost", "source": "constant", "dynamic": False}],
+        }}
+
+    def test_consistent_node_no_gaps(self):
+        config = _config(api_id=10)
+        api = _api(fields=[SimpleNamespace(key="bl_no", field_type="string",
+                                           default_value=None)])
+        db = FakeDb(first_results=[config, api])
+        sink = MemorySink()
+        ex = _executor(db, sink=sink)
+        ex.http_client = StubHttpClient(response={"code": 200})
+        ex.context.dataset_vars = {"nodes": {"n1": {"params": {
+            "body": {"bl_no": {"source": "constant", "value": "B1"}}}}}}
+
+        ex._execute_node(100, "n1", {"id": "n1"})
+
+        assert ex._contract_gaps == {}
+
+
 class TestExecuteStartedAt:
     """execute() 的 started_at 口径：真正开始执行的时刻，而非 record 创建（批量提交）时刻"""
 
