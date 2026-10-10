@@ -125,7 +125,7 @@
                         保存
                       </el-button>
                       <el-button size="small" :loading="savingNode" @click="resetNode(n.node_id)">放弃改动</el-button>
-                      <el-button size="small" @click="openImport(n.node_id)">导入 JSON</el-button>
+                      <el-button size="small" @click="openImport(n.node_id)">导入</el-button>
                       <span class="node-tip">保存即整体替换该节点的全部参数取值来源（含引用拓扑/悬空校验）</span>
                     </div>
 
@@ -166,7 +166,7 @@
       </template>
     </el-dialog>
 
-    <!-- 导入请求体 JSON：常量已配置字段替换，未配置字段初始化为常量入参，非常量不动，先进草稿 -->
+    <!-- 导入请求体（JSON / 表单 / cURL 自动识别）：常量已配置字段替换，未配置字段初始化为常量入参，非常量不动，先进草稿 -->
     <ImportJsonDialog
       v-model:visible="importVisible"
       :body="drafts[importNodeId]?.params?.body || {}"
@@ -306,7 +306,7 @@ function resetNode(nid: string) {
   dirtyMap[nid] = false
 }
 
-// ===== 导入请求体 JSON：解析/预览/应用收敛在 ImportJsonDialog（写回走草稿通道） =====
+// ===== 导入请求体（三格式自动识别）：解析/预览/应用收敛在 ImportJsonDialog（写回走草稿通道） =====
 const importVisible = ref(false)
 const importNodeId = ref('')
 

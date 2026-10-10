@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractCurlData, parseFormString, parseImportText } from '../importPayload'
+import { extractCurlData, parseFormString, parseImportText, parseMultipart } from '../importPayload'
 
 describe('parseFormString', () => {
   it('a=1&b=2 解析为扁平 dict，值字符串化', () => {
@@ -48,6 +48,40 @@ describe('extractCurlData', () => {
   it('无 data 参数返回 null；-H 的 = 不误伤', () => {
     expect(extractCurlData(`curl 'http://x?a=1' -H 'X-Token: abc=def'`)).toBeNull()
   })
+
+  it("bash ANSI-C 引号（$'...'）载荷整段提取：引号内空格不截断，\\r\\n 转义还原为真实换行", () => {
+    const cmd = `curl 'https://x/y.html' -H 'Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryX' --data-raw $'------WebKitFormBoundaryX\\r\\nContent-Disposition: form-data; name="id"\\r\\n\\r\\n367153055348556511\\r\\n------WebKitFormBoundaryX--\\r\\n'`
+    expect(extractCurlData(cmd)).toBe(
+      '------WebKitFormBoundaryX\r\nContent-Disposition: form-data; name="id"\r\n\r\n367153055348556511\r\n------WebKitFormBoundaryX--\r\n',
+    )
+  })
+})
+
+describe('parseMultipart', () => {
+  const body = '------WebKitFormBoundaryX\r\n'
+    + 'Content-Disposition: form-data; name="id"\r\n\r\n367153055348556511\r\n'
+    + '------WebKitFormBoundaryX\r\n'
+    + 'Content-Disposition: form-data; name="feedbacks[customer_2][feedback]"\r\n\r\n1\r\n'
+    + '------WebKitFormBoundaryX\r\n'
+    + 'Content-Disposition: form-data; name="notice_10[]"; filename="report.pdf"\r\nContent-Type: application/pdf\r\n\r\n\r\n'
+    + '------WebKitFormBoundaryX--\r\n'
+
+  it('boundary 分段解析为扁平 dict（方括号 key 整体保留）', () => {
+    expect(parseMultipart(body)).toEqual({
+      id: '367153055348556511',
+      'feedbacks[customer_2][feedback]': '1',
+    })
+  })
+
+  it('文件字段（含 filename）跳过', () => {
+    const out = parseMultipart(body)
+    expect(out && 'notice_10[]' in out).toBe(false)
+  })
+
+  it('非 multipart 形态返回 null', () => {
+    expect(parseMultipart('a=1&b=2')).toBeNull()
+    expect(parseMultipart('------X\r\nnot form data')).toBeNull()
+  })
 })
 
 describe('parseImportText', () => {
@@ -89,6 +123,28 @@ describe('parseImportText', () => {
       format: 'form',
       data: { id: '367144804871570143', hope_financing_cny: '0' },
     })
+  })
+
+  it('Chrome DevTools 复制的 multipart cURL（$\'...\' + boundary）→ 扁平 dict（真实场景回归）', () => {
+    // 用户 2026-10-10 粘贴的资产校验 cURL（截短保留关键形态：ANSI-C 引号 / \r\n 转义 / 方括号 key / 文件字段）
+    const cmd = [
+      "curl 'https://test.21eline.com/newshopadmin-tidb/SyncLogorder/check_deal.html' \\",
+      "  -H 'Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryX' \\",
+      "  -H 'X-Requested-With: XMLHttpRequest' \\",
+      "  --data-raw $'------WebKitFormBoundaryX\\r\\nContent-Disposition: form-data; name=\"id\"\\r\\n\\r\\n367153055348556511\\r\\n------WebKitFormBoundaryX\\r\\nContent-Disposition: form-data; name=\"feedbacks[customer_2][feedback]\"\\r\\n\\r\\n1\\r\\n------WebKitFormBoundaryX\\r\\nContent-Disposition: form-data; name=\"notice_10[]\"; filename=\"report.pdf\"\\r\\nContent-Type: application/pdf\\r\\n\\r\\n\\r\\n------WebKitFormBoundaryX--\\r\\n'",
+    ].join('\n')
+    expect(parseImportText(cmd)).toEqual({
+      format: 'curl',
+      data: {
+        id: '367153055348556511',
+        'feedbacks[customer_2][feedback]': '1',
+      },
+    })
+  })
+
+  it('裸 multipart body（非 cURL 包装）也可识别', () => {
+    const body = '------WebKitFormBoundaryX\r\nContent-Disposition: form-data; name="id"\r\n\r\n123\r\n------WebKitFormBoundaryX--\r\n'
+    expect(parseImportText(body)).toEqual({ format: 'form', data: { id: '123' } })
   })
 
   it('空文本与无法识别格式报错', () => {
