@@ -213,8 +213,11 @@ def _api_bindings(db: Session, api_id: int):
         for d in db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids)).all():
             dss[d.id] = d
     for b in binds:
+        if b.case_id is None:
+            continue
         case = cases.get(b.case_id)
-        ds = dss.get(getattr(case, "dataset_id", None)) if case else None
+        ds_id = case.dataset_id if case else None
+        ds = dss.get(ds_id) if ds_id else None
         if ds is None:
             continue
         nodes = dataset_service.node_configs(dataset_service.row_data(ds))
