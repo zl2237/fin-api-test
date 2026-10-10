@@ -35,7 +35,8 @@ npx vue-tsc --noEmit
 
 - 分层：`routers`（薄）→ `crud`（域模块）→ `services`（业务编排）→ `engine`（DAG 执行引擎）
 - 单点实现：HTTP 请求发送（`services/request_sender.py`）、执行编排（`services/execution_launcher.py`）、
-  请求组装（`engine/prepare_request.py`）、拓扑排序（`engine/topo.py`）各只有一份实现
+  请求组装（`engine/prepare_request.py`）、参数四来源解析（`engine/param_resolver.py`）、
+  拓扑排序（`engine/topo.py`）各只有一份实现
 - 引擎不反向 import 路由层；`StepResult` 事件经 `ExecutionSink` 落库，引擎可脱离 DB 测试
 - 涉及数据库结构变更：新增 Alembic 迁移，并保证全新库可直接初始化
 

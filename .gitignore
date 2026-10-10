@@ -77,3 +77,6 @@ skills-lock.json
 trae-api-test-skills/
 
 .pw_tmp/
+
+# Architecture review reports (local archive, not tracked)
+architecture-reviews/

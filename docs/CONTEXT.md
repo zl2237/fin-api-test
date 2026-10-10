@@ -21,6 +21,8 @@
 
 - **topo_order**（`engine/topo.py`）：DAG 拓扑序的唯一实现（Kahn + 节点 id 字典序入队），返回 (拓扑序, 环/断链未入序节点)。执行顺序（dag_executor）与收集口径（dataset_service 同名异值列取源头节点值）共用同一实现，入队稳定性两边同时生效。
 - **set_nested_value**（`engine/nested_path.py`，原名 preprocessor.py）：点号路径嵌套取/设值的唯一实现（数字段索引已存在列表），body_builder 组装请求体与类型强转共用。
+- **report_context**（`engine/report_context.py`）：报告虚拟上下文——从报告步骤拼装节点命名空间 seed 的唯一口径，重放与续跑共用；iter_body_paths（请求体路径展开）/iter_replay_paths（完整路径+末段别名、提取名优先）公开复用。
+- **orchestration**（`engine/orchestration.py`）：编排结构指纹——断点续跑的结构级锁定（节点/边/接口绑定，刻意不含参数）；结构变则续跑拒绝。
 
 ## 数据集（dataset）
 
@@ -50,3 +52,8 @@
 - **响应类型别名**（`api/index.ts`）：User/Project/ApiGroup/CaseGroup/OperationLog/FieldDictionary/FileCategory/TestFile 等直接取 `components['schemas'][...]`（OpenAPI 生成物，后端 Pydantic 单一事实源）；Environment/ApiDef/TestCase/记录族/DataSet 族等手写（承载生成物无法表达的嵌套结构与领域 union）。
 - **useExecutionRunner**（`composables/useExecutionRunner.ts`）：执行轮询的深模块——定时器注册表、卸载清理、间隔/超时策略、favicon 三态、结果提示单点管理，轮询间隔与超时阈值集中定义。窄接口三个：`runWithFeedback`（单用例完整体验）、`pollUntilDone`（纯轮询到终态）、`refreshWhileRunning`（running 态自刷新）。
 - **execStatusType / execStatusText**（`utils/format.ts`）：执行状态 → 标签色/中文文案的唯一映射，各视图以 `as statusType/statusText` 别名引入。
+- **useRefGroups**（`composables/useRefGroups.ts`）：引用候选分组的唯一构建点——selfParamPaths（本节点参数路径）、upstreamNodeIds（上游节点序）、buildRefGroups（RefGraphCtx 数据源注入）；CaseDesigner 的本节点提取变量经 extraGroups 注入，与 SQL 引用菜单同源。
+- **useSqlInsert / SqlCell**（`composables/useSqlInsert.ts` + `components/SqlCell.vue`）：SQL 编辑域光标处插入 `{{节点.变量}}` 占位的唯一实现——PostExtractTable / AssertionTable / ParamSourceForm 三处共用（ParamSourceForm 菜单布局不同，只复用 composable 不硬套 SqlCell）。
+- **ImportJsonDialog**（`components/ImportJsonDialog.vue`）：粘贴 JSON 导入域——getByPath/flattenLeaves/matchesWildcard/canonPath/parseImport 整体收敛在组件内，emit('apply', body, replaced, added) 由父视图消费。
+- **ReplayDialog**（`components/ReplayDialog.vue`）：报告页节点重放弹窗——props {visible, stepId, initialBody}，emit('replayed', passed)；开合重置与样式与报告页一致。
+- **copyText**（`utils/clipboard.ts`）：剪贴板写入的统一收口（报告/数据集等复制动作共用）。
