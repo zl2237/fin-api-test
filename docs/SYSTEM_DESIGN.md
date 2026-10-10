@@ -366,7 +366,7 @@ platform/frontend/src/
 
 ### 5.7 通用组件(components/)
 
-核心组件:`DagCanvas`(DAG 画布)、`NodeConfigDrawer`(节点配置抽屉)、`NodeParamsTable`/`ParamSourceForm`/`ParamSourceBadge`(四来源参数配置)、`SqlCell`/`SqlRefMenu`(SQL 单元格与引用插入菜单)、`VarRefSelect`(引用选择)、`FieldTable`/`KeyValueTable`/`AssertionTable`/`PostExtractTable`(配置表格)、`BatchRunDialog`/`DataDrivenRunDialog`(执行对话框)、`ReplayDialog`(节点重放)、`ImportJsonDialog`(JSON 粘贴导入)、`ScheduleDialog`(定时任务)、`ProjectVersionHistory`(版本历史)、`StepTrendChart`(趋势图)、`AvatarCropper`(头像裁剪)、`CommandPalette`(命令面板)。
+核心组件:`DagCanvas`(DAG 画布)、`NodeConfigDrawer`(节点配置抽屉)、`NodeParamsTable`/`ParamSourceForm`/`ParamSourceBadge`(四来源参数配置)、`SqlCell`/`SqlRefMenu`(SQL 单元格与引用插入菜单)、`VarRefSelect`(引用选择)、`FieldTable`/`KeyValueTable`/`AssertionTable`/`PostExtractTable`(配置表格)、`BatchRunDialog`/`DataDrivenRunDialog`(执行对话框)、`ReplayDialog`(节点重放)、`ImportJsonDialog`(JSON/表单串/cURL 粘贴导入,utils/importPayload 三格式识别)、`ScheduleDialog`(定时任务)、`ProjectVersionHistory`(版本历史)、`StepTrendChart`(趋势图)、`AvatarCropper`(头像裁剪)、`CommandPalette`(命令面板)。
 
 ---
 
