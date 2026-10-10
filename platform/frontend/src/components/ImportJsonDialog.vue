@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="visible"
-    title="导入请求体 JSON（替换常量 + 初始化未配置字段）"
+    title="导入请求体（JSON / 表单 / cURL 自动识别）"
     width="760px"
     @update:model-value="(v: boolean) => emit('update:visible', v)"
   >
@@ -9,10 +9,11 @@
       v-model="importText"
       type="textarea"
       :rows="8"
-      placeholder='粘贴该节点新一套数据的请求体 JSON，如 {"bl_no":"SMOK2026...","amount":100}'
+      placeholder='粘贴该节点新一套数据的请求体：JSON（{"bl_no":"SMOK2026..."}）、表单串（wd=xxx&page=1）、或完整 cURL 命令'
     />
     <div class="import-bar">
       <el-button size="small" type="primary" plain @click="parseImport">解析预览</el-button>
+      <span v-if="importFormat" class="import-note">已按{{ formatLabel }}解析</span>
       <span v-if="importArrayBody" class="import-note">顶层数组请求体：按首元素解析，路径对齐元素字段</span>
       <span v-if="importParsed && !importParsed.ok" class="import-err">{{ importParsed.error }}</span>
       <span v-else-if="importParsed?.ok" class="import-sum">
@@ -44,12 +45,14 @@
 
 <script setup lang="ts">
 /**
- * 导入请求体 JSON（DatasetManage 迁出）：已配置常量字段整组替换；非常量 /
- * 通配路径不动；JSON 中未配置的字段初始化为常量入参。产出新 body 由
- * 父级写入草稿（onDraftChange 通道）。
+ * 导入请求体（DatasetManage 迁出）：JSON / 表单串 / cURL 三格式自动识别
+ * （utils/importPayload 解析）。已配置常量字段整组替换；非常量 / 通配路径不动；
+ * 导入数据中未配置的字段初始化为常量入参。产出新 body 由父级写入草稿
+ * （onDraftChange 通道）。
  */
 import { computed, ref } from 'vue'
 import type { ParamSpec } from '@/api'
+import { parseImportText, type ImportFormat } from '@/utils/importPayload'
 
 const props = defineProps<{
   visible: boolean
@@ -70,8 +73,10 @@ interface ImportRow {
   note?: string
 }
 const importText = ref('')
+const importFormat = ref<ImportFormat | null>(null) // 本次解析识别的格式（提示用）
 const importArrayBody = ref(false) // 顶层数组请求体：按首元素解析
 const importParsed = ref<null | { ok: boolean; error?: string; rows: ImportRow[] }>(null)
+const formatLabel = computed(() => ({ json: ' JSON ', form: '表单', curl: ' cURL ' }[importFormat.value as ImportFormat]))
 const importReplaceCount = computed(() =>
   importParsed.value?.ok ? importParsed.value.rows.filter((r) => r.hit && !r.add).length : 0)
 const importAddCount = computed(() =>
@@ -115,13 +120,15 @@ function canonPath(p: string): string {
 }
 
 function parseImport() {
-  let data: unknown
-  try {
-    data = JSON.parse(importText.value)
-  } catch (e: any) {
-    importParsed.value = { ok: false, error: `JSON 解析失败：${e.message}`, rows: [] }
+  // 三格式自动识别：JSON / 表单串 / cURL（载荷递归识别），解析细节在 utils/importPayload
+  const res = parseImportText(importText.value)
+  if ('error' in res) {
+    importFormat.value = null
+    importParsed.value = { ok: false, error: res.error, rows: [] }
     return
   }
+  importFormat.value = res.format
+  const data = res.data
   // 顶层数组请求体（如上传应付发票 [{...}]）按首元素解析：入参路径以元素字段为锚，
   // 直接展开会产生 0.currency 这类下标路径，与已配置的 currency 对不上
   importArrayBody.value = Array.isArray(data) && data.length > 0
