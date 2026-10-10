@@ -41,17 +41,5 @@ def export_report(exec_id: int, format: str = Query("csv", pattern="^(csv|html)$
     return Response(
         content=content,
         media_type=media,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
-
-
-@router.get("/executions/{exec_id}/steps/{step_id}/assertions",
-            response_model=list[schemas.AssertionRecordOut])
-def get_step_assertions(exec_id: int, step_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    step = db.query(models.StepRecord).filter(
-        models.StepRecord.id == step_id,
-        models.StepRecord.execution_id == exec_id,
-    ).first()
-    if not step:
-        raise HTTPException(404, "步骤不存在")
-    return step.assertions

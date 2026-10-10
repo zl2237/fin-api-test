@@ -6,8 +6,9 @@ ExecutionRecord 已由 execution_launcher 创建（status=running），本模块
 
 语义（设计定案）：
 - 成员按 sort_order 串行执行，逐成员独立环境（跨系统各用各的）
-- 共享变量白名单（suite.shared_vars）：上游成员每行执行结束时从变量池
-  按名单快照；下游成员执行时以最高优先级注入（ExecutionContext.suite_vars）
+- 共享变量白名单（suite.shared_vars）：上游成员每行执行结束时从该行
+  注册表按名单快照；下游成员执行时以 __suite__ 命名空间注入
+  （ExecutionContext.suite_vars）
 - 逐行配对：上游 N 行 → 下游第 i 次执行注入第 i 行快照；下游行数超出时
   沿用最后一个有效快照
 - 阻断：上游某行失败 → 该行快照置 None → 下游对应行 blocked（不建执行
@@ -162,7 +163,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
                     member_report["rows"].append(row_report)
                     row_snapshots.append(None)
                     continue
-            row_vars = (item["row"] or {}).get("data")
+            dataset_row = (item["row"] or {}).get("data")
             assert record.created_by is not None  # 套件执行必有触发人
             row_record = exec_domain.create_execution(
                 db, case_id=member_case.id, env_id=member_env.id,
@@ -173,7 +174,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
             try:
                 executor = DagExecutor(
                     db, member_case, member_env, execution_record=row_record,
-                    row_vars=row_vars,
+                    dataset_row=dataset_row,
                     suite_vars=inject or None, suppress_notify=True)
                 executor.execute()
                 # 重新attach：DagExecutor.execute 内部 commit 后 record 对象仍可用

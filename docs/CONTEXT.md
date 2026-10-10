@@ -5,25 +5,26 @@
 ## 执行编排（execution launcher）
 
 - **execution_launcher**（`services/execution_launcher.py`）：执行编排的深模块——数据集行展开 → 建记录 → 批量提交 → 聚合通知的唯一入口。调用方只有 executions 路由与 scheduler 两类；新触发来源调它即接入全部语义。
-- **ExecutionSpec**（`engine/runner.py`）：单条执行的提交规格（record id、用例 id、行变量、列快照、节点配置快照、抑制通知标志），`submit_batch_execution` 的参数契约。
+- **ExecutionSpec**（`engine/runner.py`）：单条执行的提交规格（record id、用例 id、数据集行数据 dataset_row（`{"nodes": {...}}` 各节点入参配置）、抑制通知标志），`submit_batch_execution` 的参数契约。
 - **LaunchPlan**：一个用例（× 执行次数轮）的发射计划；多个 plan 可平铺进一个批次专用线程池一次 `commit_launch`。
 - **AggregateGroup**（聚合组）：一次数据集多行展开的失败聚合通知组——全部终态后只发一条汇总，组内每条抑制逐条通知。
 - **批次专用池**：每次批量执行新建 `ThreadPoolExecutor(max_workers=concurrency)`，提交完即回收；与内部后台任务池（聚合通知等零散提交）互不复用。
 
 ## 请求组装（prepare_request）
 
-- **prepare_request**（`engine/prepare_request.py`）：请求组装的深模块——参数三层取值优先级的唯一定义点：①手动覆盖（节点 pre_process 非空值，含字面量与 ${} 动态绑定）> ②套件注入（context.suite_vars）> ③数据集域（row_vars，绑定数据集当前行）。运行时变量（extracted）不参与按名解析，仅 ${} 显式引用。编排顺序（骨架+自动解析 → ${} 求值 → pre_process → 再求值 → JSON 字符串还原 → 字段类型强转 → 剥离 file 字段 → headers 求值）为直接可测单元；调用方仅 dag_executor（debug_api / 节点重放复用同一模块）。
+- **prepare_request**（`engine/prepare_request.py`）：请求组装的深模块——四来源参数模型（2026-09-30 定案）的运行时执行核。参数取值来源单选（spec["source"]）：constant（手动常量，容器值内嵌 spec 递归解析）/ func（内置函数注册表）/ ref（上游引用，注册表取值）/ sql（参数级标量 SQL）。参数按 order_params 拓扑序逐个解析，结果按本节点命名空间注册（完整路径+末段别名）。旧「三层取值优先级（手动覆盖 > 套件注入 > 数据集域）」模型已废止。调用方仅 dag_executor。
+- **param_resolver**（`engine/param_resolver.py`）：四来源解析的唯一定义点；`render_placeholders`（SQL 内 {{节点.变量}} 渲染）被 extractor / assertion_engine 复用。
 - **RequestParts**：组装产物 dataclass（body / headers / file_fields）。
 
 ## 引擎原语（engine）
 
 - **topo_order**（`engine/topo.py`）：DAG 拓扑序的唯一实现（Kahn + 节点 id 字典序入队），返回 (拓扑序, 环/断链未入序节点)。执行顺序（dag_executor）与收集口径（dataset_service 同名异值列取源头节点值）共用同一实现，入队稳定性两边同时生效。
-- **set_nested_value**（`engine/preprocessor.py`）：点号路径嵌套设值的唯一实现（数字段索引已存在列表），body_builder 组装请求体与编排 set_field / 类型强转共用。
+- **set_nested_value**（`engine/nested_path.py`，原名 preprocessor.py）：点号路径嵌套取/设值的唯一实现（数字段索引已存在列表），body_builder 组装请求体与类型强转共用。
 
-## 数据集与变量池（dataset）
+## 数据集（dataset）
 
-- **sync_case_variable_pool**（`services/dataset_service.py`）：用例保存钩子——静态入参收口进数据集变量池的唯一入口。按拓扑执行序逐节点收集：pre_process 静态字面量递归拆叶入池后清空转引用（键已在池视为手动覆盖保留；force=True 时以节点生效值为准统一收口，形状冲突键族驱逐）；接口字段默认值作迁移源入池（键已在池跳过）；动态 ${} 默认迁为节点 pre_process 引用；用例增删节点后，池中不被剩余编排使用的键自动剔除（${} 显式引用名与前缀关联键保留）。池 = case.dataset_id；无绑定时自动创建「{用例名}-变量池」（含 1 行快照）并绑定。
-- **池一键一值一形约束**：拆叶族键（`a.b`）与整对象键（`a`）互为父子前缀冲突，不能同池——收集器按此约束驱逐冲突键族，保证运行时按名解析无歧义。
+- **dataset_service**（`services/dataset_service.py`）：数据集域服务——数据集行展开（plan_case_expansion，execution_launcher 与套件共用）、节点配置增删、行数据读写。
+- **行数据结构**：`{"nodes": {节点ID: {params: {body/headers: {参数路径: spec}}}}}`——各节点入参配置的唯一载体（2026-09-30「入参收敛到数据集行」定案）；DagExecutor._resolve_param_config 消费。旧「变量池」模型（sync_case_variable_pool 入池/驱逐、池一键一值一形约束）已随定案整体删除。
 
 ## crud 域拆分
 

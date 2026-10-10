@@ -14,7 +14,7 @@ import json
 from copy import deepcopy
 from typing import Any
 
-from ..engine.preprocessor import set_nested_value
+from ..engine.nested_path import set_nested_value
 
 
 def build_request_body(api) -> Any:

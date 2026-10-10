@@ -6,62 +6,12 @@ from sqlalchemy.orm import Session
 from .. import crud, models, schemas
 from ..auth import get_current_user
 from ..database import get_db
+from ..engine.validation import validate_post_extract_sql
 
 router = APIRouter(prefix="/api/testcases", tags=["用例"])
 
 # 注意：分组路由单独前缀，避免和 /api/testcases/{case_id} 冲突
 group_router = APIRouter(prefix="/api/case-groups", tags=["用例分组"])
-
-
-# ============ 后置提取 SQL 基本校验 ============
-# 目标是拦截"肉眼难察、运行时静默失败"的低级笔误（提取结果为空、报告里查不到原因）：
-# - 列名与关键字粘连（pay_invoice_apply_idfrom —— FROM 非独立词，TiDB 直接语法错误）
-# - SELECT 缺 FROM / 语句不以 SQL 关键字开头
-# ${} 变量先替换为占位字面量再扫描（避免 ${x}from 这类表达式写法误判）
-import re  # noqa: E402
-
-_SQL_START_RE = re.compile(r"^\s*(select|insert|update|delete|show|with|desc)\b", re.I)
-# 关键字前紧贴字母/数字（无空格/括号/下划线分隔）→ 粘连。只收长关键字，避免 in/is/as/on/set
-# 这类常见子串（login/visit）误报；下划线连接的合法列名（user_group/group_id）不命中
-# （下划线属标识符连接，不算粘连；\b 在 group_id 的 _g 处也不成立）
-_SQL_GLUED_RE = re.compile(
-    r"[A-Za-z0-9](?:from|where|select|insert|update|delete|values|into|order|group|limit|"
-    r"having|between|union|distinct|inner|outer)\b", re.I)
-
-
-def validate_post_extract_sql(node_configs: list | None) -> None:
-    """编排保存入口：校验各节点 post_extract 中 source=db 的 SQL 基本形态。
-    兼容 dict 与 Pydantic 模型（路由入参经 schema 解析后是 NodeConfigIn 对象，
-    无 .get 方法——曾致线上保存用例 500）。"""
-    if not node_configs:
-        return
-    for nc in node_configs:
-        if nc is None:
-            continue
-        if not isinstance(nc, dict):
-            nc = nc.model_dump() if hasattr(nc, "model_dump") else vars(nc)
-        node_id = nc.get("node_id") or "?"
-        for rule in nc.get("post_extract") or []:
-            if not isinstance(rule, dict) or rule.get("source") != "db":
-                continue
-            sql = str(rule.get("sql") or "").strip()
-            if not sql:
-                continue
-            name = rule.get("name") or "?"
-            # {{节点.变量}} 占位 → 字面量（防占位内容干扰词法扫描；旧 ${} 已废止）
-            scanned = re.sub(r"\{\{[^{}]*\}\}", "1", sql)
-            if not _SQL_START_RE.match(scanned):
-                raise ValueError(
-                    f"节点 {node_id} 后置提取「{name}」的 SQL 未以 SELECT/UPDATE/DELETE 等关键字开头，请检查")
-            m = _SQL_GLUED_RE.search(scanned)
-            if m:
-                frag = m.group(0)
-                raise ValueError(
-                    f"节点 {node_id} 后置提取「{name}」的 SQL 疑似标识符与关键字粘连"
-                    f"（…{frag}…，缺少空格），请检查：{sql[:120]}")
-            if scanned.lstrip()[:6].lower() == "select" and not re.search(r"\bfrom\b", scanned, re.I):
-                raise ValueError(
-                    f"节点 {node_id} 后置提取「{name}」的 SELECT 缺少 FROM（可能列名与 FROM 粘连），请检查：{sql[:120]}")
 
 
 # ============ 用例分组 ============

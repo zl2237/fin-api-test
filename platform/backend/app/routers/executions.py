@@ -261,7 +261,7 @@ def replay_step(step_id: int, data: schemas.StepReplayRequest,
             pass
 
 
-def _current_dataset_row_vars(db: Session, execution: models.ExecutionRecord) -> dict | None:
+def _current_dataset_row(db: Session, execution: models.ExecutionRecord) -> dict | None:
     """执行记录绑定数据集的当前行数据（首行，per-node 入参配置）：续跑共用
     「数据集取当前」口径。数据集被用户修改后此处取到新配置（与 dataset_row
     快照解耦）；无绑定/无行返回 None（执行强绑定下续跑被拒）。"""
@@ -328,8 +328,8 @@ def resume_execution(exec_id: int, db: Session = Depends(get_db),
             raise HTTPException(400, "报告中无可续跑的失败节点（异常中断且无未执行节点），请重新执行")
         start_node = leftover[0]
 
-    row_vars = _current_dataset_row_vars(db, record)
-    if row_vars is None:
+    dataset_row = _current_dataset_row(db, record)
+    if dataset_row is None:
         raise HTTPException(400, "原执行未绑定数据集（或数据集已无数据行），续跑需绑定数据集，请重新执行")
     context_seed = build_report_context(steps)
 
@@ -350,7 +350,7 @@ def resume_execution(exec_id: int, db: Session = Depends(get_db),
             if not (rcase and renv and rrecord):
                 return
             DagExecutor(rdb, rcase, renv, execution_record=rrecord,
-                        row_vars=row_vars, context_seed=context_seed,
+                        dataset_row=dataset_row, context_seed=context_seed,
                         start_node=start_node, suppress_notify=True).execute()
         except Exception as e:
             try:

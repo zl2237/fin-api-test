@@ -60,7 +60,7 @@ class TestBuildLaunchPlan:
         assert len(plan.records) == 1
         spec = plan.specs[0]
         assert (spec.execution_id, spec.case_id) == (100, 11)
-        assert spec.row_vars is None
+        assert spec.dataset_row is None
 
     def test_suite_skips_dataset_binding(self, patched, monkeypatch):
         """套件：本体无变量池，不走数据集展开（未绑定也可执行），单条直发"""
@@ -74,17 +74,17 @@ class TestBuildLaunchPlan:
         assert called == []
         assert len(plan.records) == 1
         assert plan.records[0].dataset_id is None
-        assert plan.specs[0].row_vars is None
+        assert plan.specs[0].dataset_row is None
 
-    def test_bound_dataset_row_vars_passthrough(self, patched, monkeypatch):
-        """绑定数据集：row 的单套值作为 row_vars 传入 spec"""
+    def test_bound_dataset_row_passthrough(self, patched, monkeypatch):
+        """绑定数据集：row 的单套值作为 dataset_row 传入 spec"""
         _set_plan(monkeypatch, [{"dataset_id": 7, "row": _row(1, "BL001"),
                                  "overrides": None}])
 
         plan = build_launch_plan(object(), CASE, 22, 5)
 
         assert plan.records[0].dataset_id == 7
-        assert plan.specs[0].row_vars == {"bl_no": "BL001"}
+        assert plan.specs[0].dataset_row == {"bl_no": "BL001"}
 
     def test_run_count_multiplies_records(self, patched, monkeypatch):
         """执行次数 ×N：记录与 spec 数量翻倍"""
@@ -96,7 +96,7 @@ class TestBuildLaunchPlan:
         plan = build_launch_plan(object(), CASE, 22, 5, run_count=3)
 
         assert len(plan.specs) == 6  # 3 轮 × 2 条展开
-        assert [s.row_vars for s in plan.specs[:2]] == [{"bl_no": "BL001"}, {"bl_no": "BL002"}]
+        assert [s.dataset_row for s in plan.specs[:2]] == [{"bl_no": "BL001"}, {"bl_no": "BL002"}]
 
     def test_trigger_type_passthrough(self, patched, monkeypatch):
         """trigger_type 透传到每条记录（schedule/manual 溯源）"""

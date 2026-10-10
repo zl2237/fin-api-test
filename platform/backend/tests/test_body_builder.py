@@ -5,7 +5,7 @@
 """
 from types import SimpleNamespace
 
-from app.engine.preprocessor import set_nested_value
+from app.engine.nested_path import set_nested_value
 from app.services.body_builder import build_request_body, parse_field_value
 
 

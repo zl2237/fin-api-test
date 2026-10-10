@@ -748,7 +748,7 @@ class FileOut(ORMBase, AuditMixin):
     updated_by_name: str | None = None
 
 
-# ============ DataSet 数据集（变量池，单套语义） ============
+# ============ DataSet 数据集（行数据承载各节点入参配置，单套语义） ============
 class DataSetCreate(BaseModel):
     project_id: int
     case_id: int  # 归属用例（1:N 隔离）

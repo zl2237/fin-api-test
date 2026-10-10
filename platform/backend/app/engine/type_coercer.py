@@ -10,7 +10,7 @@ DagExecutor 私有方法的依赖。行为与原 DagExecutor 实现完全一致�
 import json
 from typing import Any
 
-from .preprocessor import get_nested_value, set_nested_value
+from .nested_path import get_nested_value, set_nested_value
 
 
 def coerce_json_strings(obj: Any) -> Any:

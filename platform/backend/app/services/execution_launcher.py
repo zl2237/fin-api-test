@@ -54,7 +54,7 @@ def build_launch_plan(db: Session, case, env_id: int, user_id: int, *,
             launch.specs.append(ExecutionSpec(
                 execution_id=record.id,
                 case_id=case.id,
-                row_vars=(item["row"] or {}).get("data"),
+                dataset_row=(item["row"] or {}).get("data"),
             ))
 
     for record in launch.records:
