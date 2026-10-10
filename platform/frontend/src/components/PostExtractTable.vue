@@ -27,17 +27,12 @@
       </el-table-column>
       <el-table-column label="SQL" min-width="220" v-if="hasDb">
         <template #default="{ row }">
-          <div v-if="row.source === 'db'" class="sql-cell">
-            <el-input
-              v-model="row.sql"
-              size="small"
-              type="textarea"
-              :autosize="{ minRows: 1, maxRows: 4 }"
-              placeholder="SELECT order_id FROM sys_order WHERE bl_no='{{n_create.bl_no}}'"
-              @focus="onSqlFocus"
-            />
-            <SqlRefMenu :groups="refGroups" @insert="(t: string) => onSqlInsert(row, t)" />
-          </div>
+          <SqlCell
+            v-if="row.source === 'db'"
+            v-model="row.sql"
+            :ref-groups="refGroups"
+            placeholder="SELECT order_id FROM sys_order WHERE bl_no='{{n_create.bl_no}}'"
+          />
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -63,8 +58,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick } from 'vue'
-import SqlRefMenu from '@/components/SqlRefMenu.vue'
+import { computed } from 'vue'
+import SqlCell from '@/components/SqlCell.vue'
 import type { RefVarGroup } from '@/components/VarRefSelect.vue'
 
 const props = defineProps<{ modelValue: any[]; refGroups?: RefVarGroup[] }>()
@@ -72,28 +67,6 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: any[]): void }>()
 
 const hasResponse = computed(() => props.modelValue.some((r) => r.source === 'response' || !r.source))
 const hasDb = computed(() => props.modelValue.some((r) => r.source === 'db'))
-
-// 记录最后聚焦的 SQL 输入框，插入引用时在光标位置插入而非追加末尾
-let lastSqlTa: HTMLTextAreaElement | null = null
-function onSqlFocus(e: FocusEvent) {
-  lastSqlTa = e.target as HTMLTextAreaElement
-}
-function onSqlInsert(row: any, t: string) {
-  const ta = lastSqlTa
-  if (ta) {
-    const s = ta.selectionStart ?? 0
-    const e = ta.selectionEnd ?? s
-    const v = row.sql || ''
-    row.sql = v.slice(0, s) + t + v.slice(e)
-    nextTick(() => {
-      ta.focus()
-      const pos = s + t.length
-      ta.setSelectionRange(pos, pos)
-    })
-  } else {
-    row.sql = `${row.sql || ''}${t}`
-  }
-}
 
 function onSourceChange(row: any) {
   // 切换来源时清理无关字段，避免脏数据
@@ -123,14 +96,5 @@ function remove(idx: number) {
 }
 .muted {
   color: var(--app-text-muted);
-}
-.sql-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-.sql-cell .el-textarea {
-  width: 100%;
 }
 </style>
