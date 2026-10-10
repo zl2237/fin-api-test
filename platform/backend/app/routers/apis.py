@@ -43,7 +43,7 @@ def update_group(group_id: int, data: schemas.ApiGroupUpdate, db: Session = Depe
     return obj
 
 
-@group_router.delete("/{group_id}")
+@group_router.delete("/{group_id}", response_model=schemas.MessageOut)
 def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_api_group(db, group_id)
     if not obj:
@@ -164,7 +164,7 @@ def update(api_id: int, data: schemas.ApiUpdate, db: Session = Depends(get_db), 
     return obj
 
 
-@router.delete("/{api_id}")
+@router.delete("/{api_id}", response_model=schemas.MessageOut)
 def delete(api_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_api(db, api_id)
     if not obj:
@@ -193,7 +193,7 @@ def copy(api_id: int, db: Session = Depends(get_db), user: models.User = Depends
     return new_obj
 
 
-@router.post("/batch-move")
+@router.post("/batch-move", response_model=schemas.ReorderResultOut)
 def batch_move(data: schemas.ApiBatchMove, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """批量移动接口到指定分组"""
     # 注意：此路由需在 /{api_id} 之前注册，否则会被 path 参数拦截
@@ -202,7 +202,7 @@ def batch_move(data: schemas.ApiBatchMove, db: Session = Depends(get_db), user: 
     return {"message": f"已移动 {updated} 个接口", "updated": updated}
 
 
-@router.post("/reorder")
+@router.post("/reorder", response_model=schemas.ReorderResultOut)
 def reorder(data: schemas.ApiReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """批量重排序接口（组内拖拽排序）"""
     # 注意：此路由需在 /{api_id} 之前注册，否则会被 path 参数拦截

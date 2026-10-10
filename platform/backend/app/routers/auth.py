@@ -39,7 +39,7 @@ def me(current: models.User = Depends(get_current_user)):
     return current
 
 
-@router.post("/change-password")
+@router.post("/change-password", response_model=schemas.MessageOut)
 def change_password(
     data: schemas.ChangePasswordRequest,
     current: models.User = Depends(get_current_user),
@@ -56,7 +56,7 @@ def change_password(
 
 
 # ============ 头像管理 ============
-@router.put("/avatar")
+@router.put("/avatar", response_model=schemas.MessageOut)
 def update_avatar(
     data: schemas.AvatarUpdate,
     current: models.User = Depends(get_current_user),
@@ -69,7 +69,7 @@ def update_avatar(
     return {"message": "头像已更新"}
 
 
-@router.delete("/avatar")
+@router.delete("/avatar", response_model=schemas.MessageOut)
 def remove_avatar(
     current: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),

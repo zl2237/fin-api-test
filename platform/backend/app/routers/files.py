@@ -175,7 +175,7 @@ def update_file(
 
 
 # ============ 删除 ============
-@router.delete("/{file_id}")
+@router.delete("/{file_id}", response_model=schemas.FileDeleteResultOut)
 def delete_file(
     file_id: int,
     db: Session = Depends(get_db),
@@ -241,7 +241,7 @@ def update_category(
     return obj
 
 
-@category_router.delete("/{category_id}")
+@category_router.delete("/{category_id}", response_model=schemas.MessageOut)
 def delete_category(
     category_id: int,
     db: Session = Depends(get_db),

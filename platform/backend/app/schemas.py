@@ -1,6 +1,6 @@
 """Pydantic V2 schemas：请求/响应数据模型"""
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,6 +8,32 @@ from pydantic import BaseModel, ConfigDict, Field
 # ============ 通用 ============
 class ORMBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+class MessageOut(BaseModel):
+    """通用消息响应：删除/重置/触发等只回一句话的端点"""
+    message: str
+
+
+class ReorderResultOut(MessageOut):
+    """reorder / batch-move 家族：消息 + 实际更新条数"""
+    updated: int = 0
+
+
+class CleanupResultOut(MessageOut):
+    """清理类端点：消息 + 删除条数（+ 天数口径）"""
+    deleted: int = 0
+    days: int | None = None
+
+
+class BatchImportResultOut(MessageOut):
+    """批量导入类端点：消息 + 导入条数"""
+    count: int = 0
+
+
+class FileDeleteResultOut(MessageOut):
+    """文件删除：消息 + 是否物理删除了磁盘文件"""
+    physical_removed: bool = False
 
 
 class AuditMixin(BaseModel):
@@ -378,6 +404,7 @@ class ApiOut(ORMBase):
     method: str
     path: str
     description: str | None = None
+    sort_order: int = 0  # 组内排序（拖拽手序）；前端分组表按此稳定排序
     request_template: Any = {}
     headers_template: dict[str, Any] = {}
     fields: list[ApiFieldOut] = []
@@ -462,6 +489,7 @@ class TestCaseOut(ORMBase):
     name: str
     description: str | None = None
     case_type: str = "normal"
+    sort_order: int = 0  # 组内排序（拖拽手序）
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
     dataset_id: int | None = None  # 绑定的数据集（数据驱动），NULL=普通用例
@@ -631,11 +659,19 @@ class ExecutionListOut(BaseModel):
     total: int
 
 
+class ExecutionStatsOut(BaseModel):
+    """近 N 天执行统计（工作台）：全量聚合口径，不受列表截断影响"""
+    count: int
+    passed: int
+    rate: int | None = None  # 通过率（%）；无执行记录时为 null
+    days: int
+
+
 # ============ TestSchedule 定时任务 ============
 class TestScheduleCreate(BaseModel):
     case_id: int
     env_id: int
-    schedule_type: str  # interval / daily
+    schedule_type: Literal["interval", "daily"]  # interval 固定间隔 / daily 每日定时
     interval_minutes: int | None = None
     daily_time: str | None = None  # HH:MM
     enabled: bool = True
@@ -643,7 +679,7 @@ class TestScheduleCreate(BaseModel):
 
 class TestScheduleUpdate(BaseModel):
     env_id: int | None = None
-    schedule_type: str | None = None
+    schedule_type: Literal["interval", "daily"] | None = None
     interval_minutes: int | None = None
     daily_time: str | None = None
     enabled: bool | None = None

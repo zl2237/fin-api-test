@@ -57,6 +57,11 @@ class RoutingFakeDb:
                 if cls is models.StepRecord:
                     steps, db._steps = db._steps, []
                     return steps
+                if cls is models.CaseNodeConfig:
+                    # 返回副本不消费：指纹收集与配置预载各查一次
+                    return list(db._configs)
+                if cls is models.ApiDefinition:
+                    return list(db._apis)
                 return []
 
             def scalar(self):
@@ -105,9 +110,9 @@ def _patch_env(monkeypatch):
 
 
 def _resume_executor(start_node, context_seed=None, steps=None):
-    """构造续跑执行器：n2/n3 可执行（config+api），n1 被跳过不查询"""
+    """构造续跑执行器：n2/n3 可执行（config+api，带 node_id 供配置预载），n1 被跳过不查询"""
     db = RoutingFakeDb(
-        configs=[_config(api_id=10), _config(api_id=10)],  # n2, n3
+        configs=[_config(api_id=10, node_id="n2"), _config(api_id=10, node_id="n3")],  # n2, n3
         apis=[_api(), _api()],
         steps=steps or [],
     )

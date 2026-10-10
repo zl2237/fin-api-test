@@ -47,7 +47,7 @@ def create(
     return obj
 
 
-@router.post("/batch")
+@router.post("/batch", response_model=schemas.BatchImportResultOut)
 def batch_import(
     data: schemas.FieldDictionaryBatchIn,
     db: Session = Depends(get_db),
@@ -92,7 +92,7 @@ def update(
     return obj
 
 
-@router.delete("/{dict_id}")
+@router.delete("/{dict_id}", response_model=schemas.MessageOut)
 def remove(
     dict_id: int,
     db: Session = Depends(get_db),

@@ -109,7 +109,7 @@ def update(schedule_id: int, data: schemas.TestScheduleUpdate, db: Session = Dep
     return _fill_names(db, obj)
 
 
-@router.delete("/{schedule_id}")
+@router.delete("/{schedule_id}", response_model=schemas.MessageOut)
 def delete(schedule_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = db.query(models.TestSchedule).filter(models.TestSchedule.id == schedule_id).first()
     if not obj:
@@ -121,7 +121,7 @@ def delete(schedule_id: int, db: Session = Depends(get_db), user: models.User = 
     return {"message": "已删除"}
 
 
-@router.post("/{schedule_id}/run")
+@router.post("/{schedule_id}/run", response_model=schemas.MessageOut)
 def run_now(schedule_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """立即执行一次（不等调度到达）：走定时任务同一路径，记录 trigger_type=schedule"""
     _require_scheduler()

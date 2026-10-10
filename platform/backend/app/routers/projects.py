@@ -43,7 +43,7 @@ def update(project_id: int, data: schemas.ProjectUpdate, db: Session = Depends(g
     return obj
 
 
-@router.delete("/{project_id}")
+@router.delete("/{project_id}", response_model=schemas.MessageOut)
 def delete(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_project(db, project_id)
     if not obj:
@@ -53,7 +53,7 @@ def delete(project_id: int, db: Session = Depends(get_db), user: models.User = D
     return {"message": "已删除"}
 
 
-@router.post("/reorder")
+@router.post("/reorder", response_model=schemas.ReorderResultOut)
 def reorder(data: schemas.ProjectReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     items = [{"id": it["id"], "sort_order": it["sort_order"]} for it in data.items]
     updated = crud.reorder_projects(db, items, user.id)

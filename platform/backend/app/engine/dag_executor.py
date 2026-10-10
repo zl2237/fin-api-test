@@ -78,6 +78,11 @@ class DagExecutor:
         self.start_node = start_node
         self.context_seed = context_seed or None
         self._resume_mode = start_node is not None
+        # 节点配置/接口定义预载缓存（execute() 起跑时一次性加载，消执行期
+        # 每节点 2 次查询的 N+1）。None = 未预载（直接调 _execute_node 的测试
+        # 替身路径），此时逐节点查库，与旧行为一致
+        self._node_cache: dict[str, Any] | None = None
+        self._api_cache: dict[int, Any] | None = None
         # 节点 id → 画布中文名：错误消息可读性（node_xxx → 「审核」）
         self._node_labels: dict[str, str] = {
             n.get("id", ""): ((n.get("data") or {}).get("label") or n.get("label") or n.get("id", ""))
@@ -154,6 +159,8 @@ class DagExecutor:
             dag = self.case.dag_config or {"nodes": [], "edges": []}
             order, leftover = topo_order(dag)
             nodes_map = {n["id"]: n for n in dag.get("nodes", [])}
+            # 预载节点配置/接口定义：后续逐节点执行全部走内存（消 N+1）
+            self._prime_node_cache()
 
             # 断点续跑：首个未成功节点之前的步骤都已成功——跳过不发请求，
             # 计入 passed；同时清掉该节点起的旧失败记录（本次续跑重新生成，
@@ -294,10 +301,40 @@ class DagExecutor:
     def _resolve_node_config(self, node_id: str):
         """节点结构配置来源：用例当前 CaseNodeConfig（编排唯一来源，无快照覆盖）。
         仅承载结构层（接口绑定/后置提取/断言/等待）；入参配置见 _resolve_param_config。"""
+        if self._node_cache is not None:
+            # execute() 已预载全量配置：缓存未命中即该节点确实无配置行
+            return self._node_cache.get(node_id)
         return self.db.query(models.CaseNodeConfig).filter(
             models.CaseNodeConfig.case_id == self.case.id,
             models.CaseNodeConfig.node_id == node_id,
         ).first()
+
+    def _resolve_api(self, api_id: int):
+        """接口定义：预载缓存命中直接取，否则逐条查库（测试替身路径）。"""
+        if self._api_cache is not None:
+            return self._api_cache.get(api_id)
+        return self.db.query(models.ApiDefinition).filter(
+            models.ApiDefinition.id == api_id).first()
+
+    def _prime_node_cache(self) -> None:
+        """一次性预载本用例全部节点配置与涉企接口定义。
+
+        消执行期 N+1（每节点 CaseNodeConfig + ApiDefinition 各一次查询）：
+        N 节点用例从 2N 次查询降为固定 2 次。查询失败（测试替身无 all）时
+        缓存保持 None，_resolve_* 回退逐节点查询，行为不变。
+        """
+        try:
+            rows = (self.db.query(models.CaseNodeConfig)
+                    .filter(models.CaseNodeConfig.case_id == self.case.id).all())
+            api_ids = sorted({r.api_id for r in rows if r.api_id is not None})
+            apis = (self.db.query(models.ApiDefinition)
+                    .filter(models.ApiDefinition.id.in_(api_ids)).all()) if api_ids else []
+            self._node_cache = {r.node_id: r for r in rows}
+            self._api_cache = {a.id: a for a in apis}
+        except Exception as e:
+            self._node_cache = None
+            self._api_cache = None
+            print(f"[配置预载] 跳过（查询失败，回退逐节点查询）: {e}")
 
     def _resolve_param_config(self, node_id: str):
         """节点入参配置来源：数据集行内 per-node 配置（入参收敛到数据集，
@@ -323,7 +360,7 @@ class DagExecutor:
 
         api = None
         if config and config.api_id:
-            api = self.db.query(models.ApiDefinition).filter(models.ApiDefinition.id == config.api_id).first()
+            api = self._resolve_api(config.api_id)
 
         started_at = datetime.now()
         start_ts = time.time()

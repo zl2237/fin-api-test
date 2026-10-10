@@ -184,7 +184,7 @@ class TestCountExecutions:
 
 
 class StatsDb:
-    """execution_stats 查询链 fake：query→filter→[join→filter]→with_entities→all"""
+    """execution_stats 查询链 fake：query→filter→[join→filter]→with_entities→group_by→all"""
 
     def __init__(self, statuses=()):
         self._st = list(statuses)
@@ -201,8 +201,13 @@ class StatsDb:
     def with_entities(self, *a):
         return self
 
+    def group_by(self, *a):
+        return self
+
     def all(self):
-        return [(s,) for s in self._st]
+        # 模拟数据库端聚合：[(status, count), ...]
+        from collections import Counter
+        return list(Counter(self._st).items())
 
 
 class TestExecutionStats:

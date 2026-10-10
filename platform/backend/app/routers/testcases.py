@@ -37,7 +37,7 @@ def update_group(group_id: int, data: schemas.CaseGroupUpdate, db: Session = Dep
     return obj
 
 
-@group_router.delete("/{group_id}")
+@group_router.delete("/{group_id}", response_model=schemas.MessageOut)
 def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_case_group(db, group_id)
     if not obj:
@@ -173,7 +173,7 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     return obj
 
 
-@router.delete("/{case_id}")
+@router.delete("/{case_id}", response_model=schemas.MessageOut)
 def delete(case_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_testcase(db, case_id)
     if not obj:
@@ -305,7 +305,7 @@ def split(case_id: int, data: schemas.CaseSplitRequest, db: Session = Depends(ge
     }
 
 
-@router.post("/batch-move")
+@router.post("/batch-move", response_model=schemas.ReorderResultOut)
 def batch_move(data: schemas.CaseBatchMove, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """批量移动用例到指定分组"""
     # 注意：此路由需在 /{case_id} 之前注册，否则会被 path 参数拦截
@@ -314,7 +314,7 @@ def batch_move(data: schemas.CaseBatchMove, db: Session = Depends(get_db), user:
     return {"message": f"已移动 {updated} 个用例", "updated": updated}
 
 
-@router.post("/reorder")
+@router.post("/reorder", response_model=schemas.ReorderResultOut)
 def reorder(data: schemas.CaseReorderRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """批量重排序用例（组内拖拽排序）"""
     # 注意：此路由需在 /{case_id} 之前注册，否则会被 path 参数拦截

@@ -55,7 +55,7 @@ def update_user_info(user_id: int, data: schemas.UserInfoUpdate, db: Session = D
     return users_domain.update_user_info(db, user, data, operator=admin)
 
 
-@router.put("/{user_id}/password")
+@router.put("/{user_id}/password", response_model=schemas.MessageOut)
 def reset_password(user_id: int, data: schemas.UserPasswordReset, db: Session = Depends(get_db), _admin: models.User = Depends(_require_admin)):
     user = users_domain.get_user(db, user_id)
     if not user:
@@ -64,7 +64,7 @@ def reset_password(user_id: int, data: schemas.UserPasswordReset, db: Session = 
     return {"message": "密码已重置"}
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", response_model=schemas.MessageOut)
 def delete_user(user_id: int, db: Session = Depends(get_db), admin: models.User = Depends(_require_admin)):
     user = users_domain.get_user(db, user_id)
     if not user:
