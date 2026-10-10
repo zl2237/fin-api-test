@@ -248,3 +248,114 @@ class TestCaseBinding:
                           return_value=SimpleNamespace(id=7, project_id=1, case_id=2)):
             with pytest.raises(ValueError, match="其他用例|隔离"):
                 svc.validate_binding(_fake_db(), case, 7)
+
+
+# ============ 保存用例钩子：默认数据集初始化 + 节点增量（Q7，2026-10-10） ============
+
+def _q(results):
+    class _Q:
+        def filter(self, *a, **k):
+            return self
+
+        def order_by(self, *a, **k):
+            return self
+
+        def all(self):
+            return results
+    return _Q()
+
+
+def _hook_db(cfgs, apis, rows=None):
+    def query(m):
+        if m is models.CaseNodeConfig:
+            return _q(cfgs)
+        if m is models.ApiDefinition:
+            return _q(apis)
+        if m is models.DataSetRow:
+            return _q(rows or [])
+        return _q([])
+    return SimpleNamespace(query=query, add=lambda o: None, flush=lambda: None,
+                           commit=lambda: None, refresh=lambda o: None, rollback=lambda: None)
+
+
+def _cfg(nid, api_id=10):
+    return SimpleNamespace(node_id=nid, api_id=api_id)
+
+
+def _api10():
+    return SimpleNamespace(id=10, fields=[SimpleNamespace(
+        key="bl_no", field_type="string", default_value="BL1")])
+
+
+class TestEnsureCaseDataset:
+    def test_suite_case_skipped(self):
+        """套件用例跳过（成员用例各自管理数据集）"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="suite", dataset_id=None,
+                               dag_config={"nodes": [{"id": "n1"}], "edges": []})
+        with patch.object(svc, "create_dataset") as mk:
+            svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case)
+        mk.assert_not_called()
+
+    def test_unbound_creates_default_dataset_with_example_params(self):
+        """未绑定：自动建「默认数据集」（示例值初始化节点参数）并绑定用例"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+                               dag_config={"nodes": [{"id": "n1"}], "edges": []})
+        created = {}
+
+        def fake_create(db, **kw):
+            created.update(kw)
+            return SimpleNamespace(id=77)
+
+        with patch.object(svc, "create_dataset", side_effect=fake_create):
+            svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case, user_id=1)
+        assert case.dataset_id == 77
+        assert created["name"] == "默认数据集" and created["case_id"] == 5
+        assert created["rows_data"] == [{"nodes": {"n1": {"params": {
+            "body": {"bl_no": {"source": "constant", "value": "BL1"}}}}}}]
+
+    def test_unbound_api_node_not_initialized(self):
+        """未绑定接口的画布节点不初始化（无字段契约，执行时也无请求）"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+                               dag_config={"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": []})
+        created = {}
+
+        def fake_create(db, **kw):
+            created.update(kw)
+            return SimpleNamespace(id=77)
+
+        with patch.object(svc, "create_dataset", side_effect=fake_create):
+            svc.ensure_case_dataset(_hook_db([_cfg("n1", api_id=None), _cfg("n2")], [_api10()]), case)
+        assert created["rows_data"] == [{"nodes": {"n2": {"params": {
+            "body": {"bl_no": {"source": "constant", "value": "BL1"}}}}}}]
+
+    def test_bound_appends_new_nodes_only(self):
+        """已绑定：仅补画布新增节点的初始参数；已有节点参数（含用户改的动态来源）原样不动"""
+        old_params = {"params": {"body": {"bl_no": {
+            "source": "ref", "node_id": "n0", "var_path": "bl"}}}}
+        row = SimpleNamespace(row_index=1, data={"nodes": {"n1": old_params}})
+        ds = SimpleNamespace(id=77, rows=[row])
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=77,
+                               dag_config={"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": []})
+        db = _hook_db([_cfg("n1"), _cfg("n2")], [_api10()], rows=[row])
+        with patch.object(svc.crud, "get_dataset", return_value=ds):
+            svc.ensure_case_dataset(db, case, user_id=1)
+        assert row.data["nodes"]["n1"] is old_params  # 原对象不动（增量红线）
+        assert row.data["nodes"]["n2"] == {"params": {
+            "body": {"bl_no": {"source": "constant", "value": "BL1"}}}}
+
+    def test_explicit_unbind_does_not_recreate(self):
+        """用户显式解绑（allow_create=False）：不重建绑定"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+                               dag_config={"nodes": [{"id": "n1"}], "edges": []})
+        with patch.object(svc, "create_dataset") as mk:
+            svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case,
+                                    allow_create=False)
+        mk.assert_not_called()
+        assert case.dataset_id is None
+
+    def test_failure_does_not_raise(self):
+        """初始化失败不阻断保存（吞异常回滚）"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+                               dag_config={"nodes": [{"id": "n1"}], "edges": []})
+        with patch.object(svc, "create_dataset", side_effect=RuntimeError("db down")):
+            svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case)  # 不抛即通过

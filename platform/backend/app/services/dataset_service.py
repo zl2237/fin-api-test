@@ -198,6 +198,82 @@ def validate_binding(db: Session, case, dataset_id: int | None) -> None:
         raise ValueError("数据集不属于该用例（数据集按用例隔离）")
 
 
+# ============ 保存用例钩子：默认数据集初始化 + 画布节点增量（Q7，2026-10-10 定案） ============
+
+def _node_initial_params(db: Session, case) -> dict[str, dict]:
+    """画布节点 → 初始入参配置 {"节点ID": {"params": {"body": ...}}}。
+
+    按各节点绑定接口的字段生成（示例值拆解，Q9-B：object/array 按结构拆
+    叶子路径逐字段 constant），口径与契约同步一致（contract_sync.apply_node_sync）。
+    未绑定接口的节点不初始化（执行时也无请求）。
+    """
+    from .contract_sync import apply_node_sync  # 函数内延迟：contract_sync 依赖本模块
+
+    struct = {c.node_id: c for c in db.query(models.CaseNodeConfig)
+              .filter(models.CaseNodeConfig.case_id == case.id).all()}
+    api_ids = {c.api_id for c in struct.values() if c.api_id}
+    apis = {a.id: a for a in db.query(models.ApiDefinition)
+            .filter(models.ApiDefinition.id.in_(api_ids)).all()} if api_ids else {}
+    dag_nodes = [n.get("id") for n in ((case.dag_config or {}).get("nodes") or [])
+                 if isinstance(n, dict) and n.get("id")]
+    out: dict[str, dict] = {}
+    for nid in dag_nodes:
+        c = struct.get(nid)
+        api = apis.get(c.api_id) if (c and c.api_id) else None
+        if api is None:
+            continue
+        body, _ = apply_node_sync(None, api.fields)
+        if body:
+            out[nid] = {"params": {"body": body}}
+    return out
+
+
+def ensure_case_dataset(db: Session, case, user_id: int | None = None,
+                        *, allow_create: bool = True) -> None:
+    """保存用例钩子：未绑定 → 自动建「默认数据集」（示例值初始化全部节点）并绑定；
+    已绑定 → 行内缺失的画布节点（新加节点）按接口字段补初始参数。
+
+    - 套件用例跳过（成员用例各自管理数据集）
+    - 已有节点的参数一律不动（契约出入走接口保存/数据集保存的同步弹窗许可）
+    - allow_create=False 用于用户显式解绑数据集的保存：不重建绑定，仅增量
+    - 初始化失败不阻断保存（打印日志，数据集页可见未配置状态）
+    """
+    if getattr(case, "case_type", "normal") == "suite":
+        return
+    try:
+        if not getattr(case, "dataset_id", None):
+            if not allow_create:
+                return
+            rows_data = None
+            nodes = _node_initial_params(db, case)
+            if nodes:
+                rows_data = [{"nodes": nodes}]
+            ds = create_dataset(db, project_id=case.project_id, name="默认数据集",
+                                user_id=user_id, case_id=case.id, rows_data=rows_data)
+            case.dataset_id = ds.id
+            db.commit()
+            return
+        ds = crud.get_dataset(db, case.dataset_id)
+        if not ds:
+            return
+        row = _ensure_row(db, ds)
+        data = dict(row.data or {})
+        raw_nodes = data.get("nodes")
+        nodes = dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
+        fresh = False
+        for nid, cfg in _node_initial_params(db, case).items():
+            if nid not in nodes:
+                nodes[nid] = cfg
+                fresh = True
+        if fresh:
+            data["nodes"] = nodes
+            row.data = data
+            db.commit()
+    except Exception as e:
+        print(f"[数据集初始化] 跳过（失败不阻断保存）: {e}")
+        db.rollback()
+
+
 # ============ 复制 / 克隆 / 组合合并（纯值操作） ============
 
 def copy_dataset(db: Session, dataset_id: int, name: str | None = None, user_id: int | None = None) -> models.DataSet:
