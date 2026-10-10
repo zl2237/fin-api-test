@@ -120,8 +120,8 @@ def save_node_config(db: Session, dataset_id: int, node_id: str,
     ds = get_dataset(db, dataset_id)
     row = _ensure_row(db, ds)
     data = dict(row.data or {})
-    nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
-    nodes = dict(nodes)
+    raw_nodes = data.get("nodes")
+    nodes = dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
     nodes[node_id] = {"params": params or {}}
     data["nodes"] = nodes
     row.data = data
@@ -141,9 +141,9 @@ def remove_node_config(db: Session, dataset_id: int, node_id: str,
         return ds
     row = rows[0]
     data = dict(row.data or {})
-    nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
-    if node_id in nodes:
-        nodes = dict(nodes)
+    raw_nodes = data.get("nodes")
+    if isinstance(raw_nodes, dict) and node_id in raw_nodes:
+        nodes = dict(raw_nodes)
         del nodes[node_id]
         data["nodes"] = nodes
         row.data = data

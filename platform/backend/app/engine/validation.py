@@ -115,7 +115,8 @@ def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
         节点结构配置的 post_extract/assertions，由调用方组装；dict/模型均可）
     """
     errs: list[str] = []
-    configs = {c.get("node_id"): c for c in _as_dict_list(node_configs)}
+    # 键收窄为 str（node_id 缺失时 None → "None"，与旧 f-string 展示一致）
+    configs = {str(c.get("node_id")): c for c in _as_dict_list(node_configs)}
     if not configs:
         return errs
 
