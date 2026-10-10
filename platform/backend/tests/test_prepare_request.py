@@ -346,6 +346,71 @@ class TestSqlParameter:
         assert parts.body["oid"] == "OK"
 
 
+class TestArrayElementEmptyAndNull:
+    """数组元素空值/null 语义（2026-10-10「未配置即常量空，请求不缺失字段」定案）。
+
+    - 数组内嵌套路径（x.0.y）的常量空串照发，不缺失字段（#965/#966 回归）
+    - 数组元素未配置字段按示例值首元素结构（元素契约源）补空串
+    - 显式 null（constant value=None）发 JSON null 且不被补空覆盖、穿透强转
+    """
+
+    _STMT_DEFAULT = '[{"receipt_account": "ACC", "receipt_voucher": "V", "fee": "1"}]'
+
+    def _stmt_api(self):
+        return _api([_field("statement", field_type="array", default=self._STMT_DEFAULT)])
+
+    def test_array_element_empty_constant_sent(self):
+        """#965/#966 回归：statement.0.receipt_account 常量空串必须照发 ""，
+        请求体不缺失字段（旧 path.split(".")[0] 前缀判断误杀，
+        致服务端 updateFeeWriteoff() 收 null 500）"""
+        api = self._stmt_api()
+
+        parts = _run(api, _config(body={
+            "statement.0.receipt_account": _const(""),
+            "statement.0.receipt_voucher": _const(""),
+        }))
+
+        assert parts.body == {"statement": [
+            {"receipt_account": "", "receipt_voucher": "", "fee": ""}]}
+
+    def test_array_element_unconfigured_filled_blank(self):
+        """元素未配置字段补空串：示例值首元素结构 = 元素契约源，
+        只配了 fee，receipt_account / receipt_voucher 也出现在请求体中"""
+        api = self._stmt_api()
+
+        parts = _run(api, _config(body={"statement.0.fee": _const("100")}))
+
+        assert parts.body == {"statement": [
+            {"fee": "100", "receipt_account": "", "receipt_voucher": ""}]}
+
+    def test_array_element_explicit_null_preserved(self):
+        """显式 null 发 JSON null，元素补空不覆盖（null ≠ 缺失，两种语义）"""
+        api = self._stmt_api()
+
+        parts = _run(api, _config(body={
+            "statement.0.receipt_account": _const(None)}))
+
+        assert parts.body == {"statement": [
+            {"receipt_account": None, "receipt_voucher": "", "fee": ""}]}
+
+    def test_top_array_empty_scalar_param_still_skipped(self):
+        """顶层 array 字段自身的空标量参数（constant ""/None，迁移产物）仍
+        不落盘发 []：拦截范围已收紧到「参数路径本身就是 array 字段」（防回归）"""
+        api = _api([_field("ids", field_type="array"), _field("bl_no")])
+
+        parts = _run(api, _config(body={"ids": _const(""), "bl_no": _const("B1")}))
+
+        assert parts.body == {"ids": [], "bl_no": "B1"}
+
+    def test_explicit_null_passes_type_coercion(self):
+        """显式 null 穿透类型强转（null 永不做默认）：string/int 字段均发 null"""
+        api = _api([_field("bl_no"), _field("teu", field_type="int")])
+
+        parts = _run(api, _config(body={"bl_no": _const(None), "teu": _const(None)}))
+
+        assert parts.body == {"bl_no": None, "teu": None}
+
+
 class TestFileAndHeaders:
 
     def test_file_field_popped_from_body(self):
