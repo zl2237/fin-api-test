@@ -418,11 +418,18 @@ flowchart TB
   → 数组字段建空表占位
   → 参数按 order_params 拓扑序逐个解析(SQL 在首个引用它的参数前自然执行)
   → 通配路径参数(列表.*.字段)逐元素独立求值
-  → JSON 字符串还原 → 字段类型强转(type_coercer)
+  → 数组元素未配置字段按示例值结构补空串(2026-10-10)
+  → JSON 字符串还原 → 字段类型强转(type_coercer,显式 null 穿透)
   → file 字段剥离 → headers 组装(环境公共头 < 接口模板 < 节点参数)
 ```
 
 解析结果按本节点命名空间注册(完整路径 + 末段别名,兼容旧引用名);**引用取值失败 = 节点失败并标明引用链**,不再静默放行。
+
+**空值与 null 语义**(2026-10-10 定案,#965/#966 生产 bug 修复随行):
+
+- 未配置字段按类型发空值占位(string/file → `""`,array → `[]`,其余 → `null`),请求不缺失字段;数组内嵌套路径(如 `statement.0.x`)的常量空串照发——仅「参数路径本身就是顶层 array 字段」的空标量参数不落盘(保持发 `[]`)
+- 数组元素未配置字段按**示例值首元素结构**(元素契约源)补空串;显式 null 与通配产物不覆盖
+- **显式 null**(`constant value=null`)发 JSON null 且穿透类型强转(null 永不做默认值,与「缺失」是两种语义);UI 在常量值为空时提供 `''` / `NULL` 空值语义切换
 
 ### 6.3 函数注册表与占位语法
 
@@ -520,6 +527,16 @@ flowchart TB
 - **单步重放**(replay_step_once):报告页编辑节点请求参数后按原环境重发——用当前数据集行配置组装请求,前缀成功步骤的产出经 report_context 拼成节点命名空间 seed;同口径提取/断言,结果打 replay_passed_at 点(纯调试口径不写回报告)
 - **断点续跑**(resume_execution_async):结构指纹校验([orchestration.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/orchestration.py) 只锁节点/边/接口绑定,刻意不含参数——改参数后续跑正是核心场景)→ 定位首个失败/未执行节点为起点 → 前缀成功步骤产出注入 resume_seed → 后台线程续跑
 - report_context 还原两类产出:后置提取值 + 入参解析结果(请求体快照按执行期同口径回放,防下游 `{{节点.入参}}` 断链)
+
+### 6.12 契约同步与数据集初始化(2026-10-10)
+
+参考 [contract_sync.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/contract_sync.py) 与 [dataset_service.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/dataset_service.py)——接口字段契约(ApiField)是参数路径的唯一权威,数据集节点参数与它的出入分两类:missing(接口字段无参数覆盖,执行按空值占位发送)/ extra(参数路径不在契约内)。
+
+- **同步红线**:非 constant 来源(ref/func/sql)参数一律不动——extra 的动态参数只标注跳过,绝不删除
+- **同步动作**:missing 补 constant(示例值拆解:object/array 按 JSON 结构拆叶子路径,标量还原原生类型;无示例值按空占位语义);extra 仅删 constant 来源
+- **触发点两处**(弹窗预览 + 用户许可后同步所有引用数据集):接口编辑保存后 / 数据集节点保存后;数据集页的手动「添加 body 参数」已封死(参数路径唯一契约源是接口字段,headers 不受约束)
+- **执行时只检测不阻断**:DagExecutor 逐节点比对契约,出入聚合进 `record.summary.contract_gaps`,报告页顶部黄条与导出 HTML 契约卡同构展示
+- **默认数据集初始化**(保存用例钩子 `ensure_case_dataset`):未绑定 → 自动建「默认数据集」(全部节点按接口示例值初始化)并绑定;已绑定 → 仅补画布新增节点的初始参数,已有节点参数一律不动;套件用例跳过;初始化失败不阻断保存
 
 ---
 
