@@ -1,4 +1,4 @@
-/** 接口字段路径选项：顶层字段 + array/object 默认值嵌套展开（深度 2），
+/** 接口字段路径选项：顶层字段 + array/object 示例值嵌套展开（深度 2），
  *  label 智能挂接字段字典中文名。NodeParamsTable 使用。 */
 import { computed } from 'vue'
 import type { ApiField } from '@/api'

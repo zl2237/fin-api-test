@@ -170,10 +170,10 @@
               <el-table-column label="旧类型" width="90">
                 <template #default="{ row }">{{ row.old_type || '—' }}</template>
               </el-table-column>
-              <el-table-column label="新默认值" min-width="150">
+              <el-table-column label="新示例值" min-width="150">
                 <template #default="{ row }">{{ row.new_default || '—' }}</template>
               </el-table-column>
-              <el-table-column label="旧默认值" min-width="150">
+              <el-table-column label="旧示例值" min-width="150">
                 <template #default="{ row }">{{ row.old_default || '—' }}</template>
               </el-table-column>
             </el-table>
@@ -233,7 +233,7 @@
       <div class="fields-panel">
         <div class="panel-title">
           请求字段配置
-          <span class="panel-hint">支持点号嵌套路径，默认值支持 ${} 表达式</span>
+          <span class="panel-hint">支持点号嵌套路径；示例值仅作录入参考，执行取值以数据集入参为准</span>
           <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
             <el-icon><QuestionFilled /></el-icon> 表达式帮助
           </el-button>
@@ -314,7 +314,7 @@ const addedFieldKeys = computed(() =>
 const removedFieldKeys = computed(() =>
   formData.fields.filter((f) => f.key && !newFieldKeys.value.includes(f.key)).map((f) => f.key)
 )
-// 更新：新旧都有但类型或默认值变化的 key
+// 更新：新旧都有但类型或示例值变化的 key
 const updatedFieldKeys = computed(() => {
   const result: string[] = []
   for (const nf of importFieldsResult.value?.fields || []) {
