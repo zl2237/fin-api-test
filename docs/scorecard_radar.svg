@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 410" width="720" height="410" role="img" aria-label="fin-api-test 工程质量评分雷达图（百分制）">
   <text x="360" y="28" text-anchor="middle" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="17" font-weight="600" fill="#6E56CF">fin-api-test 工程质量评分</text>
-  <text x="360" y="46" text-anchor="middle" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#8b949e">综合 84 / 100 · 百分制六维加权 · 2026-09-06</text>
+  <text x="360" y="46" text-anchor="middle" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#8b949e">综合 83 / 100 · 百分制六维加权 · 2026-10-10</text>
 
   <g fill="none" stroke="#d0d7de" stroke-width="1">
     <polygon points="360,180 390.3,197.5 390.3,232.5 360,250 329.7,232.5 329.7,197.5"/>
@@ -24,22 +24,22 @@
     <text x="354" y="78">100</text>
   </g>
 
-  <polygon points="360,96 457,159 475.2,281.5 360,334 263,271 269.1,162.5" fill="#6E56CF" fill-opacity="0.32" stroke="#6E56CF" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="360,96 447.3,164.6 475.1,281.5 360,329.8 257,274.5 265.5,160.4" fill="#6E56CF" fill-opacity="0.32" stroke="#6E56CF" stroke-width="2" stroke-linejoin="round"/>
   <g fill="#6E56CF" stroke="#f3f0ff" stroke-width="1.5">
     <circle cx="360" cy="96" r="4"/>
-    <circle cx="457" cy="159" r="4"/>
-    <circle cx="475.2" cy="281.5" r="4"/>
-    <circle cx="360" cy="334" r="4"/>
-    <circle cx="263" cy="271" r="4"/>
-    <circle cx="269.1" cy="162.5" r="4"/>
+    <circle cx="447.3" cy="164.6" r="4"/>
+    <circle cx="475.1" cy="281.5" r="4"/>
+    <circle cx="360" cy="329.8" r="4"/>
+    <circle cx="257" cy="274.5" r="4"/>
+    <circle cx="265.5" cy="160.4" r="4"/>
   </g>
 
   <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13">
     <text x="360" y="62" text-anchor="middle" fill="#7d8590">测试保障 <tspan font-weight="600" fill="#6E56CF">85</tspan></text>
-    <text x="490" y="140" text-anchor="start" fill="#7d8590">类型安全 <tspan font-weight="600" fill="#6E56CF">80</tspan></text>
+    <text x="490" y="140" text-anchor="start" fill="#7d8590">类型安全 <tspan font-weight="600" fill="#6E56CF">72</tspan></text>
     <text x="490" y="296" text-anchor="start" fill="#7d8590">依赖安全 <tspan font-weight="600" fill="#6E56CF">95</tspan></text>
-    <text x="360" y="382" text-anchor="middle" fill="#7d8590">CI/CD <tspan font-weight="600" fill="#6E56CF">85</tspan></text>
-    <text x="230" y="296" text-anchor="end" fill="#7d8590">代码质量 <tspan font-weight="600" fill="#6E56CF">80</tspan></text>
-    <text x="230" y="140" text-anchor="end" fill="#7d8590">文档完备 <tspan font-weight="600" fill="#6E56CF">75</tspan></text>
+    <text x="360" y="382" text-anchor="middle" fill="#7d8590">CI/CD <tspan font-weight="600" fill="#6E56CF">82</tspan></text>
+    <text x="230" y="296" text-anchor="end" fill="#7d8590">代码质量 <tspan font-weight="600" fill="#6E56CF">85</tspan></text>
+    <text x="230" y="140" text-anchor="end" fill="#7d8590">文档完备 <tspan font-weight="600" fill="#6E56CF">78</tspan></text>
   </g>
 </svg>
