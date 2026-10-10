@@ -218,6 +218,7 @@ import { caseApi, apiApi, apiGroupApi, datasetApi, type ApiDef, type ApiGroup, t
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
+import { buildRefGroups, type RefGraphCtx } from '@/composables/useRefGroups'
 import type { RefVarGroup } from '@/components/VarRefSelect.vue'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import EmptyState from '@/components/EmptyState.vue'
@@ -424,63 +425,32 @@ function nodeProductions(nid: string): string[] {
   return [...out]
 }
 
-/** 反向 BFS：目标节点的全部上游节点（拓扑前，含多跳） */
-function upstreamNodesOf(nodeId: string): string[] {
-  const rev = new Map<string, string[]>()
-  for (const e of edges.value) {
-    const arr = rev.get(e.target) || []
-    arr.push(e.source)
-    rev.set(e.target, arr)
-  }
-  const seen = new Set<string>()
-  const queue = [...(rev.get(nodeId) || [])]
-  while (queue.length) {
-    const cur = queue.shift()!
-    if (seen.has(cur)) continue
-    seen.add(cur)
-    queue.push(...(rev.get(cur) || []))
-  }
-  // 按画布节点顺序稳定排序
-  return nodes.value.filter((n) => seen.has(n.id)).map((n) => n.id)
+/** 反向 BFS 与上游/本节点分组构建已收敛至 composables/useRefGroups（与 DatasetManage 共用） */
+const refGraphCtx: RefGraphCtx = {
+  orderedIds: () => nodes.value.map((n) => n.id),
+  labelOf: nodeLabel,
+  edges: () => edges.value,
+  productionsOf: nodeProductions,
+  selfBodyOf: (nid) => dsSelfParams.value[nid]?.body,
+  selfLabel: '本节点参数值（请求后可引用）',
+  // 本节点提取变量：提取按配置顺序逐行注册，后面的行可 {{本节点.提取名}} 引用前面的行
+  extraGroups: (nid) => {
+    const selfExtracts = ((configs.value.find((c) => c.node_id === nid)?.post_extract || [])
+      .map((r: any) => r?.name).filter(Boolean)) as string[]
+    if (!selfExtracts.length) return []
+    return [{
+      key: 'self-extract',
+      label: '本节点提取变量（前面的行可引用）',
+      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfExtracts.map((p) => ({ path: p })) }],
+    }]
+  },
 }
 
 /** 当前选中节点的引用分组（供 VarRefSelect / 断言与提取的 SQL 引用） */
 const refGroups = computed<RefVarGroup[]>(() => {
   const nid = selectedNodeId.value
   if (!nid) return []
-  const groups: RefVarGroup[] = []
-  const upstream = upstreamNodesOf(nid)
-    .map((id) => ({
-      node_id: id,
-      node_label: nodeLabel(id),
-      vars: nodeProductions(id).map((p) => ({ path: p })),
-    }))
-    .filter((it) => it.vars.length)
-  if (upstream.length) groups.push({ key: 'upstream', label: '上游节点产出', items: upstream })
-  // 本节点参数值（数据集行内全部 body 参数，任意来源）：请求组装期统一注册为
-  // 节点.参数路径（+末段别名），后置提取/断言在本节点请求后即可引用；
-  // 通配路径（列表.*.字段）运行期按具体下标注册，静态列表不列
-  const selfParams = Object.entries(dsSelfParams.value[nid]?.body || {})
-    .filter(([p, s]) => !p.includes('*') && s && (s as any).source)
-    .map(([p]) => p)
-  if (selfParams.length) {
-    groups.push({
-      key: 'self',
-      label: '本节点参数值（请求后可引用）',
-      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfParams.map((p) => ({ path: p })) }],
-    })
-  }
-  // 本节点提取变量：提取按配置顺序逐行注册，后面的行可 {{本节点.提取名}} 引用前面的行
-  const selfExtracts = ((configs.value.find((c) => c.node_id === nid)?.post_extract || [])
-    .map((r: any) => r?.name).filter(Boolean)) as string[]
-  if (selfExtracts.length) {
-    groups.push({
-      key: 'self-extract',
-      label: '本节点提取变量（前面的行可引用）',
-      items: [{ node_id: nid, node_label: `${nodeLabel(nid)}（本节点）`, vars: selfExtracts.map((p) => ({ path: p })) }],
-    })
-  }
-  return groups
+  return buildRefGroups(nid, refGraphCtx)
 })
 
 async function onSplit() {

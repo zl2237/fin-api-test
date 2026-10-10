@@ -350,68 +350,13 @@
       </template>
     </el-dialog>
 
-    <!-- 节点编辑重放：左右布局——左请求体常驻不滚走，右结果独立滚动查看 -->
-    <el-dialog
-      v-model="replayVisible"
-      title="编辑并重放节点"
-      width="1080px"
-      :close-on-click-modal="false"
-      class="replay-dialog"
-    >
-      <el-alert
-        type="info"
-        :closable="false"
-        style="margin-bottom: 10px"
-        title="按原执行环境真实重发一次（写接口有副作用）；${} 用报告上下文重新求值，发送后同口径跑断言与提取——通过仅打「已重放通过」徽标，不写回报告"
-      />
-      <div class="replay-split">
-        <div class="replay-left">
-          <div class="section-title">请求体（编辑后点右下角「重放」）</div>
-          <el-input
-            v-model="replayBodyText"
-            type="textarea"
-            :rows="22"
-            class="mono replay-body-input"
-            spellcheck="false"
-            placeholder="JSON 请求体"
-          />
-        </div>
-        <div class="replay-right">
-          <template v-if="replayResult">
-            <div class="section-title" style="display: flex; align-items: center; gap: 8px">
-              重放结果：HTTP {{ replayResult.status_code }} · {{ replayResult.elapsed_ms }} ms
-              <el-tag v-if="replayResult.passed" type="success" size="small">断言全过</el-tag>
-              <el-tag v-else type="danger" size="small">未通过</el-tag>
-            </div>
-            <VueJsonPretty :data="replayResult.response_body" :deep="4" />
-            <template v-if="replayResult.assertions?.length">
-              <div class="section-title" style="margin-top: 12px">断言（{{ replayResult.assertions.filter(a => a.pass).length }}/{{ replayResult.assertions.length }} 通过）</div>
-              <div v-for="(a, i) in replayResult.assertions" :key="i" class="replay-assertion" :class="{ fail: !a.pass }">
-                <el-tag :type="a.pass ? 'success' : 'danger'" size="small" effect="light">{{ a.pass ? '通过' : '失败' }}</el-tag>
-                <span class="mono">{{ a.type }}</span>
-                <span v-if="a.message" class="replay-assertion-msg">{{ a.message }}</span>
-              </div>
-            </template>
-            <template v-if="replayResult.extracted && Object.keys(replayResult.extracted).length">
-              <div class="section-title" style="margin-top: 12px">本次提取（断点续跑时并入上下文）</div>
-              <VueJsonPretty :data="replayResult.extracted" :deep="2" />
-            </template>
-            <el-alert
-              v-if="replayResult.passed"
-              type="success"
-              :closable="false"
-              style="margin-top: 12px"
-              title="验证通过：请把正确参数同步到数据集/节点配置，然后点「断点续跑」从该节点真实重跑"
-            />
-          </template>
-          <EmptyState v-else description="点击右下角「重放」后在此查看结果" :image-size="60" />
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="replayVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="replayLoading" @click="doReplay">重放</el-button>
-      </template>
-    </el-dialog>
+    <!-- 节点编辑重放（左右布局与重放编排收敛在 ReplayDialog） -->
+    <ReplayDialog
+      v-model:visible="replayVisible"
+      :step-id="currentStep?.id ?? null"
+      :initial-body="currentStep?.request_body ?? {}"
+      @replayed="(passed) => passed && load(true)"
+    />
   </div>
 </template>
 
@@ -423,9 +368,11 @@ import { Loading, Search, CircleCloseFilled, WarningFilled } from '@element-plus
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
+import ReplayDialog from '@/components/ReplayDialog.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
+import { copyText } from '@/utils/clipboard'
 import { execStatusType as stepType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 
@@ -442,36 +389,10 @@ const jsonDeep = ref<number>(2)
 
 // ===== 节点编辑重放（调试口径：按原环境重发一次，不写回报告） =====
 const replayVisible = ref(false)
-const replayLoading = ref(false)
-const replayBodyText = ref('')
-const replayResult = ref<{ status_code: number; response_body: any; elapsed_ms: number; passed: boolean; assertions: { type: string; pass: boolean; message?: string }[]; extracted: Record<string, any> } | null>(null)
 
 function openReplay() {
   if (!currentStep.value) return
-  replayBodyText.value = JSON.stringify(currentStep.value.request_body ?? {}, null, 2)
-  replayResult.value = null
   replayVisible.value = true
-}
-
-async function doReplay() {
-  if (!currentStep.value) return
-  let body: unknown
-  try {
-    body = JSON.parse(replayBodyText.value)
-  } catch (e: any) {
-    ElMessage.error(`请求体 JSON 解析失败：${e.message}`)
-    return
-  }
-  replayLoading.value = true
-  try {
-    replayResult.value = await execApi.replayStep(currentStep.value.id, body)
-    // 通过打点在后端步骤上：静默刷新让列表「已重放通过」徽标立即出现
-    if (replayResult.value.passed) await load(true)
-  } catch (e: any) {
-    ElMessage.error(e.message || '重放失败')
-  } finally {
-    replayLoading.value = false
-  }
 }
 
 // ===== 断点续跑：从首个失败节点用当前配置+当前数据集重新执行 =====
@@ -624,51 +545,15 @@ const prettyValue = computed(() => {
   return String(v)
 })
 
-/** 写剪贴板：navigator.clipboard 仅安全上下文（HTTPS/localhost）可用，线上以
- *  http://IP 访问时为 undefined 直接抛错——降级隐藏 textarea + execCommand('copy') */
-async function writeClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      // 权限被拒等场景落入降级方案
-    }
-  }
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.focus()
-  ta.select()
-  let ok = false
-  try {
-    ok = document.execCommand('copy')
-  } catch {
-    ok = false
-  }
-  document.body.removeChild(ta)
-  return ok
-}
-
 async function copyValue() {
-  if (await writeClipboard(prettyValue.value)) {
-    ElMessage.success('已复制')
-  } else {
-    ElMessage.error('复制失败，请手动选择复制')
-  }
+  await copyText(prettyValue.value)
 }
 
 /** 一键复制任意 JSON 值（请求头/请求体/响应体）：树形组件跨行框选会被 DOM 打散，
  *  Ctrl+C 复制不出合法 JSON，直接按完整序列化文本写入剪贴板 */
 async function copyJson(v: any) {
   const text = typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : String(v ?? '')
-  if (await writeClipboard(text)) {
-    ElMessage.success('已复制完整 JSON')
-  } else {
-    ElMessage.error('复制失败，请手动选择复制')
-  }
+  await copyText(text, '已复制完整 JSON')
 }
 
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
@@ -1321,70 +1206,5 @@ onUnmounted(stopPolling)
 
 :deep(.el-timeline-item__node) {
   cursor: pointer;
-}
-
-/* 重放弹窗断言行：通过/失败 + 类型 + 消息 */
-.replay-assertion {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 13px;
-}
-
-.replay-assertion.fail {
-  color: var(--el-color-danger);
-}
-
-.replay-assertion-msg {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 重放弹窗左右布局：左请求体常驻 + 右结果独立滚动（解决滚动看结果时请求体滚走的痛点） */
-.replay-split {
-  display: flex;
-  gap: 14px;
-  align-items: stretch;
-}
-.replay-left {
-  flex: 0 0 46%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-/* textarea 撑满左侧高度，与右侧等高 */
-.replay-body-input :deep(.el-textarea__inner) {
-  font-family: Consolas, Menlo, 'Liberation Mono', monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  resize: vertical;
-}
-.replay-right {
-  flex: 1;
-  min-width: 0;
-  max-height: 64vh;
-  overflow-y: auto;
-  padding-left: 14px;
-  border-left: 1px solid var(--el-border-color);
-}
-/* 窄屏回退上下布局（避免挤压不可用） */
-@media (max-width: 900px) {
-  .replay-split {
-    flex-direction: column;
-  }
-  .replay-left {
-    flex: none;
-  }
-  .replay-right {
-    max-height: none;
-    padding-left: 0;
-    border-left: none;
-    border-top: 1px solid var(--el-border-color);
-    padding-top: 10px;
-  }
 }
 </style>
