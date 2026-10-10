@@ -4,9 +4,10 @@ __pycache__/
 *.py[cod]
 *.cache
 .pytest_cache/
-# 覆盖率产物
+# 覆盖率产物（.coveragerc 为配置文件需入库，不匹配）
 htmlcov/
-.coverage*
+.coverage
+.coverage.*
 # 虚拟环境
 venv/
 .venv/
@@ -35,6 +36,8 @@ config/env_pre.yaml
 logs/
 *.log
 report/
+# 前端 vitest 覆盖率 HTML 报告（npm run test:coverage 产物）
+platform/frontend/coverage/
 # 文件中心物理存储（内容寻址落盘，路径可被 .env UPLOAD_ROOT 覆盖）
 platform/backend/uploads/
 # 数据集迁移前备份（一次性产物）

@@ -72,16 +72,18 @@ backend-lint:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
-# mypy 类型检查（advisory）：基线 375 个 SQLAlchemy 类型推断错误，不阻塞流水线
-backend-mypy:
+# 后端检查：mypy（blocking，0 错误基线）+ pytest 全量单测（blocking，带覆盖率）
+# pytest 复用本 job 的依赖安装，fake-db 模式 759 条实测 ≈ 4s，几乎零增量耗时
+backend-check:
   stage: lint
   image: python:3.12-slim
-  allow_failure: true
   script:
     - cd platform/backend
-    - pip install -r requirements.txt mypy -i $PIP_INDEX
-    # Basic 渐进式：SQLAlchemy Column 类型推断错误占绝大多数，运行时由单测覆盖
-    - mypy app || true
+    - pip install -r requirements.txt mypy pytest pytest-cov -i $PIP_INDEX
+    # 类型检查（2026-10-10 起 0 错误基线，回归即阻塞部署）
+    - mypy app
+    # 后端全量单测（fake-db，不依赖真实 MySQL）；覆盖率口径见 .coveragerc
+    - python -m pytest tests -q --cov=app --cov-report=term
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
