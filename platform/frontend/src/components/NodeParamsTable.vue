@@ -56,10 +56,14 @@
               </div>
             </div>
           </div>
-          <div v-else class="vt-empty">暂无 body 参数，点击下方添加</div>
+          <div v-else class="vt-empty">{{ lockBodyAdd ? '暂无 body 参数；未配置字段执行时按空值占位发送' : '暂无 body 参数，点击下方添加' }}</div>
         </div>
       </div>
-      <el-button class="npt-add" size="small" @click="addRow('body')">+ 添加 body 参数</el-button>
+      <!-- 封死手动添加（2026-10-10 定案 Q5）：参数路径唯一契约源是接口字段，
+           新增/删除字段在接口管理维护，保存时可一键同步到数据集；
+           headers 不在接口字段契约内，保留自由添加 -->
+      <el-button v-if="!lockBodyAdd" class="npt-add" size="small" @click="addRow('body')">+ 添加 body 参数</el-button>
+      <div v-else class="npt-lock">body 参数以「接口管理」的字段契约为唯一来源：新增字段请在接口编辑页维护，保存后可一键同步到数据集</div>
     </div>
 
     <div class="npt-section">
@@ -123,6 +127,7 @@ const props = defineProps<{
   modelValue: NodeParams | null | undefined
   fields?: ApiField[]
   refGroups?: RefVarGroup[]
+  lockBodyAdd?: boolean
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: NodeParams): void }>()
 
@@ -281,6 +286,15 @@ function removeRow(scope: 'body' | 'headers', idx: number) {
   margin-top: 8px;
   width: 100%;
   border-style: dashed;
+}
+.npt-lock {
+  margin-top: 8px;
+  padding: 5px 10px;
+  border: 1px dashed var(--app-border);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--app-text-faint);
+  text-align: center;
 }
 /* 轻量表格（替代 el-table：虚拟滚动 + 无每行 select 常驻 options） */
 .vt {

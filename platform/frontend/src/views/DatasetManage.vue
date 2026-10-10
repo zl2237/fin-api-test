@@ -133,6 +133,7 @@
                       :model-value="drafts[n.node_id].params"
                       :fields="(n.fields as any) || []"
                       :ref-groups="refGroupsFor(n.node_id)"
+                      lock-body-add
                       @update:model-value="(v) => onDraftChange(n.node_id, v)"
                     />
                   </div>
@@ -172,6 +173,14 @@
       :body="drafts[importNodeId]?.params?.body || {}"
       @apply="onImportApply"
     />
+
+    <!-- 契约同步（节点保存后）：本节点绑定接口的字段契约 ↔ 各数据集参数出入预览，许可后全量同步 -->
+    <ContractSyncDialog
+      v-model:visible="syncDlgVisible"
+      :api-id="syncApiId"
+      :api-name="syncApiName"
+      @synced="onSynced"
+    />
   </div>
 </template>
 
@@ -179,11 +188,12 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, Plus, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, type DataSet, type DatasetParamsView, type NodeParams, type ParamSpec, type TestCase, type CaseGroup } from '@/api'
+import { datasetApi, caseApi, caseGroupApi, apiApi, type DataSet, type DatasetParamsView, type NodeParams, type ParamSpec, type TestCase, type CaseGroup } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { buildRefGroups, type RefGraphCtx } from '@/composables/useRefGroups'
 import { useAppStore } from '@/stores'
 import EmptyState from '@/components/EmptyState.vue'
+import ContractSyncDialog from '@/components/ContractSyncDialog.vue'
 import ImportJsonDialog from '@/components/ImportJsonDialog.vue'
 import NodeParamsTable from '@/components/NodeParamsTable.vue'
 import type { RefVarGroup } from '@/components/VarRefSelect.vue'
@@ -278,9 +288,13 @@ async function loadView(keepTab = false) {
   }
 }
 
-/** 保存单节点入参（整体替换；服务端含引用拓扑/悬空/依赖环静态校验） */
+/** 保存单节点入参（整体替换；服务端含引用拓扑/悬空/依赖环静态校验）。
+ * 保存成功后检测节点绑定接口的契约出入（Q4 触发点之一）：有出入弹同步预览。 */
 async function saveNode(nid: string) {
   if (!current.value || !drafts[nid]) return
+  const node = view.value?.nodes.find((n) => n.node_id === nid)
+  const apiId = node?.api_id || null
+  const apiName = node?.api_name || ''
   savingNode.value = true
   try {
     await datasetApi.saveNodeConfig(current.value.id, {
@@ -289,11 +303,36 @@ async function saveNode(nid: string) {
     })
     ElMessage.success(`节点「${nodeLabelOf(nid)}」入参已保存`)
     await loadView(true)
+    if (apiId) await checkContractImpact(apiId, apiName)
   } catch (e: any) {
     ElMessage.error({ message: e.message || '保存失败', duration: 6000 })
   } finally {
     savingNode.value = false
   }
+}
+
+// ===== 契约同步（接口字段 ↔ 数据集参数出入，2026-10-10 定案） =====
+const syncDlgVisible = ref(false)
+const syncApiId = ref<number | null>(null)
+const syncApiName = ref('')
+
+/** 查接口契约影响面：有出入才弹窗（无出入/查询失败都静默，不打扰保存主流程） */
+async function checkContractImpact(apiId: number, apiName: string) {
+  try {
+    const impact = await apiApi.contractImpact(apiId)
+    if (impact.length) {
+      syncApiId.value = apiId
+      syncApiName.value = apiName
+      syncDlgVisible.value = true
+    }
+  } catch {
+    /* 影响面查询失败不影响保存结果 */
+  }
+}
+
+/** 同步完成：当前数据集可能被更新，重载参数视图 */
+async function onSynced() {
+  if (current.value) await loadView(true)
 }
 
 /** 放弃本节点改动：回到服务端快照 */
