@@ -37,8 +37,17 @@ from .context import ExecutionContext
 from .events import AssertionResult, DbSink, ExecutionSink, StepResult
 from .extractor import Extractor, is_extract_error
 from .prepare_request import prepare_request
-from .report_context import _iter_body_paths
+from .report_context import iter_replay_paths
 from .topo import topo_order
+
+
+def _assertion_events(assertion_results: list[dict]) -> list[AssertionResult]:
+    """断言求值结果（dict）→ 事件（AssertionResult）：两处产出点共享的转换。"""
+    return [AssertionResult(
+        type=ar["type"], rule_config=ar, passed=ar["pass"],
+        actual=ar.get("actual"), expected=ar.get("expected"),
+        message=ar.get("message", ""),
+    ) for ar in assertion_results]
 
 
 class DagExecutor:
@@ -347,6 +356,48 @@ class DagExecutor:
             return None
         return SimpleNamespace(params=rc.get("params") or {})
 
+    def _step_event(self, execution_id: int, node_id: str, api_name: str, api_path: str,
+                    api_method: str, started_at: datetime, config,
+                    **over: Any) -> StepResult:
+        """StepResult 样板收口：失败骨架为默认（空请求/状态 0/耗时 0），
+        成功与重放路径的差异字段以 over 覆盖。"""
+        fields: dict[str, Any] = dict(
+            execution_id=execution_id, node_id=node_id,
+            api_name=api_name, api_path=api_path, api_method=api_method,
+            request_headers={}, request_body={},
+            response_status=0, response_body={},
+            response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
+            status="failed",
+            post_extract=(config.post_extract if config else None) or None,
+            extracted_vars={},
+            resumed=self._resume_mode,
+        )
+        fields.update(over)
+        return StepResult(**fields)
+
+    def _extract_and_assert(self, node_id: str, config, response_data,
+                            status_code: int, elapsed: int) -> tuple[dict, list[dict], bool]:
+        """后置提取 → 断言（正常执行与续跑重放两条路径共享的收尾）。
+
+        返回 (extracted, assertion_results, tail_passed)。tail_passed 为提取/
+        断言口径的通过位——提取未取到的变量（值为 {__error__: 原因}）判节点
+        失败：原因在报告提取页与失败通知可见，不在本节点静默放行 None 向下游
+        扩散（下游引用会在组装期以更模糊的「取值失败」报错）；与断言失败同
+        口径：不触发请求重试。请求层成败由调用方另行合入。
+        """
+        extracted: dict = {}
+        assertion_results: list[dict] = []
+        if config and config.post_extract and response_data is not None:
+            extracted = self.extractor.extract(response_data, config.post_extract,
+                                               self.context.registry, node_id)
+        extract_failed = any(is_extract_error(v) for v in extracted.values())
+        if config and config.assertions:
+            engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
+            assertion_results = engine.evaluate_all(response_data, status_code, elapsed,
+                                                    config.assertions)
+        tail_passed = not extract_failed and all(r["pass"] for r in assertion_results)
+        return extracted, assertion_results, tail_passed
+
     def _execute_node(self, execution_id: int, node_id: str, node: dict,
                       replay: SimpleNamespace | None = None) -> tuple[bool, int]:
         """执行单个节点。返回 (是否通过, 节点配置的 wait_after_ms)。
@@ -367,17 +418,10 @@ class DagExecutor:
 
         # 无配置或无接口定义 → 产出失败事件
         if not api:
-            self.sink.record_step(StepResult(
-                execution_id=execution_id, node_id=node_id,
-                api_name=node.get("data", {}).get("label") if isinstance(node.get("data"), dict) else node_id,
-                api_path="", api_method="",
-                request_headers={}, request_body={},
-                response_status=0, response_body={"error": "节点未绑定接口或配置缺失"},
-                response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
-                status="failed",
-                post_extract=(config.post_extract if config else None) or None,
-                extracted_vars={},
-                resumed=self._resume_mode,
+            label = node.get("data", {}).get("label") if isinstance(node.get("data"), dict) else node_id
+            self.sink.record_step(self._step_event(
+                execution_id, node_id, label, "", "", started_at, config,
+                response_body={"error": "节点未绑定接口或配置缺失"},
             ))
             return False, 0
 
@@ -385,47 +429,24 @@ class DagExecutor:
         #    直接用快照响应 + 当前配置重跑后置提取与断言；本节点入参也按快照
         #    回放进命名空间（执行期注册发生在组装请求，重放跳过了该步）
         if replay is not None:
-            body = replay.request_body
-            headers = replay.request_headers
-            status_code = replay.response_status
-            response_data = replay.response_body
+            body, headers = replay.request_body, replay.request_headers
+            status_code, response_data = replay.response_status, replay.response_body
             elapsed = replay.response_time_ms
-            for path, val in _iter_body_paths(body):
+            for path, val in iter_replay_paths(body):
                 self.context.registry.write(node_id, path, val)
-                tail = path.rsplit(".", 1)[-1]
-                if tail != path:
-                    self.context.registry.write(node_id, tail, val)
-            extracted: dict = {}
-            assertion_results: list[dict] = []
-            if config and config.post_extract and response_data is not None:
-                extracted = self.extractor.extract(response_data, config.post_extract,
-                                                   self.context.registry, node_id)
-            extract_failed = any(is_extract_error(v) for v in extracted.values())
-            if config and config.assertions:
-                engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
-                assertion_results = engine.evaluate_all(response_data, status_code, elapsed,
-                                                        config.assertions)
-            step_passed = not extract_failed and all(r["pass"] for r in assertion_results)
-            self.sink.record_step(StepResult(
-                execution_id=execution_id, node_id=node_id,
-                api_name=api.name, api_path=api.path, api_method=api.method,
+            extracted, assertion_results, tail_passed = self._extract_and_assert(
+                node_id, config, response_data, status_code, elapsed)
+            self.sink.record_step(self._step_event(
+                execution_id, node_id, api.name, api.path, api.method, started_at, config,
                 request_headers=headers, request_body=body,
                 response_status=status_code, response_body=response_data,
-                response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
-                status="success" if step_passed else "failed",
-                post_extract=(config.post_extract if config else None) or None,
-                extracted_vars=extracted,
-                resumed=True,
-                assertions=[
-                    AssertionResult(
-                        type=ar["type"], rule_config=ar, passed=ar["pass"],
-                        actual=ar.get("actual"), expected=ar.get("expected"),
-                        message=ar.get("message", ""),
-                    ) for ar in assertion_results
-                ],
+                response_time_ms=elapsed,
+                status="success" if tail_passed else "failed",
+                extracted_vars=extracted, resumed=True,
+                assertions=_assertion_events(assertion_results),
             ))
             wait_ms = getattr(config, "wait_after_ms", 0) or 0 if config else 0
-            return step_passed, wait_ms
+            return tail_passed, wait_ms
 
         # 1. 组装请求（优先级与编排顺序统一在 prepare_request，见其模块注释）；
         # 组装期异常（引用取值失败/SQL 执行失败等）在这里兜底为失败步骤（原因可见），
@@ -437,16 +458,9 @@ class DagExecutor:
                                     base_headers=self.http_client.headers,
                                     db_client=self.db_client)
         except Exception as e:
-            self.sink.record_step(StepResult(
-                execution_id=execution_id, node_id=node_id,
-                api_name=api.name, api_path=api.path, api_method=api.method,
-                request_headers={}, request_body={},
-                response_status=0, response_body={"error": f"请求组装/前置处理失败: {self._pretty_err(str(e))}"},
-                response_time_ms=0, started_at=started_at, ended_at=datetime.now(),
-                status="failed",
-                post_extract=(config.post_extract if config else None) or None,
-                extracted_vars={},
-                resumed=self._resume_mode,
+            self.sink.record_step(self._step_event(
+                execution_id, node_id, api.name, api.path, api.method, started_at, config,
+                response_body={"error": f"请求组装/前置处理失败: {self._pretty_err(str(e))}"},
             ))
             return False, 0
         body, headers, file_fields = parts.body, parts.headers, parts.file_fields
@@ -473,28 +487,15 @@ class DagExecutor:
             if err is not None and attempt < retry_limit:
                 continue  # 请求层失败且仍有重试额度：间隔后原样重发
             # 成功 / 断言路径 / 重试额度耗尽：提取与断言后收尾
-
-            # 3. 后置提取（响应/DB → 本节点命名空间注册表，同节点后续规则可互引）
-            if config and config.post_extract and response_data is not None:
-                extracted = self.extractor.extract(response_data, config.post_extract,
-                                                   self.context.registry, node_id)
-            # 提取未取到的变量（值为 {__error__: 原因}）判节点失败：原因在报告提取页
-            # 与失败通知可见；不在本节点静默放行 None 向下游扩散（下游引用会在组装期
-            # 以更模糊的「取值失败」报错）。与断言失败同口径：不触发请求重试。
-            extract_failed = any(is_extract_error(v) for v in extracted.values())
-
-            # 4. 断言
-            if config and config.assertions:
-                engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
-                assertion_results = engine.evaluate_all(response_data, status_code, elapsed, config.assertions)
-
-            step_passed = (err is None) and not extract_failed and all(r["pass"] for r in assertion_results)
+            # 3~4. 后置提取 → 断言（与续跑重放共享收尾；提取失败判负口径见其注释）
+            extracted, assertion_results, tail_passed = self._extract_and_assert(
+                node_id, config, response_data, status_code, elapsed)
+            step_passed = (err is None) and tail_passed
             break
 
         # 5. 产出步骤事件（落库/收集交给 sink）
-        self.sink.record_step(StepResult(
-            execution_id=execution_id, node_id=node_id,
-            api_name=api.name, api_path=api.path, api_method=api.method,
+        self.sink.record_step(self._step_event(
+            execution_id, node_id, api.name, api.path, api.method, started_at, config,
             request_headers=headers, request_body=body,
             response_status=status_code,
             # 请求异常（超时/连接失败等）时 err 有值但响应体可能为 None，
@@ -504,19 +505,11 @@ class DagExecutor:
                 else response_data if isinstance(response_data, (dict, list))
                 else {"text": str(response_data)}
             ),
-            response_time_ms=elapsed, started_at=started_at, ended_at=datetime.now(),
+            response_time_ms=elapsed,
             status="success" if step_passed else "failed",
-            post_extract=(config.post_extract if config else None) or None,
             extracted_vars=extracted,
             retry_count=retry_count,
-            resumed=self._resume_mode,
-            assertions=[
-                AssertionResult(
-                    type=ar["type"], rule_config=ar, passed=ar["pass"],
-                    actual=ar.get("actual"), expected=ar.get("expected"),
-                    message=ar.get("message", ""),
-                ) for ar in assertion_results
-            ],
+            assertions=_assertion_events(assertion_results),
         ))
 
         # 节点配置的等待时间（ms），由调用方在节点间应用

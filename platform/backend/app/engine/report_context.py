@@ -18,7 +18,7 @@ import json
 from typing import Any, Iterator
 
 
-def _iter_body_paths(obj: Any, prefix: str = "", *, top: bool = True) -> Iterator[tuple[str, Any]]:
+def iter_body_paths(obj: Any, prefix: str = "", *, top: bool = True) -> Iterator[tuple[str, Any]]:
     """展开请求体的字段路径（dict 键 / list 元素下标）。
 
     顶层 list（数组请求体）取首元素展开——入参配置路径以元素字段为锚
@@ -30,12 +30,26 @@ def _iter_body_paths(obj: Any, prefix: str = "", *, top: bool = True) -> Iterato
         for k, v in obj.items():
             p = f"{prefix}.{k}" if prefix else str(k)
             yield p, v
-            yield from _iter_body_paths(v, p, top=False)
+            yield from iter_body_paths(v, p, top=False)
     elif isinstance(obj, list) and not top:
         for i, v in enumerate(obj):
             p = f"{prefix}.{i}"
             yield p, v
-            yield from _iter_body_paths(v, p, top=False)
+            yield from iter_body_paths(v, p, top=False)
+
+
+def iter_replay_paths(body: Any, extracted: dict[str, Any] | None = None) -> Iterator[tuple[str, Any]]:
+    """入参回放路径：完整路径 + 末段别名（a.b.c 附带 c），供注册表/seed 写入。
+
+    extracted 非空时同名路径跳过——后置提取名优先于同名入参快照。
+    消费方：build_report_context（seed 拼装）与续跑重放的入参回放注册。
+    """
+    for path, val in iter_body_paths(body):
+        if extracted is None or path not in extracted:
+            yield path, val
+            tail = path.rsplit(".", 1)[-1]
+            if tail != path and (extracted is None or tail not in extracted):
+                yield tail, val
 
 
 def build_report_context(steps: list[Any], before_node: str | None = None) -> dict[str, dict[str, Any]]:
@@ -67,10 +81,6 @@ def build_report_context(steps: list[Any], before_node: str | None = None) -> di
             except Exception:
                 body = None
         if isinstance(body, (dict, list)):
-            for path, val in _iter_body_paths(body):
-                if path not in extracted:
-                    ns[path] = val
-                tail = path.rsplit(".", 1)[-1]
-                if tail != path and tail not in extracted:
-                    ns[tail] = val
+            for path, val in iter_replay_paths(body, extracted):
+                ns[path] = val
     return seed
