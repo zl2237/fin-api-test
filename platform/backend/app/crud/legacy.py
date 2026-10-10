@@ -270,7 +270,6 @@ def copy_environment(db: Session, env: models.Environment) -> models.Environment
         db_config=env.db_config or {},
         login_config=env.login_config or {},
         notify_config=env.notify_config or {},
-        variables=env.variables or {},
         common_headers=env.common_headers or {},
         is_default=False,
     )

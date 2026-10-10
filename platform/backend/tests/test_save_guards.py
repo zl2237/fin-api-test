@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from app.crud.executions import ensure_case_not_running, running_execution_of
-from app.routers.testcases import validate_post_extract_sql
+from app.engine.validation import validate_post_extract_sql
 
 
 def _cfg(sql: str | None = None, source: str = "db"):

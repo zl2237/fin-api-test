@@ -53,7 +53,7 @@ export function execStatusText(s?: string): string {
 
 /**
  * 导出文件名时间戳：'YYYYMMDDHHmmss'（本地时区）。
- * 此前该逻辑在 ApiManage / CaseList / DatasetManage 各复制一份，收敛于此。
+ * 历史上曾在多个视图各复制一份，收敛于此（当前消费方：CaseList 导出）。
  */
 export function fileTimestamp(): string {
   const d = new Date()

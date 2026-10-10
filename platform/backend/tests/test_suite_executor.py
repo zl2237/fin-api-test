@@ -85,7 +85,7 @@ def harness(monkeypatch):
         script: list = []
         instances: list = []
 
-        def __init__(self, db, case, env, execution_record=None, row_vars=None,
+        def __init__(self, db, case, env, execution_record=None, dataset_row=None,
                      node_config_overrides=None, suite_vars=None,
                      suppress_notify=False):
             self.case, self.env, self.record = case, env, execution_record

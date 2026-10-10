@@ -1,6 +1,7 @@
-"""请求体树路径助手（2026-09-30 「动作概念退场」定案后仅保留本模块的
-get/set_nested_value 两个纯函数——前置动作引擎已删除，字段设置的全部语义
-收敛到数据集行 params 的取值来源声明，见 prepare_request / param_resolver）。
+"""请求体树路径助手（get/set_nested_value 两个纯函数；2026-09-30「动作概念
+退场」定案后前置动作引擎已删除，字段设置的全部语义收敛到数据集行 params 的
+取值来源声明，见 prepare_request / param_resolver。原名 preprocessor.py，
+因职责已收缩为路径助手而更名）。
 """
 
 

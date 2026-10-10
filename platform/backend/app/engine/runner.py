@@ -16,15 +16,15 @@ class ExecutionSpec:
 
     execution_id: int
     case_id: int
-    # 数据集域变量（点路径键）——编排按用例当前配置执行
-    row_vars: dict | None = None
+    # 数据集行数据 {"nodes": {...}}——各节点入参配置源（四来源参数模型）
+    dataset_row: dict | None = None
 
 
 def run_execution_background(execution_id: int, case_id: int, env_id: int,
-                             row_vars: dict | None = None) -> None:
+                             dataset_row: dict | None = None) -> None:
     """在后台线程中执行用例，使用独立的数据库会话。
     execution_id 对应的 ExecutionRecord 已由调用方创建（status=running）。
-    row_vars：数据集域变量（prepare_request 第 3 层解析）。"""
+    dataset_row：数据集行数据（{"nodes": {...}}，节点入参配置源）。"""
     db = SessionLocal()
     try:
         case = crud.get_testcase(db, case_id)
@@ -56,7 +56,7 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
             from ..services.suite_executor import run_suite
             run_suite(db, case, record)
             return
-        DagExecutor(db, case, env, execution_record=record, row_vars=row_vars).execute()
+        DagExecutor(db, case, env, execution_record=record, dataset_row=dataset_row).execute()
     except Exception as e:
         # 兜底：任何异常都标记执行失败，避免 record 永远停在 running
         try:
@@ -85,5 +85,5 @@ def submit_batch_execution(specs: list[ExecutionSpec], env_id: int,
     pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix=f"case-c{concurrency}")
     for spec in specs:
         pool.submit(run_execution_background, spec.execution_id, spec.case_id, env_id,
-                    spec.row_vars)
+                    spec.dataset_row)
     pool.shutdown(wait=False)  # 提交完即关闭，已提交任务继续执行完

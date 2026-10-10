@@ -332,7 +332,6 @@ export const logApi = {
 // ============ Project ============
 export const projectApi = {
   list: (params?: { created_by?: number; updated_by?: number }) => http.get<Project[]>('/projects', { params }).then((r) => r.data),
-  get: (id: number) => http.get<Project>(`/projects/${id}`).then((r) => r.data),
   create: (data: Partial<Project>) => http.post<Project>('/projects', data).then((r) => r.data),
   update: (id: number, data: Partial<Project>) => http.put<Project>(`/projects/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/projects/${id}`),
@@ -519,7 +518,6 @@ export const datasetApi = {
     http.get<DataSet[]>('/datasets', { params }).then((r) => r.data),
   create: (data: { project_id: number; case_id: number; name: string; description?: string }) =>
     http.post<DataSet>('/datasets', data).then((r) => r.data),
-  get: (id: number) => http.get<DataSet>(`/datasets/${id}`).then((r) => r.data),
   update: (id: number, data: { name?: string; description?: string }) =>
     http.put<DataSet>(`/datasets/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/datasets/${id}`),

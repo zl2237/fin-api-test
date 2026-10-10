@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .param_resolver import resolve_param
-from .preprocessor import get_nested_value, set_nested_value
+from .nested_path import get_nested_value, set_nested_value
 from .type_coercer import apply_field_types, coerce_json_strings
 from .variables import order_params
 from ..services.body_builder import pop_file_fields_from_body
