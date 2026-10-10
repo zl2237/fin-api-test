@@ -59,6 +59,10 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
     except ValueError as e:
         raise HTTPException(400, str(e))
     obj = crud.create_testcase(db, data, user.id)
+    # 默认数据集自动初始化（Q7）：新用例自动建「默认数据集」（示例值）并绑定；
+    # 套件/显式绑定数据集时函数内自行跳过
+    from ..services.dataset_service import ensure_case_dataset
+    ensure_case_dataset(db, obj, user.id)
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "create", "testcase", obj.id, obj.name)
     return obj
@@ -168,6 +172,11 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
         except ValueError as e:
             raise HTTPException(400, str(e))
     obj = crud.update_testcase(db, obj, data, user.id)
+    # 默认数据集初始化/增量（Q7）：未绑定时自动建+绑定；已绑定时补画布新增节点
+    # 的初始参数（示例值）。用户显式解绑（dataset_id 传 None）不重建绑定
+    from ..services.dataset_service import ensure_case_dataset
+    explicit_unbind = "dataset_id" in data.model_fields_set and data.dataset_id is None
+    ensure_case_dataset(db, obj, user.id, allow_create=not explicit_unbind)
     crud.fill_audit_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj
