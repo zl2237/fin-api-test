@@ -3,8 +3,8 @@
     <div class="page-head">
       <div class="head-left">
         <span class="page-title">字段字典</span>
-        <el-button type="primary" @click="openCreate">+ 新增字典</el-button>
-        <el-button type="success" @click="openBatch">批量导入</el-button>
+        <el-button type="primary" @click="openCreate">+ 新建字典</el-button>
+        <el-button @click="openBatch">批量导入</el-button>
       </div>
       <div class="head-right">
         <el-select
@@ -45,7 +45,7 @@
         <el-table v-else :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
           <template #empty>
             <EmptyState :description="hasActiveFilter ? '没有匹配的字典，试试调整筛选条件' : '暂无字段字典'" :image-size="80">
-              <el-button v-if="!hasActiveFilter" type="primary" @click="openCreate">新增字典</el-button>
+              <el-button v-if="!hasActiveFilter" type="primary" @click="openCreate">新建字典</el-button>
             </EmptyState>
           </template>
           <el-table-column prop="id" label="ID" width="70" sortable="custom" />

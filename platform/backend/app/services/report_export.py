@@ -3,10 +3,11 @@
 从前端 ReportDetail.vue 的 exportCsv/exportHtml 下沉，
 使 CI/定时任务等非交互方可复用导出能力。
 
-HTML 报告为 Allure 式导航布局（左侧步骤导航 + 右侧详情 Tabs）：
-- 失败优先：顶部失败摘要卡 + 默认选中首个失败步骤
+HTML 报告为档案风（Dossier）导航布局（左侧卷内目录 + 右侧卷宗详情 Tabs）：
+- 失败优先：顶部未通过核查单 + 默认选中首个失败步骤
+- 封皮：双规线 + 衬线大标题 + 状态印章（印泥三色：通过绿/失败红/执行中琥珀）+ 打印存档入口
 - 内嵌无依赖 JS：搜索过滤 / 状态筛选 / 导航跳转（约 100 行）
-- 自带深浅双套 CSS 变量（prefers-color-scheme），主色 #0071e3 对齐系统
+- 自带深浅双套 CSS 变量（prefers-color-scheme：纸面档案 / 暗夜档案），--primary 保留系统蓝
 - 单文件自包含，双击即可在浏览器打开
 """
 import json
@@ -106,25 +107,31 @@ def _parse_dt(v: Any) -> Any:
 
 _REPORT_HTML_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* 档案风变量：纸色 + 墨字 + 印泥三色（通过/失败/执行中）；--primary 保留系统蓝作链接/交互辅助色 */
 :root {
   --primary: #0071e3; --primary-soft: rgba(0,113,227,.08); --primary-line: rgba(0,113,227,.35);
-  --bg: #f5f5f7; --card: #ffffff; --card-2: #fafafa; --border: #e5e5ea;
-  --text: #1d1d1f; --text-2: #6e6e73; --text-3: #aeaeb2;
-  --ok: #34c759; --ok-soft: rgba(52,199,89,.12);
-  --err: #ff3b30; --err-soft: rgba(255,59,48,.10);
-  --warn: #ff9500; --warn-soft: rgba(255,149,0,.12);
-  --skip: #8e8e93; --skip-soft: rgba(142,142,147,.12);
-  --code-bg: #f2f2f7; --shadow: 0 1px 3px rgba(0,0,0,.06);
+  --bg: #edeae0; --card: #faf8f1; --card-2: #f1eee3; --border: #d6cfbd;
+  --rule: #a89f8a; --ink: #2b281f;
+  --text: #2b281f; --text-2: #6f6959; --text-3: #9a937f;
+  --ok: #1e7e4e; --ok-soft: rgba(30,126,78,.10);
+  --err: #c23a2b; --err-soft: rgba(194,58,43,.08);
+  --warn: #a8742a; --warn-soft: rgba(168,116,42,.10);
+  --skip: #8b8574; --skip-soft: rgba(139,133,116,.12);
+  --code-bg: #f4eeda; --shadow: 0 1px 2px rgba(60,52,30,.08), 0 6px 18px rgba(60,52,30,.05);
   --nav-w: 300px;
+  --serif: Georgia, 'Times New Roman', 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --mono: Consolas, Menlo, 'Liberation Mono', monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c1e; --card: #2c2c2e; --card-2: #232325; --border: #3a3a3c;
-    --text: #f5f5f7; --text-2: #98989d; --text-3: #636366;
+    --bg: #191a17; --card: #232420; --card-2: #1d1e1b; --border: #38392f;
+    --rule: #555748; --ink: #ece9dd;
+    --text: #ece9dd; --text-2: #a8a390; --text-3: #7c7765;
+    --ok: #4cc38a; --err: #ff6a5a; --warn: #e0a94f;
+    --ok-soft: rgba(76,195,138,.12); --err-soft: rgba(255,106,90,.12);
+    --warn-soft: rgba(224,169,79,.13); --skip-soft: rgba(139,133,116,.16);
     --primary-soft: rgba(10,132,255,.16); --primary-line: rgba(10,132,255,.45);
-    --err-soft: rgba(255,69,58,.14); --ok-soft: rgba(48,209,88,.14);
-    --warn-soft: rgba(255,159,10,.16); --skip-soft: rgba(142,142,147,.18);
-    --code-bg: #1a1a1c; --shadow: none;
+    --code-bg: #1c1d18; --shadow: none;
   }
 }
 html { font-size: 15px; }
@@ -134,92 +141,117 @@ body {
 }
 .wrap { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 
-/* ===== 报告头 ===== */
+/* ===== 档案封皮（粗顶线 + 细规线双规，衬线大标题，右侧状态印章） ===== */
 .head {
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
-  padding: 18px 26px; background: var(--card); border: 1px solid var(--border);
-  border-radius: 14px; box-shadow: var(--shadow);
+  position: relative; display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 16px; padding: 24px 30px 20px;
+  background: var(--card); border: 1px solid var(--border); border-top: 4px solid var(--ink);
+  border-radius: 4px; box-shadow: var(--shadow);
 }
-.head-title { font-size: 20px; font-weight: 700; letter-spacing: .2px; }
-.head-title .rid { font-weight: 400; color: var(--text-2); margin-left: 4px; }
-.head-right { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-3); }
-.badge { padding: 4px 16px; border-radius: 999px; font-size: 13px; font-weight: 700; }
-.badge-success { background: var(--ok-soft); color: var(--ok); }
-.badge-failed { background: var(--err-soft); color: var(--err); }
-.badge-running { background: var(--warn-soft); color: var(--warn); }
+.head::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; border-top: 1px solid var(--rule); }
+.head-main { min-width: 0; }
+.eyebrow { font-size: 10px; letter-spacing: .3em; font-weight: 600; color: var(--text-3); margin-bottom: 7px; }
+.head-title { font-family: var(--serif); font-size: 30px; font-weight: 700; letter-spacing: .02em; line-height: 1.25; }
+.head-title .rid { font-family: var(--mono); font-size: 17px; font-weight: 500; color: var(--text-2); margin-left: 10px; }
+.head-notes { margin-top: 9px; font-size: 12px; color: var(--text-2); font-family: var(--mono); }
+.head-side { display: flex; align-items: center; gap: 20px; }
+/* 状态印章：双圈 + 印泥色 + 轻微旋转（盖印感） */
+.badge {
+  width: 88px; height: 88px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; position: relative;
+  border: 2.5px solid currentColor; transform: rotate(-8deg);
+  font-family: var(--serif); font-size: 19px; font-weight: 700; letter-spacing: .18em; text-indent: .18em;
+}
+.badge::after { content: ''; position: absolute; inset: 4px; border: 1px solid currentColor; border-radius: 50%; opacity: .5; }
+.badge-success { color: var(--ok); background: var(--ok-soft); }
+.badge-failed { color: var(--err); background: var(--err-soft); }
+.badge-running { color: var(--warn); background: var(--warn-soft); }
+.print-btn {
+  font: inherit; font-size: 12px; letter-spacing: .08em; padding: 8px 16px; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 3px; background: transparent; color: var(--text-2);
+  transition: all .15s;
+}
+.print-btn:hover { color: var(--text); border-color: var(--text); }
 
-/* ===== 概览统计 ===== */
+/* ===== 著录项（概览统计） ===== */
 .overview {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px;
-  background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px;
+  background: var(--border); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; box-shadow: var(--shadow);
 }
-.metric { background: var(--card); padding: 12px 18px; min-width: 0; }
-.metric-label { font-size: 11px; color: var(--text-3); margin-bottom: 2px; letter-spacing: .04em; }
-.metric-value { font-size: 14px; font-weight: 600; word-break: break-all; }
+.metric { background: var(--card); padding: 13px 18px 11px; min-width: 0; }
+.metric-label { font-size: 10px; color: var(--text-3); margin-bottom: 4px; letter-spacing: .18em; }
+.metric-value { font-family: var(--serif); font-size: 15px; font-weight: 700; word-break: break-all; }
 /* 长文本（用例名/环境/项目等）单行截断 + title 悬浮全文：超长名称会把统计卡折成几十行、高度随名称无上限膨胀 */
 .metric-value.to {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: keep-all;
 }
-.metric.hl .metric-value { color: var(--primary); font-size: 17px; }
+.metric.hl .metric-value { color: var(--ink); font-size: 19px; }
 .metric-value .pass-c { color: var(--ok); }
 
-/* ===== 失败摘要卡 ===== */
+/* ===== 未通过核查单（失败摘要卡） ===== */
 .fail-card {
-  border: 1px solid var(--primary-line); border-left: 4px solid var(--err);
-  border-radius: 12px; background: var(--card); box-shadow: var(--shadow); overflow: hidden;
+  border: 1px solid var(--border); border-left: 5px solid var(--err);
+  border-radius: 4px; background: var(--card); box-shadow: var(--shadow); overflow: hidden;
 }
 .fail-card-head {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 18px; font-size: 13px; font-weight: 700; color: var(--err);
-  background: var(--err-soft);
+  background: var(--err-soft); letter-spacing: .05em; border-bottom: 1px solid var(--border);
 }
 .fail-item {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   padding: 9px 18px; border-top: 1px solid var(--border); cursor: pointer;
   transition: background .12s;
 }
-.fail-item:hover { background: var(--primary-soft); }
-.fail-idx { font-size: 12px; font-weight: 700; color: var(--err); flex-shrink: 0; }
+.fail-item:first-of-type { border-top: none; }
+.fail-item:hover { background: var(--code-bg); }
+.fail-idx { font-size: 12px; font-weight: 700; color: var(--err); flex-shrink: 0; font-family: var(--mono); }
 .fail-name { font-weight: 600; font-size: 13px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fail-why { font-size: 12px; color: var(--err); flex: 1; min-width: 200px; max-width: 100%; overflow-wrap: anywhere; }
 .fail-count { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 
-/* ===== 主体：左导航 + 右详情 ===== */
+/* ===== 主体：左卷内目录 + 右卷宗详情 ===== */
 .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; gap: 14px; align-items: start; }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
-/* 左侧导航 */
+/* 左侧导航（档案盒标签头 + 索引目录） */
 .nav {
   position: sticky; top: 16px; display: flex; flex-direction: column;
   max-height: calc(100vh - 32px); background: var(--card);
-  border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden;
+  border: 1px solid var(--border); border-radius: 4px; box-shadow: var(--shadow); overflow: hidden;
 }
 @media (max-width: 900px) { .nav { position: static; max-height: 340px; } }
+.nav-cap {
+  display: flex; align-items: baseline; justify-content: space-between;
+  background: #2c2a24; color: #efe9d8; padding: 9px 16px;
+  font-size: 12px; font-weight: 700; letter-spacing: .22em;
+}
+.nav-cap .nav-cap-n { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0; color: #b5ae97; }
 .nav-tools { padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--border); }
 .nav-search {
   width: 100%; padding: 7px 12px; font: inherit; font-size: 13px;
-  border: 1px solid var(--border); border-radius: 8px; outline: none;
+  border: 1px solid var(--border); border-radius: 3px; outline: none;
   background: var(--card-2); color: var(--text); transition: border-color .15s;
 }
-.nav-search:focus { border-color: var(--primary); }
+.nav-search:focus { border-color: var(--ink); }
 .nav-search::placeholder { color: var(--text-3); }
 .filters { display: flex; gap: 6px; }
 .filter-btn {
   flex: 1; padding: 5px 0; font: inherit; font-size: 12px; font-weight: 600;
-  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 3px; cursor: pointer;
   background: var(--card-2); color: var(--text-2); transition: all .13s;
 }
-.filter-btn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-.filter-btn[data-f="failed"].on { background: var(--err); border-color: var(--err); }
+.filter-btn.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.filter-btn[data-f="failed"].on { background: var(--err); border-color: var(--err); color: #fff; }
 .nav-list { overflow-y: auto; flex: 1; padding: 6px; }
 .nav-empty { padding: 22px 10px; text-align: center; font-size: 12px; color: var(--text-3); }
 .nav-item {
   display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 8px 10px; border: none; border-radius: 9px; cursor: pointer;
+  padding: 8px 10px; border: none; border-radius: 3px; cursor: pointer;
   background: transparent; text-align: left; font: inherit; transition: background .12s;
 }
-.nav-item:hover { background: var(--primary-soft); }
-.nav-item.active { background: var(--primary-soft); box-shadow: inset 0 0 0 1.5px var(--primary); }
+.nav-item:hover { background: var(--code-bg); }
+.nav-item.active { background: var(--code-bg); box-shadow: inset 3px 0 0 var(--ink); }
 .nav-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .nav-dot.success { background: var(--ok); }
 .nav-dot.failed { background: var(--err); }
@@ -232,17 +264,17 @@ body {
 .nav-meta .fail-n { color: var(--err); font-weight: 700; }
 .nav-item.is-hidden { display: none; }
 
-/* 右侧详情 */
+/* 右侧详情（卷宗卡片） */
 .detail {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 14px; box-shadow: var(--shadow);
+  border-radius: 4px; box-shadow: var(--shadow);
   /* overflow 改 visible：让内部 .sp-sticky 能相对视口固定（hidden 会成为 scroll container 截断 sticky） */
   overflow: visible;
 }
 /* 步骤标题区粘顶：节点名 + meta + Tab 栏滚动时常驻视口顶部 */
 .sp-sticky {
   position: sticky; top: 0; z-index: 10; background: var(--card);
-  border-radius: 14px 14px 0 0;
+  border-radius: 4px 4px 0 0;
 }
 .step-pane { display: none; }
 .step-pane.active { display: block; }
@@ -250,8 +282,12 @@ body {
 .sp-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; min-width: 0; max-width: 100%; }
 /* 步骤名单行截断（title 属性由服务端写入悬浮全文） */
 .sp-title .sp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-idx { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; border-radius: 8px; background: var(--primary-soft); color: var(--primary); font-size: 13px; font-weight: 700; }
-.sp-status { padding: 3px 14px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.sp-idx {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 40px; height: 26px;
+  border-radius: 3px; background: var(--ink); color: var(--bg);
+  font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .04em;
+}
+.sp-status { padding: 3px 13px; border-radius: 3px; font-size: 12px; font-weight: 700; letter-spacing: .06em; }
 .sp-status.success { background: var(--ok-soft); color: var(--ok); }
 .sp-status.failed { background: var(--err-soft); color: var(--err); }
 .sp-status.running { background: var(--warn-soft); color: var(--warn); }
@@ -259,11 +295,12 @@ body {
 .sp-meta { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 10px 22px; font-size: 12px; color: var(--text-2); background: var(--card-2); border-bottom: 1px solid var(--border); }
 .sp-meta em { font-style: normal; color: var(--text-3); margin-right: 4px; }
 .sp-meta .mono { font-family: Consolas, Menlo, monospace; overflow-wrap: anywhere; }
-/* 详情内 Tab（纯 radio 实现，无 JS 参与） */
+/* 详情内 Tab（纯 radio 实现，无 JS 参与）——索引签样式：选中纸黄底 + 顶墨线 */
 .sp-tabs { display: flex; gap: 2px; padding: 8px 14px 0; border-bottom: 1px solid var(--border); }
 .sp-tab {
-  padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
-  color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 7px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+  color: var(--text-2); border: 1px solid transparent; border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0; margin-bottom: -1px;
 }
 .sp-tab:hover { color: var(--text); }
 .sp-pane { display: none; padding: 18px 22px; }
@@ -279,38 +316,39 @@ input.sp-radio { display: none; }
 .step-pane[data-tabbed="1"]:has(input.sp-radio-resp:checked) .sp-tabs label.sp-tab-resp,
 .step-pane[data-tabbed="1"]:has(input.sp-radio-extract:checked) .sp-tabs label.sp-tab-extract,
 .step-pane[data-tabbed="1"]:has(input.sp-radio-assert:checked) .sp-tabs label.sp-tab-assert {
-  color: var(--primary); border-bottom-color: var(--primary);
+  color: var(--text); background: var(--code-bg); border-bottom-color: var(--code-bg);
+  box-shadow: inset 0 2px 0 var(--ink);
 }
 .sec { margin-bottom: 16px; }
-.sec-title { font-size: 12px; font-weight: 700; color: var(--text-2); letter-spacing: .05em; margin-bottom: 6px; padding-left: 9px; border-left: 3px solid var(--primary); }
+.sec-title { font-size: 11px; font-weight: 700; color: var(--text-2); letter-spacing: .14em; margin-bottom: 6px; padding-left: 9px; border-left: 3px solid var(--ink); }
 .sec-empty { font-size: 12px; color: var(--text-3); padding: 10px 0 2px; }
 .code-block {
-  background: var(--code-bg); color: var(--text); padding: 12px 14px; border-radius: 9px;
-  font-family: Consolas, Menlo, 'Liberation Mono', monospace; font-size: 12px; line-height: 1.6;
+  background: var(--code-bg); color: var(--text); padding: 12px 14px; border-radius: 3px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.6;
   white-space: pre-wrap; word-break: break-all; overflow-x: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border); border-left: 3px solid var(--rule);
 }
 .kv { font-size: 13px; }
 .kv b { font-weight: 700; }
 
-/* 断言表 */
+/* 断言表（档案台账：细线 + 表头字距） */
 .assert-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .assert-table th, .assert-table td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
-.assert-table th { background: var(--card-2); font-weight: 600; color: var(--text-2); }
+.assert-table th { background: var(--card-2); font-weight: 600; font-size: 10px; letter-spacing: .12em; color: var(--text-2); }
 .assert-table .pass { color: var(--ok); font-weight: 700; }
 .assert-table .fail { color: var(--err); font-weight: 700; }
 .assert-table tr.row-fail td { background: var(--err-soft); }
-.assert-table .mono { font-family: Consolas, Menlo, monospace; font-size: 11px; }
+.assert-table .mono { font-family: var(--mono); font-size: 11px; }
 .assert-table .muted { color: var(--text-3); }
 .assert-table .fail-msg { color: var(--err); }
 .assert-table .fail-text { color: var(--err); }
 
-.foot { text-align: center; font-size: 11px; color: var(--text-3); padding: 4px 0 0; }
+.foot { text-align: center; font-size: 11px; color: var(--text-3); padding: 10px 0 0; border-top: 1px solid var(--border); }
 
-/* ===== 打印兜底：隐藏导航，全部步骤单列展开 ===== */
+/* ===== 打印兜底：隐藏导航/按钮，全部步骤单列展开（印章随纸面落档） ===== */
 @media print {
   body { background: #fff; padding: 0; }
-  .nav, .fail-item { display: none !important; }
+  .nav, .fail-item, .print-btn { display: none !important; }
   .layout { display: block; }
   .detail { border: none; box-shadow: none; }
   .step-pane { display: block !important; page-break-inside: avoid; border-bottom: 1px solid #ccc; margin-bottom: 12px; }
@@ -597,12 +635,16 @@ def export_report_html(record: Any, steps: list[Any]) -> str:
     parts.append("</head><body>")
     parts.append('<div class="wrap">')
 
-    # 报告头
+    # 档案封皮：眉题 + 衬线大标题 + 归档时间，右侧状态印章与打印入口
     parts.append('<header class="head">')
+    parts.append('<div class="head-main">')
+    parts.append('<div class="eyebrow">FIN-API-TEST · EXECUTION ARCHIVE</div>')
     parts.append(f'<div class="head-title">执行报告<span class="rid">#{_esc(record.id)}</span></div>')
-    parts.append('<div class="head-right">')
+    parts.append(f'<div class="head-notes">归档于 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</div>')
+    parts.append("</div>")
+    parts.append('<div class="head-side">')
     parts.append(f'<span class="badge badge-{_esc(record.status)}">{_esc(_status_text(record.status))}</span>')
-    parts.append(f"<span>生成于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</span>")
+    parts.append('<button type="button" class="print-btn" onclick="window.print()">打印 / 存档 PDF</button>')
     parts.append("</div></header>")
 
     # 概览统计
@@ -621,6 +663,8 @@ def export_report_html(record: Any, steps: list[Any]) -> str:
     parts.append(_summary_metric("执行人", record.created_by_name or "—", nowrap=True))
     parts.append(_summary_metric("步骤", f'<span class="pass-c">{passed}</span> / {len(steps)}', True))
     parts.append(_summary_metric("断言", f'<span class="pass-c">{assertion_passed}</span> / {assertion_total}', True))
+    pass_rate = f"{round(passed / len(steps) * 100)}%" if steps else "—"
+    parts.append(_summary_metric("通过率", pass_rate, True))
     parts.append(_summary_metric("耗时", _esc(duration), True))
     parts.append(_summary_metric("开始时间", record.started_at or "—", nowrap=True))
     parts.append("</section>")
@@ -631,6 +675,7 @@ def export_report_html(record: Any, steps: list[Any]) -> str:
     # 主体：左导航 + 右详情
     parts.append('<div class="layout">')
     parts.append('<nav class="nav">')
+    parts.append(f'<div class="nav-cap">卷内目录<span class="nav-cap-n">{len(steps)} 步</span></div>')
     parts.append('<div class="nav-tools">')
     parts.append('<input class="nav-search" type="search" placeholder="搜索步骤名 / 方法 / 路径…">')
     parts.append('<div class="filters">')

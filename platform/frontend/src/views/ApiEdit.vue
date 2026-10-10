@@ -186,7 +186,7 @@
         <el-button v-if="importFieldsTab === 'openapi'" :loading="importFieldsLoading" type="primary" @click="onParseFields">解析</el-button>
         <el-button
           v-if="importFieldsResult?.matched"
-          type="success"
+          type="primary"
           @click="onApplyFields"
         >覆盖字段（{{ newFieldKeys.length }} 个）</el-button>
       </template>
