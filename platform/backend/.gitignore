@@ -1,0 +1,2 @@
+# 本地开发工具环境（mypy 装在项目目录，绕过沙箱对 site-packages 的写入限制）
+.devtools-mypy/
