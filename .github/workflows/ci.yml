@@ -33,17 +33,17 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: platform/backend/requirements.txt
-      - run: pip install -r requirements.txt pytest
+      - run: pip install -r requirements.txt pytest pytest-cov
       # fake-db 单测不依赖真实 MySQL；环境变量仅为通过模块导入校验
-      - run: python -m pytest tests -q
+      # 覆盖率口径见 platform/backend/.coveragerc（仅统计 app 包）
+      - run: python -m pytest tests -q --cov=app --cov-report=term
         env:
           DB_PASSWORD: ci-dummy
           JWT_SECRET_KEY: ci-dummy
 
   backend-mypy:
-    name: Backend Type Check (mypy, advisory)
+    name: Backend Type Check (mypy)
     runs-on: ubuntu-latest
-    continue-on-error: true  # advisory：基线 375 个 SQLAlchemy 类型推断错误，逐步收紧
     defaults:
       run:
         working-directory: platform/backend
@@ -55,7 +55,7 @@ jobs:
           cache: pip
           cache-dependency-path: platform/backend/requirements.txt
       - run: pip install -r requirements.txt mypy
-      # Basic 渐进式：SQLAlchemy Column 类型推断错误占绝大多数，运行时由单测覆盖
+      # blocking：0 错误基线（2026-10-10 起），回归即卡点
       - run: mypy app
 
   frontend-check:
