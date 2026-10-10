@@ -214,7 +214,7 @@ def _node_initial_params(db: Session, case) -> dict[str, dict]:
     api_ids = {c.api_id for c in struct.values() if c.api_id}
     apis = {a.id: a for a in db.query(models.ApiDefinition)
             .filter(models.ApiDefinition.id.in_(api_ids)).all()} if api_ids else {}
-    dag_nodes = [n.get("id") for n in ((case.dag_config or {}).get("nodes") or [])
+    dag_nodes = [str(n["id"]) for n in ((case.dag_config or {}).get("nodes") or [])
                  if isinstance(n, dict) and n.get("id")]
     out: dict[str, dict] = {}
     for nid in dag_nodes:
@@ -253,10 +253,10 @@ def ensure_case_dataset(db: Session, case, user_id: int | None = None,
             case.dataset_id = ds.id
             db.commit()
             return
-        ds = crud.get_dataset(db, case.dataset_id)
-        if not ds:
+        bound = crud.get_dataset(db, case.dataset_id)
+        if not bound:
             return
-        row = _ensure_row(db, ds)
+        row = _ensure_row(db, bound)
         data = dict(row.data or {})
         raw_nodes = data.get("nodes")
         nodes = dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
