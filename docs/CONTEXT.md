@@ -9,6 +9,7 @@
 - **LaunchPlan**：一个用例（× 执行次数轮）的发射计划；多个 plan 可平铺进一个批次专用线程池一次 `commit_launch`。
 - **AggregateGroup**（聚合组）：一次数据集多行展开的失败聚合通知组——全部终态后只发一条汇总，组内每条抑制逐条通知。
 - **批次专用池**：每次批量执行新建 `ThreadPoolExecutor(max_workers=concurrency)`，提交完即回收；与内部后台任务池（聚合通知等零散提交）互不复用。
+- **replay_service**（`services/replay_service.py`）：报告页重放与断点续跑的编排层——`replay_step_once`（快照定位接口重发 + 同口径提取/断言 + replay_passed_at 打点）与 `resume_execution_async`（指纹校验 → 起点定位 → 后台线程续跑）。executions 路由只做参数解析与鉴权；两类动作共用「报告虚拟上下文 + 当前配置」口径。
 
 ## 请求组装（prepare_request）
 
