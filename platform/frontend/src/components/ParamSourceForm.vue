@@ -38,6 +38,19 @@
         :placeholder="fileField ? '或直接填文件ID' : (placeholder || '输入常量值')"
         @change="commitConstantText"
       />
+      <!-- 空值语义切换（2026-10-10 定案 Q10）：值为空时可显式声明发空串还是
+           JSON null（null 穿透类型强转；清空文本默认回空串，NULL 走此切换） -->
+      <div v-if="isPlainValue && !fileField && isEmptyValue" class="psf-null-row">
+        <span class="psf-arg-name">空值语义</span>
+        <el-radio-group
+          :model-value="isNullValue ? 'null' : 'string'"
+          size="small"
+          @update:model-value="(k: any) => patch({ value: k === 'null' ? null : '' })"
+        >
+          <el-radio-button value="string">空串 ''</el-radio-button>
+          <el-radio-button value="null">NULL（JSON null）</el-radio-button>
+        </el-radio-group>
+      </div>
       <template v-else>
         <el-input
           v-model="textValue"
@@ -193,6 +206,11 @@ const isPlainValue = computed(() => {
   const v = spec.value.value
   return v === null || v === undefined || typeof v !== 'object'
 })
+const isNullValue = computed(() => spec.value.value === null)
+const isEmptyValue = computed(() => {
+  const v = spec.value.value
+  return v === null || v === ''
+})
 
 // ===== 文件字段（fileField）：常量值 = 文件中心 file_id =====
 const fileInfo = ref<TestFile | null>(null)
@@ -322,6 +340,12 @@ watch(source, focusFirstControl)
   background: var(--app-hover);
   padding: 0 4px;
   border-radius: 3px;
+}
+.psf-null-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
 }
 .psf-args {
   display: flex;
