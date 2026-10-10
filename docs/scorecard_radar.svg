@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 410" width="720" height="410" role="img" aria-label="fin-api-test 工程质量评分雷达图（百分制）">
   <text x="360" y="28" text-anchor="middle" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="17" font-weight="600" fill="#6E56CF">fin-api-test 工程质量评分</text>
-  <text x="360" y="46" text-anchor="middle" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#8b949e">综合 90 / 100 · 百分制六维加权 · 2026-10-10</text>
+  <text x="360" y="46" text-anchor="middle" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#8b949e">综合 91 / 100 · 百分制六维加权 · 2026-10-10</text>
 
   <g fill="none" stroke="#d0d7de" stroke-width="1">
     <polygon points="360,180 390.3,197.5 390.3,232.5 360,250 329.7,232.5 329.7,197.5"/>
@@ -24,14 +24,14 @@
     <text x="354" y="78">100</text>
   </g>
 
-  <polygon points="360,84.8 469.1,152 475.1,281.5 360,341 257,274.5 253.3,153.4" fill="#6E56CF" fill-opacity="0.32" stroke="#6E56CF" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="360,84.8 469.1,152 475.1,281.5 360,341 257,274.5 248.6,150.6" fill="#6E56CF" fill-opacity="0.32" stroke="#6E56CF" stroke-width="2" stroke-linejoin="round"/>
   <g fill="#6E56CF" stroke="#f3f0ff" stroke-width="1.5">
     <circle cx="360" cy="84.8" r="4"/>
     <circle cx="469.1" cy="152" r="4"/>
     <circle cx="475.1" cy="281.5" r="4"/>
     <circle cx="360" cy="341" r="4"/>
     <circle cx="257" cy="274.5" r="4"/>
-    <circle cx="253.3" cy="153.4" r="4"/>
+    <circle cx="248.6" cy="150.6" r="4"/>
   </g>
 
   <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13">
@@ -40,6 +40,6 @@
     <text x="490" y="296" text-anchor="start" fill="#7d8590">依赖安全 <tspan font-weight="600" fill="#6E56CF">95</tspan></text>
     <text x="360" y="382" text-anchor="middle" fill="#7d8590">CI/CD <tspan font-weight="600" fill="#6E56CF">90</tspan></text>
     <text x="230" y="296" text-anchor="end" fill="#7d8590">代码质量 <tspan font-weight="600" fill="#6E56CF">85</tspan></text>
-    <text x="230" y="140" text-anchor="end" fill="#7d8590">文档完备 <tspan font-weight="600" fill="#6E56CF">88</tspan></text>
+    <text x="230" y="140" text-anchor="end" fill="#7d8590">文档完备 <tspan font-weight="600" fill="#6E56CF">92</tspan></text>
   </g>
 </svg>
