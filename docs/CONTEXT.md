@@ -54,6 +54,6 @@
 - **execStatusType / execStatusText**（`utils/format.ts`）：执行状态 → 标签色/中文文案的唯一映射，各视图以 `as statusType/statusText` 别名引入。
 - **useRefGroups**（`composables/useRefGroups.ts`）：引用候选分组的唯一构建点——selfParamPaths（本节点参数路径）、upstreamNodeIds（上游节点序）、buildRefGroups（RefGraphCtx 数据源注入）；CaseDesigner 的本节点提取变量经 extraGroups 注入，与 SQL 引用菜单同源。
 - **useSqlInsert / SqlCell**（`composables/useSqlInsert.ts` + `components/SqlCell.vue`）：SQL 编辑域光标处插入 `{{节点.变量}}` 占位的唯一实现——PostExtractTable / AssertionTable / ParamSourceForm 三处共用（ParamSourceForm 菜单布局不同，只复用 composable 不硬套 SqlCell）。
-- **ImportJsonDialog**（`components/ImportJsonDialog.vue`）：粘贴 JSON 导入域——getByPath/flattenLeaves/matchesWildcard/canonPath/parseImport 整体收敛在组件内，emit('apply', body, replaced, added) 由父视图消费。
+- **ImportJsonDialog**（`components/ImportJsonDialog.vue`）：粘贴导入域——JSON / 表单串 / cURL 三格式自动识别（识别与解析纯函数在 `utils/importPayload.ts` 的 parseImportText，表单串保持扁平方括号 key 与表单类请求参数路径口径一致）；getByPath/flattenLeaves/matchesWildcard/canonPath 收敛在组件内，emit('apply', body, replaced, added) 由父视图消费。
 - **ReplayDialog**（`components/ReplayDialog.vue`）：报告页节点重放弹窗——props {visible, stepId, initialBody}，emit('replayed', passed)；开合重置与样式与报告页一致。
 - **copyText**（`utils/clipboard.ts`）：剪贴板写入的统一收口（报告/数据集等复制动作共用）。
