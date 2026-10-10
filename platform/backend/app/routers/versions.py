@@ -87,7 +87,7 @@ def diff_version(
     )
 
 
-@router.post("/api/project-versions/{version_id}/rollback")
+@router.post("/api/project-versions/{version_id}/rollback", response_model=schemas.MessageOut)
 def rollback_version(version_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """硬回滚项目到指定版本：删当前所有接口/用例/分组，用快照重建。
     回滚前自动打一个"回滚前快照"留痕，确保可恢复。"""
@@ -108,7 +108,7 @@ def rollback_version(version_id: int, db: Session = Depends(get_db), user: model
     return {"message": f"已回滚到 v{v.version_no}"}
 
 
-@router.delete("/api/project-versions/{version_id}")
+@router.delete("/api/project-versions/{version_id}", response_model=schemas.MessageOut)
 def delete_version(version_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     v = crud.get_project_version(db, version_id)
     if not v:

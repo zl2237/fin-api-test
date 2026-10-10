@@ -19,9 +19,10 @@ import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth as auth_module
@@ -65,6 +66,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """422 参数校验错误折叠为中文一句话。
+
+    FastAPI 默认把 pydantic errors 数组塞进 detail；前端拦截器契约只读
+    detail 字符串（数组会退化成英文逗号串），在此统一为「字段路径: 原因」拼接。
+    """
+    parts = []
+    for e in exc.errors():
+        loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
+        msg = e.get("msg", "参数校验失败")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    return JSONResponse(status_code=422, content={"detail": "；".join(parts) or "请求参数校验失败"})
 
 
 def _check_secret_key():

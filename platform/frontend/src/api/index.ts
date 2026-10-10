@@ -58,6 +58,23 @@ http.interceptors.request.use((config) => {
   return config
 })
 
+// 后端 detail 兜底折叠：主应用已有 422 handler 折叠为字符串，但数组形态
+// （其他服务/旧版本网关）会退化成英文逗号串，这里统一为「字段: 原因；…」
+function foldDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((e: { loc?: unknown[]; msg?: unknown }) => {
+        const loc = Array.isArray(e?.loc) ? e.loc.filter((x) => x !== 'body').join('.') : ''
+        const msg = typeof e?.msg === 'string' ? e.msg : ''
+        return loc ? `${loc}: ${msg}` : msg
+      })
+      .filter(Boolean)
+      .join('；')
+  }
+  return ''
+}
+
 // 响应拦截器：401 清 token 跳登录；其他错误提取 detail；结束进度条
 http.interceptors.response.use(
   (resp) => {
@@ -81,13 +98,13 @@ http.interceptors.response.use(
     if (typeof Blob !== 'undefined' && data instanceof Blob && data.type.includes('json')) {
       return data.text().then((txt: string) => {
         try {
-          return rejectWithMsg(JSON.parse(txt)?.detail || error?.message || '请求失败')
+          return rejectWithMsg(foldDetail(JSON.parse(txt)?.detail) || error?.message || '请求失败')
         } catch {
           return rejectWithMsg(error?.message || '请求失败')
         }
       })
     }
-    const msg = error?.response?.data?.detail || error?.message || '请求失败'
+    const msg = foldDetail(data?.detail) || error?.message || '请求失败'
     return rejectWithMsg(msg)
   },
 )
@@ -559,7 +576,8 @@ export const execApi = {
   get: (id: number, silent?: boolean) => http.get<ExecutionRecord>(`/executions/${id}`, { silent }).then((r) => r.data),
   // 手动终止（运行中记录）：僵尸记录直接落状态；活动执行由 runner 检查点提前退出
   terminate: (id: number) => http.post<ExecutionRecord>(`/executions/${id}/terminate`).then((r) => r.data),
-  report: (id: number) => http.get<ExecutionRecord>(`/reports/executions/${id}`).then((r) => r.data),
+  // 报告详情与 get 同源（后端 /executions/{id} 单一事实源，/reports 读端点保留给外部调用方）
+  report: (id: number) => http.get<ExecutionRecord>(`/executions/${id}`).then((r) => r.data),
   // 报告导出（后端组装：csv=Excel 兼容 BOM+CRLF；html=自包含单文件报告）
   exportReport: (id: number, format: 'csv' | 'html') =>
     http.get<Blob>(`/reports/executions/${id}/export`, { responseType: 'blob', params: { format } }).then((r) => r.data),

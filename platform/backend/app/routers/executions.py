@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import crud, models, schemas
@@ -107,7 +108,7 @@ def list_executions(case_id: int | None = None, project_id: int | None = None, c
     return {"items": objs, "total": total}
 
 
-@router.get("/executions/stats")
+@router.get("/executions/stats", response_model=schemas.ExecutionStatsOut)
 def execution_stats(days: int = 7, project_id: int | None = None,
                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """近 N 天执行统计（工作台用）：全量聚合口径，不受列表 200 条截断影响。
@@ -120,14 +121,17 @@ def execution_stats(days: int = 7, project_id: int | None = None,
     if project_id is not None:
         q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id) \
              .filter(models.TestCase.project_id == project_id)
-    rows = q.with_entities(models.ExecutionRecord.status).all()
-    total = len(rows)
-    passed = sum(1 for (s,) in rows if s == "success")
+    # group_by 数据库端聚合：全量拉行（工作台高频调用）在大表下代价高
+    rows = q.with_entities(models.ExecutionRecord.status, func.count()) \
+            .group_by(models.ExecutionRecord.status).all()
+    by_status = {s: c for s, c in rows}
+    total = sum(by_status.values())
+    passed = by_status.get("success", 0)
     rate = round(passed * 100 / total) if total else None
     return {"count": total, "passed": passed, "rate": rate, "days": days}
 
 
-@router.delete("/executions/cleanup")
+@router.delete("/executions/cleanup", response_model=schemas.CleanupResultOut)
 def cleanup_executions(days: int = 30, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """手动清理指定天数前的执行记录（含步骤和断言），仅管理员可操作。需在 /{exec_id} 之前注册。"""
     if user.role != "admin":

@@ -43,7 +43,7 @@ def list_logs(
     return q.order_by(models.OperationLog.id.desc()).limit(limit).all()
 
 
-@router.delete("/cleanup")
+@router.delete("/cleanup", response_model=schemas.CleanupResultOut)
 def cleanup_logs(
     days: int = 30,
     db: Session = Depends(get_db),

@@ -138,7 +138,7 @@ def update(dataset_id: int, data: schemas.DataSetUpdate, db: Session = Depends(g
     return _fill_extra(db, obj)
 
 
-@router.delete("/{dataset_id}")
+@router.delete("/{dataset_id}", response_model=schemas.MessageOut)
 def delete(dataset_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = _get_or_404(db, dataset_id)
     _svc_call(svc.delete_dataset, db, dataset_id)

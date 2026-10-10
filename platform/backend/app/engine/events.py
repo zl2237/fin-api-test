@@ -76,8 +76,9 @@ class DbSink:
             extracted_vars=result.extracted_vars,
         )
         self.db.add(step)
-        self.db.commit()
-        self.db.refresh(step)
+        # flush 取 step.id 供断言关联（不提前提交）；步骤 + 全部断言合并为
+        # 一次 commit——每步一事务的终止可见性语义不变（_terminated 依赖）
+        self.db.flush()
         for ar in result.assertions:
             self.db.add(models.AssertionRecord(
                 step_id=step.id, rule_type=ar.type, rule_config=ar.rule_config,
