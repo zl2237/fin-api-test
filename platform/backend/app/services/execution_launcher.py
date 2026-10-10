@@ -39,7 +39,7 @@ def build_launch_plan(db: Session, case, env_id: int, user_id: int, *,
     run_count>1 时复用一次规划重复提交（run_count 次执行）。
     套件：本体无变量池（成员各自绑定数据集与环境），单条直发不校验绑定。"""
     if getattr(case, "case_type", "normal") == "suite":
-        plan_items = [{"dataset_id": None, "row": None}]
+        plan_items: list[dict] = [{"dataset_id": None, "row": None}]
     else:
         plan_items = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
 

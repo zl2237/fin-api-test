@@ -34,9 +34,9 @@ def is_extract_error(v: Any) -> bool:
     return isinstance(v, dict) and EXTRACT_ERROR_KEY in v
 
 
-def _clip(s: str, n: int = 300) -> str:
-    s = str(s).strip()
-    return s if len(s) <= n else s[:n] + "…"
+def _clip(s: Any, n: int = 300) -> str:
+    t = str(s).strip()
+    return t if len(t) <= n else t[:n] + "…"
 
 
 class Extractor:

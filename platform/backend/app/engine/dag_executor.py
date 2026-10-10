@@ -93,9 +93,10 @@ class DagExecutor:
         self._node_cache: dict[str, Any] | None = None
         self._api_cache: dict[int, Any] | None = None
         # 节点 id → 画布中文名：错误消息可读性（node_xxx → 「审核」）
+        dag = case.dag_config if isinstance(case.dag_config, dict) else {}
         self._node_labels: dict[str, str] = {
             n.get("id", ""): ((n.get("data") or {}).get("label") or n.get("label") or n.get("id", ""))
-            for n in ((case.dag_config or {}).get("nodes") if isinstance(case.dag_config, dict) else [])
+            for n in (dag.get("nodes") or [])
             if isinstance(n, dict)
         }
 
@@ -125,7 +126,7 @@ class DagExecutor:
         terminate API 的跨会话提交；REPEATABLE READ 下同事务快照不可见）。"""
         status = (self.db.query(models.ExecutionRecord.status)
                   .filter(models.ExecutionRecord.id == execution_id).scalar())
-        return status == "terminated"
+        return bool(status == "terminated")
 
     def execute(self) -> models.ExecutionRecord:
         if self._precreated_record is not None:
@@ -473,8 +474,7 @@ class DagExecutor:
         retry_limit = max(0, getattr(self.env, "node_retry_count", 0) or 0)
         retry_interval = max(1, getattr(self.env, "node_retry_interval", 1) or 1)
         status_code, response_data, err = 0, None, None
-        extracted: dict = {}
-        assertion_results: list[dict] = []
+        extracted, assertion_results = {}, []
         step_passed = False
         retry_count = 0
         for attempt in range(retry_limit + 1):

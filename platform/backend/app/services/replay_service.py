@@ -46,14 +46,15 @@ def replay_step_once(db: Session, user: models.User, step_id: int,
     if not step:
         raise HTTPException(404, f"步骤不存在: {step_id}")
     execution = db.get(models.ExecutionRecord, step.execution_id)
-    if not execution or not execution.env_id:
-        raise HTTPException(400, "原执行记录缺失或无环境信息，无法重放")
+    if not execution or not execution.env_id or not execution.case_id:
+        raise HTTPException(400, "原执行记录缺失或无环境/用例信息，无法重放")
     case = crud.get_testcase(db, execution.case_id)
-    api = (db.query(models.ApiDefinition)
-           .filter(models.ApiDefinition.path == step.api_path,
-                   models.ApiDefinition.method == (step.api_method or "GET").upper(),
-                   models.ApiDefinition.project_id == case.project_id if case else True)
-           .first())
+    api_query = (db.query(models.ApiDefinition)
+                 .filter(models.ApiDefinition.path == step.api_path,
+                         models.ApiDefinition.method == (step.api_method or "GET").upper()))
+    if case:
+        api_query = api_query.filter(models.ApiDefinition.project_id == case.project_id)
+    api = api_query.first()
     if not api:
         raise HTTPException(404, f"接口已不存在或已改路径: {step.api_path}")
     env = crud.get_environment(db, execution.env_id)
@@ -169,11 +170,15 @@ def resume_execution_async(db: Session, user: models.User, exec_id: int) -> mode
         raise HTTPException(400, f"仅失败报告可续跑（当前状态: {record.status}），成功/执行中请直接执行")
     if record.suite_execution_id:
         raise HTTPException(400, "套件成员报告不支持续跑：请单独执行该用例后在新报告上调试")
+    if not record.case_id:
+        raise HTTPException(400, "记录缺少用例信息，无法续跑")
     case = crud.get_testcase(db, record.case_id)
     if not case:
         raise HTTPException(404, f"用例不存在: {record.case_id}")
     if getattr(case, "case_type", "normal") == "suite":
         raise HTTPException(400, "套件用例不支持续跑：请单独执行成员用例")
+    if not record.env_id:
+        raise HTTPException(400, "记录缺少环境信息，无法续跑")
     env = crud.get_environment(db, record.env_id)
     if not env:
         raise HTTPException(404, f"环境不存在: {record.env_id}")

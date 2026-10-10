@@ -165,8 +165,7 @@ def order_params(params: dict[str, dict], self_node: str) -> list[str]:
 
     deps: dict[str, set[str]] = {}
     for p, spec in params.items():
-        d = {_norm(x) for x in param_dependencies(spec, self_node)}
-        d.discard(None)
+        d = {norm for norm in map(_norm, param_dependencies(spec, self_node)) if norm is not None}
         deps[p] = d
         if "*" in p:
             prefix = p.split(".*", 1)[0]
