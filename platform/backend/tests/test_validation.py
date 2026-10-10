@@ -29,6 +29,17 @@ class TestPass:
         ])
         assert errs == []
 
+    def test_constant_null_value_allowed(self):
+        """constant 显式 null（value=None）保存期放行：发 JSON null 的合法语义
+        （2026-10-10 定案；null 与缺失是两种语义，不做旧语法/来源拦截）"""
+        errs = validate_case_configs(DAG, [
+            n1_config(params={"body": {
+                "bl_no": {"source": "constant", "value": None},
+                "teu": {"source": "constant", "value": None},
+            }}),
+        ])
+        assert errs == []
+
     def test_self_sql_param_ref(self):
         errs = validate_case_configs(DAG, [
             n1_config(params={"body": {

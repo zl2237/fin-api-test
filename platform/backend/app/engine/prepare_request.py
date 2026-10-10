@@ -11,12 +11,16 @@
    末段别名，兼容旧 {{节点.末段}} 引用名）
 4. 通配路径参数（列表.*.字段）：容器参数就位后逐元素独立求值写入
    （iterate_set 的声明式等价；同下标同步用 ref 通配表达）
-5. 类型还原（coerce_json_strings）→ 字段类型强转（apply_field_types）
-6. file 字段剥离 → headers 组装（环境公共头 + 接口模板覆盖 + params.headers
+5. 数组元素未配置字段按示例值结构补空串（示例值首元素 = 元素结构契约源，
+   2026-10-10 定案「未配置即常量空，请求不缺失字段」，#965/#966 回归）
+6. 类型还原（coerce_json_strings）→ 字段类型强转（apply_field_types，
+   显式 null 穿透不强转）
+7. file 字段剥离 → headers 组装（环境公共头 + 接口模板覆盖 + params.headers
    逐头解析，节点参数压过模板）
 
 引用取值失败 = 节点失败并标明引用链（ReferenceError），不再静默保留占位符。
 """
+import json
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -102,6 +106,52 @@ def _apply_wildcard_param(body: Any, path: str, spec: dict, *, registry,
         registry.write(self_node, concrete, val)
 
 
+def _example_leaf_paths(example: Any) -> list[str]:
+    """array 字段示例值首元素的标量叶子路径（嵌套 dict 递归；list 值整体跳过）。
+
+    示例值首元素在此升格为数组元素的结构契约源：元素中未配置的字段按
+    这些叶子路径补空串占位（2026-10-10 定案）。
+    """
+    if not isinstance(example, dict):
+        return []
+    out: list[str] = []
+    for k, v in example.items():
+        if isinstance(v, dict):
+            out.extend(f"{k}.{p}" for p in _example_leaf_paths(v))
+        elif isinstance(v, list):
+            continue
+        else:
+            out.append(k)
+    return out
+
+
+def _example_first_element(example: Any) -> Any:
+    """array 字段示例值（JSON 文本）→ 首元素；非法 JSON / 空数组返回 None"""
+    if not example or not isinstance(example, str):
+        return None
+    try:
+        arr = json.loads(example)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return arr[0] if isinstance(arr, list) and arr else None
+
+
+def _has_path(obj: Any, path: str) -> bool:
+    """路径存在性检查（与 get_nested_value 的区别：值为显式 None 也算存在，
+    补空占位不得覆盖显式 null——null 与缺失是两种语义）"""
+    cur = obj
+    for k in path.split("."):
+        if isinstance(cur, dict):
+            if k not in cur:
+                return False
+            cur = cur[k]
+        elif isinstance(cur, list) and k.isdigit() and int(k) < len(cur):
+            cur = cur[int(k)]
+        else:
+            return False
+    return True
+
+
 def prepare_request(api, config, *, context, self_node: str,
                     base_headers, db_client) -> RequestParts:
     """组装一个节点的请求。
@@ -143,9 +193,12 @@ def prepare_request(api, config, *, context, self_node: str,
             continue
         val = resolve_param(path, spec, registry=registry,
                             self_node=self_node, db_client=db_client)
-        # 数组字段的空标量参数（constant ""/None，常见于迁移产物）不落盘：
-        # 下方归一本会转 []，先写会破坏嵌套路径参数（x.0.y）所需的 list 骨架
-        if val in (None, "") and field_types.get(path.split(".")[0]) == "array":
+        # 顶层 array 字段自身的空标量参数（constant ""/None，常见于迁移产物）不落盘：
+        # 下方归一本会转 []，先写会破坏嵌套路径参数（x.0.y）所需的 list 骨架。
+        # 仅拦「参数路径本身就是顶层 array 字段」——数组内嵌套路径（statement.0.x）
+        # 的空值必须照发（#965/#966 回归：path.split(".")[0] 判断误杀
+        # statement.0.receipt_account 空串，请求缺失字段致服务端 null 500）
+        if val in (None, "") and field_types.get(path) == "array":
             continue  # 不写也不注册（与旧动作空值跳过语义一致，避免覆盖末段别名）
         set_nested_value(body, path, val)
         _register(registry, self_node, path, val)
@@ -164,6 +217,24 @@ def prepare_request(api, config, *, context, self_node: str,
             continue
         if get_nested_value(body, key) in (None, ""):
             set_nested_value(body, key, [])
+
+    # 3.5 数组元素未配置字段补空串：示例值首元素结构 = 元素契约源
+    #     （「未配置即常量空，请求不缺失字段」；显式 null 与通配产物不覆盖）
+    for f in fields:
+        if not f.key or (f.field_type or "string") != "array":
+            continue
+        leaves = _example_leaf_paths(_example_first_element(getattr(f, "default_value", None)))
+        if not leaves:
+            continue
+        arr = get_nested_value(body, f.key)
+        if not isinstance(arr, list):
+            continue
+        for item in arr:
+            if not isinstance(item, dict):
+                continue
+            for lp in leaves:
+                if not _has_path(item, lp):
+                    set_nested_value(item, lp, "")
 
     # 数组请求体（字段骨架路径）：request_template 为 list 表示 body 本身是 [{...}]
     if fields and isinstance(api.request_template, list):
