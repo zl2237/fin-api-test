@@ -140,6 +140,7 @@ import { FUNC_REGISTRY, funcMeta } from '@/constants/funcRegistry'
 import VarRefSelect from './VarRefSelect.vue'
 import type { RefVarGroup } from './VarRefSelect.vue'
 import SqlRefMenu from './SqlRefMenu.vue'
+import { useSqlInsert } from '@/composables/useSqlInsert'
 
 const props = withDefaults(defineProps<{
   modelValue: any
@@ -271,26 +272,10 @@ function setArgKind(name: string, kind: 'const' | 'ref') {
 }
 
 // ===== SQL：插入 {{节点.变量}} 引用到光标位置（未聚焦时追加末尾） =====
-let lastSqlTa: HTMLTextAreaElement | null = null
-function onSqlFocus(e: FocusEvent) {
-  lastSqlTa = e.target as HTMLTextAreaElement
-}
-function onSqlInsert(t: string) {
-  const ta = lastSqlTa
-  if (ta) {
-    const s = ta.selectionStart ?? 0
-    const e = ta.selectionEnd ?? s
-    const v = spec.value.sql || ''
-    patch({ sql: v.slice(0, s) + t + v.slice(e) })
-    nextTick(() => {
-      ta.focus()
-      const pos = s + t.length
-      ta.setSelectionRange(pos, pos)
-    })
-  } else {
-    patch({ sql: `${spec.value.sql || ''}${t}` })
-  }
-}
+const { onSqlFocus, onSqlInsert } = useSqlInsert(
+  (next) => patch({ sql: next }),
+  () => spec.value.sql || '',
+)
 
 // ===== 自动聚焦：popover 打开（组件挂载）与切换来源后，聚焦当前来源第一个输入控件 =====
 const rootEl = ref<HTMLElement | null>(null)
