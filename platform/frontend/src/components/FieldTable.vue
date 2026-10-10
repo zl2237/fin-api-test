@@ -24,7 +24,7 @@
           </el-select>
         </template>
       </el-table-column>
-      <el-table-column label="默认值（支持 ${}）" min-width="200">
+      <el-table-column label="示例值" min-width="200">
         <template #default="{ row }">
           <div v-if="row.field_type === 'file'" class="file-value-cell">
             <el-input
@@ -40,7 +40,7 @@
             v-else
             v-model="row.default_value"
             size="small"
-            :placeholder="row.field_type === 'array' ? 'JSON 数组，如 [{&quot;unique_id&quot;:&quot;&quot;}]' : '${generate_bl_no()}'"
+            :placeholder="row.field_type === 'array' ? 'JSON 数组，如 [{&quot;unique_id&quot;:&quot;&quot;}]' : '仅作录入参考，如 BL2026101001'"
           />
         </template>
       </el-table-column>

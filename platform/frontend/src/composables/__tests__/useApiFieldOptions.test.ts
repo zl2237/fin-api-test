@@ -27,7 +27,7 @@ describe('useApiFieldOptions', () => {
     expect(fieldOptions.value[0]!.field?.key).toBe('order_id')
   })
 
-  it('object/array 默认值嵌套展开，数组下标规范化进字典匹配，深度截断', () => {
+  it('object/array 示例值嵌套展开，数组下标规范化进字典匹配，深度截断', () => {
     useAppStore().fieldDictMap = { 'supplier.name': '供应商名称' }
     const objField = field({
       key: 'ext', field_type: 'object',
