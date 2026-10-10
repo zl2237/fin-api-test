@@ -51,3 +51,28 @@
 2. **覆盖率量化**:接入 `pytest-cov` / `vitest --coverage`,在后端 services/engine 层建立行覆盖率基线并纳入报告(测试保障 → 92)。
 3. **API 文档**:FastAPI 自带 OpenAPI schema 导出为 Markdown/引用文档,补齐 docs/(文档完备 → 85)。
 4. **前端组件测试**:当前 vitest 覆盖 utils 层,可扩展到核心组件(命令面板、用例编排画布)的挂载交互测试。
+
+---
+
+## 6. 第二轮记录(2026-10-10,架构改进 8 候选)
+
+**基准提交**:`0c17c3c`(dev/main)。八候选分 6 批落地,每批独立 commit + 全量护栏:
+
+| 批 | commit | 内容 |
+|---|---|---|
+| 1 死代码+术语 | `bb1e94d` | 删 engine/expression.py(327 行)等死代码;preprocessor.py→nested_path.py、row_vars→dataset_row 术语收口;CONTEXT.md 词条重写 |
+| 2 性能+契约 | `f92cf2c` | dag_executor 节点/接口缓存预载消除 N+1;DbSink flush 收口;422 折叠;25+ 路由补 response_model;stats 改 SQL 聚合 |
+| 3 _execute_node 收深 | `612f855` | _step_event/_extract_and_assert/_assertion_events 样板收口;report_context 公开 iter_body_paths/iter_replay_paths |
+| 4 replay 出路由 | `92a99de` | 新建 services/replay_service.py,executions 两路由瘦成 2 行委托 |
+| 5 前端 SQL 收敛 | `e1c6b4c` | 新建 useSqlInsert + SqlCell,三处复制的 SQL 插入逻辑收敛 |
+| 6 巨型视图拆分 | `0c17c3c` | 新建 useRefGroups/ImportJsonDialog/ReplayDialog/clipboard,DatasetManage 1083→约 880 行、ReportDetail 1390→约 1240 行 |
+
+**证据快照**(2026-10-10,本地全量):
+
+| 指标 | 数值 | 来源 |
+|---|---|---|
+| 后端测试 | 759 passed(46 文件) | `pytest tests -q` |
+| 前端测试 | 72 passed / 7 files | `npm run test` |
+| vue-tsc / 构建 | 0 错误 / 7.82s 成功 | `npx vue-tsc --noEmit` / `npm run build` |
+
+> 本轮为质量加固未动功能面,不重算六维得分;下一轮评分时测试保障/代码质量两维按新证据取数。
