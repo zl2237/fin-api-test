@@ -79,7 +79,11 @@ export function extractCurlData(cmd: string): string | null {
     let v = m[1]
     if (v.startsWith("$'") && v.endsWith("'")) {
       v = unescapeAnsiC(v.slice(2, -1))
-    } else if ((v.startsWith("'") && v.endsWith("'")) || (v.startsWith('"') && v.endsWith('"'))) {
+    } else if (v.startsWith("'") && v.endsWith("'")) {
+      // bash 单引号内无转义语义：内容字面原样，JSON 自身的 \" 转义必须保留
+      // （2026-10-12 回归：seller_info 内嵌 JSON 字符串被误还原致 JSON 解析失败）
+      v = v.slice(1, -1)
+    } else if (v.startsWith('"') && v.endsWith('"')) {
       v = v.slice(1, -1).replace(/\\(['"\\])/g, '$1')
     }
     if (v) parts.push(v)
