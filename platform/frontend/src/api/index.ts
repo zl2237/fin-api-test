@@ -230,6 +230,8 @@ export interface TestCase {
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   dataset_id?: number | null  // 绑定的数据集（数据驱动），NULL=普通用例
+  last_exec_at?: string | null      // 最近一次执行开始时间（终结回写；NULL=从未执行）
+  last_exec_status?: string | null  // 最近一次执行终态：success/failed/terminated
 }
 
 // 套件成员（跨项目用例引用，逐成员独立绑定环境，串行执行）
@@ -617,6 +619,24 @@ export const execApi = {
   // 断点续跑：从首个未成功节点用当前配置+当前数据集重新执行（仅 failed 普通报告；编排结构需与报告时一致）
   resume: (execId: number) =>
     http.post<ExecutionRecord>(`/executions/${execId}/resume`).then((r) => r.data),
+}
+
+// ============ Home 工作台 ============
+export interface HomeRecentExec {
+  id: number; case_id: number; case_name?: string | null
+  env_id?: number | null; env_name?: string | null
+  status: string; summary?: Record<string, any> | null; started_at?: string | null
+}
+
+// 首页聚合（一次请求替代 4 个重列表接口的全量拉取）
+export const homeApi = {
+  summary: (projectId: number, days = 7) =>
+    http.get<{
+      api_count: number; case_count: number
+      stats: { count: number; passed: number; rate: number | null; days: number }
+      recent_execs: HomeRecentExec[]
+      recent_cases: { id: number; name: string }[]
+    }>('/home/summary', { params: { project_id: projectId, days } }).then((r) => r.data),
 }
 
 // ============ FieldDictionary 字段字典 ============

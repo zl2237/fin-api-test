@@ -147,6 +147,22 @@
             <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ row.description || '—' }}</template>
             </el-table-column>
+            <el-table-column prop="last_exec_at" label="最近执行" width="120" sortable="custom">
+              <template #default="{ row }">
+                <el-tooltip v-if="row.last_exec_at" :content="formatTime(row.last_exec_at)" placement="top" popper-class="app-tip">
+                  <span>{{ formatRelativeTime(row.last_exec_at) }}</span>
+                </el-tooltip>
+                <span v-else class="last-exec-none">从未执行</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="last_exec_status" label="执行结果" width="90" align="center" sortable="custom">
+              <template #default="{ row }">
+                <el-tag v-if="row.last_exec_status" size="small" :type="execStatusType(row.last_exec_status)" effect="light">
+                  {{ execStatusText(row.last_exec_status) }}
+                </el-tag>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
                 <el-tooltip :content="formatTime(row.updated_at)" placement="top" popper-class="app-tip">
@@ -246,6 +262,22 @@
             </el-table-column>
             <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ row.description || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="last_exec_at" label="最近执行" width="120" sortable="custom">
+              <template #default="{ row }">
+                <el-tooltip v-if="row.last_exec_at" :content="formatTime(row.last_exec_at)" placement="top" popper-class="app-tip">
+                  <span>{{ formatRelativeTime(row.last_exec_at) }}</span>
+                </el-tooltip>
+                <span v-else class="last-exec-none">从未执行</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="last_exec_status" label="执行结果" width="90" align="center" sortable="custom">
+              <template #default="{ row }">
+                <el-tag v-if="row.last_exec_status" size="small" :type="execStatusType(row.last_exec_status)" effect="light">
+                  {{ execStatusText(row.last_exec_status) }}
+                </el-tag>
+                <span v-else>—</span>
+              </template>
             </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" width="120" sortable="custom">
               <template #default="{ row }">
@@ -448,7 +480,7 @@ import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
-import { formatTime, formatRelativeTime, execStatusText, fileTimestamp } from '@/utils/format'
+import { formatTime, formatRelativeTime, execStatusText, execStatusType, fileTimestamp } from '@/utils/format'
 import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
 import GroupManageDialog from '@/components/GroupManageDialog.vue'
@@ -492,10 +524,14 @@ const filteredList = computed(() => {
 
 // 表头排序（sortable="custom"）：作用在过滤后的全量列表，分组/分页下游自然继承排序，
 // 避免 el-table 默认前端排序只排当前页切片的假象；取消排序回到后端 sort_order（拖拽手序）
+// last_exec_status 按结果分组排序（通过→失败→终止→从未执行），升序即「先看通过的」
+const EXEC_RANK: Record<string, number> = { success: 0, failed: 1, terminated: 2 }
 const { onSortChange, sortProp, sorted: sortedList } = useClientSort(filteredList, {
   id: c => c.id,
   name: c => c.name,
   updated_at: c => c.updated_at ?? '',
+  last_exec_at: c => c.last_exec_at ?? '',
+  last_exec_status: c => EXEC_RANK[c.last_exec_status ?? ''] ?? 3,
 }, (): void => tableSel.resetPages())
 
 // 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
@@ -1272,6 +1308,11 @@ function onGlobalKey(e: KeyboardEvent) {
 /* 套件类型徽标（用例名称列） */
 .suite-mark {
   margin-right: 4px;
+}
+/* 最近执行列的「从未执行」弱化样式 */
+.last-exec-none {
+  font-size: 12px;
+  color: var(--app-text-faint);
 }
 /* 新建弹窗的类型说明（套件模式时展示） */
 .type-tip {

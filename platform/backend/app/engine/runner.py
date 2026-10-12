@@ -45,6 +45,8 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
                 rec.ended_at = __import__("datetime").datetime.now()
                 rec.summary = {"total": 0, "passed": 0, "failed": 1, "error": f"环境不存在: {env_id}"}
                 db.commit()
+                from ..crud.executions import touch_case_last_exec
+                touch_case_last_exec(db, rec)
             return
         # 加载已有的 record 并传入 DagExecutor，避免重复创建
         record = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
@@ -66,6 +68,8 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
                 rec.ended_at = __import__("datetime").datetime.now()
                 rec.summary = {**(rec.summary or {}), "error": str(e)}
                 db.commit()
+                from ..crud.executions import touch_case_last_exec
+                touch_case_last_exec(db, rec)
         except Exception:
             pass
     finally:

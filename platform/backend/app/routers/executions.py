@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import crud, models, schemas
@@ -113,23 +112,11 @@ def list_executions(case_id: int | None = None, project_id: int | None = None, c
 def execution_stats(days: int = 7, project_id: int | None = None,
                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """近 N 天执行统计（工作台用）：全量聚合口径，不受列表 200 条截断影响。
+    聚合实现收敛在 crud.executions.aggregate_stats（与工作台 summary 共用口径）。
     需注册在 /executions/{exec_id} 之前。"""
     if days < 1 or days > 365:
         raise HTTPException(400, "天数须在 1~365 之间")
-    since = datetime.now() - timedelta(days=days)
-    # ExecutionRecord 无 created_at，时间口径用 started_at（default=now）
-    q = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.started_at >= since)
-    if project_id is not None:
-        q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id) \
-             .filter(models.TestCase.project_id == project_id)
-    # group_by 数据库端聚合：全量拉行（工作台高频调用）在大表下代价高
-    rows = q.with_entities(models.ExecutionRecord.status, func.count()) \
-            .group_by(models.ExecutionRecord.status).all()
-    by_status = {s: c for s, c in rows}
-    total = sum(by_status.values())
-    passed = by_status.get("success", 0)
-    rate = round(passed * 100 / total) if total else None
-    return {"count": total, "passed": passed, "rate": rate, "days": days}
+    return exec_domain.aggregate_stats(db, project_id, days)
 
 
 @router.delete("/executions/cleanup", response_model=schemas.CleanupResultOut)
@@ -190,6 +177,7 @@ def terminate_execution(exec_id: int, db: Session = Depends(get_db), user: model
     obj.summary = {**(obj.summary or {}),
                    "error": f"用户 {user.username} 手动终止"}
     cascaded = 0
+    cascade_records: list[models.ExecutionRecord] = []
     if (obj.summary or {}).get("suite"):
         for child in (db.query(models.ExecutionRecord)
                       .filter(models.ExecutionRecord.suite_execution_id == exec_id,
@@ -197,8 +185,14 @@ def terminate_execution(exec_id: int, db: Session = Depends(get_db), user: model
             child.status = "terminated"
             child.ended_at = datetime.now()
             child.summary = {**(child.summary or {}), "error": "套件主执行被手动终止"}
+            cascade_records.append(child)
             cascaded += 1
     db.commit()
+    # 僵尸记录场景执行线程已不在（活动执行的 DagExecutor 终结时会再回写同值，
+    # 幂等无害）；此处兜底保证 terminated 也更新用例「最近执行」列
+    exec_domain.touch_case_last_exec(db, obj)
+    for child in cascade_records:
+        exec_domain.touch_case_last_exec(db, child)
     db.refresh(obj)
     crud.fill_audit_names(db, obj)
     crud.fill_exec_names(db, obj)

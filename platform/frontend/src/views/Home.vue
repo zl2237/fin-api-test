@@ -122,7 +122,7 @@
               <h3>快速执行</h3>
               <el-button text type="primary" size="small" @click="router.push('/cases')">全部用例</el-button>
             </header>
-            <div v-if="!recentCases.length" class="quick-empty">还没有用例，去 <el-button text type="primary" size="small" @click="router.push('/cases')">创建第一个</el-button></div>
+            <div v-if="!recentCases.length" class="quick-empty">还没有执行过的用例，去 <el-button text type="primary" size="small" @click="router.push('/cases')">用例列表</el-button>运行一次</div>
             <ul v-else class="quick-list">
               <li v-for="c in recentCases" :key="c.id" class="quick-row">
                 <el-tooltip :content="c.name" placement="top" popper-class="app-tip">
@@ -169,8 +169,8 @@ import { useRouter } from 'vue-router'
 import { ArrowRight, Refresh, VideoPlay, Loading, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores'
-import { apiApi, caseApi, execApi } from '@/api'
-import type { ExecutionRecord, TestCase } from '@/api'
+import { caseApi, homeApi } from '@/api'
+import type { HomeRecentExec } from '@/api'
 import { formatTime, formatRelativeTime, execStatusText as statusText, execStatusType as statusTagType } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
 import HomeGuideDrawer from '@/components/HomeGuideDrawer.vue'
@@ -178,13 +178,14 @@ import HomeGuideDrawer from '@/components/HomeGuideDrawer.vue'
 const router = useRouter()
 const store = useAppStore()
 
-// ===== 数据 =====
+// ===== 数据（单请求聚合：一个 /home/summary 替代旧的 4 个重列表全量拉取——
+// GET /apis 全量字段表、testcases 全量 dag_config、executions limit=200） =====
 const loading = ref(false)
 const loadError = ref('')
 const apiCount = ref(0)
 const caseCount = ref(0)
-const recentCases = ref<TestCase[]>([])
-const recentExecs = ref<ExecutionRecord[]>([])
+const recentCases = ref<{ id: number; name: string }[]>([])
+const recentExecs = ref<HomeRecentExec[]>([])
 
 const displayName = computed(() => store.user?.name || store.user?.username || '用户')
 const currentProjectName = computed(() => store.projects.find(p => p.id === store.currentProjectId)?.name || '当前项目')
@@ -198,7 +199,7 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-// 7 天执行量与通过率：走 stats 聚合接口（全量口径，不受最近列表截断影响）
+// 7 天执行量与通过率：聚合接口内的数据库端 group_by（全量口径）
 const weekStats = ref<{ count: number; rate: number | null }>({ count: 0, rate: null })
 
 async function loadHome() {
@@ -206,17 +207,12 @@ async function loadHome() {
   loading.value = true
   loadError.value = ''
   try {
-    const [apis, cases, execs, stats] = await Promise.all([
-      apiApi.list(store.currentProjectId),
-      caseApi.list(store.currentProjectId),
-      execApi.list({ project_id: store.currentProjectId, limit: 200 }),
-      execApi.stats({ days: 7, project_id: store.currentProjectId }),
-    ])
-    apiCount.value = apis.length
-    caseCount.value = cases.length
-    recentCases.value = cases.slice(0, 3)
-    recentExecs.value = execs.items.slice(0, 8)
-    weekStats.value = { count: stats.count, rate: stats.rate }
+    const s = await homeApi.summary(store.currentProjectId)
+    apiCount.value = s.api_count
+    caseCount.value = s.case_count
+    recentCases.value = s.recent_cases
+    recentExecs.value = s.recent_execs
+    weekStats.value = { count: s.stats.count, rate: s.stats.rate }
   } catch (e: any) {
     loadError.value = e?.message || '加载失败'
   } finally {
@@ -227,9 +223,9 @@ async function loadHome() {
 // 项目切换即刷新工作台（immediate 兜底首次挂载时序）
 watch(() => store.currentProjectId, () => { loadHome() }, { immediate: true })
 
-// ===== 快速执行 =====
+// ===== 快速执行（候选=最近执行过的用例） =====
 const runningId = ref<number | null>(null)
-async function runCase(c: TestCase) {
+async function runCase(c: { id: number; name: string }) {
   if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   runningId.value = c.id
   try {
