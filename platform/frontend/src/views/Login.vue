@@ -102,7 +102,7 @@
 
         <el-tabs v-model="activeTab" class="login-tabs" stretch>
           <el-tab-pane label="登录" name="login" />
-          <el-tab-pane label="注册" name="register" />
+          <el-tab-pane v-if="REGISTRATION_ENABLED" label="注册" name="register" />
         </el-tabs>
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSubmit">
@@ -144,6 +144,10 @@
           <el-button type="primary" native-type="submit" class="submit-btn" :loading="loading" size="large">
             {{ activeTab === 'login' ? '登 录' : '注 册' }}
           </el-button>
+          <!-- 账号获取指引：注册关闭后告知用户开通途径 -->
+          <p v-if="!REGISTRATION_ENABLED" class="account-hint">
+            还没有账号？账号由管理员统一开通，请联系张乐（企微「FIN-API-TEST通知」群）
+          </p>
         </el-form>
       </div>
     </main>
@@ -164,6 +168,9 @@ const route = useRoute()
 const store = useAppStore()
 
 const activeTab = ref<'login' | 'register'>('login')
+// 自助注册开关（默认关闭）：账号统一由管理员在「用户管理」开通，与后端 REGISTER_ENABLED 同步管控；
+// 需要临时开放时改 true，并在后端 .env 置 REGISTER_ENABLED=1
+const REGISTRATION_ENABLED = false
 const loading = ref(false)
 const formRef = ref<FormInstance>()
 
@@ -388,6 +395,14 @@ async function onSubmit() {
   border-radius: var(--app-radius-sm);
   font-weight: 600;
   letter-spacing: 1px;
+}
+/* 账号开通指引（注册关闭时显示） */
+.account-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  text-align: center;
+  line-height: 1.6;
 }
 /* 注册密码实时合规提示（前置到输入框旁） */
 .pwd-rule-hint {
