@@ -4,6 +4,14 @@
       <div class="npt-head">
         <span class="npt-title">请求体参数（body）</span>
         <span class="npt-sub">未配置字段按类型发空值占位；数组字段支持 <code>list.*.字段</code> 通配取值</span>
+        <el-input
+          v-model="bodyKeyword"
+          size="small"
+          clearable
+          class="npt-search"
+          placeholder="按路径/值筛选，如 order_id"
+          :prefix-icon="Search"
+        />
       </div>
 
       <!-- 虚拟滚动列表：入参上百行时只渲染可视区（el-table 全量渲染 200+ 行
@@ -20,7 +28,7 @@
           :style="{ maxHeight: BODY_VIEW_H + 'px' }"
           @scroll.passive="onBodyScroll"
         >
-          <div v-if="bodyRows.length" class="vt-spacer" :style="{ height: bodyRows.length * ROW_H + 'px' }">
+          <div v-if="shownBodyRows.length" class="vt-spacer" :style="{ height: shownBodyRows.length * ROW_H + 'px' }">
             <div
               v-for="idx in visibleBodyIdxs"
               :key="idx"
@@ -29,7 +37,7 @@
             >
               <div class="vt-c1">
                 <el-autocomplete
-                  v-model="bodyRows[idx].path"
+                  v-model="shownBodyRows[idx].path"
                   size="small"
                   :fetch-suggestions="(qs: string, cb: any) => fetchFieldSuggestions(qs, cb, idx)"
                   placeholder="如 order_id / supplier.0.order_id / list.*.unique_id"
@@ -45,10 +53,10 @@
               </div>
               <div class="vt-c2">
                 <ParamSourceBadge
-                  :model-value="bodyRows[idx].spec"
+                  :model-value="shownBodyRows[idx].spec"
                   :ref-groups="refGroups"
-                  :file-field="fieldTypeMap[bodyRows[idx].path] === 'file'"
-                  @update:model-value="(v) => (bodyRows[idx].spec = v)"
+                  :file-field="fieldTypeMap[shownBodyRows[idx].path] === 'file'"
+                  @update:model-value="(v) => (shownBodyRows[idx].spec = v)"
                 />
               </div>
               <div class="vt-c3">
@@ -56,7 +64,9 @@
               </div>
             </div>
           </div>
-          <div v-else class="vt-empty">{{ lockBodyAdd ? '暂无 body 参数；未配置字段执行时按空值占位发送' : '暂无 body 参数，点击下方添加' }}</div>
+          <div v-else class="vt-empty">
+            {{ bodyKeyword ? `没有匹配「${bodyKeyword}」的 body 参数` : (lockBodyAdd ? '暂无 body 参数；未配置字段执行时按空值占位发送' : '暂无 body 参数，点击下方添加') }}
+          </div>
         </div>
       </div>
       <!-- 封死手动添加（2026-10-10 定案 Q5）：参数路径唯一契约源是接口字段，
@@ -70,6 +80,14 @@
       <div class="npt-head">
         <span class="npt-title">请求头参数（headers）</span>
         <span class="npt-sub">节点参数压过环境公共头与接口模板头</span>
+        <el-input
+          v-model="headerKeyword"
+          size="small"
+          clearable
+          class="npt-search"
+          placeholder="按 Header 名/值筛选"
+          :prefix-icon="Search"
+        />
       </div>
 
       <div class="vt">
@@ -79,8 +97,8 @@
           <div class="vt-c3">操作</div>
         </div>
         <div class="vt-scroll">
-          <div v-if="headerRows.length" class="vt-rows">
-            <div v-for="(row, i) in headerRows" :key="i" class="vt-row static">
+          <div v-if="shownHeaderRows.length" class="vt-rows">
+            <div v-for="(row, i) in shownHeaderRows" :key="i" class="vt-row static">
               <div class="vt-c1">
                 <el-input v-model="row.path" size="small" placeholder="如 X-Token" />
               </div>
@@ -96,7 +114,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="vt-empty">暂无 header 参数</div>
+          <div v-else class="vt-empty">{{ headerKeyword ? `没有匹配「${headerKeyword}」的 header 参数` : '暂无 header 参数' }}</div>
         </div>
       </div>
       <el-button class="npt-add" size="small" @click="addRow('headers')">+ 添加 header 参数</el-button>
@@ -118,6 +136,7 @@
 - syncFromModel 引起的行为变化不触发 commit（挂载/切 tab 不产生假脏标记）
 */
 import { computed, onBeforeUnmount, ref, toRaw, watch } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import type { ApiField, NodeParams, ParamSpec } from '@/api'
 import { useApiFieldOptions } from '@/composables/useApiFieldOptions'
 import ParamSourceBadge from './ParamSourceBadge.vue'
@@ -158,6 +177,32 @@ interface ParamRow { path: string; spec: ParamSpec }
 const bodyRows = ref<ParamRow[]>([])
 const headerRows = ref<ParamRow[]>([])
 
+// ---- 关键词过滤（不区分大小写；路径或取值 spec 文本命中即显示）----
+// 过滤只影响展示层：行对象仍是 bodyRows/headerRows 的同一引用，
+// 行内编辑/删除/commit 全部作用于全量数据
+const bodyKeyword = ref('')
+const headerKeyword = ref('')
+
+function matchRow(r: ParamRow, q: string): boolean {
+  return r.path.toLowerCase().includes(q)
+    || JSON.stringify(r.spec).toLowerCase().includes(q)
+}
+
+const shownBodyRows = computed(() => {
+  const q = bodyKeyword.value.trim().toLowerCase()
+  return q ? bodyRows.value.filter((r) => matchRow(r, q)) : bodyRows.value
+})
+const shownHeaderRows = computed(() => {
+  const q = headerKeyword.value.trim().toLowerCase()
+  return q ? headerRows.value.filter((r) => matchRow(r, q)) : headerRows.value
+})
+
+// 过滤词变化后列表变短，滚动位置复位到顶部（否则虚拟切片悬空在空白区）
+watch([bodyKeyword, headerKeyword], () => {
+  bodyScrollTop.value = 0
+  if (bodyScrollEl.value) bodyScrollEl.value.scrollTop = 0
+})
+
 // ---- 虚拟滚动（body 区）----
 const ROW_H = 40        // 行高（el-input small 24px + 上下 padding）
 const BODY_VIEW_H = 480 // 可视区高度
@@ -169,9 +214,9 @@ function onBodyScroll(e: Event) {
   bodyScrollTop.value = (e.target as HTMLElement).scrollTop
 }
 
-/** 可视区 ± 缓冲的绝对行下标切片 */
+/** 可视区 ± 缓冲的绝对行下标切片（基于过滤后列表） */
 const visibleBodyIdxs = computed<number[]>(() => {
-  const total = bodyRows.value.length
+  const total = shownBodyRows.value.length
   if (!total) return []
   const start = Math.max(0, Math.floor(bodyScrollTop.value / ROW_H) - BUFFER)
   const end = Math.min(total, Math.ceil((bodyScrollTop.value + BODY_VIEW_H) / ROW_H) + BUFFER)
@@ -258,7 +303,14 @@ function addRow(scope: 'body' | 'headers') {
   }
 }
 function removeRow(scope: 'body' | 'headers', idx: number) {
-  ;(scope === 'body' ? bodyRows : headerRows).value.splice(idx, 1)
+  // body 区 idx 来自过滤后列表：先换算回全量列表的真实下标
+  if (scope === 'body') {
+    const real = bodyRows.value.indexOf(shownBodyRows.value[idx])
+    if (real >= 0) bodyRows.value.splice(real, 1)
+    return
+  }
+  const realH = headerRows.value.indexOf(shownHeaderRows.value[idx])
+  if (realH >= 0) headerRows.value.splice(realH, 1)
 }
 </script>
 
@@ -273,6 +325,11 @@ function removeRow(scope: 'body' | 'headers', idx: number) {
   align-items: baseline;
   gap: 10px;
   margin-bottom: 6px;
+}
+.npt-search {
+  width: 220px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .npt-title {
   font-weight: 600;
