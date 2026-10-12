@@ -25,7 +25,7 @@
             <path d="M11 19.6 L14.6 23.4 L21.4 15.6" fill="none" stroke="#fff" stroke-width="2"
                   stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <span class="brand-name">fin-api-test</span>
+          <span class="brand-name">Fin API Test</span>
         </div>
         <h1 class="brand-title">接口自动化测试平台</h1>
         <p class="brand-slogan app-mono">DAG 可视化编排，17 种断言，一键执行报告</p>
@@ -87,7 +87,7 @@
       </div>
 
       <!-- 底部版权 -->
-      <div class="brand-footer">Developed by zhangle</div>
+      <div class="brand-footer">Developed by zl2237</div>
     </aside>
 
     <!-- 右侧表单区 -->
@@ -146,7 +146,7 @@
           </el-button>
           <!-- 账号获取指引：注册关闭后告知用户开通途径 -->
           <p v-if="!REGISTRATION_ENABLED" class="account-hint">
-            还没有账号？账号由管理员统一开通，请联系张乐（企微「FIN-API-TEST通知」群）
+            还没有账号？账号由管理员统一开通，请联系管理员
           </p>
         </el-form>
       </div>
