@@ -18,32 +18,38 @@
       <div class="card-section">
         <div class="section-title">基础信息</div>
         <el-form label-width="120px" :model="formData">
-          <el-form-item label="环境名称" required>
-            <el-input v-model="formData.name" placeholder="test / pre / prod" style="width: 280px" />
-          </el-form-item>
-          <el-form-item label="Base URL" required>
-            <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" style="width: 380px" />
-          </el-form-item>
-          <el-form-item label="业务成功码">
-            <el-input v-model="formData.success_codes" placeholder="200" style="width: 280px" />
-            <span class="form-hint">响应 code 命中任一即判成功，逗号分隔；ThinkPHP 系填 1 或 200,1</span>
-          </el-form-item>
-          <el-form-item label="超时时间">
-            <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" style="width: 140px" />
-            <span class="form-hint">秒，接口请求超时时间（1-120）</span>
-          </el-form-item>
-          <el-form-item label="失败重试次数">
-            <el-input-number v-model="formData.node_retry_count" :min="0" :max="10" controls-position="right" style="width: 140px" />
-            <span class="form-hint">请求层失败（状态码/业务码/超时）时自动重发，0=不重试；断言失败不重试</span>
-          </el-form-item>
-          <el-form-item label="重试间隔">
-            <el-input-number v-model="formData.node_retry_interval" :min="1" :max="600" controls-position="right" style="width: 140px" />
-            <span class="form-hint">秒，两次尝试之间的等待时间（被测系统有分钟级异步同步时可调大，如 60）</span>
-          </el-form-item>
-          <el-form-item label="默认环境">
-            <el-switch v-model="formData.is_default" />
-            <span class="form-hint">设为默认后，执行用例时自动选中此环境</span>
-          </el-form-item>
+          <div class="form-row">
+            <el-form-item label="环境名称" required>
+              <el-input v-model="formData.name" placeholder="test / pre / prod" />
+            </el-form-item>
+            <el-form-item label="Base URL" required>
+              <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" />
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="业务成功码">
+              <el-input v-model="formData.success_codes" placeholder="200" />
+            </el-form-item>
+            <el-form-item label="超时时间">
+              <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" />
+            </el-form-item>
+            <el-form-item label="默认环境">
+              <el-switch v-model="formData.is_default" />
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="失败重试次数">
+              <el-input-number v-model="formData.node_retry_count" :min="0" :max="10" controls-position="right" />
+            </el-form-item>
+            <el-form-item label="重试间隔">
+              <el-input-number v-model="formData.node_retry_interval" :min="1" :max="600" controls-position="right" />
+            </el-form-item>
+          </div>
+          <div class="section-inline-hints">
+            成功码：响应 code 命中任一即判成功，逗号分隔（ThinkPHP 系填 1 或 200,1）·
+            超时：秒（1-120）· 失败重试：请求层失败（状态码/业务码/超时）自动重发，0=不重试，断言失败不重试 ·
+            重试间隔：秒，被测系统有分钟级异步同步时可调大（如 60）· 默认环境：执行用例时自动选中
+          </div>
         </el-form>
       </div>
 
@@ -65,8 +71,6 @@
             <el-form-item label="Port">
               <el-input-number v-model="formData.db_config.port" :min="1" :max="65535" controls-position="right" />
             </el-form-item>
-          </div>
-          <div class="form-row">
             <el-form-item label="用户名">
               <el-input v-model="formData.db_config.user" placeholder="root" />
             </el-form-item>
@@ -75,7 +79,8 @@
             </el-form-item>
           </div>
           <el-form-item label="数据库名">
-            <el-input v-model="formData.db_config.database" placeholder="fin_order" style="width: 280px" />
+            <el-input v-model="formData.db_config.database" placeholder="fin_order" />
+            <span class="form-hint">「查库」参数与 SQL 断言/提取的数据源</span>
           </el-form-item>
         </el-form>
       </div>
@@ -120,30 +125,33 @@
             </div>
           </el-form-item>
 
-          <div class="group-title">验证码自动识别<span>选填 · 图片地址与字段名都填才启用</span></div>
-          <div class="form-row">
-            <el-form-item label="验证码图片地址">
-              <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
-            </el-form-item>
-            <el-form-item label="验证码字段名">
-              <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
-            </el-form-item>
+          <div class="group-title">
+            验证码自动识别
+            <el-switch v-model="captchaEnabled" size="small" />
+            <span>{{ captchaEnabled ? '已开启 · 图片地址与字段名必填' : '登录带图形验证码时开启' }}</span>
           </div>
-          <el-form-item label="识别重试次数">
-            <el-input-number
-              v-model="formData.login_config.captcha_retry"
-              :min="1"
-              :max="20"
-              :step="1"
-              step-strictly
-            />
-            <div class="form-hint">
-              验证码识别错误时自动换图重试的次数，默认 3；验证码较难识别时可调大提高登录成功率
+          <template v-if="captchaEnabled">
+            <div class="form-row">
+              <el-form-item label="图片地址" required>
+                <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
+              </el-form-item>
+              <el-form-item label="字段名" required>
+                <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
+              </el-form-item>
+              <el-form-item label="识别重试">
+                <el-input-number
+                  v-model="formData.login_config.captcha_retry"
+                  :min="1"
+                  :max="20"
+                  :step="1"
+                  step-strictly
+                />
+              </el-form-item>
             </div>
-          </el-form-item>
-          <div class="group-hint">
-            登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交。需后端安装 ddddocr
-          </div>
+            <div class="group-hint">
+              登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试（默认 3，难识别可调大）。需后端安装 ddddocr
+            </div>
+          </template>
 
           <template v-if="formData.login_config.login_mode === 'token'">
             <div class="group-title">Token 注入<span>Token 模式专属</span></div>
@@ -154,17 +162,13 @@
               <el-form-item label="Header 名称">
                 <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
               </el-form-item>
+              <el-form-item label="鉴权头值模板">
+                <el-input v-model="formData.login_config.auth_header_value_template" placeholder="${token}" />
+              </el-form-item>
             </div>
-            <el-form-item label="鉴权头值模板">
-              <el-input
-                v-model="formData.login_config.auth_header_value_template"
-                placeholder="${token}"
-                style="width: 380px"
-              />
-              <div class="form-hint">
-                支持 <code>${token}</code> 和 <code>${timestamp}</code> 占位符。例：<code>Bearer ${token}</code>、<code>${token}_${timestamp}</code>；留空则等价于 <code>${token}</code>
-              </div>
-            </el-form-item>
+            <div class="group-hint">
+              支持 <code>${token}</code> 和 <code>${timestamp}</code> 占位符，例：<code>Bearer ${token}</code>；留空则等价于 <code>${token}</code>
+            </div>
           </template>
           <template v-else>
             <div class="group-title">登录成功校验<span>Session 模式专属 · 选填</span></div>
@@ -191,19 +195,20 @@
           <span class="section-hint">用于执行后给企业微信机器人推送结果</span>
         </div>
         <el-form label-width="120px">
-          <el-form-item label="企微机器人 Webhook">
+          <el-form-item label="企微机器人">
             <el-input
               v-model="formData.notify_config.wecom_webhook"
               placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
-              style="width: 480px"
             />
           </el-form-item>
-          <el-form-item label="失败时通知">
-            <el-switch v-model="formData.notify_config.enable_on_failure" />
-          </el-form-item>
-          <el-form-item label="成功时通知">
-            <el-switch v-model="formData.notify_config.enable_on_success" />
-          </el-form-item>
+          <div class="form-row">
+            <el-form-item label="失败时通知">
+              <el-switch v-model="formData.notify_config.enable_on_failure" />
+            </el-form-item>
+            <el-form-item label="成功时通知">
+              <el-switch v-model="formData.notify_config.enable_on_success" />
+            </el-form-item>
+          </div>
         </el-form>
       </div>
 
@@ -312,6 +317,16 @@ const formData = reactive<EnvFormData>({
 
 watch(formData, () => { dirty.value = true }, { deep: true })
 
+// 验证码识别开关：开启时三字段展示且必填；关闭即清空地址/字段名
+// （后端以「图片地址与字段名均非空」判定启用，清空即真正关闭，无需后端改动）
+const captchaEnabled = ref(false)
+watch(captchaEnabled, (on) => {
+  if (!on) {
+    formData.login_config.captcha_url = ''
+    formData.login_config.captcha_field = ''
+  }
+})
+
 async function loadEnv() {
   if (!isEdit.value) return
   const id = Number(route.params.id)
@@ -349,6 +364,7 @@ async function loadEnv() {
     captcha_field: lc.captcha_field || '',
     captcha_retry: lc.captcha_retry ?? 3,
   }
+  captchaEnabled.value = !!(lc.captcha_url && lc.captcha_field)
   // notify_config
   const nc = env.notify_config || {}
   formData.notify_config = {
@@ -388,6 +404,16 @@ async function onSave() {
   if (!formData.name || !formData.base_url) {
     ElMessage.warning('环境名称和 Base URL 不能为空')
     return
+  }
+  // 验证码开关开启时，地址与字段名为必填
+  if (captchaEnabled.value) {
+    const lc = formData.login_config
+    lc.captcha_url = lc.captcha_url.trim()
+    lc.captcha_field = lc.captcha_field.trim()
+    if (!lc.captcha_url || !lc.captcha_field) {
+      ElMessage.warning('验证码识别已开启：图片地址与字段名均为必填')
+      return
+    }
   }
   saving.value = true
   try {
@@ -554,6 +580,13 @@ function onKeydown(e: KeyboardEvent) {
 .form-hint {
   margin-left: 12px;
   font-size: 12px;
+  color: var(--app-text-muted);
+}
+/* 合并提示块：同组多项说明收进一行（压缩页面高度） */
+.section-inline-hints {
+  margin: 2px 0 0 120px;
+  font-size: 12px;
+  line-height: 1.7;
   color: var(--app-text-muted);
 }
 .group-title {
