@@ -113,6 +113,26 @@ describe('parseImportText', () => {
     expect(r).toEqual({ format: 'curl', data: { order_no: 'YHL123' } })
   })
 
+  it('单引号 cURL 内嵌转义 JSON 字符串保留原样（seller_info 场景回归）', () => {
+    // bash 单引号无转义语义，JSON 自身的 \" 必须原样保留：
+    // 2026-10-12 用户粘贴的应付开票批次 cURL（seller_info 值是内嵌 JSON 字符串），
+    // 修复前 \" 被误还原成 "，JSON.parse 在 seller_info 值起点报
+    // "Expected ',' or '}' after property value"（position 1304）
+    const r = parseImportText(
+      `curl --url 'https://fin-pre.x.com/api/Finance/payInvoiceBatch/batchFeeEdit' ` +
+      `-H 'Content-Type: application/json;charset=UTF-8' ` +
+      `--data-raw '{"cost_cny":"1.00","seller_info":"{\\"supplier_id\\":\\"290\\",\\"chinese_header\\":\\"青岛启德物流有限公司\\"}","action":"submit","select_node_user":[]}'`)
+    expect(r).toEqual({
+      format: 'curl',
+      data: {
+        cost_cny: '1.00',
+        seller_info: '{"supplier_id":"290","chinese_header":"青岛启德物流有限公司"}',
+        action: 'submit',
+        select_node_user: [],
+      },
+    })
+  })
+
   it('cURL 无 data 载荷报错', () => {
     const r = parseImportText(`curl 'https://x?a=1'`)
     expect('error' in r).toBe(true)
