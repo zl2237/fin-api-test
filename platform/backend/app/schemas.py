@@ -494,6 +494,8 @@ class TestCaseOut(ORMBase):
     node_configs: list[NodeConfigOut] = []
     dataset_id: int | None = None  # 绑定的数据集（数据驱动），NULL=普通用例
     shared_vars: list[str] | None = None
+    last_exec_at: datetime | None = None  # 最近一次执行开始时间（终结回写；NULL=从未执行）
+    last_exec_status: str | None = None   # 最近一次执行终态：success/failed/terminated
     created_at: datetime | None = None
     updated_at: datetime | None = None
     created_by: int | None = None
@@ -665,6 +667,33 @@ class ExecutionStatsOut(BaseModel):
     passed: int
     rate: int | None = None  # 通过率（%）；无执行记录时为 null
     days: int
+
+
+class HomeRecentExecOut(BaseModel):
+    """工作台最近执行条目（轻量：列表页只用的字段，不带请求快照等重列）"""
+    id: int
+    case_id: int
+    case_name: str | None = None
+    env_id: int | None = None
+    env_name: str | None = None
+    status: str
+    summary: dict[str, Any] | None = None
+    started_at: datetime | None = None
+
+
+class HomeRecentCaseOut(BaseModel):
+    """快速执行候选：最近执行过的用例（按最近一次执行倒序去重）"""
+    id: int
+    name: str
+
+
+class HomeSummaryOut(BaseModel):
+    """工作台聚合（一次请求喂饱首页，替代 4 个重列表接口的全量拉取）"""
+    api_count: int
+    case_count: int
+    stats: ExecutionStatsOut
+    recent_execs: list[HomeRecentExecOut] = []
+    recent_cases: list[HomeRecentCaseOut] = []
 
 
 # ============ TestSchedule 定时任务 ============

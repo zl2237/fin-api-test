@@ -8,6 +8,7 @@
 """
 from types import SimpleNamespace
 
+from app import models
 from app.crud import executions as exec_domain
 from app.crud.legacy import count_executions, list_executions
 from app.routers.executions import execution_stats
@@ -223,3 +224,57 @@ class TestExecutionStats:
         assert out["count"] == 0
         assert out["passed"] == 0
         assert out["rate"] is None
+
+
+class TouchDb:
+    """touch_case_last_exec 的 update 链 fake：query→filter→update"""
+
+    def __init__(self):
+        self.updates: list[dict] = []
+        self.commits = 0
+
+    def query(self, *_a, **_kw):
+        db = self
+
+        class _UQ:
+            def filter(self, *_f):
+                return self
+
+            def update(self, vals, **_kw):
+                db.updates.append(vals)
+                return 1
+
+        return _UQ()
+
+    def commit(self):
+        self.commits += 1
+
+
+class TestTouchCaseLastExec:
+    def test_terminal_status_writes_started_at_and_status(self):
+        from datetime import datetime
+
+        db = TouchDb()
+        started = datetime(2026, 10, 12, 16, 0, 0)
+        rec = SimpleNamespace(status="failed", case_id=7, started_at=started)
+        exec_domain.touch_case_last_exec(db, rec)
+        assert db.updates and db.updates[0] == {
+            models.TestCase.last_exec_at: started,
+            models.TestCase.last_exec_status: "failed",
+        }
+        assert db.commits == 1
+
+    def test_running_record_is_noop(self):
+        db = TouchDb()
+        rec = SimpleNamespace(status="running", case_id=7, started_at=None)
+        exec_domain.touch_case_last_exec(db, rec)
+        assert db.updates == []
+        assert db.commits == 0
+
+    def test_db_error_swallowed(self):
+        class BoomDb(TouchDb):
+            def query(self, *_a, **_kw):
+                raise RuntimeError("db down")
+
+        exec_domain.touch_case_last_exec(  # 不得抛出：统计列不在关键路径
+            BoomDb(), SimpleNamespace(status="failed", case_id=7, started_at=None))

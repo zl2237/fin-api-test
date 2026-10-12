@@ -207,6 +207,10 @@ class TestCase(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
     updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
+    last_exec_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True,
+                          comment="最近一次执行开始时间（执行终结时回写；NULL=从未执行）")
+    last_exec_status: Mapped[str | None] = mapped_column(String(20), nullable=True,
+                          comment="最近一次执行的终态：success/failed/terminated（执行中不回写，保持上一次终态）")
 
     project: Mapped["Project"] = relationship("Project", back_populates="test_cases")
     group: Mapped["CaseGroup | None"] = relationship("CaseGroup", back_populates="cases")

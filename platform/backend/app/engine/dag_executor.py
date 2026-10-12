@@ -29,6 +29,7 @@ from .. import (
     models,
     path_setup,  # noqa: F401
 )
+from ..crud.executions import touch_case_last_exec
 from ..services.contract_sync import node_contract_gaps
 from ..services.notifier import send_notify
 from ..services.request_sender import send_request
@@ -248,6 +249,8 @@ class DagExecutor:
         finally:
             record.ended_at = datetime.now()
             self.db.commit()
+            # 用例列表「最近执行」回写（统计列，失败静默不影响收尾）
+            touch_case_last_exec(self.db, record)
             if self.db_client:
                 try:
                     self.db_client.close()

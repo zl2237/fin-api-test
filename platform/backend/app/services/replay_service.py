@@ -232,6 +232,8 @@ def resume_execution_async(db: Session, user: models.User, exec_id: int) -> mode
                     rrecord.status = "failed"
                     rrecord.summary = {**(rrecord.summary or {}), "error": f"续跑异常: {e}"}
                     rdb.commit()
+                    from ..crud.executions import touch_case_last_exec
+                    touch_case_last_exec(rdb, rrecord)
             except Exception:
                 pass
         finally:

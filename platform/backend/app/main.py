@@ -37,6 +37,7 @@ from .routers import (
     executions,
     field_dictionaries,
     files,
+    home,
     operation_logs,
     projects,
     reports,
@@ -178,6 +179,7 @@ app.include_router(schedules.router)
 app.include_router(datasets.router)
 app.include_router(versions.router)
 app.include_router(executions.router)
+app.include_router(home.router)
 app.include_router(reports.router)
 app.include_router(field_dictionaries.router)
 app.include_router(files.router)

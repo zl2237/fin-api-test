@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from .. import crud, models
 from ..crud import executions as exec_domain
+from ..crud.executions import touch_case_last_exec
 from ..engine.dag_executor import DagExecutor
 from . import dataset_service
 from .notifier import send_suite_notify
@@ -86,6 +87,8 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
         record.ended_at = datetime.now()
         record.summary = {"total": 0, "passed": 0, "failed": 1, "blocked": 0,
                           "error": "套件未配置成员，请先在套件编排中添加成员用例"}
+        db.commit()
+        touch_case_last_exec(db, record)
         return
 
     # 主记录环境对齐首成员环境（报告/通知取数更有意义；路由传入的 env 对套件无语义）
@@ -185,6 +188,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
                 row_record.ended_at = datetime.now()
                 row_record.summary = {**(row_record.summary or {}), "error": str(e)}
                 db.commit()
+                touch_case_last_exec(db, row_record)
             ok = row_record.status == "success"
             row_report.update(execution_id=row_record.id,
                               status="success" if ok else "failed")
@@ -230,6 +234,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
         **({"error": "手动终止"} if terminated else {}),
     }
     db.commit()
+    touch_case_last_exec(db, record)
 
     # 套件级一条通知（成员逐条通知已抑制）；环境取主记录 env（已对齐首成员）
     try:
