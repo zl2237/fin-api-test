@@ -200,6 +200,15 @@ def prepare_request(api, config, *, context, self_node: str,
         # statement.0.receipt_account 空串，请求缺失字段致服务端 null 500）
         if val in (None, "") and field_types.get(path) == "array":
             continue  # 不写也不注册（与旧动作空值跳过语义一致，避免覆盖末段别名）
+        # 数字下标参数打到非 array 字段（如 string 字段的 customer_id.0，导入拆解
+        # 遗留脏路径）不落盘：set_nested_value 会把下标建成 {"0": val} 破坏请求
+        # （2026-10-12 record 995 回归）；字段空占位兜底。仅拦「字段.0」形态——
+        # 更深层的嵌套下标（object 字段内的合法数组，如 cny_require.rate_list.0.x）
+        # 契约无法判定，不拦；array 字段与无字段契约的模板参数不受影响
+        segs = path.split(".")
+        if (len(segs) > 1 and segs[1].isdigit()
+                and field_types.get(segs[0]) not in (None, "array")):
+            continue
         set_nested_value(body, path, val)
         _register(registry, self_node, path, val)
     for key in dict.fromkeys(resolve_keys):

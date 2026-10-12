@@ -470,3 +470,49 @@ class TestFileAndHeaders:
                      _ctx(seed={"n_up": {"a": "V9"}}))
 
         assert parts.headers["X-Bl"] == "V9"
+
+
+class TestNumericIndexOnScalarField:
+    """数字下标参数 × 字段契约（2026-10-12 用例 198 customer_id 实发
+    {"0": "885"} 回归）：根因是接口导入时示例值 null 被兜底判成 string，
+    数据集导入又把标量数组 ["885"] 拆成 customer_id.0——set_nested_value
+    对 string 字段的数字下标建 {"0": val} dict 破坏请求"""
+
+    def test_numeric_index_on_string_field_dropped(self):
+        """string 字段的数字下标脏参数不落盘：字段空占位兜底发 ""，
+        不再出现 {"0": "885"}（历史 976/974/932 发空串亦可成功）"""
+        api = _api([_field("customer_id")])
+
+        parts = _run(api, _config(body={"customer_id.0": _const("885")}))
+
+        assert parts.body == {"customer_id": ""}
+
+    def test_deep_nested_index_in_object_not_blocked(self):
+        """object 字段内合法数组的深层下标（cny_require.rate_list.0.x）
+        不误拦：容器参数先落 list，元素下标参数照常改写"""
+        api = _api([_field("cny_require", field_type="object")])
+
+        parts = _run(api, _config(body={
+            "cny_require.rate_list": _const([{"cost_name": "", "amount": "0"}]),
+            "cny_require.rate_list.0.cost_name": _const("海运费"),
+        }))
+
+        assert parts.body == {"cny_require": {"rate_list":
+                                              [{"cost_name": "海运费", "amount": "0"}]}}
+
+    def test_array_field_constant_list_sent_as_array(self):
+        """array 字段 + constant 数组值：实发原生数组（契约修正后的正确形态）"""
+        api = _api([_field("customer_id", field_type="array", default='["885"]')])
+
+        parts = _run(api, _config(body={"customer_id": _const(["885"])}))
+
+        assert parts.body == {"customer_id": ["885"]}
+
+    def test_array_field_legacy_index_param_lands_in_list(self):
+        """array 字段的数字下标参数照常垫长落 list：契约修正后，
+        历史遗留的 customer_id.0 脏参数无需改数据即自愈"""
+        api = _api([_field("customer_id", field_type="array", default='["885"]')])
+
+        parts = _run(api, _config(body={"customer_id.0": _const("885")}))
+
+        assert parts.body == {"customer_id": ["885"]}

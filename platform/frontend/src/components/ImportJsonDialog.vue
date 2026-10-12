@@ -92,11 +92,15 @@ function getByPath(obj: unknown, path: string): unknown {
   return cur
 }
 
-/** 展开 JSON 全部叶子路径 → 值（嵌套对象/数组递归下钻，空对象/数组视为叶子） */
+/** 展开 JSON 全部叶子路径 → 值（嵌套对象/数组递归下钻，空对象/数组视为叶子）。
+ *  标量数组整体作为叶子（["885"] → customer_id 一个参数，值为数组）：
+ *  拆成 customer_id.0 只对 array 字段有意义，string 字段会在组装时
+ *  被建成 {"0":"885"} 破坏请求（2026-10-12 record 995 回归）；
+ *  dict 元素数组照旧按下标拆（select_list.0.xxx 模式） */
 function flattenLeaves(obj: unknown, prefix = '', out: Record<string, unknown> = {}): Record<string, unknown> {
   if (obj !== null && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length) {
     for (const [k, v] of Object.entries(obj)) flattenLeaves(v, prefix ? `${prefix}.${k}` : k, out)
-  } else if (Array.isArray(obj) && obj.length) {
+  } else if (Array.isArray(obj) && obj.length && obj.every((v) => v !== null && typeof v === 'object' && !Array.isArray(v))) {
     obj.forEach((v, i) => flattenLeaves(v, `${prefix}.${i}`, out))
   } else {
     out[prefix] = obj
