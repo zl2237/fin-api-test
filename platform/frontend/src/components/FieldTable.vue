@@ -1,6 +1,14 @@
 <template>
   <div class="field-table">
-    <el-table :data="modelValue" size="small" border empty-text="暂无字段，点击「添加字段」开始配置">
+    <el-input
+      v-model="keyword"
+      size="small"
+      clearable
+      class="field-search"
+      placeholder="按字段路径/中文名/示例值筛选，如 order_id"
+      :prefix-icon="Search"
+    />
+    <el-table :data="filtered" size="small" border :empty-text="keyword ? `没有匹配「${keyword}」的字段` : '暂无字段，点击「添加字段」开始配置'">
       <el-table-column label="字段路径（支持点号嵌套）" min-width="200">
         <template #default="{ row }">
           <el-input v-model="row.key" size="small" placeholder="order_id / to_customer.put_amount" />
@@ -55,6 +63,7 @@
         </template>
       </el-table-column>
     </el-table>
+    <div v-if="keyword" class="filter-count">匹配 {{ filtered.length }} / {{ modelValue.length }} 个字段（编辑与删除作用于真实行）</div>
     <el-button class="add-btn" size="small" @click="add">+ 添加字段</el-button>
 
     <!-- 文件选择器 -->
@@ -67,7 +76,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import type { ApiField, TestFile } from '@/api'
 import { useFieldDict } from '@/composables/useFieldDict'
 import FilePicker from '@/components/FilePicker.vue'
@@ -75,6 +85,20 @@ import FilePicker from '@/components/FilePicker.vue'
 const props = defineProps<{ modelValue: ApiField[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: ApiField[]): void }>()
 const { dictLabel } = useFieldDict()
+
+// 关键词过滤（不区分大小写；路径/中文名/示例值/备注命中即显示）：
+// 只影响展示层，行对象仍是 modelValue 的同一引用，行内编辑直接生效
+const keyword = ref('')
+const filtered = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return props.modelValue
+  return props.modelValue.filter((f) =>
+    (f.key || '').toLowerCase().includes(q)
+    || (f.label || '').toLowerCase().includes(q)
+    || (f.default_value || '').toLowerCase().includes(q)
+    || (f.remark || '').toLowerCase().includes(q),
+  )
+})
 
 function add() {
   const list = [...props.modelValue]
@@ -92,7 +116,10 @@ function add() {
 
 function remove(idx: number) {
   const list = [...props.modelValue]
-  list.splice(idx, 1)
+  // idx 来自过滤后列表：换算回全量列表的真实下标
+  const real = list.indexOf(filtered.value[idx])
+  if (real < 0) return
+  list.splice(real, 1)
   // 重新排序
   list.forEach((f, i) => (f.sort_order = i))
   emit('update:modelValue', list)
@@ -133,6 +160,15 @@ function onFileSelect(file: TestFile) {
 <style scoped>
 .field-table {
   width: 100%;
+}
+.field-search {
+  width: 280px;
+  margin-bottom: 8px;
+}
+.filter-count {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 .add-btn {
   margin-top: 10px;
