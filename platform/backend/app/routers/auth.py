@@ -2,6 +2,8 @@
 
 登录锁定策略 / 首管理员规则 / 改密不变量 / 头像校验在 app.crud.auth 域模块；本层只管 HTTP 语义。
 """
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,10 @@ from ..crud import auth as auth_domain
 from ..database import get_db
 
 router = APIRouter(prefix="/api/auth", tags=["鉴权"])
+
+# 自助注册开关（默认关闭）：账号统一由管理员在「用户管理」开通；
+# 需要临时开放（如新环境初始化首账号）时在 .env 置 REGISTER_ENABLED=1 并重启
+REGISTER_ENABLED = os.getenv("REGISTER_ENABLED", "0") == "1"
 
 
 @router.post("/login", response_model=schemas.LoginResponse)
@@ -25,7 +31,9 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/register", response_model=schemas.LoginResponse)
 def register(data: schemas.RegisterRequest, db: Session = Depends(get_db)):
-    """注册新用户。首个用户自动成为 admin，其余为 member。"""
+    """注册新用户（受 REGISTER_ENABLED 开关控制，默认关闭）。首个用户自动成为 admin，其余为 member。"""
+    if not REGISTER_ENABLED:
+        raise HTTPException(403, "自助注册已关闭，请联系管理员开通账号")
     user = auth_domain.register_user(db, data)
     token = create_token(user.id, user.username, user.role)
     return schemas.LoginResponse(
