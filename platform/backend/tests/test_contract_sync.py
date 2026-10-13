@@ -149,3 +149,61 @@ class TestApplyNodeSync:
         once, _ = apply_node_sync({}, fields)
         twice, stats = apply_node_sync(once, fields)
         assert twice == once and stats == {"added": 0, "removed": 0, "skipped_dynamic": 0}
+
+
+# ============ _api_bindings：画布已删节点残留过滤（生产 case 200 回归） ============
+
+class _Q:
+    """链式 fake query：按实体路由返回预设结果。"""
+    def __init__(self, items):
+        self._items = items
+
+    def filter(self, *a, **kw):
+        return self
+
+    def all(self):
+        return self._items
+
+    def first(self):
+        return self._items[0] if self._items else None
+
+
+class TestApiBindingsSkipsStaleNodes:
+    """case_node_configs 残留画布已删节点的结构配置时：影响面/同步必须跳过——
+    否则残留节点被判全字段 missing，同步把参数写进行内造成悬空配置（死循环）。"""
+
+    def _make_db(self, *, stale_bind=True):
+        dag = {"nodes": [{"id": "n_live", "data": {"label": "审核"}}],
+               "edges": []}
+        case = SimpleNamespace(id=1, name="c1", dag_config=dag, dataset_id=10)
+        row = SimpleNamespace(dataset_id=10, row_index=1,
+                              data={"nodes": {"n_live": {"params": {"body": {"bl_no": _const("B1")}}}}})
+        ds = SimpleNamespace(id=10, name="默认", case_id=1, rows=[row])
+        api = SimpleNamespace(id=7, fields=[_field("bl_no", default="BL1")])
+        binds = [SimpleNamespace(case_id=1, node_id="n_live", api_id=7)]
+        if stale_bind:
+            binds.append(SimpleNamespace(case_id=1, node_id="n_stale", api_id=7))
+        table = {}
+
+        class Db:
+            def query(self, entity):
+                return _Q(table[entity])
+
+        from app import models
+        table[models.ApiDefinition] = [api]
+        table[models.CaseNodeConfig] = binds
+        table[models.TestCase] = [case]
+        table[models.DataSet] = [ds]
+        return Db(), api, case, ds
+
+    def test_stale_bind_excluded(self):
+        from app.services.contract_sync import _api_bindings
+        db, api, case, ds = self._make_db(stale_bind=True)
+        got = [(nid, params) for _, _, _, nid, params in _api_bindings(db, 7)]
+        assert [nid for nid, _ in got] == ["n_live"]
+
+    def test_live_only_no_stale_regression(self):
+        from app.services.contract_sync import _api_bindings
+        db, *_ = self._make_db(stale_bind=False)
+        got = list(_api_bindings(db, 7))
+        assert len(got) == 1 and got[0][3] == "n_live"
