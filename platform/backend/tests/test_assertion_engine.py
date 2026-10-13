@@ -220,6 +220,83 @@ class TestDbVsJsonPathAssertions:
         assert results[0]["pass"] is True
 
 
+class TestSpecExpectedRegression:
+    """回归：期望值经四来源弹层保存为 spec（{"source":"constant","value":...}）后，
+    各断言类型必须先经 _eval_expected 求值再比较（生产 record 1011：count 常量4 被判成 0）。"""
+
+    def test_count_equals_constant_spec(self):
+        # 生产事故场景：4 行 vs 常量 spec 4，旧实现 _to_count(dict) 兜底 0 → 误报失败
+        engine = make_engine(db_rows=[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}])
+        results = engine.evaluate_all({}, 200, 50,
+                                     [{"type": "db_query_count_equals", "sql": "SELECT *",
+                                       "expected": {"source": "constant", "value": 4}}])
+        assert results[0]["pass"] is True
+        assert results[0]["expected"] == 4
+
+    def test_count_greater_than_constant_spec(self):
+        engine = make_engine(db_rows=[{"id": 1}, {"id": 2}])
+        results = engine.evaluate_all({}, 200, 50,
+                                     [{"type": "db_query_count_greater_than", "sql": "SELECT *",
+                                       "expected": {"source": "constant", "value": "1"}}])
+        assert results[0]["pass"] is True
+
+    def test_count_less_than_constant_spec(self):
+        engine = make_engine(db_rows=[{"id": 1}])
+        results = engine.evaluate_all({}, 200, 50,
+                                     [{"type": "db_query_count_less_than", "sql": "SELECT *",
+                                       "expected": {"source": "constant", "value": 3}}])
+        assert results[0]["pass"] is True
+
+    def test_response_status_constant_spec(self):
+        engine = make_engine()
+        results = engine.evaluate_all({}, 200, 50,
+                                     [{"type": "response_status_equals",
+                                       "expected": {"source": "constant", "value": 200}}])
+        assert results[0]["pass"] is True
+
+    def test_response_time_constant_spec(self):
+        engine = make_engine()
+        results = engine.evaluate_all({}, 200, 50,
+                                     [{"type": "response_time_less_than",
+                                       "expected": {"source": "constant", "value": 100}}])
+        assert results[0]["pass"] is True
+
+    def test_type_equals_constant_spec(self):
+        engine = make_engine()
+        results = engine.evaluate_all({"data": {"n": 1}}, 200, 50,
+                                     [{"type": "json_path_type_equals", "path": "$.data.n",
+                                       "expected": {"source": "constant", "value": "int"}}])
+        assert results[0]["pass"] is True
+
+    def test_regex_from_expected_field(self):
+        # 新前端把正则存进期望值列（spec），后端旧实现只读 pattern（空正则恒匹配）
+        engine = make_engine()
+        results = engine.evaluate_all({"data": {"phone": "13800138000"}}, 200, 50,
+                                     [{"type": "json_path_match_regex", "path": "$.data.phone",
+                                       "expected": {"source": "constant", "value": r"^1\d{10}$"}}])
+        assert results[0]["pass"] is True
+        bad = engine.evaluate_all({"data": {"phone": "abc"}}, 200, 50,
+                                  [{"type": "json_path_match_regex", "path": "$.data.phone",
+                                    "expected": {"source": "constant", "value": r"^1\d{10}$"}}])
+        assert bad[0]["pass"] is False
+
+    def test_regex_legacy_pattern_field_still_works(self):
+        engine = make_engine()
+        results = engine.evaluate_all({"data": {"n": "42"}}, 200, 50,
+                                     [{"type": "json_path_match_regex", "path": "$.data.n",
+                                       "pattern": r"^\d+$"}])
+        assert results[0]["pass"] is True
+
+    def test_expected_ref_failure_marks_fail_not_crash(self):
+        # 引用来源解析失败 = 断言失败（message 带原因），不抛异常
+        engine = make_engine()
+        results = engine.evaluate_all({}, 200, 50,
+                                     [{"type": "db_query_count_equals", "sql": "SELECT *",
+                                       "expected": {"source": "ref", "node_id": "n_x", "var_path": "cnt"}}])
+        assert results[0]["pass"] is False
+        assert "解析失败" in results[0]["message"]
+
+
 class TestUnknownAssertion:
     def test_unknown_type(self):
         engine = make_engine()
