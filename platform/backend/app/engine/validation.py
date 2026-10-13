@@ -107,6 +107,24 @@ def _check_wildcard_path(path: str, where: str, errs: list[str]) -> None:
         errs.append(f"{where}：通配 * 必须是独立的路径段（如 list.*.field，当前 {path!r}）")
 
 
+def _node_names(dag: dict | None) -> dict[str, str]:
+    """dag 节点 id → 中文名（画布节点 data.label）。校验消息展示中文节点名，
+    编码仅在旁注保留（同用例存在多个同名节点时仍可区分）。"""
+    out: dict[str, str] = {}
+    for n in (dag or {}).get("nodes", []):
+        if isinstance(n, dict) and n.get("id"):
+            label = (n.get("data") or {}).get("label") or n.get("label")
+            if label:
+                out[str(n["id"])] = str(label)
+    return out
+
+
+def _disp(names: dict[str, str], node_id: str) -> str:
+    """消息展示名：「中文名」(编码)；无中文名（含引用不存在的节点）退化为编码。"""
+    label = names.get(node_id)
+    return f"「{label}」({node_id})" if label else node_id
+
+
 def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
     """返回错误消息列表（空列表 = 通过）。
 
@@ -128,6 +146,7 @@ def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
     except Exception:
         order = list(configs.keys())
     node_set = {n.get("id") for n in (dag or {}).get("nodes", []) if isinstance(n, dict)}
+    names = _node_names(dag)
 
     productions = {nid: _productions(c) for nid, c in configs.items()}
 
@@ -135,22 +154,22 @@ def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
                    ref_node: str, var_path: str, where: str):
         if ref_node == self_node:
             if var_path not in allowed_self:
-                errs.append(f"节点 {node_id} {where}：自引用 {var_path!r} 未在本节点产出"
+                errs.append(f"节点 {_disp(names, node_id)} {where}：自引用 {var_path!r} 未在本节点产出"
                             f"（本节点参数/提取；可选：{sorted(allowed_self) if allowed_self else '无'}）")
             return
         if ref_node == SUITE_NS:
             return  # 套件白名单运行期注入，保存期放行
         if ref_node not in node_set:
-            errs.append(f"节点 {node_id} {where}：引用了不存在的节点 {ref_node!r}")
+            errs.append(f"节点 {_disp(names, node_id)} {where}：引用了不存在的节点 {ref_node!r}")
             return
         if order and ref_node in order and self_node in order \
                 and order.index(ref_node) > order.index(self_node):
-            errs.append(f"节点 {node_id} {where}：引用了拓扑后置节点 {ref_node!r}"
+            errs.append(f"节点 {_disp(names, node_id)} {where}：引用了拓扑后置节点 {_disp(names, ref_node)}"
                         f"（引用目标必须在该节点之前执行）")
             return
         if var_path.split(".")[0] not in productions.get(ref_node, set()):
             avail = sorted(productions.get(ref_node, set()))
-            errs.append(f"节点 {node_id} {where}：悬空引用 {ref_node}.{var_path}"
+            errs.append(f"节点 {_disp(names, node_id)} {where}：悬空引用 {_disp(names, ref_node)}.{var_path}"
                         f"（该节点产出：{avail if avail else '无'}）")
 
     for nid, cfg in configs.items():
@@ -162,7 +181,7 @@ def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
         try:
             order_params({p: s for p, s in body_params.items() if isinstance(s, dict)}, nid)
         except CycleError as e:
-            errs.append(f"节点 {nid}：{e}")
+            errs.append(f"节点 {_disp(names, nid)}：{e}")
 
         # 自引用合法集：本节点全部参数路径 + 末段别名（通配路径原样可用；
         # 解析顺序由 order_params 拓扑保证，成环在上面报错）
@@ -172,46 +191,46 @@ def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
                 allowed_self.add(p.rsplit(".", 1)[-1])
 
         for path, spec in body_params.items():
-            _check_wildcard_path(path, f"节点 {nid} 参数 {path}", errs)
-            errs.extend(_spec_errors(spec, f"节点 {nid} 参数 {path}"))
+            _check_wildcard_path(path, f"节点 {_disp(names, nid)} 参数 {path}", errs)
+            errs.extend(_spec_errors(spec, f"节点 {_disp(names, nid)} 参数 {path}"))
             _scan_old_syntax(spec.get("value") if isinstance(spec, dict) else None,
                              f"参数 {path}", errs)
             for rn, vp in iter_spec_refs(spec):
                 _check_ref(nid, nid, allowed_self, rn, vp, f"参数 {path}")
         for name, spec in header_params.items():
-            errs.extend(_spec_errors(spec, f"节点 {nid} header {name}"))
+            errs.extend(_spec_errors(spec, f"节点 {_disp(names, nid)} header {name}"))
             for rn, vp in iter_spec_refs(spec):
                 _check_ref(nid, nid, allowed_self, rn, vp, f"header {name}")
 
         for rule in _as_dict_list(cfg.get("post_extract")):
             name = rule.get("name") or "?"
-            _scan_old_syntax(rule.get("sql"), f"节点 {nid} 提取 {name}", errs)
+            _scan_old_syntax(rule.get("sql"), f"节点 {_disp(names, nid)} 提取 {name}", errs)
             for rn, vp in extract_refs(rule.get("sql") or ""):
                 # 提取规则按序执行且实时注册：同节点引用放宽到本节点产出全集
                 #（规则间顺序错配由运行期显性报错兜底）
                 if rn == nid:
                     if vp.split(".")[0] not in productions[nid]:
-                        errs.append(f"节点 {nid} 提取 {name}：引用了本节点未产出的变量 {vp!r}")
+                        errs.append(f"节点 {_disp(names, nid)} 提取 {name}：引用了本节点未产出的变量 {vp!r}")
                     continue
                 _check_ref(nid, nid, allowed_self, rn, vp, f"提取 {name}")
 
         for rule in _as_dict_list(cfg.get("assertions")):
             at = rule.get("type") or "?"
-            _scan_old_syntax(rule.get("sql"), f"节点 {nid} 断言 {at}", errs)
+            _scan_old_syntax(rule.get("sql"), f"节点 {_disp(names, nid)} 断言 {at}", errs)
             for rn, vp in extract_refs(rule.get("sql") or ""):
                 # 断言运行期在本节点提取之后：允许引用本节点提取产出
                 if rn == nid:
                     if vp.split(".")[0] not in productions[nid]:
-                        errs.append(f"节点 {nid} 断言 {at}：引用了本节点未产出的变量 {vp!r}")
+                        errs.append(f"节点 {_disp(names, nid)} 断言 {at}：引用了本节点未产出的变量 {vp!r}")
                     continue
                 _check_ref(nid, nid, allowed_self, rn, vp, f"断言 {at}")
             # 期望值若为 spec（ref/func）也检查引用
             if isinstance(rule.get("expected"), dict) and rule["expected"].get("source"):
-                errs.extend(_spec_errors(rule["expected"], f"节点 {nid} 断言 {at} 期望值"))
+                errs.extend(_spec_errors(rule["expected"], f"节点 {_disp(names, nid)} 断言 {at} 期望值"))
                 for rn, vp in iter_spec_refs(rule["expected"]):
                     if rn == nid:
                         if vp.split(".")[0] not in productions[nid]:
-                            errs.append(f"节点 {nid} 断言 {at}：引用了本节点未产出的变量 {vp!r}")
+                            errs.append(f"节点 {_disp(names, nid)} 断言 {at}：引用了本节点未产出的变量 {vp!r}")
                         continue
                     _check_ref(nid, nid, allowed_self, rn, vp, f"断言 {at} 期望值")
 
@@ -232,18 +251,20 @@ _SQL_GLUED_RE = re.compile(
     r"having|between|union|distinct|inner|outer)\b", re.I)
 
 
-def validate_post_extract_sql(node_configs: list | None) -> None:
+def validate_post_extract_sql(node_configs: list | None, dag: dict | None = None) -> None:
     """编排保存入口：校验各节点 post_extract 中 source=db 的 SQL 基本形态。
     兼容 dict 与 Pydantic 模型（路由入参经 schema 解析后是 NodeConfigIn 对象，
-    无 .get 方法——曾致线上保存用例 500）。"""
+    无 .get 方法——曾致线上保存用例 500）。dag 传入时消息展示中文节点名。"""
     if not node_configs:
         return
+    names = _node_names(dag)
     for nc in node_configs:
         if nc is None:
             continue
         if not isinstance(nc, dict):
             nc = nc.model_dump() if hasattr(nc, "model_dump") else vars(nc)
         node_id = nc.get("node_id") or "?"
+        disp = _disp(names, node_id)
         for rule in nc.get("post_extract") or []:
             if not isinstance(rule, dict) or rule.get("source") != "db":
                 continue
@@ -255,13 +276,13 @@ def validate_post_extract_sql(node_configs: list | None) -> None:
             scanned = re.sub(r"\{\{[^{}]*\}\}", "1", sql)
             if not _SQL_START_RE.match(scanned):
                 raise ValueError(
-                    f"节点 {node_id} 后置提取「{name}」的 SQL 未以 SELECT/UPDATE/DELETE 等关键字开头，请检查")
+                    f"节点 {disp} 后置提取「{name}」的 SQL 未以 SELECT/UPDATE/DELETE 等关键字开头，请检查")
             m = _SQL_GLUED_RE.search(scanned)
             if m:
                 frag = m.group(0)
                 raise ValueError(
-                    f"节点 {node_id} 后置提取「{name}」的 SQL 疑似标识符与关键字粘连"
+                    f"节点 {disp} 后置提取「{name}」的 SQL 疑似标识符与关键字粘连"
                     f"（…{frag}…，缺少空格），请检查：{sql[:120]}")
             if scanned.lstrip()[:6].lower() == "select" and not re.search(r"\bfrom\b", scanned, re.I):
                 raise ValueError(
-                    f"节点 {node_id} 后置提取「{name}」的 SELECT 缺少 FROM（可能列名与 FROM 粘连），请检查：{sql[:120]}")
+                    f"节点 {disp} 后置提取「{name}」的 SELECT 缺少 FROM（可能列名与 FROM 粘连），请检查：{sql[:120]}")

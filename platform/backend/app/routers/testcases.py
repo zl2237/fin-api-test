@@ -55,7 +55,8 @@ def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User
 @router.post("", response_model=schemas.TestCaseOut)
 def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     try:
-        validate_post_extract_sql(getattr(data, "node_configs", None))
+        validate_post_extract_sql(getattr(data, "node_configs", None),
+                                  getattr(data, "dag_config", None))
     except ValueError as e:
         raise HTTPException(400, str(e))
     obj = crud.create_testcase(db, data, user.id)
@@ -161,7 +162,8 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
         raise HTTPException(409, str(e))
     # 后置提取 SQL 基本校验（关键字粘连/缺失——静默坏 SQL 运行时只会在报告里表现为提取为空）
     try:
-        validate_post_extract_sql(getattr(data, "node_configs", None))
+        validate_post_extract_sql(getattr(data, "node_configs", None),
+                                  getattr(data, "dag_config", None))
     except ValueError as e:
         raise HTTPException(400, str(e))
     # 数据集绑定校验（显式传 dataset_id 时）：须存在且与用例同项目

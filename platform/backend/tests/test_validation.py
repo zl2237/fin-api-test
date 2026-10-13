@@ -146,3 +146,37 @@ class TestReject:
             n1_config(params={"body": {"x": {"source": "sql", "sql": "SELECT {{n1.ghost}}"}}}),
         ])
         assert any("ghost" in e for e in errs)
+
+
+class TestChineseNodeNames:
+    """校验消息展示中文节点名（「label」(node_id)）：画布节点 data.label 可读性。"""
+
+    NAMED_DAG = {
+        "nodes": [
+            {"id": "n1", "data": {"label": "新建订单"}},
+            {"id": "n2", "data": {"label": "审核"}},
+        ],
+        "edges": [{"source": "n1", "target": "n2"}],
+    }
+
+    def test_posterior_ref_shows_labels(self):
+        errs = validate_case_configs(self.NAMED_DAG, [
+            {"node_id": "n1", "params": {"body": {"x": {"source": "ref", "node_id": "n2", "var_path": "a"}}},
+             "post_extract": [], "assertions": []},
+        ])
+        assert any("拓扑后置" in e and "「新建订单」(n1)" in e and "「审核」(n2)" in e for e in errs)
+
+    def test_dangling_ref_shows_ref_label(self):
+        # n2 引用拓扑前置节点 n1 的不存在变量 → 走悬空引用分支
+        errs = validate_case_configs(self.NAMED_DAG, [
+            n1_config(),
+            {"node_id": "n2", "params": {"body": {"x": {"source": "ref", "node_id": "n1", "var_path": "ghost"}}},
+             "post_extract": [], "assertions": []},
+        ])
+        assert any("悬空引用" in e and "「新建订单」(n1)" in e for e in errs)
+
+    def test_unlabeled_node_falls_back_to_id(self):
+        errs = validate_case_configs(DAG, [  # DAG 无 label
+            n1_config(params={"body": {"x": {"source": "ref", "node_id": "n2", "var_path": "a"}}}),
+        ])
+        assert any("拓扑后置" in e and "n1" in e for e in errs)
