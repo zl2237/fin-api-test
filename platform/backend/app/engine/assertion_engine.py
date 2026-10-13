@@ -107,19 +107,29 @@ class AssertionEngine:
 
         if rule_type == "json_path_match_regex":
             actual = self._jsonpath_get(response_body, rule.get("path") or "")
-            pattern = rule.get("pattern", "")
-            passed = bool(re.search(pattern, str(actual))) if actual is not None else False
+            # 兼容两代配置：旧版 pattern 字段 / 新版期望值列（四来源 spec 或字面量正则）
+            pattern = rule.get("pattern")
+            if pattern in (None, ""):
+                pattern, perr = self._eval_expected(rule, "assertion:json_path_match_regex.pattern")
+                if perr:
+                    return self._pack(False, rule_type, None, None, (message or "") + f" [{perr}]")
+            passed = bool(re.search(str(pattern), str(actual))) if actual is not None else False
             return self._pack(passed, rule_type, actual, pattern, message or f"{rule.get('path')} 期望匹配正则 /{pattern}/, 实际 {actual}")
 
         if rule_type == "json_path_type_equals":
             actual = self._jsonpath_get(response_body, rule.get("path") or "")
-            expected_type = rule.get("expected", "string")
+            expected_type, terr = self._eval_expected(rule, "assertion:json_path_type_equals.expected")
+            if terr:
+                return self._pack(False, rule_type, None, None, (message or "") + f" [{terr}]")
+            expected_type = str(expected_type) if expected_type not in (None, "") else "string"
             actual_type = self._python_type_name(actual)
             passed = actual_type == expected_type
             return self._pack(passed, rule_type, actual_type, expected_type, message or f"{rule.get('path')} 期望类型 {expected_type}, 实际类型 {actual_type}")
 
         if rule_type == "response_status_equals":
-            expected = rule.get("expected")
+            expected, err = self._eval_expected(rule, "assertion:response_status_equals.expected")
+            if err:
+                return self._pack(False, rule_type, None, None, (message or "") + f" [{err}]")
             # HTTP 状态码为整数，expected 可能为字符串（前端表单输入），统一数值化比较
             try:
                 passed = int(status_code) == int(expected or 0)
@@ -128,8 +138,14 @@ class AssertionEngine:
             return self._pack(passed, rule_type, status_code, expected, message)
 
         if rule_type == "response_time_less_than":
-            expected = rule.get("expected")
-            return self._pack(response_time_ms < expected, rule_type, response_time_ms, expected, message or f"响应时间 {response_time_ms}ms 超过 {expected}ms")
+            expected, err = self._eval_expected(rule, "assertion:response_time_less_than.expected")
+            if err:
+                return self._pack(False, rule_type, None, None, (message or "") + f" [{err}]")
+            try:
+                threshold = float(expected)
+            except (TypeError, ValueError):
+                return self._pack(False, rule_type, response_time_ms, expected, message or f"期望值不是数字: {expected}")
+            return self._pack(response_time_ms < threshold, rule_type, response_time_ms, expected, message or f"响应时间 {response_time_ms}ms 超过 {expected}ms")
 
         if rule_type in ("db_query_equals", "db_query_not_equals", "db_query_not_empty",
                          "db_query_count_equals", "db_query_count_greater_than", "db_query_count_less_than"):
@@ -214,15 +230,24 @@ class AssertionEngine:
             return self._pack(passed, rule_type, rows, "not_empty", message)
         if rule_type == "db_query_count_equals":
             actual = len(rows) if rows else 0
-            expected = self._to_count(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:db_query_count_equals.expected")
+            if err:
+                return self._pack(False, rule_type, actual, None, (message or "") + f" [{err}]")
+            expected = self._to_count(expected)
             return self._pack(actual == expected, rule_type, actual, expected, message or f"查询行数期望 {expected}, 实际 {actual}")
         if rule_type == "db_query_count_greater_than":
             actual = len(rows) if rows else 0
-            expected = self._to_count(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:db_query_count_greater_than.expected")
+            if err:
+                return self._pack(False, rule_type, actual, None, (message or "") + f" [{err}]")
+            expected = self._to_count(expected)
             return self._pack(actual > expected, rule_type, actual, expected, message or f"查询行数期望 > {expected}, 实际 {actual}")
         if rule_type == "db_query_count_less_than":
             actual = len(rows) if rows else 0
-            expected = self._to_count(rule.get("expected"))
+            expected, err = self._eval_expected(rule, "assertion:db_query_count_less_than.expected")
+            if err:
+                return self._pack(False, rule_type, actual, None, (message or "") + f" [{err}]")
+            expected = self._to_count(expected)
             return self._pack(actual < expected, rule_type, actual, expected, message or f"查询行数期望 < {expected}, 实际 {actual}")
         return self._pack(False, rule_type, None, None, "未知DB断言")
 
