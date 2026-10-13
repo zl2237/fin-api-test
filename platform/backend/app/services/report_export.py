@@ -210,25 +210,6 @@ body {
 .fail-why { font-size: 12px; color: var(--err); flex: 1; min-width: 200px; max-width: 100%; overflow-wrap: anywhere; }
 .fail-count { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 
-/* ===== 契约出入提示卡（黄条同构：只标注不阻断，2026-10-10 定案 Q3） ===== */
-.contract-card {
-  border: 1px solid var(--border); border-left: 5px solid var(--warn);
-  border-radius: 4px; background: var(--card); box-shadow: var(--shadow); overflow: hidden;
-}
-.contract-card-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 18px; font-size: 13px; font-weight: 700; color: var(--warn);
-  background: var(--warn-soft); letter-spacing: .05em; border-bottom: 1px solid var(--border);
-}
-.contract-item {
-  padding: 8px 18px; font-size: 12px; line-height: 1.8; border-top: 1px solid var(--border);
-  overflow-wrap: anywhere;
-}
-.contract-item:first-of-type { border-top: none; }
-.contract-tip {
-  padding: 7px 18px; font-size: 11px; color: var(--text-3); border-top: 1px dashed var(--border);
-}
-
 /* ===== 主体：左卷内目录 + 右卷宗详情 ===== */
 .layout { display: grid; grid-template-columns: var(--nav-w) 1fr; gap: 14px; align-items: start; }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
@@ -642,39 +623,6 @@ def _fail_card(steps: list[Any], sid_of: Any) -> str:
             f'{"".join(items)}</div>')
 
 
-def _contract_card(record: Any, steps: list[Any]) -> str:
-    """契约出入卡（与报告页黄条同构）：summary.contract_gaps = {节点ID: {missing/extra}}。
-
-    只标注不阻断（2026-10-10 定案 Q3）；节点名取步骤名（api_name 优先）。
-    """
-    gaps = (getattr(record, "summary", None) or {}).get("contract_gaps")
-    if not isinstance(gaps, dict) or not gaps:
-        return ""
-    name_of = {s.node_id: (s.api_name or s.node_id) for s in steps}
-    items: list[str] = []
-    for nid, g in gaps.items():
-        if not isinstance(g, dict):
-            continue
-        seg: list[str] = []
-        missing = [str(m) for m in (g.get("missing") or [])]
-        extra = [e for e in (g.get("extra") or []) if isinstance(e, dict)]
-        if missing:
-            seg.append(f'{len(missing)} 个字段未配置（{_esc("、".join(missing))}），已按空值占位发送')
-        if extra:
-            paths = _esc("、".join(str(e.get("path")) for e in extra))
-            has_dyn = any(e.get("dynamic") for e in extra)
-            seg.append(f'携带契约外参数 {paths}（{"含动态来源" if has_dyn else "接口已无这些字段"}）')
-        if not seg:
-            continue
-        items.append(f'<div class="contract-item"><b>{_esc(name_of.get(nid, nid))}</b>：{"；".join(seg)}</div>')
-    if not items:
-        return ""
-    return (f'<div class="contract-card"><div class="contract-card-head">'
-            f'⚠ 请求参数与接口契约有出入（只标注，不影响结论判定）</div>'
-            f'{"".join(items)}'
-            f'<div class="contract-tip">字段增删请到「接口管理」维护，保存时可一键同步到所有数据集；数据集页保存节点时也会提示同步。</div></div>')
-
-
 def export_report_html(record: Any, steps: list[Any]) -> str:
     """执行记录 + 步骤 → 自包含 HTML 报告文本（Allure 式导航布局，见模块 docstring）。"""
     sid_of = lambda i: _step_id(steps[i], i)
@@ -723,8 +671,6 @@ def export_report_html(record: Any, steps: list[Any]) -> str:
 
     # 失败摘要卡（仅失败时渲染）
     parts.append(_fail_card(steps, sid_of))
-    # 契约出入提示卡（有出入时渲染）
-    parts.append(_contract_card(record, steps))
 
     # 主体：左导航 + 右详情
     parts.append('<div class="layout">')

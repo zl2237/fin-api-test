@@ -23,23 +23,6 @@
     >
       <template #title>执行失败原因：{{ record.summary.error }}</template>
     </el-alert>
-    <!-- 契约出入黄条：请求参数与接口字段契约的偏差（只标注不阻断；字段增删请到
-         接口管理维护，保存时可一键同步数据集） -->
-    <el-alert
-      v-if="contractGapEntries.length"
-      class="contract-banner"
-      type="warning"
-      :closable="false"
-      show-icon
-    >
-      <template #title>请求参数与接口契约有出入（已按空值/现值发送，不影响结论判定）</template>
-      <div v-for="g in contractGapEntries" :key="g.nid" class="cg-line">
-        <b>{{ g.label }}</b>
-        <span v-if="g.missing.length">：{{ g.missing.length }} 个字段未配置（{{ g.missing.join('、') }}），已按空值占位发送</span>
-        <span v-if="g.extra.length">{{ g.missing.length ? '；' : '：' }}携带契约外参数 {{ g.extra.map((e) => e.path).join('、') }}（{{ g.extra.some((e) => e.dynamic) ? '含动态来源' : '接口已无这些字段' }}）</span>
-      </div>
-      <div class="cg-tip">字段增删请到「接口管理」维护，保存时可一键同步到所有数据集；数据集页保存节点时也会提示同步。</div>
-    </el-alert>
     <!-- 页面级加载失败：内联错误块 + 重试（详情页失败后不能只剩空壳） -->
     <div v-if="loadError" class="app-load-error">
       <el-icon><WarningFilled /></el-icon>
@@ -487,20 +470,6 @@ const currentStep = computed<StepRecord | null>(() =>
   steps.value.find((s) => s.id === currentStepId.value) ?? null
 )
 
-// 契约出入黄条（2026-10-10 定案 Q3：执行时只标注不阻断）：summary.contract_gaps
-// 为 {节点ID: {missing/extra}}；仅提示，不影响本报告结论判定
-const contractGaps = computed<Record<string, { missing?: string[]; extra?: Array<{ path: string; source: string; dynamic: boolean }> }> | null>(() =>
-  (record.value?.summary as any)?.contract_gaps || null,
-)
-const contractGapEntries = computed(() =>
-  Object.entries(contractGaps.value || {}).map(([nid, gaps]) => ({
-    nid,
-    label: steps.value.find((s) => s.node_id === nid)?.api_name || nid,
-    missing: gaps.missing || [],
-    extra: gaps.extra || [],
-  })),
-)
-
 // 失败可见性：失败步骤计数 + 「只看失败」过滤 + 导航搜索（与导出报告同构）
 const failedStepCount = computed(() => steps.value.filter((s) => s.status !== 'success').length)
 const onlyFailed = ref(false)
@@ -797,20 +766,6 @@ onUnmounted(stopPolling)
 </script>
 
 <style scoped>
-/* 契约出入黄条 */
-.contract-banner :deep(.el-alert__description) {
-  max-width: 100%;
-}
-.cg-line {
-  font-size: 12px;
-  line-height: 1.8;
-  word-break: break-all;
-}
-.cg-tip {
-  margin-top: 4px;
-  font-size: 12px;
-  opacity: 0.75;
-}
 .report {
   display: flex;
   flex-direction: column;
