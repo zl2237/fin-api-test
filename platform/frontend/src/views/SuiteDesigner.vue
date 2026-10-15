@@ -80,27 +80,15 @@
               <el-tag v-if="m.member_case_type === 'suite'" size="small" type="danger">异常：成员是套件</el-tag>
               <span v-if="m.project_id !== suite.project_id" class="cross-mark">跨项目</span>
               <div class="member-right">
-                <el-select
-                  v-model="m.env_id"
-                  size="small"
-                  style="width: 180px"
-                  placeholder="执行环境"
-                  @change="dirty = true"
-                >
-                  <el-option
-                    v-for="e in envsOf(m.project_id)"
-                    :key="e.id"
-                    :label="e.name"
-                    :value="e.id"
-                  />
-                </el-select>
+                <el-tag v-if="m.env_name" size="small" effect="plain" type="success">{{ m.env_name }}</el-tag>
+                <el-tag v-else size="small" type="danger">环境未绑定</el-tag>
                 <el-button link type="danger" size="small" @click="removeMember(i)">移除</el-button>
               </div>
             </div>
           </div>
           <EmptyState v-else :image-size="80" description="暂无成员，从下方添加用例（可跨项目引用）" />
 
-          <!-- 添加成员：项目 → 用例 → 环境（三段级联） -->
+          <!-- 添加成员：项目 → 用例（环境随用例绑定） -->
           <div class="add-row">
             <el-select
               v-model="addProjectId"
@@ -126,19 +114,10 @@
                 :value="c.id"
               />
             </el-select>
-            <el-select
-              v-model="addEnvId"
-              style="width: 180px"
-              placeholder="执行环境"
-              filterable
-              :disabled="!addProjectId"
-            >
-              <el-option v-for="e in envsOf(addProjectId)" :key="e.id" :label="e.name" :value="e.id" />
-            </el-select>
-            <el-button type="primary" :disabled="!addCaseId || !addEnvId" @click="addMember">添加成员</el-button>
+            <el-button type="primary" :disabled="!addCaseId" @click="addMember">添加成员</el-button>
           </div>
           <div class="add-tip">
-            成员逐个绑定环境（跨系统各用各的）；上游成员若绑定数据集会按行展开，逐行快照注入下游对应行，上游某行失败则下游对应行阻断
+            成员环境随用例绑定（跨系统各用各的，改绑在用例编辑处）；上游成员若绑定数据集会按行展开，逐行快照注入下游对应行，上游某行失败则下游对应行阻断
           </div>
         </el-card>
       </template>
@@ -152,7 +131,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import Sortable from 'sortablejs'
 import { ArrowLeft, Rank, WarningFilled } from '@element-plus/icons-vue'
-import { caseApi, envApi, type TestCase, type SuiteMember, type Environment } from '@/api'
+import { caseApi, type TestCase, type SuiteMember } from '@/api'
 import { useAppStore } from '@/stores'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
@@ -177,10 +156,11 @@ const description = ref('')
 const sharedVars = ref<string[]>([])
 const newVar = ref('')
 
-// 本地成员行（保存时整体替换提交）
+// 本地成员行（保存时整体替换提交；env_id/env_name 为成员用例绑定环境的实时展示）
 interface MemberRow {
   member_case_id: number
-  env_id: number
+  env_id: number | null
+  env_name: string | null
   case_name: string
   project_id: number
   project_name: string
@@ -188,20 +168,9 @@ interface MemberRow {
 }
 const members = ref<MemberRow[]>([])
 
-// 各项目环境缓存（成员可跨项目，环境按项目惰性加载）
-const envCache = ref<Record<number, Environment[]>>({})
-async function ensureEnvs(projectId: number | null | undefined) {
-  if (!projectId || envCache.value[projectId]) return
-  envCache.value[projectId] = await envApi.list(projectId)
-}
-function envsOf(projectId: number | null | undefined) {
-  return (projectId && envCache.value[projectId]) || []
-}
-
-// 添加成员三段级联状态
+// 添加成员两段级联状态
 const addProjectId = ref<number | null>(null)
 const addCaseId = ref<number | null>(null)
-const addEnvId = ref<number | null>(null)
 const addCases = ref<TestCase[]>([])
 const addCasesLoading = ref(false)
 
@@ -248,15 +217,13 @@ async function load() {
     const outs: SuiteMember[] = await caseApi.getMembers(suiteId)
     members.value = outs.map(o => ({
       member_case_id: o.member_case_id,
-      env_id: o.env_id,
+      env_id: o.env_id ?? null,
+      env_name: o.env_name ?? null,
       case_name: o.case_name || '',
       project_id: o.project_id || 0,
       project_name: o.project_name || '',
       member_case_type: o.member_case_type || 'normal',
     }))
-    // 成员环境选项按项目惰性加载
-    await Promise.all([...new Set(members.value.map(m => m.project_id).filter(Boolean))].map(ensureEnvs))
-    await ensureEnvs(store.currentProjectId)
     // 添加面板默认当前项目，降低最常见路径（本项目管理员编排）的操作成本
     addProjectId.value = store.currentProjectId
     await onAddProjectChange(store.currentProjectId)
@@ -271,19 +238,12 @@ async function load() {
 
 async function onAddProjectChange(pid: number | null) {
   addCaseId.value = null
-  addEnvId.value = null
   if (!pid) { addCases.value = []; return }
   addCasesLoading.value = true
   try {
-    await ensureEnvs(pid)
     const all = await caseApi.list(pid)
     // 套件不能嵌套套件；也不能引用自身
     addCases.value = all.filter(c => c.case_type !== 'suite' && c.id !== suiteId)
-    // 默认环境：本项目用顶栏当前环境，跨项目用其默认/首个
-    const envs = envsOf(pid)
-    addEnvId.value = pid === store.currentProjectId
-      ? (store.currentEnvId ?? envs.find(e => e.is_default)?.id ?? envs[0]?.id ?? null)
-      : (envs.find(e => e.is_default)?.id ?? envs[0]?.id ?? null)
   } catch (e: any) {
     ElMessage.error(e.message || '加载项目用例失败')
     addCases.value = []
@@ -293,20 +253,23 @@ async function onAddProjectChange(pid: number | null) {
 }
 
 function addMember() {
-  if (!addCaseId.value || !addEnvId.value) return
+  if (!addCaseId.value) return
   const c = addCases.value.find(x => x.id === addCaseId.value)
   if (!c) return
+  // 环境严格绑定：成员用例必须已绑定环境（执行时按用例绑定环境跑）
+  if (!c.env_id) return ElMessage.warning(`用例「${c.name}」未绑定执行环境，请先在用例编辑中选择`)
   const p = store.projects.find(x => x.id === addProjectId.value)
   members.value.push({
     member_case_id: c.id,
-    env_id: addEnvId.value,
+    env_id: c.env_id,
+    env_name: c.env_name ?? null,
     case_name: c.name,
     project_id: addProjectId.value!,
     project_name: p?.name || '',
     member_case_type: 'normal',
   })
   dirty.value = true
-  addCaseId.value = null  // 连续添加：保留项目与环境选择
+  addCaseId.value = null  // 连续添加：保留项目选择
 }
 
 function removeMember(i: number) {
@@ -331,8 +294,9 @@ function removeVar(v: string) {
 // ===== 保存（基本信息 + 成员整体替换） =====
 async function onSave(silent = false) {
   if (!name.value.trim()) return ElMessage.warning('请输入套件名称')
+  // 前置拦截：成员用例未绑定环境（后端同样校验，这里指名提示体验更好）
   const badEnv = members.value.find(m => !m.env_id)
-  if (badEnv) return ElMessage.warning(`成员「${badEnv.case_name}」未选择执行环境`)
+  if (badEnv) return ElMessage.warning(`成员用例「${badEnv.case_name}」未绑定执行环境，请先在用例编辑中选择`)
   saving.value = true
   try {
     await caseApi.update(suiteId, {
@@ -341,7 +305,7 @@ async function onSave(silent = false) {
       shared_vars: sharedVars.value,
     })
     await caseApi.updateMembers(suiteId, members.value.map(m => ({
-      member_case_id: m.member_case_id, env_id: m.env_id,
+      member_case_id: m.member_case_id,
     })))
     dirty.value = false
     if (!silent) ElMessage.success('已保存')
@@ -365,8 +329,8 @@ async function onExecute() {
   running.value = true
   favicon.running()
   try {
-    // env 仅作执行入参（套件主记录会对齐首成员环境）
-    const rec = await caseApi.execute(suiteId, members.value[0].env_id)
+    // 执行环境随各成员用例绑定（套件主记录 env_id 由后端对齐首成员）
+    const rec = await caseApi.execute(suiteId)
     const cur = await runner.pollUntilDone(rec.id)
     if (cur.status === 'success') favicon.success()
     else favicon.failed()

@@ -35,7 +35,12 @@ def _require_scheduler():
 
 def _fill_names(db: Session, obj: models.TestSchedule) -> models.TestSchedule:
     setattr(obj, "case_name", obj.case.name if obj.case else None)
-    setattr(obj, "env_name", obj.env.name if obj.env else None)
+    # 环境严格绑定：展示用例绑定环境的实时值（行内 env_id 仅为创建时快照）
+    case_env_id = obj.case.env_id if obj.case else None
+    env = crud.get_environment(db, case_env_id) if case_env_id else None
+    setattr(obj, "env_name", env.name if env else None)
+    if case_env_id:
+        obj.env_id = case_env_id  # 对齐展示与快照
     crud.fill_audit_names(db, obj)
     return obj
 
@@ -58,13 +63,14 @@ def list_schedules(project_id: int | None = None, case_id: int | None = None,
 def create(data: schemas.TestScheduleCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     _require_scheduler()
     _validate_payload(data.schedule_type, data.interval_minutes, data.daily_time)
-    if not crud.get_testcase(db, data.case_id):
+    case = crud.get_testcase(db, data.case_id)
+    if not case:
         raise HTTPException(404, "用例不存在")
-    if not crud.get_environment(db, data.env_id):
-        raise HTTPException(404, "环境不存在")
+    if not getattr(case, "env_id", None):
+        raise HTTPException(400, f"用例「{case.name}」未绑定执行环境，请先在用例编辑中选择")
 
     obj = models.TestSchedule(
-        case_id=data.case_id, env_id=data.env_id,
+        case_id=data.case_id, env_id=case.env_id,  # 快照（执行以 case.env_id 为准）
         schedule_type=data.schedule_type,
         interval_minutes=data.interval_minutes if data.schedule_type == "interval" else None,
         daily_time=data.daily_time if data.schedule_type == "daily" else None,
@@ -91,10 +97,11 @@ def update(schedule_id: int, data: schemas.TestScheduleUpdate, db: Session = Dep
     interval_minutes = data.interval_minutes if data.interval_minutes is not None else obj.interval_minutes
     daily_time = data.daily_time if data.daily_time is not None else obj.daily_time
     _validate_payload(schedule_type, interval_minutes, daily_time)
-    if data.env_id is not None and not crud.get_environment(db, data.env_id):
-        raise HTTPException(404, "环境不存在")
+    # 环境严格绑定：快照对齐用例当前绑定环境（请求里的 env_id 已废止忽略）
+    case = crud.get_testcase(db, obj.case_id)
+    if case and getattr(case, "env_id", None):
+        obj.env_id = case.env_id
 
-    obj.env_id = data.env_id if data.env_id is not None else obj.env_id
     obj.schedule_type = schedule_type
     # 按最终类型收纳参数：interval 只留分钟，daily 只留时刻，防止脏数据残留
     obj.interval_minutes = interval_minutes if schedule_type == "interval" else None

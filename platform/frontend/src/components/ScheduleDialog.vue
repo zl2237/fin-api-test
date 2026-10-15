@@ -16,10 +16,6 @@ const props = defineProps<{
   caseItem: TestCase | null
   /** 该用例已配置的定时任务（父视图 schedules 过滤后的单一数据源） */
   schedules: TestSchedule[]
-  /** 可选执行环境 */
-  envs: { id: number; name: string }[]
-  /** 新增表单的环境默认值（当前所选环境，无则第一个） */
-  defaultEnvId: number | null
 }>()
 
 const emit = defineEmits<{
@@ -36,11 +32,10 @@ const scheduleFormVisible = ref(false)
 const scheduleEditingId = ref<number | null>(null)
 const scheduleSaving = ref(false)
 const scheduleForm = ref<{
-  env_id: number | null
   schedule_type: 'interval' | 'daily'
   interval_minutes: number | null
   daily_time: string | null
-}>({ env_id: null, schedule_type: 'interval', interval_minutes: 30, daily_time: '08:00' })
+}>({ schedule_type: 'interval', interval_minutes: 30, daily_time: '08:00' })
 
 // 打开时：已有配置则先看列表，无配置直接进新增表单
 watch(() => props.modelValue, (open) => {
@@ -56,7 +51,6 @@ function describeSchedule(s: TestSchedule): string {
 function openScheduleForm() {
   scheduleEditingId.value = null
   scheduleForm.value = {
-    env_id: props.defaultEnvId ?? props.envs[0]?.id ?? null,
     schedule_type: 'interval',
     interval_minutes: 30,
     daily_time: '08:00',
@@ -67,7 +61,6 @@ function openScheduleForm() {
 function onEditSchedule(s: TestSchedule) {
   scheduleEditingId.value = s.id
   scheduleForm.value = {
-    env_id: s.env_id,
     schedule_type: s.schedule_type,
     interval_minutes: s.interval_minutes ?? 30,
     daily_time: s.daily_time ?? '08:00',
@@ -78,7 +71,6 @@ function onEditSchedule(s: TestSchedule) {
 async function onSaveSchedule() {
   if (!props.caseItem) return
   const f = scheduleForm.value
-  if (!f.env_id) return ElMessage.warning('请选择执行环境')
   if (f.schedule_type === 'interval' && (!f.interval_minutes || f.interval_minutes < 1)) {
     return ElMessage.warning('间隔分钟数需 ≥ 1')
   }
@@ -87,7 +79,6 @@ async function onSaveSchedule() {
   try {
     if (scheduleEditingId.value) {
       await scheduleApi.update(scheduleEditingId.value, {
-        env_id: f.env_id,
         schedule_type: f.schedule_type,
         interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : null,
         daily_time: f.schedule_type === 'daily' ? f.daily_time : null,
@@ -96,7 +87,6 @@ async function onSaveSchedule() {
     } else {
       await scheduleApi.create({
         case_id: props.caseItem.id,
-        env_id: f.env_id,
         schedule_type: f.schedule_type,
         interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : undefined,
         daily_time: f.schedule_type === 'daily' ? f.daily_time : undefined,
@@ -173,7 +163,7 @@ async function onRemoveSchedule(s: TestSchedule) {
       <div v-for="s in schedules" :key="s.id" class="schedule-row">
         <div class="schedule-info">
           <span class="schedule-desc">{{ describeSchedule(s) }}</span>
-          <span class="schedule-env">{{ s.env_name || `环境#${s.env_id}` }}</span>
+          <span class="schedule-env">{{ s.env_name || '环境未绑定' }}</span>
           <el-tooltip
             :content="s.next_run_at ? formatTime(s.next_run_at) : ''"
             :disabled="!s.next_run_at"
@@ -199,11 +189,6 @@ async function onRemoveSchedule(s: TestSchedule) {
     <!-- 新增/编辑表单：无定时任务时直接展示，有时通过按钮展开 -->
     <div v-if="scheduleFormVisible">
       <el-form :model="scheduleForm" label-width="80px">
-        <el-form-item label="环境" required>
-          <el-select v-model="scheduleForm.env_id" placeholder="选择执行环境" style="width: 100%">
-            <el-option v-for="e in envs" :key="e.id" :label="e.name" :value="e.id" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="调度类型" required>
           <el-radio-group v-model="scheduleForm.schedule_type">
             <el-radio value="interval">间隔执行</el-radio>

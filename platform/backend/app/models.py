@@ -203,6 +203,8 @@ class TestCase(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
     dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("data_sets.id"), nullable=True,
                         comment="绑定的数据集ID，NULL=普通用例；绑定时执行按数据行展开（数据驱动）")
+    env_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("environments.id"), nullable=True, index=True,
+                   comment="绑定的执行环境ID（严格绑定：所有触发入口一律用此环境）")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
@@ -214,6 +216,7 @@ class TestCase(Base):
 
     project: Mapped["Project"] = relationship("Project", back_populates="test_cases")
     group: Mapped["CaseGroup | None"] = relationship("CaseGroup", back_populates="cases")
+    env: Mapped["Environment | None"] = relationship("Environment")
     node_configs: Mapped[list["CaseNodeConfig"]] = relationship("CaseNodeConfig", back_populates="case", cascade="all, delete-orphan")
     executions: Mapped[list["ExecutionRecord"]] = relationship("ExecutionRecord", back_populates="case", cascade="all, delete-orphan")
     members: Mapped[list["SuiteMember"]] = relationship("SuiteMember", back_populates="suite", foreign_keys="SuiteMember.suite_case_id",
