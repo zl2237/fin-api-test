@@ -657,14 +657,13 @@ async function onSave(): Promise<boolean> {
 
 async function onRun() {
   if (!caseData.value.id) return ElMessage.warning('请先保存用例')
-  if (!store.currentEnvId) return ElMessage.warning('请先在工具栏选择环境')
-  // 保存失败即中断：避免「跑的是旧数据」（onSave 返回成功与否）
+  // 整用例执行走用例绑定环境（工具栏环境仅用于节点调试）；保存失败即中断：避免「跑的是旧数据」
   const saved = await onSave()
   if (!saved) return
   running.value = true
   try {
     // 执行→进度消息→轮询→三态 favicon→结果提示；finally 复位 running（含成功/失败/超时）
-    const cur = await runner.runWithFeedback(caseData.value.id, store.currentEnvId)
+    const cur = await runner.runWithFeedback(caseData.value.id)
     router.push(`/reports/${cur.id}`)
   } catch (e: any) {
     ElMessage.error(e.message || '轮询执行状态失败')

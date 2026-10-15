@@ -144,6 +144,21 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.case_type === 'suite' ? '—' : (row.dag_config?.nodes?.length || 0) }}</template>
             </el-table-column>
+            <el-table-column label="执行环境" width="150">
+              <template #default="{ row }">
+                <el-select
+                  v-if="row.case_type !== 'suite'"
+                  :model-value="row.env_id ?? undefined"
+                  size="small"
+                  placeholder="未绑定"
+                  class="env-bind-select"
+                  @change="(v: number) => onEnvChange(row, v)"
+                >
+                  <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
+                </el-select>
+                <span v-else class="env-suite-tip">随成员</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ row.description || '—' }}</template>
             </el-table-column>
@@ -260,6 +275,21 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.case_type === 'suite' ? '—' : (row.dag_config?.nodes?.length || 0) }}</template>
             </el-table-column>
+            <el-table-column label="执行环境" width="150">
+              <template #default="{ row }">
+                <el-select
+                  v-if="row.case_type !== 'suite'"
+                  :model-value="row.env_id ?? undefined"
+                  size="small"
+                  placeholder="未绑定"
+                  class="env-bind-select"
+                  @change="(v: number) => onEnvChange(row, v)"
+                >
+                  <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
+                </el-select>
+                <span v-else class="env-suite-tip">随成员</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">{{ row.description || '—' }}</template>
             </el-table-column>
@@ -351,6 +381,11 @@
         <el-form-item label="名称" required>
           <el-input v-model="form.name" :placeholder="form.case_type === 'suite' ? '融资全链路-套件' : '创建订单-冒烟'" />
         </el-form-item>
+        <el-form-item v-if="form.case_type !== 'suite'" label="执行环境" required>
+          <el-select v-model="form.env_id" placeholder="选择执行环境（执行时严格使用）" style="width: 100%">
+            <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="分组">
           <el-tree-select
             v-model="form.group_id"
@@ -433,13 +468,11 @@
       </template>
     </el-dialog>
 
-    <!-- 定时任务弹窗（自治子系统：列表+表单+增删改启停/立即执行收敛在组件内） -->
+    <!-- 定时任务弹窗（自治子系统：列表+表单+增删改启停/立即执行收敛在组件内；环境随用例绑定） -->
     <ScheduleDialog
       v-model="scheduleVisible"
       :case-item="scheduleCase"
       :schedules="caseSchedules"
-      :envs="store.environments"
-      :default-env-id="store.currentEnvId"
       @changed="loadSchedules"
     />
 
@@ -600,7 +633,21 @@ const batchRunning = ref(false)
 const batchRunVisible = ref(false)
 // 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
 const batchRunItems = ref<{ id: number; name: string }[]>([])
-const form = ref<{ case_type: string; name: string; group_id: number | null; description: string }>({ case_type: 'normal', name: '', group_id: null, description: '' })
+const form = ref<{ case_type: string; name: string; group_id: number | null; description: string; env_id: number | null }>({ case_type: 'normal', name: '', group_id: null, description: '', env_id: null })
+
+// 环境严格绑定：列表行内改绑执行环境（成功后同步冗余名，失败提示并刷新还原）
+async function onEnvChange(row: TestCase, envId: number | null) {
+  if (!envId) return  // 不允许在行内解绑（清空会让用例不可执行）
+  try {
+    const updated = await caseApi.update(row.id, { env_id: envId })
+    row.env_id = updated.env_id
+    row.env_name = updated.env_name
+    ElMessage.success(`「${row.name}」已绑定环境：${updated.env_name || envId}`)
+  } catch (e: any) {
+    ElMessage.error(e.message || '环境绑定失败')
+    await load()
+  }
+}
 
 // ===== 批量移动：互斥勾选状态机在 useGroupedTable，表格实例/SortableJS 绑定在 useGroupMasterDetail =====
 const selectedCaseIds = tableSel.selectedIds
@@ -758,18 +805,21 @@ async function loadGroups() {
 }
 
 function openCreate() {
-  form.value = { case_type: 'normal', name: '', group_id: null, description: '' }
+  form.value = { case_type: 'normal', name: '', group_id: null, description: '', env_id: null }
   dialogVisible.value = true
 }
 
 async function onCreate() {
   if (!form.value.name?.trim()) return ElMessage.warning('请输入用例名称')
+  // 环境严格绑定：普通用例必须绑定执行环境（套件成员各自绑定，套件本体不需要）
+  if (form.value.case_type !== 'suite' && !form.value.env_id) return ElMessage.warning('请选择执行环境')
   const created = await caseApi.create({
     project_id: store.currentProjectId!,
     group_id: form.value.group_id,
     name: form.value.name.trim(),
     description: form.value.description,
     case_type: form.value.case_type,
+    env_id: form.value.env_id,
     dag_config: { nodes: [], edges: [] },
     node_configs: [],
   })
@@ -785,11 +835,14 @@ function goDesign(row: TestCase) {
 }
 
 async function runCase(row: TestCase) {
-  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
-  // 套件：成员逐个绑定环境，顶部环境仅作执行入参（套件主记录会对齐首成员环境）
+  // 环境严格绑定：普通用例须已绑定环境（后端同口径校验兜底）；套件成员各自绑定
+  if (row.case_type !== 'suite' && !row.env_id) {
+    return ElMessage.warning(`用例「${row.name}」未绑定执行环境，请先在列表「执行环境」列选择`)
+  }
+  // 套件：成员各自用绑定环境执行，套件主记录会对齐首成员环境
   if (row.case_type === 'suite') {
     try {
-      const cur = await runner.runWithFeedback(row.id, store.currentEnvId, {
+      const cur = await runner.runWithFeedback(row.id, {
         runningMsg: `套件「${row.name}」执行中...`,
         maxPolls: 300,
       })
@@ -814,7 +867,7 @@ async function runCase(row: TestCase) {
   }
   try {
     // 执行→进度消息→轮询→三态 favicon→结果提示（超时返回 running 态记录，同样跳报告页）
-    const cur = await runner.runWithFeedback(row.id, store.currentEnvId, {
+    const cur = await runner.runWithFeedback(row.id, {
       runningMsg: `用例「${row.name}」执行中...`,
       maxPolls: 150,
     })
@@ -827,8 +880,14 @@ async function runCase(row: TestCase) {
 
 // 批量执行入口：先弹配置窗（每个用例可设执行次数），确认后由 confirmBatchRun 提交
 function onBatchRun() {
-  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   if (selectedCaseIds.value.length === 0) return ElMessage.warning('请先勾选用例')
+  // 环境严格绑定：批量内每个用例各自用绑定环境（批次可混环境）；未绑定的直接拦下并指名
+  const unbound = selectedCaseIds.value
+    .map((id) => list.value.find((c) => c.id === id))
+    .filter((c) => c && c.case_type !== 'suite' && !c.env_id)
+  if (unbound.length) {
+    return ElMessage.warning(`以下用例未绑定执行环境：${unbound.map((c) => c!.name).join('、')}`)
+  }
   // 按当前勾选快照生成展示行；次数/并发配置与重置在 BatchRunDialog 内部
   batchRunItems.value = selectedCaseIds.value
     .map((id) => ({ id, name: list.value.find((c) => c.id === id)?.name || `用例#${id}` }))
@@ -838,8 +897,6 @@ function onBatchRun() {
 // 确认批量执行：按配置的并发数提交（1=串行），同环境共享登录 token，前端并发轮询各记录
 async function confirmBatchRun({ caseIds, counts, concurrency }: { caseIds: number[]; counts: number[]; concurrency: number }) {
   if (batchRunning.value) return
-  // 弹窗开着期间环境可能被清空，提交前再守卫一次（同时收窄类型）
-  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   // caseIds 与 counts 等长（BatchRunDialog 按展示行顺序给出），重建 case_id → 次数查表供轮次标注
   const countByCase = new Map(caseIds.map((id, i) => [id, counts[i] || 1]))
   const total = counts.reduce((a, b) => a + b, 0)
@@ -852,7 +909,7 @@ async function confirmBatchRun({ caseIds, counts, concurrency }: { caseIds: numb
     duration: 0,
   })
   try {
-    const records = await caseApi.batchExecute(caseIds, store.currentEnvId, counts, concurrency)
+    const records = await caseApi.batchExecute(caseIds, counts, concurrency)
     // 并发轮询：各记录独立轮询，全部完成后汇总；同一用例多轮时标注轮次
     const seen: Record<number, number> = {}
     const results = await Promise.all(records.map(async (rec) => {
@@ -1023,7 +1080,7 @@ async function confirmDataDrivenRun({ datasetIds }: { datasetIds: number[] }) {
   })
   try {
     const statuses = await Promise.all(datasetIds.map(async (dsId) => {
-      const cur = await caseApi.execute(ddCase.value!.id, store.currentEnvId!, {
+      const cur = await caseApi.execute(ddCase.value!.id, {
         dataset_id: dsId,
       })
       const fin = await runner.pollUntilDone(cur.id)
@@ -1321,6 +1378,17 @@ function onGlobalKey(e: KeyboardEvent) {
   color: var(--app-text-muted);
   line-height: 1.5;
   margin-top: 4px;
+}
+/* 执行环境列：行内改绑下拉（严格绑定：未绑定时红色占位提示） */
+.env-bind-select {
+  width: 100%;
+}
+.env-bind-select :deep(.el-select__placeholder.is-transparent) {
+  color: var(--el-color-danger);
+}
+.env-suite-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 /* 行内「更多」下拉触发按钮：与链接按钮同高，图标小箭头 */
 .row-more-icon {

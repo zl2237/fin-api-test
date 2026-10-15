@@ -225,6 +225,8 @@ export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
   case_type?: string  // normal 普通用例 / suite 套件（成员为跨项目用例链）
   shared_vars?: string[] | null  // 套件专用：共享变量白名单（上游产出→下游注入）
+  env_id?: number | null  // 绑定的执行环境（严格绑定：执行一律用它）
+  env_name?: string | null  // 绑定环境名（冗余展示）
   dag_config: { nodes: any[]; edges: any[] }
   node_configs: NodeConfig[]; sort_order?: number; created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
@@ -234,11 +236,11 @@ export interface TestCase {
   last_exec_status?: string | null  // 最近一次执行终态：success/failed/terminated
 }
 
-// 套件成员（跨项目用例引用，逐成员独立绑定环境，串行执行）
+// 套件成员（跨项目用例引用，串行执行；环境跟随成员用例绑定）
 export interface SuiteMember {
   id?: number
   member_case_id: number
-  env_id: number
+  env_id?: number | null  // 成员用例绑定环境（实时值）
   sort_order?: number
   case_name?: string | null
   project_id?: number | null
@@ -279,7 +281,7 @@ export interface ExecutionRecord {
 }
 
 export interface TestSchedule {
-  id: number; case_id: number; env_id: number
+  id: number; case_id: number; env_id?: number | null  // 快照（实际执行环境以用例绑定为準）
   case_name?: string | null; env_name?: string | null
   schedule_type: 'interval' | 'daily'
   interval_minutes?: number | null
@@ -476,19 +478,20 @@ export const caseApi = {
     http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>
     http.post<{ message: string; updated: number }>('/testcases/reorder', { items }).then((r) => r.data),
-  execute: (caseId: number, envId: number, opts?: { dataset_id?: number | null }) =>
+  // 环境严格绑定：执行环境=用例绑定环境（case.env_id），不再传 env_id
+  execute: (caseId: number, opts?: { dataset_id?: number | null }) =>
     http.post<ExecutionRecord>(`/testcases/${caseId}/execute`,
-      { case_id: caseId, env_id: envId, dataset_id: opts?.dataset_id ?? undefined }).then((r) => r.data),
-  batchExecute: (caseIds: number[], envId: number, counts?: number[], concurrency: number = 4) =>
+      { case_id: caseId, dataset_id: opts?.dataset_id ?? undefined }).then((r) => r.data),
+  batchExecute: (caseIds: number[], counts?: number[], concurrency: number = 4) =>
     http.post<ExecutionRecord[]>('/testcases/batch-execute',
-      { case_ids: caseIds, env_id: envId, counts, concurrency }).then((r) => r.data),
+      { case_ids: caseIds, counts, concurrency }).then((r) => r.data),
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
   exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
   // 套件成员：按执行顺序返回（带用例/项目/环境冗余名）；PUT 整体替换（编排保存语义）
   getMembers: (caseId: number) =>
     http.get<SuiteMember[]>(`/testcases/${caseId}/members`).then((r) => r.data),
-  updateMembers: (caseId: number, members: { member_case_id: number; env_id: number; sort_order?: number }[]) =>
+  updateMembers: (caseId: number, members: { member_case_id: number; sort_order?: number }[]) =>
     http.put<SuiteMember[]>(`/testcases/${caseId}/members`, { members }).then((r) => r.data),
   // 多用例组合（拼接成新用例），caseIds 顺序即拼接顺序
   combine: (caseIds: number[], name: string, groupId?: number | null) =>
@@ -510,7 +513,6 @@ export interface SplitVar {
 // ============ TestSchedule 定时任务 ============
 export interface SchedulePayload {
   case_id?: number
-  env_id?: number
   schedule_type?: 'interval' | 'daily'
   interval_minutes?: number | null
   daily_time?: string | null
@@ -520,7 +522,7 @@ export interface SchedulePayload {
 export const scheduleApi = {
   list: (params?: { project_id?: number; case_id?: number }) =>
     http.get<TestSchedule[]>('/schedules', { params }).then((r) => r.data),
-  create: (data: Required<Pick<SchedulePayload, 'case_id' | 'env_id' | 'schedule_type'>> & SchedulePayload) =>
+  create: (data: Required<Pick<SchedulePayload, 'case_id' | 'schedule_type'>> & SchedulePayload) =>
     http.post<TestSchedule>('/schedules', data).then((r) => r.data),
   update: (id: number, data: SchedulePayload) =>
     http.put<TestSchedule>(`/schedules/${id}`, data).then((r) => r.data),

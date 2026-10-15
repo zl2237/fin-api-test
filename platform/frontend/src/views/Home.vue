@@ -226,10 +226,9 @@ watch(() => store.currentProjectId, () => { loadHome() }, { immediate: true })
 // ===== 快速执行（候选=最近执行过的用例） =====
 const runningId = ref<number | null>(null)
 async function runCase(c: { id: number; name: string }) {
-  if (!store.currentEnvId) return ElMessage.warning('请先在顶部选择环境')
   runningId.value = c.id
   try {
-    const rec = await caseApi.execute(c.id, store.currentEnvId)
+    const rec = await caseApi.execute(c.id)
     ElMessage.success('已开始执行，正在跳转报告')
     router.push(`/reports/${rec.id}`)
   } catch (e: any) {

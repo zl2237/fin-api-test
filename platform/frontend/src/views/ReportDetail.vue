@@ -422,13 +422,13 @@ async function onResume() {
 }
 
 async function onRerun() {
-  if (!record.value?.case_id || !record.value?.env_id) {
-    ElMessage.warning('缺少用例或环境信息，无法重跑')
+  if (!record.value?.case_id) {
+    ElMessage.warning('缺少用例信息，无法重跑')
     return
   }
   rerunning.value = true
   try {
-    const rec = await caseApi.execute(record.value.case_id, record.value.env_id)
+    const rec = await caseApi.execute(record.value.case_id)
     ElMessage.success('已触发重跑，正在跳转到新报告')
     router.replace(`/reports/${rec.id}`)
   } catch (e: any) {
