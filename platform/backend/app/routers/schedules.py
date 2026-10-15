@@ -99,8 +99,9 @@ def update(schedule_id: int, data: schemas.TestScheduleUpdate, db: Session = Dep
     _validate_payload(schedule_type, interval_minutes, daily_time)
     # 环境严格绑定：快照对齐用例当前绑定环境（请求里的 env_id 已废止忽略）
     case = crud.get_testcase(db, obj.case_id)
-    if case and getattr(case, "env_id", None):
-        obj.env_id = case.env_id
+    case_env = getattr(case, "env_id", None) if case else None
+    if case_env:
+        obj.env_id = case_env
 
     obj.schedule_type = schedule_type
     # 按最终类型收纳参数：interval 只留分钟，daily 只留时刻，防止脏数据残留

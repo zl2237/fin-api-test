@@ -22,7 +22,7 @@ class ExecutionSpec:
     dataset_row: dict | None = None
 
 
-def run_execution_background(execution_id: int, case_id: int, env_id: int,
+def run_execution_background(execution_id: int, case_id: int, env_id: int | None,
                              dataset_row: dict | None = None) -> None:
     """在后台线程中执行用例，使用独立的数据库会话。
     execution_id 对应的 ExecutionRecord 已由调用方创建（status=running）。
@@ -39,17 +39,6 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
                 rec.summary = {"total": 0, "passed": 0, "failed": 1, "error": f"用例不存在: {case_id}"}
                 db.commit()
             return
-        env = crud.get_environment(db, env_id) if env_id else None
-        if env_id and not env:
-            rec = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
-            if rec:
-                rec.status = "failed"
-                rec.ended_at = __import__("datetime").datetime.now()
-                rec.summary = {"total": 0, "passed": 0, "failed": 1, "error": f"环境不存在: {env_id}"}
-                db.commit()
-                from ..crud.executions import touch_case_last_exec
-                touch_case_last_exec(db, rec)
-            return
         # 加载已有的 record 并传入 DagExecutor，避免重复创建
         record = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
         if not record:
@@ -59,6 +48,19 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
             # 手动/批量/定时三入口共用本函数，套件能力由此天然全继承
             from ..services.suite_executor import run_suite
             run_suite(db, case, record)
+            return
+        # 普通用例：按用例绑定环境执行（launcher 已校验；此处兜底拦截脏数据）
+        env = crud.get_environment(db, env_id) if env_id else None
+        if not env:
+            rec = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
+            if rec:
+                rec.status = "failed"
+                rec.ended_at = __import__("datetime").datetime.now()
+                reason = f"环境不存在: {env_id}" if env_id else "用例未绑定执行环境"
+                rec.summary = {**(rec.summary or {}), "total": 0, "passed": 0, "failed": 1, "error": reason}
+                db.commit()
+                from ..crud.executions import touch_case_last_exec
+                touch_case_last_exec(db, rec)
             return
         DagExecutor(db, case, env, execution_record=record, dataset_row=dataset_row).execute()
     except Exception as e:

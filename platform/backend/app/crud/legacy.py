@@ -49,7 +49,7 @@ def fill_audit_names_batch(db: Session, objs: list) -> None:
         o.updated_by_name = name_map.get(getattr(o, "updated_by", None))
 
 
-def fill_case_env_names(db: Session, objs: list) -> None:
+def fill_case_env_names(db: Session, objs) -> None:
     """给 TestCase 填充 env_name（绑定环境名，一次查询；支持单个对象或列表）"""
     if not objs:
         return
