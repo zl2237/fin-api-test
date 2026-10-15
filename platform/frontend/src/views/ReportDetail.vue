@@ -66,7 +66,7 @@
             size="small"
             type="success"
             :loading="rerunning"
-            :disabled="!record?.case_id || !record?.env_id"
+            :disabled="!record?.case_id"
             @click="onRerun"
           >
             重新执行
