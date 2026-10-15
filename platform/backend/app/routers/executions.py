@@ -27,23 +27,21 @@ def _validate_concurrency(concurrency: int) -> None:
 def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """触发用例执行（异步）：立即创建 running 状态的执行记录并返回，后台线程池执行。
     前端通过 GET /executions/{id} 轮询执行状态。
+    环境严格绑定：一律用用例绑定的环境（case.env_id），请求里的 env_id 兼容忽略。
     数据驱动：绑定数据集的用例用其单套数据执行（dataset_id 可临时换数据集）。"""
     if data.case_id != case_id:
         raise HTTPException(400, "case_id 不一致")
     case = crud.get_testcase(db, case_id)
     if not case:
         raise HTTPException(404, f"用例不存在: {case_id}")
-    env = crud.get_environment(db, data.env_id)
-    if not env:
-        raise HTTPException(404, f"环境不存在: {data.env_id}")
 
     try:
-        plan = build_launch_plan(db, case, data.env_id, user.id,
+        plan = build_launch_plan(db, case, user.id,
                                  dataset_id=data.dataset_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _validate_concurrency(data.concurrency)
-    commit_launch([plan], data.env_id, concurrency=data.concurrency)
+    commit_launch([plan], concurrency=data.concurrency)
     return plan.records[0]
 
 
@@ -52,6 +50,7 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     """批量执行多个用例：为每个用例创建 running 状态的执行记录并立即返回，
     后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
     缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
+    环境严格绑定：每个用例各自用绑定环境（case.env_id），批次可混环境。
     绑定数据集的用例按该数据集的单套值展开为一条执行记录，与其他条目一并平铺提交。
     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。"""
     if not data.case_ids:
@@ -66,9 +65,6 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
         if any(c < 1 or c > MAX_RUN_COUNT for c in data.counts):
             raise HTTPException(400, f"执行次数须在 1~{MAX_RUN_COUNT} 之间")
         counts = data.counts
-    env = crud.get_environment(db, data.env_id)
-    if not env:
-        raise HTTPException(404, f"环境不存在: {data.env_id}")
 
     plans = []
     for case_id, run_count in zip(data.case_ids, counts):
@@ -76,13 +72,13 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
         if not case:
             raise HTTPException(404, f"用例不存在: {case_id}")
         try:
-            plans.append(build_launch_plan(db, case, data.env_id, user.id,
+            plans.append(build_launch_plan(db, case, user.id,
                                            run_count=run_count))
         except ValueError as e:
             raise HTTPException(400, f"用例 {case.name}: {e}")
 
     # 全部用例平铺进一个批次专用线程池（并发数 = concurrency，1 即串行）
-    commit_launch(plans, data.env_id, concurrency=data.concurrency)
+    commit_launch(plans, concurrency=data.concurrency)
     return [record for plan in plans for record in plan.records]
 
 

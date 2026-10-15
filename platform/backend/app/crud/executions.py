@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .. import models
 
 
-def create_execution(db: Session, case_id: int, env_id: int, user_id: int,
+def create_execution(db: Session, case_id: int, env_id: int | None, user_id: int,
                      trigger_type: str = "manual",
                      dataset_id: int | None = None, dataset_row: dict | None = None) -> models.ExecutionRecord:
     """创建 running 状态的执行记录（触发执行前先落库，前端立即可轮询）。

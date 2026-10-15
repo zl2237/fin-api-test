@@ -94,7 +94,7 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
     # 主记录环境对齐首成员环境（报告/通知取数更有意义；路由传入的 env 对套件无语义）
     first_member_case = crud.get_testcase(db, members[0].member_case_id)
     if first_member_case:
-        first_env = crud.get_environment(db, members[0].env_id)
+        first_env = crud.get_environment(db, first_member_case.env_id) if first_member_case.env_id else None
         if first_env:
             record.env_id = first_env.id
 
@@ -109,13 +109,12 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
             break
         member_report: dict[str, Any] = {"sort_order": member.sort_order, "rows": []}
         member_case = crud.get_testcase(db, member.member_case_id)
-        member_env = crud.get_environment(db, member.env_id)
 
-        if member_case is None or member_env is None:
+        if member_case is None:
             member_report.update(case_id=member.member_case_id,
                                  case_name=f"# {member.member_case_id}",
                                  status="failed",
-                                 error="成员用例或其绑定环境不存在（可能已被删除）")
+                                 error="成员用例不存在（可能已被删除）")
             member_reports.append(member_report)
             total += 1
             failed += 1
@@ -125,6 +124,18 @@ def run_suite(db: Session, suite_case: models.TestCase, record: models.Execution
 
         if getattr(member_case, "case_type", "normal") == "suite":
             member_report.update(status="failed", error="套件不能嵌套套件（成员必须为普通用例）")
+            member_reports.append(member_report)
+            total += 1
+            failed += 1
+            chain_broken = True
+            continue
+
+        # 环境严格绑定：成员执行环境 = 成员用例绑定环境（行内 env_id 仅为编排时快照）
+        member_env = (crud.get_environment(db, member_case.env_id)
+                      if member_case.env_id else None)
+        if member_env is None:
+            member_report.update(status="failed",
+                                 error="成员用例未绑定执行环境，请先在用例编辑中选择")
             member_reports.append(member_report)
             total += 1
             failed += 1

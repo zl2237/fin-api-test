@@ -75,7 +75,7 @@ describe('useExecutionRunner', () => {
     mockedGet.mockResolvedValueOnce(rec('running')).mockResolvedValueOnce(
       rec('success', { passed: 2, total: 3 }))
     const { result } = withSetup(() => useExecutionRunner())
-    const p = result.runWithFeedback(1, 2, { interval: 10 })
+    const p = result.runWithFeedback(1, { interval: 10 })
     await vi.advanceTimersByTimeAsync(20)
     await expect(p).resolves.toMatchObject({ status: 'success' })
     expect(ElMessage).toHaveBeenCalledTimes(1) // 进度消息
@@ -86,13 +86,13 @@ describe('useExecutionRunner', () => {
     mockedExecute.mockResolvedValue(rec('running'))
     mockedGet.mockResolvedValue(rec('running'))
     const { result } = withSetup(() => useExecutionRunner())
-    const p1 = result.runWithFeedback(1, 2, { interval: 10, maxPolls: 1 })
+    const p1 = result.runWithFeedback(1, { interval: 10, maxPolls: 1 })
     await vi.advanceTimersByTimeAsync(50)
     await expect(p1).resolves.toMatchObject({ status: 'running' })
     expect(ElMessage.warning).toHaveBeenCalledWith('执行超时，请到执行记录查看结果')
 
     mockedGet.mockResolvedValue(rec('failed', { failed: 4, error: '登录失败' }))
-    const p2 = result.runWithFeedback(1, 2, { interval: 10 })
+    const p2 = result.runWithFeedback(1, { interval: 10 })
     await vi.advanceTimersByTimeAsync(50)
     await expect(p2).resolves.toMatchObject({ status: 'failed' })
     expect(ElMessage.warning).toHaveBeenCalledWith('执行失败：4 项未通过（登录失败）')

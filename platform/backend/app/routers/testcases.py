@@ -52,6 +52,12 @@ def delete_group(group_id: int, db: Session = Depends(get_db), user: models.User
 
 
 # ============ 用例 ============
+def _validate_case_env(db: Session, data) -> None:
+    """环境严格绑定校验：显式传入 env_id 时须存在（创建/更新共用）"""
+    if data.env_id is not None and not crud.get_environment(db, data.env_id):
+        raise HTTPException(400, f"绑定的环境不存在: {data.env_id}")
+
+
 @router.post("", response_model=schemas.TestCaseOut)
 def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     try:
@@ -59,12 +65,14 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
                                   getattr(data, "dag_config", None))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    _validate_case_env(db, data)
     obj = crud.create_testcase(db, data, user.id)
     # 默认数据集自动初始化（Q7）：新用例自动建「默认数据集」（示例值）并绑定；
     # 套件/显式绑定数据集时函数内自行跳过
     from ..services.dataset_service import ensure_case_dataset
     ensure_case_dataset(db, obj, user.id)
     crud.fill_audit_names(db, obj)
+    crud.fill_case_env_names(db, obj)
     crud.log_operation(db, user, "create", "testcase", obj.id, obj.name)
     return obj
 
@@ -73,6 +81,7 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
 def list_all(project_id: int | None = None, created_by: int | None = None, updated_by: int | None = None, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     objs = crud.list_testcases(db, project_id, created_by, updated_by)
     crud.fill_audit_names_batch(db, objs)
+    crud.fill_case_env_names(db, objs)
     return objs
 
 
@@ -94,6 +103,7 @@ def export_list(
     if not objs:
         raise HTTPException(400, "当前筛选条件下没有可导出的用例")
     crud.fill_audit_names_batch(db, objs)
+    crud.fill_case_env_names(db, objs)
 
     groups = crud.list_case_groups(db, project_id) if project_id else []
     group_names = {g.id: g.name for g in groups}
@@ -146,6 +156,7 @@ def get_one(case_id: int, db: Session = Depends(get_db), user: models.User = Dep
     if not obj:
         raise HTTPException(404, "用例不存在")
     crud.fill_audit_names(db, obj)
+    crud.fill_case_env_names(db, obj)
     return obj
 
 
@@ -166,6 +177,9 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
                                   getattr(data, "dag_config", None))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # 环境严格绑定：显式改绑时校验存在（普通用例须绑定环境才能执行，编辑入口必填）
+    if "env_id" in data.model_fields_set:
+        _validate_case_env(db, data)
     # 数据集绑定校验（显式传 dataset_id 时）：须存在且与用例同项目
     if "dataset_id" in data.model_fields_set:
         from ..services.dataset_service import validate_binding
@@ -180,6 +194,7 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     explicit_unbind = "dataset_id" in data.model_fields_set and data.dataset_id is None
     ensure_case_dataset(db, obj, user.id, allow_create=not explicit_unbind)
     crud.fill_audit_names(db, obj)
+    crud.fill_case_env_names(db, obj)
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj
 
@@ -212,16 +227,18 @@ def copy(case_id: int, db: Session = Depends(get_db), user: models.User = Depend
     db.commit()
     db.refresh(new_obj)
     crud.fill_audit_names(db, new_obj)
+    crud.fill_case_env_names(db, new_obj)
     crud.log_operation(db, user, "copy", "testcase", new_obj.id, new_obj.name)
     return new_obj
 
 
 # ============ 套件成员（case_type=suite 专用） ============
 def _member_out(db: Session, m: models.SuiteMember) -> schemas.SuiteMemberOut:
-    """ORM 成员行 → 带 用例名/项目/环境名 的展示 DTO（引用悬空时名称置空不炸）"""
+    """ORM 成员行 → 带 用例名/项目/环境名 的展示 DTO（引用悬空时名称置空不炸）。
+    环境严格绑定：环境一律展示成员用例的绑定环境（行内 env_id 仅为编排时快照）"""
     out = schemas.SuiteMemberOut(
-        id=m.id, member_case_id=m.member_case_id, env_id=m.env_id,
-        sort_order=m.sort_order)
+        id=m.id, member_case_id=m.member_case_id,
+        env_id=m.env_id, sort_order=m.sort_order)
     mc = crud.get_testcase(db, m.member_case_id)
     if mc:
         out.case_name = mc.name
@@ -230,8 +247,9 @@ def _member_out(db: Session, m: models.SuiteMember) -> schemas.SuiteMemberOut:
         project = crud.get_project(db, mc.project_id)
         out.project_name = project.name if project else None
         out.member_case_type = getattr(mc, "case_type", "normal")
-    env = crud.get_environment(db, m.env_id)
-    out.env_name = env.name if env else None
+        out.env_id = mc.env_id  # 实时绑定环境
+        env = crud.get_environment(db, mc.env_id) if mc.env_id else None
+        out.env_name = env.name if env else None
     return out
 
 
@@ -251,12 +269,14 @@ def list_members(case_id: int, db: Session = Depends(get_db), user: models.User 
 def replace_members(case_id: int, data: schemas.SuiteMembersUpdate,
                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """整体替换套件成员（编排保存语义）。校验：宿主是套件、成员存在且非套件（禁嵌套）、
-    环境存在、不得引用自身；sort_order 按提交顺序重排（0 起）。"""
+    成员用例已绑定执行环境（环境严格绑定：成员执行用自己的绑定环境）、不得引用自身；
+    sort_order 按提交顺序重排（0 起）。"""
     case = crud.get_testcase(db, case_id)
     if not case:
         raise HTTPException(404, "用例不存在")
     if getattr(case, "case_type", "normal") != "suite":
         raise HTTPException(400, "只有套件类型的用例才能配置成员")
+    member_env_ids: dict[int, int] = {}
     for item in data.members:
         if item.member_case_id == case_id:
             raise HTTPException(400, "套件成员不能引用套件自身")
@@ -265,12 +285,14 @@ def replace_members(case_id: int, data: schemas.SuiteMembersUpdate,
             raise HTTPException(400, f"成员用例不存在: {item.member_case_id}")
         if getattr(mc, "case_type", "normal") == "suite":
             raise HTTPException(400, f"套件不能嵌套套件：{mc.name}")
-        if not crud.get_environment(db, item.env_id):
-            raise HTTPException(400, f"成员 {mc.name} 绑定的环境不存在: {item.env_id}")
+        if not getattr(mc, "env_id", None):
+            raise HTTPException(400, f"成员用例「{mc.name}」未绑定执行环境，请先在用例编辑中选择")
+        member_env_ids[item.member_case_id] = mc.env_id
     db.query(models.SuiteMember).filter(models.SuiteMember.suite_case_id == case_id).delete()
     for idx, item in enumerate(data.members):
         db.add(models.SuiteMember(suite_case_id=case_id, member_case_id=item.member_case_id,
-                                  env_id=item.env_id, sort_order=idx))
+                                  env_id=member_env_ids[item.member_case_id],  # 编排时快照（执行读用例绑定）
+                                  sort_order=idx))
     db.commit()
     crud.log_operation(db, user, "update", "testcase", case_id,
                        f"套件成员保存（{len(data.members)} 个）")

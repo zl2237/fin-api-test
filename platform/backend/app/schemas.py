@@ -466,6 +466,7 @@ class TestCaseCreate(BaseModel):
     name: str
     description: str | None = None
     case_type: str = "normal"  # normal 普通用例 / suite 套件
+    env_id: int | None = None  # 绑定的执行环境（严格绑定；普通用例必填由路由校验）
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigIn] = []
     shared_vars: list[str] | None = None  # 套件专用：共享变量白名单
@@ -476,6 +477,7 @@ class TestCaseUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     case_type: str | None = None
+    env_id: int | None = None  # 绑定的执行环境；显式传 null 解绑
     dag_config: dict[str, Any] | None = None
     node_configs: list[NodeConfigIn] | None = None
     dataset_id: int | None = None  # 绑定数据集（数据驱动）；显式传 null 解绑
@@ -489,6 +491,8 @@ class TestCaseOut(ORMBase):
     name: str
     description: str | None = None
     case_type: str = "normal"
+    env_id: int | None = None  # 绑定的执行环境（严格绑定）
+    env_name: str | None = None  # 绑定环境名（冗余展示）
     sort_order: int = 0  # 组内排序（拖拽手序）
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
@@ -505,9 +509,9 @@ class TestCaseOut(ORMBase):
 
 
 class SuiteMemberIn(BaseModel):
-    """套件成员写入项：成员用例（可跨项目）+ 执行环境 + 顺序"""
+    """套件成员写入项：成员用例（可跨项目）+ 顺序（环境跟随成员用例绑定）"""
     member_case_id: int
-    env_id: int
+    env_id: int | None = None  # 已废止：成员执行环境=成员用例绑定环境，兼容旧客户端忽略
     sort_order: int = 0
 
 
@@ -519,7 +523,7 @@ class SuiteMembersUpdate(BaseModel):
 class SuiteMemberOut(BaseModel):
     id: int
     member_case_id: int
-    env_id: int
+    env_id: int | None = None  # 成员用例绑定环境（实时值）
     sort_order: int
     case_name: str | None = None      # 成员用例名（冗余展示）
     project_id: int | None = None     # 成员用例所属项目（跨项目标记）
@@ -578,7 +582,7 @@ class ProjectVersionDiff(BaseModel):
 # ============ Execution ============
 class ExecutionCreate(BaseModel):
     case_id: int
-    env_id: int
+    env_id: int | None = None  # 已废止：环境为用例属性（case.env_id），此处兼容旧客户端忽略
     dataset_id: int | None = None  # 执行时临时换数据集（不改用例绑定；单套语义，执行一次）
     # 并发执行数：1=逐个串行（一个结束再下一个，避免并发问题），默认 4
     concurrency: int = 4
@@ -592,7 +596,7 @@ class StepReplayRequest(BaseModel):
 class BatchExecutionCreate(BaseModel):
     """批量执行：多个用例并行执行，并发数可配（1=串行，一个结束再下一个）"""
     case_ids: list[int]
-    env_id: int
+    env_id: int | None = None  # 已废止：环境为用例属性（case.env_id），此处兼容旧客户端忽略
     # 每个用例的执行次数（与 case_ids 一一对应，缺省全部为 1）；如 A 跑 3 次、B 跑 1 次
     counts: list[int] | None = None
     # 并发执行数：1=逐个串行（避免并发问题）；>1 按需并行，默认 4
@@ -699,7 +703,7 @@ class HomeSummaryOut(BaseModel):
 # ============ TestSchedule 定时任务 ============
 class TestScheduleCreate(BaseModel):
     case_id: int
-    env_id: int
+    env_id: int | None = None  # 已废止：环境为用例属性（case.env_id），兼容旧客户端忽略
     schedule_type: Literal["interval", "daily"]  # interval 固定间隔 / daily 每日定时
     interval_minutes: int | None = None
     daily_time: str | None = None  # HH:MM
@@ -707,7 +711,7 @@ class TestScheduleCreate(BaseModel):
 
 
 class TestScheduleUpdate(BaseModel):
-    env_id: int | None = None
+    env_id: int | None = None  # 已废止：环境为用例属性，忽略
     schedule_type: Literal["interval", "daily"] | None = None
     interval_minutes: int | None = None
     daily_time: str | None = None
@@ -717,7 +721,7 @@ class TestScheduleUpdate(BaseModel):
 class TestScheduleOut(ORMBase):
     id: int
     case_id: int
-    env_id: int
+    env_id: int | None = None  # 快照保留（实际执行环境以 case.env_id 为准）
     case_name: str | None = None
     env_name: str | None = None
     schedule_type: str

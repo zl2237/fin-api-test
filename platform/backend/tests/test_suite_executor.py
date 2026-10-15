@@ -61,8 +61,9 @@ def make_record():
 def harness(monkeypatch):
     """桩掉 suite_executor 的全部外部依赖：crud / 数据集展开 / 执行记录 / DagExecutor / 通知"""
     cases = {
-        11: SimpleNamespace(id=11, name="融资数据", case_type="normal"),
-        33: SimpleNamespace(id=33, name="发起融资", case_type="normal"),
+        # env_id：用例绑定的执行环境（严格绑定：成员执行用自己的绑定环境）
+        11: SimpleNamespace(id=11, name="融资数据", case_type="normal", env_id=22),
+        33: SimpleNamespace(id=33, name="发起融资", case_type="normal", env_id=44),
     }
     envs = {
         22: SimpleNamespace(id=22, name="物流环境"),
@@ -263,6 +264,20 @@ class TestRunSuite:
         downstream = record.summary["members"][1]
         assert downstream["status"] == "failed"
         assert "不存在" in downstream["error"]
+        assert record.status == "failed"
+
+    def test_member_case_without_env_rejected(self, harness):
+        """环境严格绑定：成员用例未绑定环境 → 该成员 failed 带指引，链阻断"""
+        harness.cases[66] = SimpleNamespace(id=66, name="无环境用例", case_type="normal", env_id=None)
+        harness.plans.update({11: _plain_plan()})
+        harness.FakeExecutor.script = [("success", {"bl_no": "BL1"})]
+        record = make_record()
+        se.run_suite(FakeDB([make_member(0, 11, 22), make_member(1, 66, 44)]),
+                     SimpleNamespace(id=77, shared_vars=["bl_no"]), record)
+
+        downstream = record.summary["members"][1]
+        assert downstream["status"] == "failed"
+        assert "未绑定执行环境" in downstream["error"]
         assert record.status == "failed"
 
     # ===== 行失败原因回填（_row_fail_reason：非数据驱动成员不再「第None行失败」的数据来源）=====
