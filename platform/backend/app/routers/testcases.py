@@ -285,9 +285,10 @@ def replace_members(case_id: int, data: schemas.SuiteMembersUpdate,
             raise HTTPException(400, f"成员用例不存在: {item.member_case_id}")
         if getattr(mc, "case_type", "normal") == "suite":
             raise HTTPException(400, f"套件不能嵌套套件：{mc.name}")
-        if not getattr(mc, "env_id", None):
+        env_id = mc.env_id
+        if not env_id:
             raise HTTPException(400, f"成员用例「{mc.name}」未绑定执行环境，请先在用例编辑中选择")
-        member_env_ids[item.member_case_id] = mc.env_id
+        member_env_ids[item.member_case_id] = env_id
     db.query(models.SuiteMember).filter(models.SuiteMember.suite_case_id == case_id).delete()
     for idx, item in enumerate(data.members):
         db.add(models.SuiteMember(suite_case_id=case_id, member_case_id=item.member_case_id,
