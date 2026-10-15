@@ -641,7 +641,7 @@ class StepRecordOut(ORMBase):
 class ExecutionRecordOut(ORMBase):
     id: int
     case_id: int
-    env_id: int
+    env_id: int | None = None  # 套件主执行记录无环境（成员各自绑定）
     case_name: str | None = None
     env_name: str | None = None
     project_id: int | None = None
