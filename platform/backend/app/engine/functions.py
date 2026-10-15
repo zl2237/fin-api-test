@@ -23,7 +23,8 @@ FUNCTIONS: dict[str, dict[str, Any]] = {
     "generate_invoice_number": {"fn": generate_invoice_number, "params": ["prefix"]},
     "now": {"fn": lambda **kw: datetime.now().strftime(kw["format"]) if kw.get("format")
             else datetime.now().isoformat(), "params": ["format"]},
-    "timestamp": {"fn": lambda **kw: int(datetime.now().timestamp()), "params": []},
+    "timestamp": {"fn": lambda **kw: int(datetime.now().timestamp()) + int(kw.get("offset", 0)),
+                  "params": ["offset"]},
     "random_int": {"fn": lambda **kw: random.randint(int(kw.get("min", 0)), int(kw.get("max", 100))),
                    "params": ["min", "max"]},
     "random_string": {"fn": lambda **kw: "".join(random.choice(string.ascii_letters + string.digits)
