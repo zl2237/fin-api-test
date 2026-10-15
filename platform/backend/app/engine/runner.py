@@ -12,10 +12,12 @@ DEFAULT_CONCURRENCY = 4
 
 @dataclass
 class ExecutionSpec:
-    """单条执行的提交规格：record 已建为 running，executor 按此执行。"""
+    """单条执行的提交规格：record 已建为 running，executor 按此执行。
+    env_id 为用例绑定环境（套件为 None，成员环境在 run_suite 内各自解析）。"""
 
     execution_id: int
     case_id: int
+    env_id: int | None = None
     # 数据集行数据 {"nodes": {...}}——各节点入参配置源（四来源参数模型）
     dataset_row: dict | None = None
 
@@ -37,8 +39,8 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
                 rec.summary = {"total": 0, "passed": 0, "failed": 1, "error": f"用例不存在: {case_id}"}
                 db.commit()
             return
-        env = crud.get_environment(db, env_id)
-        if not env:
+        env = crud.get_environment(db, env_id) if env_id else None
+        if env_id and not env:
             rec = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
             if rec:
                 rec.status = "failed"
@@ -76,18 +78,19 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int,
         db.close()
 
 
-def submit_batch_execution(specs: list[ExecutionSpec], env_id: int,
+def submit_batch_execution(specs: list[ExecutionSpec],
                            concurrency: int = DEFAULT_CONCURRENCY) -> None:
     """提交批量并行执行到线程池（非阻塞）。specs 为空则什么都不做。
 
     每条 spec 独立 submit 到批次专用线程池（max_workers=concurrency）：
-    concurrency=1 时逐个串行（一个结束再下一个），>1 并行。同环境并发下的
-    登录互踢由 EnvTokenCache 共享 token 方案消除（见 services/token_cache.py）。
+    concurrency=1 时逐个串行（一个结束再下一个），>1 并行。环境为每 spec
+    自带（用例严格绑定），批次可混环境；同环境并发下的登录互踢由
+    EnvTokenCache 共享 token 方案消除（见 services/token_cache.py）。
     """
     if not specs:
         return
     pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix=f"case-c{concurrency}")
     for spec in specs:
-        pool.submit(run_execution_background, spec.execution_id, spec.case_id, env_id,
+        pool.submit(run_execution_background, spec.execution_id, spec.case_id, spec.env_id,
                     spec.dataset_row)
     pool.shutdown(wait=False)  # 提交完即关闭，已提交任务继续执行完

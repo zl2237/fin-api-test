@@ -49,6 +49,22 @@ def fill_audit_names_batch(db: Session, objs: list) -> None:
         o.updated_by_name = name_map.get(getattr(o, "updated_by", None))
 
 
+def fill_case_env_names(db: Session, objs: list) -> None:
+    """给 TestCase 填充 env_name（绑定环境名，一次查询；支持单个对象或列表）"""
+    if not objs:
+        return
+    single = not isinstance(objs, list)
+    obj_list = [objs] if single else objs
+    env_ids = {o.env_id for o in obj_list if getattr(o, "env_id", None)}
+    env_map = {}
+    if env_ids:
+        rows = db.query(models.Environment.id, models.Environment.name).filter(
+            models.Environment.id.in_(env_ids)).all()
+        env_map = {r[0]: r[1] for r in rows}
+    for o in obj_list:
+        o.env_name = env_map.get(getattr(o, "env_id", None))
+
+
 def fill_exec_names(db: Session, objs) -> None:
     """给 ExecutionRecord 填充 case_name / env_name / project_id / project_name（支持单个对象或列表）"""
     if not objs:
@@ -174,6 +190,10 @@ def delete_project(db: Session, project: models.Project):
         db.query(models.ExecutionRecord).filter(
             models.ExecutionRecord.env_id.in_(env_ids)).update(
             {models.ExecutionRecord.env_id: None}, synchronize_session=False)
+        # 用例绑定环境同步解绑（严格绑定：环境没了用例需重新绑定才可执行）
+        db.query(models.TestCase).filter(
+            models.TestCase.env_id.in_(env_ids)).update(
+            {models.TestCase.env_id: None}, synchronize_session=False)
     db.delete(project)
     db.commit()
 
@@ -232,6 +252,10 @@ def update_environment(db: Session, env: models.Environment, data: schemas.Envir
 
 
 def delete_environment(db: Session, env: models.Environment):
+    """删除环境：引用该环境的用例先解绑（执行入口将提示重新绑定），历史执行记录 env_id 保留"""
+    db.query(models.TestCase).filter(
+        models.TestCase.env_id == env.id).update(
+        {models.TestCase.env_id: None}, synchronize_session=False)
     db.delete(env)
     db.commit()
 
@@ -609,6 +633,7 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
         name=new_name,
         description=case.description,
         case_type=getattr(case, "case_type", "normal"),
+        env_id=getattr(case, "env_id", None),
         dag_config=case.dag_config or {"nodes": [], "edges": []},
         shared_vars=case.shared_vars,
     )

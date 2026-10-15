@@ -108,11 +108,13 @@ class FakeDb:
     def __init__(self, first_by_model=None):
         self._first = first_by_model or {}
         self._model = None
+        self.queried_models = set()
         self.committed = 0
         self.closed = False
 
     def query(self, model):
         self._model = model
+        self.queried_models.add(model)
         return self
 
     def filter(self, *a, **kw):
@@ -138,15 +140,15 @@ class TestRunScheduleJob:
         built = []
         committed = []
 
-        def fake_build(db, case, env_id, user_id, *, trigger_type="manual", **kw):
+        def fake_build(db, case, user_id, *, trigger_type="manual", **kw):
             plan = SimpleNamespace(trigger_type=trigger_type, records=[], specs=[],
                                    aggregate_groups=[])
-            built.append(dict(case=case, env_id=env_id, user_id=user_id,
+            built.append(dict(case=case, user_id=user_id,
                               trigger_type=trigger_type))
             return plan
 
-        def fake_commit(plans, env_id, concurrency=4):
-            committed.append((plans, env_id, concurrency))
+        def fake_commit(plans, concurrency=4):
+            committed.append((plans, concurrency))
 
         monkeypatch.setattr(sched_mod, "build_launch_plan", fake_build)
         monkeypatch.setattr(sched_mod, "commit_launch", fake_commit)
@@ -168,13 +170,11 @@ class TestRunScheduleJob:
 
         # launcher 收到 trigger_type=schedule，执行人归属 schedule 创建者
         assert len(patched.built) == 1
-        assert patched.built[0]["env_id"] == 22
         assert patched.built[0]["user_id"] == 5
         assert patched.built[0]["trigger_type"] == "schedule"
-        # plan 原样提交一次，默认并发
+        # plan 原样提交一次，默认并发（环境为用例属性，schedule 不再传环境）
         assert len(patched.committed) == 1
-        plans, env_id, concurrency = patched.committed[0]
-        assert env_id == 22
+        plans, concurrency = patched.committed[0]
         assert concurrency == 4
         assert plans[0].trigger_type == "schedule"
         assert schedule.last_run_at is not None
@@ -193,12 +193,12 @@ class TestRunScheduleJob:
         assert len(patched.committed) == 1
 
     def test_zero_rows_swallowed(self, patched, monkeypatch):
-        """数据集 0 行：launcher 抛 ValueError，打印跳过，不提交"""
+        """数据集 0 行/用例未绑定环境：launcher 抛 ValueError，打印跳过，不提交"""
         schedule = _schedule(id=13)
         db = self._mk_db(sched_mod, schedule, case=SimpleNamespace(dataset_id=7))
         monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
 
-        def boom(db_, case, env_id, user_id, **kw):
+        def boom(db_, case, user_id, **kw):
             raise ValueError("数据集无数据行，请先录入数据再执行")
 
         monkeypatch.setattr(sched_mod, "build_launch_plan", boom)
@@ -238,15 +238,16 @@ class TestRunScheduleJob:
         assert patched.built == []
         assert db.committed >= 1
 
-    def test_env_deleted_self_heals_disable(self, patched, monkeypatch):
+    def test_env_no_longer_queried_schedule_env_deprecated(self, patched, monkeypatch):
+        """环境严格绑定：schedule.env_id 已废止——触发时不再查询 Environment 表"""
         schedule = _schedule(id=10)
-        db = self._mk_db(sched_mod, schedule, env=None)
+        db = self._mk_db(sched_mod, schedule)
         monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
 
         sched_mod._run_schedule_job(10)
 
-        assert schedule.enabled is False
-        assert patched.built == []
+        assert sched_mod.models.Environment not in db.queried_models
+        assert patched.built  # 正常走完编排
 
     def test_submit_failure_swallowed(self, patched, monkeypatch):
         """提交抛异常：捕获打印，不让调度线程崩掉（不影响下轮触发）。"""
@@ -254,7 +255,7 @@ class TestRunScheduleJob:
         db = self._mk_db(sched_mod, schedule)
         monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
 
-        def boom(plans, env_id, concurrency=4):
+        def boom(plans, concurrency=4):
             raise RuntimeError("thread pool down")
 
         monkeypatch.setattr(sched_mod, "commit_launch", boom)

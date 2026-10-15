@@ -209,10 +209,11 @@ def _parse_daily_time(value: str | None):
 
 
 def _run_schedule_job(schedule_id: int) -> None:
-    """定时触发动作：加载 schedule → 校验用例/环境存在 → 创建执行记录 → 提交线程池。
+    """定时触发动作：加载 schedule → 校验用例存在 → 创建执行记录 → 提交线程池。
 
     与手动执行同一条编排路径（execution_launcher），TokenCache 共享登录统一生效。
-    用例/环境已被删除时静默禁用该 schedule 并移除 job（自愈，不报错刷屏）。
+    环境严格绑定：执行环境取 case.env_id（schedule 上的 env_id 已废止）。
+    用例已被删除时静默禁用该 schedule 并移除 job（自愈，不报错刷屏）。
     """
     db = SessionLocal()
     try:
@@ -223,14 +224,13 @@ def _run_schedule_job(schedule_id: int) -> None:
             scheduler_service.remove(schedule_id)
             return
         case = db.query(models.TestCase).filter(models.TestCase.id == schedule.case_id).first()
-        env = db.query(models.Environment).filter(models.Environment.id == schedule.env_id).first()
-        if not case or not env:
-            # 引用对象已删除：自愈——禁用并移除
+        if not case:
+            # 引用用例已删除：自愈——禁用并移除
             schedule.enabled = False
             schedule.next_run_at = None
             db.commit()
             scheduler_service.remove(schedule_id)
-            print(f"[定时任务] schedule#{schedule_id} 引用的用例/环境已删除，已自动禁用")
+            print(f"[定时任务] schedule#{schedule_id} 引用的用例已删除，已自动禁用")
             return
         # 记录最近触发时间；执行人归属 schedule 创建者（审计可追溯）
         schedule.last_run_at = datetime.now()
@@ -239,9 +239,9 @@ def _run_schedule_job(schedule_id: int) -> None:
         # 多行批量失败聚合成一条通知（与手动执行同策略，编排统一在 execution_launcher）
         try:
             assert schedule.created_by is not None  # 定时任务必由用户创建
-            plan = build_launch_plan(db, case, schedule.env_id, schedule.created_by,
+            plan = build_launch_plan(db, case, schedule.created_by,
                                      trigger_type="schedule")
-            commit_launch([plan], schedule.env_id)
+            commit_launch([plan])
         except ValueError as e:
             print(f"[定时任务] schedule#{schedule_id} 数据集不可执行，跳过本轮: {e}")
     except Exception as e:

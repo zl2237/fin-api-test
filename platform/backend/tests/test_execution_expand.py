@@ -134,10 +134,10 @@ class TestBatchExecuteCounts:
         """100 次循环这类大次数合法（原 20 上限已放开）"""
         from fastapi import HTTPException
 
-        with patch("app.routers.executions.crud.get_environment", return_value=None):
+        with patch("app.routers.executions.crud.get_testcase", return_value=None):
             with pytest.raises(HTTPException) as e:
                 self._call([100, 1, 1])
-        assert e.value.status_code == 404  # 通过参数校验，停在环境检查
+        assert e.value.status_code == 404  # 通过参数校验，停在用例检查
 
     def test_concurrency_out_of_range_rejected(self):
         from fastapi import HTTPException
@@ -152,19 +152,19 @@ class TestBatchExecuteCounts:
         assert e.value.status_code == 400
 
     def test_concurrency_one_passes_validation(self):
-        """并发数 1（串行）合法，继续走到环境检查"""
+        """并发数 1（串行）合法，继续走到用例检查"""
         from fastapi import HTTPException
 
-        with patch("app.routers.executions.crud.get_environment", return_value=None):
+        with patch("app.routers.executions.crud.get_testcase", return_value=None):
             with pytest.raises(HTTPException) as e:
                 self._call([1, 1, 1], concurrency=1)
         assert e.value.status_code == 404
 
-    def test_valid_counts_passes_validation_and_fails_on_env(self):
-        """合法 counts 通过参数校验，继续走到环境检查（无 db 时在 env 处被拦即可证明顺序）"""
+    def test_valid_counts_passes_validation_and_fails_on_case(self):
+        """合法 counts 通过参数校验，继续走到用例检查（无 db 时在用例处被拦即可证明顺序）"""
         from fastapi import HTTPException
 
-        with patch("app.routers.executions.crud.get_environment", return_value=None):
+        with patch("app.routers.executions.crud.get_testcase", return_value=None):
             with pytest.raises(HTTPException) as e:
                 self._call([3, 1, 2])  # 用户示例：A×3 B×1 C×2
-        assert e.value.status_code == 404  # 环境不存在：参数校验已放行
+        assert e.value.status_code == 404  # 用例不存在：参数校验已放行
