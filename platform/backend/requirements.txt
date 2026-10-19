@@ -14,7 +14,7 @@ Pillow>=10.0.0
 # 复用现有项目的能力（requests/pymysql/pyyaml 已在根 requirements.txt）
 requests>=2.33.0
 pymysql>=1.1.1
-PyYAML>=6.0.1
+PyYAML>=6.0.3
 # MySQL 8.x 默认认证插件 caching_sha2_password 需要 cryptography 做 RSA 加密
 cryptography>=42.0.0
 # 列表导出 Excel（openpyxl）
