@@ -75,6 +75,13 @@
   --app-grid-line-strong: rgba(255, 255, 255, 0.09);
   --app-grid-size: 24px;
 
+  /* 环境色点（test 蓝 / pre 绿 / prod 红）：环境是测试平台最关键的业务维度，
+     列表与报告页的环境列一眼可辨；prod 配警示底用于行级提示 */
+  --app-env-test: #409eff;
+  --app-env-pre: #1a8a3f;
+  --app-env-prod: #d32f2f;
+  --app-env-prod-bg: #fdf1f0;
+
   /* 滚动条 */
   --app-scrollbar-thumb: rgba(128, 138, 152, 0.45);
 
@@ -98,26 +105,31 @@ html.dark {
   --app-radius-md: 3px;
   --app-radius-lg: 4px;
 
-  /* 表面与背景：实底分层（去毛玻璃） */
-  --app-bg: #14171c;
+  /* 表面与背景：实底分层（去毛玻璃）。
+     背景 #12151a 比卡片再压暗一档：明度差从 ~4% 提到 ~7%，卡片「浮起」感增强 */
+  --app-bg: #12151a;
   --app-sidebar: #171b21;
   --app-card: #1d2128;
   --app-card-solid: #1d2128;
   --app-canvas-bg: #191d24;
   --app-input-bg: #262b34;
-  --app-hover: rgba(232, 234, 239, 0.06);
+  /* hover 幅度 0.06→0.09：暗色下行追踪感与浅色主题对齐 */
+  --app-hover: rgba(232, 234, 239, 0.09);
   --app-active: rgba(56, 195, 214, 0.18);
   --app-chip-bg: rgba(56, 195, 214, 0.14);
   --app-tag-bg: #2a2f3a;
 
-  /* 边框与分割：发丝线 */
+  /* 边框与分割：发丝线；卡片亮边让面与面在深底上有轮廓 */
   --app-border: #2a2f3a;
+  --app-card-border: #2e3542;
+  --el-card-border-color: #2e3542;
 
-  /* 文字 */
+  /* 文字：faint 提亮一档（#5f6875 在深底上低于 WCAG AA，占位符同理） */
   --app-text: #e8eaef;
   --app-text-muted: #9aa3b2;
-  --app-text-faint: #5f6875;
-  --app-text-inverse: #14171c;
+  --app-text-faint: #79828f;
+  --app-text-inverse: #12151a;
+  --el-text-color-placeholder: #6f7885;
 
   /* 主色与点缀 */
   --app-primary: #38c3d6;
@@ -150,6 +162,12 @@ html.dark {
   /* 蓝图网格 */
   --app-grid-line: rgba(255, 255, 255, 0.05);
   --app-grid-line-strong: rgba(255, 255, 255, 0.08);
+
+  /* 环境色点（暗色变体：提亮一档保持可辨） */
+  --app-env-test: #5aabff;
+  --app-env-pre: #30d158;
+  --app-env-prod: #ff453a;
+  --app-env-prod-bg: rgba(255, 69, 58, 0.1);
 
   /* 滚动条 */
   --app-scrollbar-thumb: rgba(200, 200, 200, 0.3);
@@ -291,7 +309,12 @@ kbd {
   margin-left: 8px;
 }
 
-/* 滚动条美化 */
+/* 滚动条美化：webkit（Chrome/Edge）+ Firefox 双轨；
+   覆盖嵌套滚动区（JSON 预览、抽屉树、表格横向滚动），不留系统默认样式 */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-scrollbar-thumb) transparent;
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -364,7 +387,8 @@ kbd {
   font-weight: 600;
 }
 html.dark .el-table__header-wrapper th.el-table__cell {
-  background: color-mix(in srgb, var(--app-primary) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--app-primary) 13%, transparent) !important;
+  color: var(--app-text-muted);
 }
 
 /* ===== SortableJS 拖拽占位全局样式（各列表页 ghostClass 通用） ===== */

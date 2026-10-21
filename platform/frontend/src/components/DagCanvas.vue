@@ -2,8 +2,9 @@
   <div class="dag-canvas">
     <VueFlow
       :nodes="nodes"
-      :edges="edges"
+      :edges="styledEdges"
       :fit-view-on-init="true"
+      :default-edge-options="defaultEdgeOptions"
       @connect="onConnect"
       @node-click="onNodeClick"
       @node-double-click="onNodeDblClick"
@@ -54,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { VueFlow, useVueFlow, Position, Handle, MarkerType } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -80,6 +81,28 @@ const { setNodes, setEdges, addEdges, removeEdges, removeNodes, getNodes, getEdg
 
 // 暗色主题感知：监听 html.dark class 变化（含 auto 跟随系统），画布点阵随之切换
 const isDark = ref(document.documentElement.classList.contains('dark'))
+
+// ===== 连线样式：方向感（箭头）+ 可见的中性色 + 选中态品牌色 =====
+// 连线属渲染层派生——serializeEdges 只落 {id, source, target}，样式不进持久化 payload。
+// 两条注入路径（同一份样式来源）：
+// 1) props 完整边对象（含 id/source/target）在 vue-flow 的 isEdge() 后直接透传、
+//    不吃 defaultEdgeOptions —— 必须在这里 map 注入（历史边无箭头的问题即出自这里）
+// 2) 连线交互产生的 connection 参数走 addEdgeToStore → parseEdge，由 defaultEdgeOptions 兜底
+const edgeColor = computed(() => (isDark.value ? '#6b7686' : '#8a94a6'))
+const edgeStyle = computed(() => ({ stroke: edgeColor.value, strokeWidth: 1.6 }))
+const edgeMarker = computed(() => ({
+  type: MarkerType.ArrowClosed,
+  width: 18,
+  height: 18,
+  color: edgeColor.value,
+}))
+const styledEdges = computed(() =>
+  props.edges.map((e: any) => ({ ...e, style: edgeStyle.value, markerEnd: edgeMarker.value })),
+)
+const defaultEdgeOptions = computed(() => ({
+  style: edgeStyle.value,
+  markerEnd: edgeMarker.value,
+}))
 let themeObserver: MutationObserver | null = null
 onMounted(() => {
   themeObserver = new MutationObserver(() => {
@@ -241,7 +264,8 @@ function emitChange() {
 }
 
 function onConnect(params: any) {
-  addEdges([{ ...params, markerEnd: MarkerType.ArrowClosed }])
+  // 箭头/颜色统一由 defaultEdgeOptions 派生，这里不再手写 markerEnd（单一来源）
+  addEdges([params])
   emit('update:edges', serializeEdges())
 }
 
@@ -269,12 +293,11 @@ function onNodeClick({ node }: any) {
       linkSourceId.value = null
       return
     }
-    // 第二次点击：连接源→目标
+    // 第二次点击：连接源→目标（箭头样式统一走 defaultEdgeOptions）
     const newEdge = {
       id: `e-${src}-${tgt}-${Date.now()}`,
       source: src,
       target: tgt,
-      markerEnd: MarkerType.ArrowClosed,
     }
     addEdges([newEdge])
     emit('update:edges', serializeEdges())
@@ -477,6 +500,19 @@ watch(
 </script>
 
 <style scoped>
+/* ===== 连线状态：默认中性灰（inline style 由 defaultEdgeOptions 注入，主题切换随 computed 响应），
+   选中/hover 覆盖为品牌色——!important 压过 inline stroke ===== */
+:deep(.vue-flow__edge-path) {
+  stroke-width: 1.6;
+}
+:deep(.vue-flow__edge.selected .vue-flow__edge-path) {
+  stroke: var(--app-primary) !important;
+  stroke-width: 2;
+}
+:deep(.vue-flow__edge:hover .vue-flow__edge-path) {
+  stroke: var(--app-primary-light) !important;
+}
+
 .dag-canvas {
   height: 100%;
   width: 100%;

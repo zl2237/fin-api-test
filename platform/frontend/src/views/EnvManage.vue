@@ -37,7 +37,16 @@
           <el-button size="small" @click="load">重试</el-button>
         </div>
         <el-skeleton v-else-if="loading" :rows="5" animated class="skeleton-wrap" />
-        <el-table v-else ref="tableRef" :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
+        <el-table
+          v-else
+          ref="tableRef"
+          :data="pagedList"
+          stripe
+          size="small"
+          row-key="id"
+          :row-class-name="envRowClass"
+          @sort-change="onSortChange"
+        >
           <template #empty>
             <EmptyState description="暂无环境" :image-size="80">
               <el-button type="primary" @click="onCreate">+ 新建环境</el-button>
@@ -51,7 +60,12 @@
             </template>
           </el-table-column>
           <el-table-column prop="id" label="ID" width="70" align="center" sortable="custom" />
-          <el-table-column prop="name" label="环境" width="120" show-overflow-tooltip sortable="custom" />
+          <el-table-column prop="name" label="环境" width="120" show-overflow-tooltip sortable="custom">
+            <template #default="{ row }">
+              <!-- 环境色点徽章：环境名本身即语义（test/pre/prod），本页是色点体系的定义现场 -->
+              <EnvBadge :name="row.name" :id="row.id" />
+            </template>
+          </el-table-column>
           <el-table-column prop="base_url" label="Base URL" min-width="200" show-overflow-tooltip />
           <el-table-column label="数据库" width="100" align="center">
             <template #default="{ row }">
@@ -119,6 +133,8 @@ import { envApi, userApi, type Environment, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
+import EnvBadge from '@/components/EnvBadge.vue'
+import { envTone } from '@/utils/envTone'
 
 const store = useAppStore()
 const router = useRouter()
@@ -139,6 +155,11 @@ const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return sortedList.value.slice(start, start + pageSize.value)
 })
+
+/** 生产环境行警示：淡红底 + 行首警示条——在本页直接对生产环境做增删改是高风险操作 */
+function envRowClass({ row }: { row: Environment }): string {
+  return envTone(row.name) === 'prod' ? 'env-prod-row' : ''
+}
 
 // ===== 拖拽排序（SortableJS 绑定 el-table tbody）=====
 const tableRef = ref<any>(null)
@@ -274,6 +295,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 生产环境行警示：淡红底覆盖斑马纹（需够 specificity），行首 3px 警示条 */
+:deep(.el-table tr.env-prod-row) > td {
+  background: var(--app-env-prod-bg) !important;
+}
+:deep(.el-table tr.env-prod-row) > td:first-child {
+  box-shadow: inset 3px 0 0 var(--app-env-prod);
+}
 .page {
   display: flex;
   flex-direction: column;

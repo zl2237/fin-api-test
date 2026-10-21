@@ -89,7 +89,10 @@
           </template>
         </el-table-column>
         <el-table-column label="环境" min-width="120" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.env_name || `#${row.env_id}` }}</template>
+          <template #default="{ row }">
+            <!-- 环境色点：test/pre/prod 一眼可辨（在哪个环境执行是第一眼要确认的维度） -->
+            <EnvBadge :name="row.env_name" :id="row.env_id" />
+          </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
@@ -140,20 +143,21 @@
         </el-table-column>
         <el-table-column label="通过/总数" width="120">
           <template #default="{ row }">
-            {{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}
+            <!-- 机器数据等宽对齐：计数/时间与文案视觉分离 -->
+            <span class="app-data">{{ row.summary?.passed ?? 0 }} / {{ row.summary?.total ?? 0 }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="started_at" label="开始时间" width="120" sortable="custom">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.started_at)" placement="top" popper-class="app-tip">
-              <span>{{ formatRelativeTime(row.started_at) }}</span>
+              <span class="app-data">{{ formatRelativeTime(row.started_at) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="结束时间" width="120">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.ended_at)" placement="top" popper-class="app-tip">
-              <span>{{ formatRelativeTime(row.ended_at) }}</span>
+              <span class="app-data">{{ formatRelativeTime(row.ended_at) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -221,6 +225,7 @@ import { formatTime, formatRelativeTime, execStatusType as statusType, execStatu
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { useFieldDict } from '@/composables/useFieldDict'
 import EmptyState from '@/components/EmptyState.vue'
+import EnvBadge from '@/components/EnvBadge.vue'
 
 const route = useRoute()
 const router = useRouter()

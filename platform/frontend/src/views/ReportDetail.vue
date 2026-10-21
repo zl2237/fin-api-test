@@ -60,7 +60,13 @@
       <StepTrendChart v-if="steps.length" :steps="steps" compact class="summary-trend" @select="currentStepId = $event" />
       <!-- 右侧：上下文 meta + 动作 -->
       <div class="summary-side">
-        <div class="summary-meta" :title="metaText">{{ metaText }}</div>
+        <!-- meta 结构化：环境色点一眼辨风险，时间/耗时等机器数据等宽对齐 -->
+        <div class="summary-meta" :title="metaText">
+          <span class="meta-case">{{ record?.case_name || `#${record?.case_id}` || '-' }}</span>
+          <EnvBadge :name="record?.env_name" :id="record?.env_id" />
+          <span class="app-data">{{ record?.started_at ?? '-' }}</span>
+          <span class="app-data">{{ durationText }}</span>
+        </div>
         <div class="summary-actions">
           <el-button
             size="small"
@@ -342,16 +348,26 @@
                 </el-table-column>
                 <el-table-column label="实际值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <!-- 失败行：实际值升结论红 + 加重，与期望值形成 diff 对比强调；点击弹窗查看/复制 -->
-                    <span class="mono actual-bad cell-expand" v-if="!row.result"
-                      @click="openValue('断言实际值', row.actual_value)">{{ row.actual_value ?? '—' }}</span>
+                    <!-- 失败行 + 短标量：行内 diff，新增片段绿底——失败原因一眼可见，无需逐字对比 -->
+                    <span v-if="canInlineDiff(row)" class="mono actual-bad cell-expand"
+                      @click="openValue('断言实际值', row.actual_value, row.expected_value)">
+                      <DiffValue :expected="row.expected_value" :actual="row.actual_value" side="actual" />
+                    </span>
+                    <!-- 失败行（长值/JSON）：实际值升结论红 + 加重；点击弹窗查看对照 diff -->
+                    <span class="mono actual-bad cell-expand" v-else-if="!row.result"
+                      @click="openValue('断言实际值', row.actual_value, row.expected_value)">{{ row.actual_value ?? '—' }}</span>
                     <span v-else class="mono cell-expand"
                       @click="openValue('断言实际值', row.actual_value)">{{ row.actual_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="期望值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span class="mono cell-expand" @click="openValue('断言期望值', row.expected_value)">{{ row.expected_value ?? '—' }}</span>
+                    <!-- 期望侧与实际侧共用同一次 diff 计算：被删片段红底划线 -->
+                    <span v-if="canInlineDiff(row)" class="mono cell-expand"
+                      @click="openValue('断言期望值', row.expected_value)">
+                      <DiffValue :expected="row.expected_value" :actual="row.actual_value" side="expected" />
+                    </span>
+                    <span v-else class="mono cell-expand" @click="openValue('断言期望值', row.expected_value)">{{ row.expected_value ?? '—' }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="消息" min-width="160" show-overflow-tooltip>
@@ -371,6 +387,13 @@
 
     <!-- 断言值完整查看：长 JSON 期望/实际值单元格截断难读，点击弹窗格式化展示 + 一键复制 -->
     <el-dialog v-model="valueDialog.visible" :title="valueDialog.title" width="720px">
+      <!-- 失败断言带对照值：先给双行 diff 结论，再看完整值 -->
+      <DiffValue
+        v-if="valueDialog.diffExpected != null"
+        class="value-diff"
+        :expected="valueDialog.diffExpected"
+        :actual="valueDialog.diffActual"
+      />
       <pre class="value-pre">{{ prettyValue }}</pre>
       <template #footer>
         <el-button @click="valueDialog.visible = false">关闭</el-button>
@@ -397,6 +420,8 @@ import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
 import ReplayDialog from '@/components/ReplayDialog.vue'
+import DiffValue from '@/components/DiffValue.vue'
+import EnvBadge from '@/components/EnvBadge.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
@@ -548,11 +573,34 @@ function assertionRowClass({ row }: { row: any }) {
 }
 
 // ===== 值完整查看弹窗（长 JSON 不再被单元格截断；提取结果/断言值点击进入） =====
-const valueDialog = ref({ visible: false, title: '', raw: '' as any })
+const valueDialog = ref({
+  visible: false,
+  title: '',
+  raw: '' as any,
+  /** 失败断言的对照期望值：非空时弹窗顶部渲染期望 vs 实际双行 diff */
+  diffExpected: null as any,
+  diffActual: null as any,
+})
 
-function openValue(title: string, v: any) {
+function openValue(title: string, v: any, diffWith?: any) {
   if (v == null || v === '') return
-  valueDialog.value = { visible: true, title, raw: v }
+  valueDialog.value = { visible: true, title, raw: v, diffExpected: null, diffActual: null }
+  if (diffWith !== undefined) {
+    valueDialog.value.diffExpected = diffWith
+    valueDialog.value.diffActual = v
+  }
+}
+
+/** 行内 diff 适用条件：失败断言且期望/实际都是短标量（≤60 字符、无换行）——
+ *  长值与 JSON 留给弹窗对照视图，行内保持省略截断的可读性 */
+function canInlineDiff(row: any): boolean {
+  if (row.result) return false
+  const e = row.expected_value
+  const a = row.actual_value
+  if (e == null || a == null || e === '' || a === '') return false
+  const es = String(e)
+  const as = String(a)
+  return es.length <= 60 && as.length <= 60 && !es.includes('\n') && !as.includes('\n')
 }
 
 /** JSON 值格式化缩进展示；普通字符串原样（保留换行） */
@@ -929,14 +977,22 @@ onUnmounted(stopPolling)
   gap: 6px;
 }
 
-/* 上下文 meta：单行小字（省略号 + title 全文） */
+/* 上下文 meta：结构化单行（用例名 + 环境色点 + 等宽时间/耗时；省略号 + title 全文） */
 .summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   max-width: 360px;
   font-size: 12px;
   color: var(--app-text-muted);
   white-space: nowrap;
   overflow: hidden;
+}
+/* 用例名是 meta 里的主体，可压缩截断；其余片段保持完整 */
+.meta-case {
+  overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .summary-actions {
@@ -1247,6 +1303,10 @@ onUnmounted(stopPolling)
 }
 .cell-expand:hover {
   color: var(--el-color-primary);
+}
+/* 弹窗内对照 diff：置顶展示，与完整值之间留呼吸 */
+.value-diff {
+  margin-bottom: 12px;
 }
 .value-pre {
   font-family: var(--app-font-mono);
