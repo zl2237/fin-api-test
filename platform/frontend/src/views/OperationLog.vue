@@ -52,7 +52,10 @@
         <template #empty>
           <EmptyState description="暂无操作记录" :image-size="80" />
         </template>
-        <el-table-column prop="id" label="ID" width="70" align="center" sortable="custom" />
+        <el-table-column prop="id" label="ID" width="70" align="center" sortable="custom">
+          <!-- 机器数据等宽（app-data 全局类）：ID/目标ID/时间与文案视觉分离 -->
+          <template #default="{ row }"><span class="app-data">{{ row.id }}</span></template>
+        </el-table-column>
         <el-table-column label="操作人" width="120">
           <template #default="{ row }">{{ row.username || '未知' }}</template>
         </el-table-column>
@@ -66,7 +69,9 @@
         <el-table-column label="目标类型" width="110">
           <template #default="{ row }">{{ targetTypeText(row.target_type) }}</template>
         </el-table-column>
-        <el-table-column prop="target_id" label="目标ID" width="80" align="center" />
+        <el-table-column prop="target_id" label="目标ID" width="80" align="center">
+          <template #default="{ row }"><span class="app-data">{{ row.target_id }}</span></template>
+        </el-table-column>
         <el-table-column prop="target_name" label="目标名称" min-width="160" show-overflow-tooltip />
         <el-table-column label="详情" min-width="160">
           <template #default="{ row }">
@@ -77,7 +82,7 @@
         <el-table-column prop="created_at" label="操作时间" width="120" sortable="custom">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
-              <span>{{ formatRelativeTime(row.created_at) }}</span>
+              <span class="app-data">{{ formatRelativeTime(row.created_at) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -217,8 +222,13 @@ function actionText(a: string) {
   return a === 'create' ? '新增' : a === 'update' ? '修改' : a === 'delete' ? '删除' : a === 'copy' ? '复制' : a
 }
 
-function actionTagType(a: string) {
-  return a === 'create' ? 'success' : a === 'update' ? 'warning' : a === 'delete' ? 'danger' : 'info'
+/** 操作 tag 色收敛：审计页色彩噪音要低——中性 info 为主，
+ *  品牌青只标「新增」，danger 只留不可逆的「删除」（原 success/warning 多色并存）
+ *  el-tag type 需为合法值：primary / info / danger */
+function actionTagType(a: string): 'primary' | 'info' | 'danger' {
+  if (a === 'create') return 'primary'
+  if (a === 'delete') return 'danger'
+  return 'info'
 }
 
 function targetTypeText(t: string) {

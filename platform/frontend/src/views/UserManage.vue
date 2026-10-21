@@ -33,7 +33,9 @@
             <el-button type="primary" @click="openCreate">+ 新建用户</el-button>
           </EmptyState>
         </template>
-        <el-table-column prop="id" label="ID" width="60" align="center" sortable="custom" />
+        <el-table-column prop="id" label="ID" width="60" align="center" sortable="custom">
+          <template #default="{ row }"><span class="app-data">{{ row.id }}</span></template>
+        </el-table-column>
         <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip sortable="custom" />
         <el-table-column prop="name" label="显示名" min-width="100" show-overflow-tooltip sortable="custom" />
         <el-table-column label="部门" min-width="100" show-overflow-tooltip>
@@ -54,7 +56,7 @@
         <el-table-column prop="created_at" label="创建时间" width="110" sortable="custom">
           <template #default="{ row }">
             <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
-              <span>{{ formatRelativeTime(row.created_at) }}</span>
+              <span class="app-data">{{ formatRelativeTime(row.created_at) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -67,7 +69,8 @@
         <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditDrawer(row)">编辑</el-button>
-            <el-button link type="warning" size="small" @click="openPasswordDialog(row)">重置密码</el-button>
+            <!-- 重置密码影响他人凭据安全——与删除同级的高风险操作，用 danger 提示 -->
+            <el-button link type="danger" size="small" @click="openPasswordDialog(row)">重置密码</el-button>
             <el-button link type="danger" size="small" @click="onDelete(row)" :disabled="row.id === store.user?.id">删除</el-button>
           </template>
         </el-table-column>

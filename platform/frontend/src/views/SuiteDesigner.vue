@@ -32,12 +32,16 @@
             <el-form-item label="共享变量白名单">
               <div class="vars-box">
                 <div v-if="sharedVars.length" class="vars-tags">
+                  <!-- 流向徽章：品牌青 + → 前缀，一眼读出「上游产出 → 下游注入」的传递方向 -->
                   <el-tag
                     v-for="v in sharedVars"
                     :key="v"
                     closable
+                    type="primary"
+                    effect="plain"
+                    class="var-flow-tag"
                     @close="removeVar(v)"
-                  >{{ v }}</el-tag>
+                  >→ {{ v }}</el-tag>
                 </div>
                 <div class="vars-input">
                   <el-input
@@ -80,7 +84,8 @@
               <el-tag v-if="m.member_case_type === 'suite'" size="small" type="danger">异常：成员是套件</el-tag>
               <span v-if="m.project_id !== suite.project_id" class="cross-mark">跨项目</span>
               <div class="member-right">
-                <el-tag v-if="m.env_name" size="small" effect="plain" type="success">{{ m.env_name }}</el-tag>
+                <!-- 环境色点：与执行记录/报告同一标识语言（原 success 绿 tag 与状态色语义混淆） -->
+                <EnvBadge v-if="m.env_name" :name="m.env_name" />
                 <el-tag v-else size="small" type="danger">环境未绑定</el-tag>
                 <el-button link type="danger" size="small" @click="removeMember(i)">移除</el-button>
               </div>
@@ -136,6 +141,7 @@ import { useAppStore } from '@/stores'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
+import EnvBadge from '@/components/EnvBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -348,6 +354,10 @@ onUnmounted(destroySortable)
 </script>
 
 <style scoped>
+/* 流向徽章：等宽字体（变量名是机器标识），→ 与变量名之间留出方向感 */
+.var-flow-tag {
+  font-family: var(--app-font-mono);
+}
 .page {
   display: flex;
   flex-direction: column;
