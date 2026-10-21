@@ -16,6 +16,13 @@
 #   - 后端 venv    : /opt/fin-api-test/platform/backend/venv
 #   - 后端服务     : systemd 服务名 fin-api-test（uvicorn 启动）
 #   - 前端静态目录 : /opt/fin-api-test/frontend/dist（nginx 托管）
+# -----------------------------------------------------------------------------
+# Runner 依赖（/srv/gitlab-runner/config/config.toml，改后需重启 gitlab-runner 容器）：
+#   - pull_policy = ["if-not-present"]：本文件所有 job 镜像（python:3.12-slim /
+#     node:20-alpine / alpine:latest）优先走宿主机本地缓存，缺失时才拉取。
+#   - 2026-10-21 事故记录：此前 pull_policy 含 "always" 导致每次 job 强连 Docker Hub，
+#     当天服务器到 Docker Hub 网络抖动，拉镜像超时 1h 后 backend-lint/backend-check
+#     全部 failed to pull image（与代码无关）。勿再改回 "always"。
 # =============================================================================
 
 stages:
