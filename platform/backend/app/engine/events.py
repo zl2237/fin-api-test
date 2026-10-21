@@ -43,7 +43,10 @@ class StepResult:
     post_extract: list[dict[str, Any]] | None = None  # 后置提取规则快照
     extracted_vars: dict[str, Any] | None = None  # 后置提取实际结果 {name: value}
     retry_count: int = 0  # 环境级失败重试实际发生的次数（重试后成功时 >0）
-    resumed: bool = False  # 断点续跑段产出的步骤（同 node 重跑成功顶替旧失败记录）
+    # 重试途中被顶替的失败尝试快照 [{attempt, ts, elapsed_ms, status_code, error, response}]；
+    # 重试成功后主行响应为成功态，首次失败原因只在此留存（最终失败仍在主行）
+    retry_history: list[dict[str, Any]] | None = None
+    resumed: bool = False  # 断点续跑段产出的步骤（同 node 重跑成功后顶替旧失败记录）
 
 
 class ExecutionSink(Protocol):
@@ -69,6 +72,7 @@ class DbSink:
             response_body=result.response_body if isinstance(result.response_body, (dict, list)) else {"text": str(result.response_body)},
             response_time_ms=result.response_time_ms,
             retry_count=result.retry_count,
+            retry_history=result.retry_history,
             resumed=result.resumed,
             started_at=result.started_at, ended_at=result.ended_at,
             status=result.status,

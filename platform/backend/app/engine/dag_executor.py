@@ -42,6 +42,24 @@ from .prepare_request import prepare_request
 from .report_context import iter_replay_paths
 from .topo import topo_order
 
+# 失败尝试快照的响应体截断上限（字符）：保留可读原文供排查，防大列表响应随重试次数膨胀
+_RETRY_SNAPSHOT_LIMIT = 2000
+
+
+def _clip_response(response: Any, limit: int = _RETRY_SNAPSHOT_LIMIT) -> Any:
+    """失败尝试的响应体截断：≤limit 原样返回（dict/list 保留结构），超限存
+    {"__truncated__": True, "text": 前 limit 字符}——快照求可读不求全量。"""
+    if isinstance(response, (dict, list)):
+        try:
+            text = json.dumps(response, ensure_ascii=False)
+        except Exception:
+            text = str(response)
+        return response if len(text) <= limit else {"__truncated__": True, "text": text[:limit]}
+    if response is None:
+        return None
+    text = str(response)
+    return text if len(text) <= limit else {"__truncated__": True, "text": text[:limit]}
+
 
 def _assertion_events(assertion_results: list[dict]) -> list[AssertionResult]:
     """断言求值结果（dict）→ 事件（AssertionResult）：两处产出点共享的转换。"""
@@ -496,15 +514,30 @@ class DagExecutor:
         extracted, assertion_results = {}, []
         step_passed = False
         retry_count = 0
+        # 被后续尝试顶替的失败快照：重试成功后主行只留最终响应，首次失败
+        # 原因若不留存将永久丢失（报告 1306 提交订单节点的教训）
+        retry_history: list[dict[str, Any]] = []
         for attempt in range(retry_limit + 1):
             if attempt:
                 time.sleep(retry_interval)
                 retry_count = attempt
+            attempt_start = time.time()
             # 2. 发送请求（file_fields 非空时走 multipart 通道）
             status_code, response_data, err = self._send_request(api, body, headers, file_fields)
+            attempt_elapsed = int((time.time() - attempt_start) * 1000)
             elapsed = int((time.time() - start_ts) * 1000)
             if err is not None and attempt < retry_limit:
-                continue  # 请求层失败且仍有重试额度：间隔后原样重发
+                # 请求层失败且仍有重试额度：快照本次失败后原样重发。
+                # 每次尝试各自记耗时（首试超时/重试即恢复的判别证据）
+                retry_history.append({
+                    "attempt": attempt + 1,
+                    "ts": datetime.now().isoformat(timespec="seconds"),
+                    "elapsed_ms": attempt_elapsed,
+                    "status_code": status_code,
+                    "error": self._pretty_err(err),
+                    "response": _clip_response(response_data),
+                })
+                continue
             # 成功 / 断言路径 / 重试额度耗尽：提取与断言后收尾
             # 3~4. 后置提取 → 断言（与续跑重放共享收尾；提取失败判负口径见其注释）
             extracted, assertion_results, tail_passed = self._extract_and_assert(
@@ -528,6 +561,7 @@ class DagExecutor:
             status="success" if step_passed else "failed",
             extracted_vars=extracted,
             retry_count=retry_count,
+            retry_history=retry_history or None,
             assertions=_assertion_events(assertion_results),
         ))
 
