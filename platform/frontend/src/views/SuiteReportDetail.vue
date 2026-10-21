@@ -50,7 +50,8 @@
             </div>
             <div class="sum-item">
               <span class="sum-label">环境</span>
-              <span class="sum-val txt">{{ record.env_name || `#${record.env_id}` }}</span>
+              <!-- 环境色点徽章：test/pre/prod 一眼可辨，与单次报告头部同一标识语言 -->
+              <span class="sum-val txt"><EnvBadge :name="record.env_name" :id="record.env_id" /></span>
             </div>
             <div class="sum-item">
               <span class="sum-label">执行人</span>
@@ -58,11 +59,12 @@
             </div>
             <div class="sum-item">
               <span class="sum-label">开始</span>
-              <span class="sum-val txt">{{ formatTime(record.started_at) }}</span>
+              <!-- 机器数据等宽对齐（app-data 全局类） -->
+              <span class="sum-val txt app-data">{{ formatTime(record.started_at) }}</span>
             </div>
             <div class="sum-item">
               <span class="sum-label">结束</span>
-              <span class="sum-val txt">{{ formatTime(record.ended_at) }}</span>
+              <span class="sum-val txt app-data">{{ formatTime(record.ended_at) }}</span>
             </div>
           </div>
           <!-- 共享变量终值（白名单快照的最后有效值） -->
@@ -133,6 +135,7 @@ import { ArrowLeft, Loading, WarningFilled } from '@element-plus/icons-vue'
 import { execApi, type ExecutionRecord } from '@/api'
 import { formatTime, execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
+import EnvBadge from '@/components/EnvBadge.vue'
 
 interface MemberReport {
   sort_order?: number
