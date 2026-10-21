@@ -51,8 +51,18 @@
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column prop="id" label="ID" width="70" sortable="custom" />
-          <el-table-column prop="name" label="项目名称" min-width="160" show-overflow-tooltip sortable="custom" />
+          <el-table-column prop="id" label="ID" width="70" sortable="custom">
+            <template #default="{ row }"><span class="app-data">{{ row.id }}</span></template>
+          </el-table-column>
+          <el-table-column prop="name" label="项目名称" min-width="160" show-overflow-tooltip sortable="custom">
+            <template #default="{ row }">
+              <!-- 首字徽章：项目名首字 + hash 取色（同名恒色），纯表格里唯一的品牌识别元素 -->
+              <span class="proj-cell">
+                <span class="proj-avatar" :style="avatarStyle(row.name)">{{ avatarChar(row.name) }}</span>
+                <span class="proj-name">{{ row.name }}</span>
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip />
           <el-table-column label="当前" width="80" align="center">
             <template #default="{ row }">
@@ -68,7 +78,7 @@
           <el-table-column prop="created_at" label="创建时间" width="120" sortable="custom">
             <template #default="{ row }">
               <el-tooltip :content="formatTime(row.created_at)" placement="top" popper-class="app-tip">
-                <span>{{ formatRelativeTime(row.created_at) }}</span>
+                <span class="app-data">{{ formatRelativeTime(row.created_at) }}</span>
               </el-tooltip>
             </template>
           </el-table-column>
@@ -120,6 +130,21 @@ import { Rank, WarningFilled } from '@element-plus/icons-vue'
 import { projectApi, userApi, type Project, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
+
+// ===== 首字徽章：固定品牌色板 + 名字 hash 取色（同名恒色，切换/刷新不跳变） =====
+const AVATAR_PALETTE = ['#0f7285', '#3d6fb5', '#b57f2a', '#7a5fb5', '#b5475f', '#3f8a5f']
+
+function avatarChar(name: string): string {
+  const ch = (name || '?').trim().charAt(0)
+  return ch || '?'
+}
+
+function avatarStyle(name: string): { background: string } {
+  const s = name || '?'
+  let hash = 0
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0
+  return { background: AVATAR_PALETTE[hash % AVATAR_PALETTE.length] }
+}
 import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -288,6 +313,31 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 首字徽章：圆形底 + 白字加粗，近直角系统里与状态徽章同为「圆」档（形状锁三档规则） */
+.proj-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.proj-avatar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.proj-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .page {
   display: flex;
   flex-direction: column;
