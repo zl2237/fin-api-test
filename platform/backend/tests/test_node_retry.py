@@ -85,6 +85,52 @@ class TestNodeRetry:
         assert ev.response_status == 406
         assert "406" in str(ev.response_body)
 
+    def test_retry_then_success_keeps_failure_history(self):
+        """重试成功后首次失败快照不丢：retry_history 记录每次被顶替的失败尝试
+
+        背景：此前失败响应直接被成功响应覆盖（报告 1306 提交订单节点
+        retry_count=1 但首次失败原因不可查），快照让失败原因可回看。
+        """
+        ex, sink = _retry_executor(retry_count=2)
+        ex.http_client = FlakyHttpClient(fail_times=2, response={"code": 200, "data": {"id": 1}})
+
+        passed, _ = ex._execute_node(100, "n1", {"id": "n1"})
+
+        ev = sink.steps[0]
+        assert passed is True
+        assert ev.retry_history is not None and len(ev.retry_history) == 2
+        first, second = ev.retry_history
+        assert first["attempt"] == 1 and second["attempt"] == 2
+        assert first["status_code"] == 406
+        assert first["error"]  # 失败原因文案留存
+        assert isinstance(first["elapsed_ms"], int) and first["elapsed_ms"] >= 0
+        assert first["ts"]  # 时间戳（判别「稍后自愈」的时间窗）
+        # 主行仍是成功响应（快照不污染最终态）
+        assert ev.status == "success" and ev.response_status == 200
+
+    def test_retry_exhausted_history_excludes_last_attempt(self):
+        """重试耗尽仍失败：前 N-1 次进 history，最终失败完整保留在主行"""
+        ex, sink = _retry_executor(retry_count=2)
+        ex.http_client = FlakyHttpClient(fail_times=99)
+
+        passed, _ = ex._execute_node(100, "n1", {"id": "n1"})
+
+        ev = sink.steps[0]
+        assert passed is False
+        assert ev.retry_history is not None and len(ev.retry_history) == 2
+        assert ev.retry_history[-1]["attempt"] == 2  # 第 3 次（最终失败）不在 history
+        assert "406" in str(ev.response_body)  # 最终失败原因仍在主行完整可查
+
+    def test_clip_response_truncates_large_body(self):
+        """失败快照的响应体截断：超 2000 字符折叠为 __truncated__ 摘要"""
+        big = {"data": "x" * 5000}
+        clipped = de._clip_response(big)
+        assert isinstance(clipped, dict) and clipped.get("__truncated__") is True
+        assert len(clipped["text"]) == 2000
+        # 小响应原样保留结构
+        assert de._clip_response({"msg": "未同步"}) == {"msg": "未同步"}
+        assert de._clip_response(None) is None
+
     def test_no_retry_configured_sends_once(self):
         """环境未开重试（count=0）：失败只发一次，retry_count=0"""
         ex, sink = _retry_executor(retry_count=0)

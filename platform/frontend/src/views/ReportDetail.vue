@@ -170,10 +170,18 @@
                     <el-tag v-if="s.response_time_ms != null" size="small" type="info" effect="light">
                       <span class="mono">{{ s.response_time_ms }} ms</span>
                     </el-tag>
-                    <!-- 失败自动重试徽标：>0 表示该步骤经过环境级重试（详情头部同款提示） -->
-                    <el-tag v-if="s.retry_count" size="small" type="warning" effect="light">
-                      重试×{{ s.retry_count }}
-                    </el-tag>
+                    <!-- 失败自动重试徽标：>0 表示该步骤经过环境级重试；悬浮看逐次失败原因时间线 -->
+                    <el-tooltip v-if="s.retry_count" placement="top" popper-class="app-tip">
+                      <template #content>
+                        <div v-for="h in s.retry_history || []" :key="h.attempt" class="retry-tip-line">
+                          第{{ h.attempt }}次失败：HTTP {{ h.status_code }} · {{ h.elapsed_ms }}ms · {{ retryErrBrief(h.error) }}
+                        </div>
+                        <div v-if="!s.retry_history?.length" class="retry-tip-line">
+                          重试 {{ s.retry_count }} 次后{{ s.status === 'success' ? '成功' : '仍失败' }}；历史版本执行，失败尝试未留存
+                        </div>
+                      </template>
+                      <el-tag size="small" type="warning" effect="light">重试×{{ s.retry_count }}</el-tag>
+                    </el-tooltip>
                     <!-- 断点续跑徽标：本步骤由续跑段重新执行产出 -->
                     <el-tag v-if="s.resumed" size="small" type="info" effect="plain">续跑</el-tag>
                     <!-- 重放验证通过徽标：手改请求体重放断言全过（等待同步数据集后续跑实证） -->
@@ -204,6 +212,26 @@
               <span class="muted">{{ currentStep.api_method }} {{ currentStep.api_path }}</span>
             </div>
           </div>
+          <!-- 尝试历史：重试途中被顶替的失败快照（重试成功后首次失败原因只在此） -->
+          <el-collapse v-if="currentStep.retry_history?.length" class="retry-history">
+            <el-collapse-item name="retries">
+              <template #title>
+                <span class="retry-history-title">
+                  失败尝试 ×{{ currentStep.retry_history.length }}（重试后被顶替，展开查看原因）
+                </span>
+              </template>
+              <div v-for="h in currentStep.retry_history" :key="h.attempt" class="retry-item">
+                <div class="retry-item-head">
+                  第 {{ h.attempt }} 次尝试 · HTTP {{ h.status_code }} · {{ h.elapsed_ms }} ms · {{ (h.ts || '').replace('T', ' ') }}
+                </div>
+                <div class="retry-item-err">{{ h.error }}</div>
+                <template v-if="h.response != null">
+                  <VueJsonPretty v-if="isJsonObject(h.response)" :data="h.response" />
+                  <div v-else class="retry-item-resp">{{ h.response }}</div>
+                </template>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
           <el-tabs v-model="activeTab" class="detail-tabs">
             <el-tab-pane label="请求" name="request">
               <div class="section">
@@ -616,6 +644,17 @@ const metaText = computed(() => {
 })
 
 // 状态映射统一走 utils/format（记录级与步骤级共用 execStatusType/execStatusText，含 skipped）
+
+/** 重试徽标 tooltip 里的失败原因单行摘要（截断防撑爆悬浮框；完整内容在详情面板） */
+function retryErrBrief(err: string): string {
+  const t = (err || '').replace(/\s+/g, ' ').trim()
+  return t.length > 60 ? t.slice(0, 60) + '…' : t
+}
+
+/** 失败快照响应是否为可渲染的 JSON 对象（VueJsonPretty 需窄类型收窄） */
+function isJsonObject(v: unknown): v is Record<string, any> {
+  return typeof v === 'object' && v !== null
+}
 
 function httpStatusType(code?: number) {
   if (code == null) return 'info'
@@ -1083,6 +1122,46 @@ onUnmounted(stopPolling)
 .detail-head {
   margin-bottom: 12px;
   flex-shrink: 0;
+}
+
+/* 尝试历史折叠区（重试被顶替的失败快照；紧凑贴详情头，不与 tabs 抢空间） */
+.retry-history {
+  margin-bottom: 10px;
+  border-top: none;
+  border-bottom: 1px solid var(--app-border);
+}
+.retry-history-title {
+  font-size: 13px;
+  color: var(--el-color-warning);
+}
+.retry-item {
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  margin-bottom: 8px;
+}
+.retry-item-head {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-bottom: 4px;
+}
+.retry-item-err {
+  font-size: 13px;
+  color: var(--el-color-danger);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+.retry-item-resp {
+  font-size: 12px;
+  color: var(--app-text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+/* 徽标 tooltip 里的逐次失败行（app-tip 全局 popper 内，全局样式穿透） */
+.app-tip .retry-tip-line {
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .detail-title {
