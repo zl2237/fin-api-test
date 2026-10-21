@@ -252,12 +252,22 @@ export interface AssertionRecord {
   id: number; step_id: number; rule_type: string; rule_config?: any
   result?: boolean; actual_value?: string; expected_value?: string; message?: string
 }
+export interface RetryAttempt {
+  attempt: number
+  ts: string
+  elapsed_ms: number
+  status_code: number
+  error: string
+  response?: unknown  // 失败响应快照（超 2000 字符折叠为 {__truncated__, text}）
+}
 export interface StepRecord {
   id: number; execution_id: number; node_id?: string; api_name?: string
   api_path?: string; api_method?: string
   request_headers?: any; request_body?: any; response_status?: number
   response_body?: any; response_time_ms?: number
   retry_count?: number | null  // 失败自动重试实际次数（0/空=未重试）
+  // 重试途中被顶替的失败尝试快照（重试成功后首次失败原因只在此；最终失败仍在主行）
+  retry_history?: RetryAttempt[] | null
   resumed?: boolean  // 断点续跑段产出的步骤（顶替旧失败记录）
   replay_passed_at?: string | null  // 重放验证通过时间（「已重放通过」徽标）
   started_at?: string; ended_at?: string; status?: string

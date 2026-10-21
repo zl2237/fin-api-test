@@ -343,6 +343,10 @@ class StepRecord(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤开始时间")
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="步骤结束时间")
     retry_count: Mapped[int | None] = mapped_column(Integer, comment="环境级失败重试实际发生的次数（0/NULL=未重试；仅请求层失败触发）")
+    retry_history: Mapped[list | None] = mapped_column(JSON, nullable=True,
+                    comment="重试途中被后续尝试顶替的失败快照：[{attempt, ts, elapsed_ms, "
+                            "status_code, error, response(截断2KB)}]；重试成功后主行响应为成功态，"
+                            "首次失败原因只在此留存（最终失败的那次仍在主行完整保留）")
     resumed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0",
                     comment="断点续跑标记：本步骤由续跑段产出（同 node 重跑成功后顶替旧失败记录）")
     replay_passed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True,
