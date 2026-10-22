@@ -15,12 +15,20 @@
       <Controls />
       <MiniMap />
       <template #node-default="props">
-        <div class="dag-node" :class="[methodClass(props.data.api_method), {
-          selected: props.selected,
-          'is-new': newNodeIds.includes(props.id),
-          'link-source': linkSourceId === props.id,
-          'link-target': linkMode && linkSourceId && linkSourceId !== props.id
-        }]">
+        <div
+          class="dag-node"
+          :class="[methodClass(props.data.api_method), {
+            selected: props.selected,
+            'is-new': newNodeIds.includes(props.id),
+            'link-source': linkSourceId === props.id,
+            'link-target': linkMode && linkSourceId && linkSourceId !== props.id
+          }]"
+          role="button"
+          tabindex="0"
+          :aria-label="`${props.data.label || props.id}，回车${linkMode ? '选择为连线端点' : '打开节点配置'}`"
+          @keydown.enter.prevent="onNodeKeyActivate(props.id)"
+          @keydown.space.prevent="onNodeKeyActivate(props.id)"
+        >
           <!-- 源连接点（右侧） -->
           <Handle id="source" type="source" :position="Position.Right" class="dag-handle source-handle" />
           <!-- 目标连接点（左侧） -->
@@ -314,6 +322,18 @@ function onNodeDblClick({ node }: any) {
   emit('node-open', node.id)
 }
 
+/**
+ * 节点键盘激活（VueFlow 原生无节点焦点/键盘事件）：回车/空格等价鼠标——
+ * 连线模式下同单击（选源/选目标），普通模式下同双击（打开配置抽屉）。
+ */
+function onNodeKeyActivate(nodeId: string) {
+  if (linkMode.value) {
+    onNodeClick({ node: { id: nodeId } })
+    return
+  }
+  emit('node-open', nodeId)
+}
+
 /** 双击连线删除（原「单击即删」误触率高：hover 变红是唯一预告，想选中看看就已删除） */
 function onEdgeClick({ edge }: any) {
   removeEdges([edge.id])
@@ -557,6 +577,10 @@ watch(
   font-size: 12px;
   color: var(--app-text-muted);
   line-height: 1.8;
+}
+.dag-node:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
 }
 .dag-node {
   position: relative;
