@@ -13,16 +13,21 @@
     </div>
 
     <!-- 主体：分区卡片 -->
-    <div class="edit-body" v-loading="loading" element-loading-text="加载环境配置中...">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="initialLoad">重试</el-button>
+    </div>
+    <div v-else class="edit-body" v-loading="loading" element-loading-text="加载环境配置中...">
       <!-- 基础信息 -->
       <div class="card-section">
         <div class="section-title">基础信息</div>
-        <el-form label-width="120px" :model="formData">
+        <el-form ref="formRef" label-width="120px" :model="formData" :rules="formRules">
           <div class="form-row">
-            <el-form-item label="环境名称" required>
+            <el-form-item label="环境名称" prop="name">
               <el-input v-model="formData.name" placeholder="test / pre / prod" />
             </el-form-item>
-            <el-form-item label="Base URL" required>
+            <el-form-item label="Base URL" prop="base_url">
               <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" />
             </el-form-item>
           </div>
@@ -231,8 +236,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ArrowLeft, WarningFilled } from '@element-plus/icons-vue'
 import { envApi, type Environment } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
@@ -249,6 +254,20 @@ const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
 const dirty = ref(false)
 const loading = ref(false)
+// 页面级加载失败（编辑模式拉环境配置失败）：内联错误块 + 重试，不让页面静默空壳
+const loadError = ref('')
+
+async function initialLoad() {
+  loading.value = isEdit.value
+  loadError.value = ''
+  try {
+    await loadEnv()
+  } catch (e: any) {
+    loadError.value = e?.message || '加载环境配置失败'
+  } finally {
+    loading.value = false
+  }
+}
 const testingDb = ref(false)
 const testingLogin = ref(false)
 
@@ -314,6 +333,12 @@ const formData = reactive<EnvFormData>({
   },
   common_headers: { 'Content-Type': 'application/json' },
 })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const formRef = ref<FormInstance>()
+const formRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入环境名称', trigger: 'blur' }],
+  base_url: [{ required: true, whitespace: true, message: '请输入 Base URL', trigger: 'blur' }],
+}
 
 watch(formData, () => { dirty.value = true }, { deep: true })
 
@@ -398,55 +423,56 @@ onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 async function onSave() {
-  // trim 关键字段，避免首尾空格
-  formData.name = formData.name.trim()
-  formData.base_url = formData.base_url.trim()
-  if (!formData.name || !formData.base_url) {
-    ElMessage.warning('环境名称和 Base URL 不能为空')
-    return
-  }
-  // 验证码开关开启时，地址与字段名为必填
-  if (captchaEnabled.value) {
-    const lc = formData.login_config
-    lc.captcha_url = lc.captcha_url.trim()
-    lc.captcha_field = lc.captcha_field.trim()
-    if (!lc.captcha_url || !lc.captcha_field) {
-      ElMessage.warning('验证码识别已开启：图片地址与字段名均为必填')
-      return
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    // trim 关键字段，避免首尾空格（rules 的 whitespace 已拦全空格，此处只清首尾）
+    formData.name = formData.name.trim()
+    formData.base_url = formData.base_url.trim()
+    // 验证码开关开启时，地址与字段名为必填。
+    // 跨表单（登录配置卡）的条件校验，保留提交时指名 toast（字段级 rules 需重构第二张表单，性价比低）
+    if (captchaEnabled.value) {
+      const lc = formData.login_config
+      lc.captcha_url = lc.captcha_url.trim()
+      lc.captcha_field = lc.captcha_field.trim()
+      if (!lc.captcha_url || !lc.captcha_field) {
+        ElMessage.warning('验证码识别已开启：图片地址与字段名均为必填')
+        return
+      }
     }
-  }
-  saving.value = true
-  try {
-    const payload: Partial<Environment> = {
-      project_id: currentProjectId.value!,
-      name: formData.name,
-      base_url: formData.base_url,
-      success_codes: formData.success_codes.trim() || '200',
-      timeout: formData.timeout,
-      node_retry_count: formData.node_retry_count,
-      node_retry_interval: formData.node_retry_interval,
-      is_default: formData.is_default,
-      db_config: formData.db_config,
-      login_config: formData.login_config,
-      notify_config: formData.notify_config,
-      common_headers: formData.common_headers,
+    saving.value = true
+    try {
+      const payload: Partial<Environment> = {
+        project_id: currentProjectId.value!,
+        name: formData.name,
+        base_url: formData.base_url,
+        success_codes: formData.success_codes.trim() || '200',
+        timeout: formData.timeout,
+        node_retry_count: formData.node_retry_count,
+        node_retry_interval: formData.node_retry_interval,
+        is_default: formData.is_default,
+        db_config: formData.db_config,
+        login_config: formData.login_config,
+        notify_config: formData.notify_config,
+        common_headers: formData.common_headers,
+      }
+      if (isEdit.value) {
+        await envApi.update(formData.id!, payload)
+        ElMessage.success('已保存')
+      } else {
+        await envApi.create(payload)
+        ElMessage.success('已创建')
+        router.push('/envs')
+      }
+      dirty.value = false
+      // 重新加载环境列表（更新顶部下拉）
+      store.loadEnvironments()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      saving.value = false
     }
-    if (isEdit.value) {
-      await envApi.update(formData.id!, payload)
-      ElMessage.success('已保存')
-    } else {
-      await envApi.create(payload)
-      ElMessage.success('已创建')
-      router.push('/envs')
-    }
-    dirty.value = false
-    // 重新加载环境列表（更新顶部下拉）
-    store.loadEnvironments()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  })
 }
 
 async function onTestDb() {
@@ -492,9 +518,7 @@ async function onTestLogin() {
 }
 
 onMounted(() => {
-  // 编辑模式加载数据期间显示遮罩，避免空白无反馈
-  loading.value = isEdit.value
-  loadEnv().finally(() => { loading.value = false })
+  initialLoad()
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {

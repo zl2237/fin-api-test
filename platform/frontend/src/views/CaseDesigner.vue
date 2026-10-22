@@ -1,5 +1,11 @@
 <template>
   <div class="designer" v-loading="loading" element-loading-text="加载用例编排数据中...">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="initialLoad">重试</el-button>
+    </div>
+    <template v-else>
     <!-- 左侧接口列表（按分组树折叠，继承接口管理的分组与排序；返回入口统一收口到画布工具栏） -->
     <div class="api-panel">
       <div class="panel-title">
@@ -147,7 +153,7 @@
     />
 
     <!-- 拆分确认弹窗：选中节点抽离 + 跨界变量清单 -->
-    <el-dialog v-model="splitVisible" title="拆分用例" width="580px" align-center :close-on-click-modal="false">
+    <el-dialog v-model="splitVisible" title="拆分用例" width="min(580px, 92vw)" align-center :close-on-click-modal="false">
       <div class="split-tip">
         将把选中的 {{ splitNodeIds.length }} 个节点抽离为新用例（复制其配置与内部连线），原用例保留其余节点；
         两侧之间的连线会被移除。
@@ -191,6 +197,7 @@
         <el-button type="primary" :loading="splitLoading" @click="confirmSplit">确认拆分</el-button>
       </template>
     </el-dialog>
+    </template>
   </div>
 </template>
 
@@ -198,7 +205,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, CaretRight, Search, Grid, Share, Scissor, Loading } from '@element-plus/icons-vue'
+import { ArrowLeft, CaretRight, Search, Grid, Share, Scissor, Loading, WarningFilled } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
 import EnvBadge from '@/components/EnvBadge.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
@@ -294,6 +301,23 @@ const saving = ref(false)
 const running = ref(false)
 const dirty = ref(false)
 const loading = ref(false)
+// 页面级加载失败（接口/用例编排数据拉取失败）：内联错误块 + 重试，不让画布静默空壳
+const loadError = ref('')
+
+async function initialLoad() {
+  const id = Number(route.params.id)
+  loading.value = !!id
+  loadError.value = ''
+  try {
+    await loadApis()
+    await loadApiGroups()
+    if (id) await loadCase(id)
+  } catch (e: any) {
+    loadError.value = e?.message || '加载用例编排数据失败'
+  } finally {
+    loading.value = false
+  }
+}
 const linkMode = ref(false)
 const linkSourceSelected = ref(false)
 
@@ -661,16 +685,7 @@ async function onRun() {
 }
 
 onMounted(async () => {
-  // 编辑模式加载数据期间显示遮罩，避免空白无反馈
-  const id = Number(route.params.id)
-  loading.value = !!id
-  try {
-    await loadApis()
-    await loadApiGroups()
-    if (id) await loadCase(id)
-  } finally {
-    loading.value = false
-  }
+  await initialLoad()
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
@@ -696,6 +711,12 @@ watch(() => store.currentProjectId, async () => {
   display: flex;
   gap: 12px;
   height: calc(100vh - 100px);
+}
+/* 加载失败块：根容器是横向 flex，独占一行撑满宽（否则被压成窄条） */
+.designer > .app-load-error {
+  width: 100%;
+  align-self: center;
+  margin: 0 20px;
 }
 .api-panel {
   width: 280px;

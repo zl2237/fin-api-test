@@ -386,7 +386,7 @@
     </div>
 
     <!-- 断言值完整查看：长 JSON 期望/实际值单元格截断难读，点击弹窗格式化展示 + 一键复制 -->
-    <el-dialog v-model="valueDialog.visible" :title="valueDialog.title" width="720px">
+    <el-dialog v-model="valueDialog.visible" :title="valueDialog.title" width="min(720px, 92vw)">
       <!-- 失败断言带对照值：先给双行 diff 结论，再看完整值 -->
       <DiffValue
         v-if="valueDialog.diffExpected != null"

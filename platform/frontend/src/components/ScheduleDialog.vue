@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { scheduleApi } from '@/api'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import type { TestCase, TestSchedule } from '@/api'
@@ -36,6 +36,24 @@ const scheduleForm = ref<{
   interval_minutes: number | null
   daily_time: string | null
 }>({ schedule_type: 'interval', interval_minutes: 30, daily_time: '08:00' })
+// 字段级校验（el-form rules）：错误定位到控件，替代提交时 if 判空 + toast
+const scheduleFormRef = ref<FormInstance>()
+const scheduleRules: FormRules = {
+  interval_minutes: [{
+    validator: (_rule, v: number | null, callback) => {
+      if (scheduleForm.value.schedule_type === 'interval' && (!v || v < 1)) callback(new Error('间隔分钟数需 ≥ 1'))
+      else callback()
+    },
+    trigger: 'change',
+  }],
+  daily_time: [{
+    validator: (_rule, v: string | null, callback) => {
+      if (scheduleForm.value.schedule_type === 'daily' && !v) callback(new Error('请选择每日执行时刻'))
+      else callback()
+    },
+    trigger: 'change',
+  }],
+}
 
 // 打开时：已有配置则先看列表，无配置直接进新增表单
 watch(() => props.modelValue, (open) => {
@@ -69,38 +87,37 @@ function onEditSchedule(s: TestSchedule) {
 }
 
 async function onSaveSchedule() {
-  if (!props.caseItem) return
-  const f = scheduleForm.value
-  if (f.schedule_type === 'interval' && (!f.interval_minutes || f.interval_minutes < 1)) {
-    return ElMessage.warning('间隔分钟数需 ≥ 1')
-  }
-  if (f.schedule_type === 'daily' && !f.daily_time) return ElMessage.warning('请选择每日执行时刻')
-  scheduleSaving.value = true
-  try {
-    if (scheduleEditingId.value) {
-      await scheduleApi.update(scheduleEditingId.value, {
-        schedule_type: f.schedule_type,
-        interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : null,
-        daily_time: f.schedule_type === 'daily' ? f.daily_time : null,
-      })
-      ElMessage.success('已保存')
-    } else {
-      await scheduleApi.create({
-        case_id: props.caseItem.id,
-        schedule_type: f.schedule_type,
-        interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : undefined,
-        daily_time: f.schedule_type === 'daily' ? f.daily_time : undefined,
-        enabled: true,
-      })
-      ElMessage.success('已添加定时任务')
+  if (!props.caseItem || !scheduleFormRef.value) return
+  await scheduleFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    const f = scheduleForm.value
+    scheduleSaving.value = true
+    try {
+      if (scheduleEditingId.value) {
+        await scheduleApi.update(scheduleEditingId.value, {
+          schedule_type: f.schedule_type,
+          interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : null,
+          daily_time: f.schedule_type === 'daily' ? f.daily_time : null,
+        })
+        ElMessage.success('已保存')
+      } else {
+        await scheduleApi.create({
+          case_id: props.caseItem!.id,
+          schedule_type: f.schedule_type,
+          interval_minutes: f.schedule_type === 'interval' ? f.interval_minutes : undefined,
+          daily_time: f.schedule_type === 'daily' ? f.daily_time : undefined,
+          enabled: true,
+        })
+        ElMessage.success('已添加定时任务')
+      }
+      scheduleFormVisible.value = false
+      emit('changed')
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      scheduleSaving.value = false
     }
-    scheduleFormVisible.value = false
-    emit('changed')
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    scheduleSaving.value = false
-  }
+  })
 }
 
 async function onToggleSchedule(s: TestSchedule) {
@@ -146,7 +163,7 @@ async function onRemoveSchedule(s: TestSchedule) {
   <!-- 标题单行省略：用例名过长时不撑高弹窗（hover title 看全名）；外壳样式在全局 style.css -->
   <el-dialog
     v-model="visible"
-    width="560px"
+    width="min(560px, 92vw)"
     align-center
     :close-on-click-modal="false"
     class="schedule-dialog"
@@ -188,17 +205,17 @@ async function onRemoveSchedule(s: TestSchedule) {
 
     <!-- 新增/编辑表单：无定时任务时直接展示，有时通过按钮展开 -->
     <div v-if="scheduleFormVisible">
-      <el-form :model="scheduleForm" label-width="80px">
+      <el-form ref="scheduleFormRef" :model="scheduleForm" :rules="scheduleRules" label-width="80px">
         <el-form-item label="调度类型" required>
           <el-radio-group v-model="scheduleForm.schedule_type">
             <el-radio value="interval">间隔执行</el-radio>
             <el-radio value="daily">每日定时</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="scheduleForm.schedule_type === 'interval'" label="间隔分钟" required>
+        <el-form-item v-if="scheduleForm.schedule_type === 'interval'" label="间隔分钟" prop="interval_minutes">
           <el-input-number v-model="scheduleForm.interval_minutes" :min="1" :max="525600" style="width: 180px" />
         </el-form-item>
-        <el-form-item v-else label="每日时刻" required>
+        <el-form-item v-else label="每日时刻" prop="daily_time">
           <el-time-picker
             v-model="scheduleForm.daily_time"
             format="HH:mm"

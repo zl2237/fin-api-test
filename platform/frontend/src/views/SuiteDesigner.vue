@@ -11,7 +11,7 @@
         <el-tag v-if="suite" type="warning" effect="plain">套件 #{{ suiteId }}</el-tag>
       </div>
       <div class="head-right">
-        <el-button :disabled="!dirty" :loading="saving" @click="onSave">保存</el-button>
+        <el-button :disabled="!dirty" :loading="saving" @click="onSave">保存 (Ctrl+S)</el-button>
         <el-button type="success" :loading="running" @click="onExecute">执行套件</el-button>
       </div>
     </div>
@@ -131,13 +131,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import Sortable from 'sortablejs'
 import { ArrowLeft, Rank, WarningFilled } from '@element-plus/icons-vue'
 import { caseApi, type TestCase, type SuiteMember } from '@/api'
 import { useAppStore } from '@/stores'
+import { useTabStore } from '@/stores/tabs'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 import EmptyState from '@/components/EmptyState.vue'
@@ -146,6 +147,7 @@ import EnvBadge from '@/components/EnvBadge.vue'
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
+const tabStore = useTabStore()
 const runner = useExecutionRunner()
 const favicon = useFaviconStatus()
 
@@ -348,6 +350,32 @@ async function onExecute() {
     running.value = false
   }
 }
+
+// ===== 未保存改动防丢失（浏览器标签模型，与其余三个编辑器对齐）：
+// 切换标签不弹窗不关签，dirty 上报全局登记；关闭标签时由 MainLayout 统一弹未保存确认，
+// 刷新/关闭浏览器由 beforeunload 原生拦截，Ctrl/Cmd+S 直达保存。
+watch(dirty, (v) => tabStore.setDirty(route.path, v ? '套件编排' : null), { immediate: true })
+
+const onBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (dirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    onSave()
+  }
+}
+onMounted(() => {
+  window.addEventListener('beforeunload', onBeforeUnload)
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  window.removeEventListener('keydown', onKeydown)
+})
 
 onMounted(load)
 onUnmounted(destroySortable)

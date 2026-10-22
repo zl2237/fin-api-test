@@ -15,7 +15,7 @@
     </div>
 
     <!-- 调试弹窗 -->
-    <el-dialog v-model="debugVisible" title="接口调试" width="780px" align-center :close-on-click-modal="false">
+    <el-dialog v-model="debugVisible" title="接口调试" width="min(780px, 92vw)" align-center :close-on-click-modal="false">
       <div class="debug-bar">
         <el-select v-model="debugEnvId" placeholder="选择环境" style="width: 200px" :disabled="debugging">
           <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
@@ -64,7 +64,7 @@
     </el-dialog>
 
     <!-- 导入覆盖字段弹窗（cURL 粘贴 / HAR 上传 / OpenAPI 粘贴） -->
-    <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="900px" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
+    <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="min(900px, 92vw)" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
       <div class="import-fields-body">
         <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
           粘贴 cURL 命令、上传 HAR 或粘贴 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
@@ -193,15 +193,20 @@
     </el-dialog>
 
     <!-- 主体：左右布局 -->
-    <div class="edit-body" v-loading="loading" element-loading-text="加载接口配置中...">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="initialLoad">重试</el-button>
+    </div>
+    <div v-else class="edit-body" v-loading="loading" element-loading-text="加载接口配置中...">
       <!-- 左侧：基础信息 -->
       <div class="basic-panel">
         <div class="panel-title">基础信息</div>
-        <el-form label-width="90px" :model="formData">
-          <el-form-item label="接口名称" required>
+        <el-form ref="formRef" label-width="90px" :model="formData" :rules="formRules">
+          <el-form-item label="接口名称" prop="name">
             <el-input v-model="formData.name" placeholder="创建订单" />
           </el-form-item>
-          <el-form-item label="接口编码" required>
+          <el-form-item label="接口编码" prop="code">
             <el-input v-model="formData.code" placeholder="order_create" />
           </el-form-item>
           <el-form-item label="接口分组">
@@ -217,7 +222,7 @@
               <el-option label="DELETE" value="DELETE" />
             </el-select>
           </el-form-item>
-          <el-form-item label="请求路径" required>
+          <el-form-item label="请求路径" prop="path">
             <el-input v-model="formData.path" placeholder="/api/order/orderEntrust/orderAdd" />
           </el-form-item>
           <el-form-item label="描述">
@@ -250,8 +255,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Upload, Search, QuestionFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ArrowLeft, Upload, Search, QuestionFilled, WarningFilled } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import ContractSyncDialog from '@/components/ContractSyncDialog.vue'
@@ -280,6 +285,21 @@ const saving = ref(false)
 const contractDlgVisible = ref(false)
 const dirty = ref(false)
 const loading = ref(false)
+// 页面级加载失败（编辑模式拉接口配置失败）：内联错误块 + 重试，不让页面静默空壳
+const loadError = ref('')
+
+async function initialLoad() {
+  loading.value = isEdit.value
+  loadError.value = ''
+  try {
+    await loadGroups()
+    await loadApi()
+  } catch (e: any) {
+    loadError.value = e?.message || '加载接口配置失败'
+  } finally {
+    loading.value = false
+  }
+}
 const groups = ref<ApiGroup[]>([])
 
 // ===== 调试 =====
@@ -600,6 +620,13 @@ const formData = reactive<ApiFormData>({
   fields: [],
   is_array_body: false,
 })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const formRef = ref<FormInstance>()
+const formRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入接口名称', trigger: 'blur' }],
+  code: [{ required: true, whitespace: true, message: '请输入接口编码', trigger: 'blur' }],
+  path: [{ required: true, whitespace: true, message: '请输入请求路径', trigger: 'blur' }],
+}
 
 // 监听变更
 watch(formData, () => { dirty.value = true }, { deep: true })
@@ -646,63 +673,56 @@ const onBeforeUnload = (e: BeforeUnloadEvent) => {
 }
 
 async function onSave() {
-  // trim 关键字段，避免首尾空格
-  formData.name = formData.name.trim()
-  formData.code = formData.code.trim()
-  formData.path = formData.path.trim()
-  if (!formData.name || !formData.code || !formData.path) {
-    ElMessage.warning('名称、编码、路径不能为空')
-    return
-  }
-  saving.value = true
-  try {
-    const payload: Partial<ApiDef> = {
-      project_id: projectId.value!,
-      group_id: formData.group_id,
-      name: formData.name,
-      code: formData.code,
-      method: formData.method,
-      path: formData.path,
-      description: formData.description,
-      fields: formData.fields.filter(f => f.key),
-      // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
-      // 普通请求体用 {} 标记
-      request_template: formData.is_array_body ? [] : {},
-    }
-    if (isEdit.value) {
-      await apiApi.update(formData.id!, payload)
-      ElMessage.success('已保存')
-      // 契约出入检测（Q4 触发点之一）：字段契约变更影响引用数据集时有出入弹同步预览；
-      // 查询失败静默（不影响保存结果）
-      try {
-        const impact = await apiApi.contractImpact(formData.id!)
-        if (impact.length) contractDlgVisible.value = true
-      } catch { /* 静默 */ }
-    } else {
-      await apiApi.create(payload)
-      ElMessage.success('已创建')
-      // 先复位 dirty 再导航：watch 会据此清标签的未保存登记
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    // trim 关键字段，避免首尾空格（rules 的 whitespace 已拦全空格，此处只清首尾）
+    formData.name = formData.name.trim()
+    formData.code = formData.code.trim()
+    formData.path = formData.path.trim()
+    saving.value = true
+    try {
+      const payload: Partial<ApiDef> = {
+        project_id: projectId.value!,
+        group_id: formData.group_id,
+        name: formData.name,
+        code: formData.code,
+        method: formData.method,
+        path: formData.path,
+        description: formData.description,
+        fields: formData.fields.filter(f => f.key),
+        // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
+        // 普通请求体用 {} 标记
+        request_template: formData.is_array_body ? [] : {},
+      }
+      if (isEdit.value) {
+        await apiApi.update(formData.id!, payload)
+        ElMessage.success('已保存')
+        // 契约出入检测（Q4 触发点之一）：字段契约变更影响引用数据集时有出入弹同步预览；
+        // 查询失败静默（不影响保存结果）
+        try {
+          const impact = await apiApi.contractImpact(formData.id!)
+          if (impact.length) contractDlgVisible.value = true
+        } catch { /* 静默 */ }
+      } else {
+        await apiApi.create(payload)
+        ElMessage.success('已创建')
+        // 先复位 dirty 再导航：watch 会据此清标签的未保存登记
+        dirty.value = false
+        router.push('/apis')
+        return
+      }
       dirty.value = false
-      router.push('/apis')
-      return
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      saving.value = false
     }
-    dirty.value = false
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  })
 }
 
 onMounted(async () => {
-  // 编辑模式加载数据期间显示骨架屏，避免空白无反馈
-  loading.value = isEdit.value
-  try {
-    await loadGroups()
-    await loadApi()
-  } finally {
-    loading.value = false
-  }
+  await initialLoad()
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('beforeunload', onBeforeUnload)
 })

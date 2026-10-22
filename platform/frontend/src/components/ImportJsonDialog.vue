@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="visible"
     title="导入请求体（JSON / 表单 / cURL 自动识别）"
-    width="760px"
+    width="min(760px, 92vw)"
     @update:model-value="(v: boolean) => emit('update:visible', v)"
   >
     <el-input

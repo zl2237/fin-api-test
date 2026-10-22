@@ -216,9 +216,26 @@ export interface ContractSyncResult {
   total: { nodes: number; added: number; removed: number; skipped_dynamic: number }
   details: Array<{ dataset_id: number; dataset_name: string; node_id: string; added: number; removed: number; skipped_dynamic: number }>
 }
+/** 节点后置提取配置行（PostExtractTable 编辑形状） */
+export interface PostExtractSpec {
+  name: string          // 提取后产出的变量名
+  source: 'response' | 'db'
+  json_path?: string    // source=response：JSONPath 表达式（如 $.data.order_id）
+  sql?: string          // source=db：查询语句
+  field?: string        // source=db：取值字段（缺省首行首列）
+}
+/** 节点断言配置行（AssertionTable 编辑形状；执行后的结果记录见 AssertionRecord） */
+export interface AssertionSpec {
+  type: string          // 规则类型：json_path_*/db_query_*/db_vs_jsonpath_*/response_time_less_than
+  path?: string         // json_path 类：目标表达式
+  sql?: string          // db 类：查询语句
+  field?: string        // db 类：结果字段
+  expected?: string     // 期望值（可切换 引用/函数/SQL 取值）
+  message?: string      // 自定义失败文案
+}
 export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
-  post_extract: any[]; assertions: any[]
+  post_extract: PostExtractSpec[]; assertions: AssertionSpec[]
   wait_after_ms?: number
 }
 export interface TestCase {
@@ -276,12 +293,40 @@ export interface StepRecord {
   extracted_vars?: Record<string, any> | null
   assertions: AssertionRecord[]
 }
+/** 套件成员执行摘要（suite_executor 逐成员产出；数据驱动成员的分行结果在 rows） */
+export interface SuiteMemberReport {
+  sort_order?: number
+  member_case_id?: number
+  case_id?: number
+  case_name?: string
+  status?: string       // success/failed/blocked
+  error?: string
+  rows?: { row_index?: number | null; execution_id?: number; status?: string; reason?: string }[]
+}
+/**
+ * 执行摘要（按场景出现不同字段子集，2026-10-22 对齐后端三处产出）：
+ * - 普通用例 dag_executor：{total, passed, failed, leftover?, error?, contract_gaps?}
+ * - 套件主记录 suite_executor：{suite:true, total, passed, failed, blocked, members, shared_vars, error?}
+ * - 启动失败 runner：{error}（用例/环境缺失、登录失败等，无步骤产出）
+ */
+export interface ExecutionSummary {
+  suite?: boolean       // 套件主记录标记（报告页分流）
+  total?: number
+  passed?: number
+  failed?: number
+  blocked?: number      // 套件：上游失败被阻断的下游成员数
+  leftover?: number     // DAG：上游失败未执行的节点数
+  error?: string        // 执行级错误（登录失败/环境异常/兜底异常）
+  members?: SuiteMemberReport[]
+  shared_vars?: Record<string, any>  // 套件终态共享变量池
+  contract_gaps?: Record<string, ContractGaps>  // node_id → 契约缺口（红线只标注不删）
+}
 export interface ExecutionRecord {
   id: number; case_id: number; env_id: number
   case_name?: string; env_name?: string
   project_id?: number | null; project_name?: string | null
   status: string
-  started_at?: string; ended_at?: string; summary: Record<string, any>
+  started_at?: string; ended_at?: string; summary: ExecutionSummary
   suite_execution_id?: number | null  // 非空=套件链成员执行，指向套件主执行记录
   dataset_id?: number | null
   dataset_row?: { row_index: number; data: Record<string, any>; label: string } | null

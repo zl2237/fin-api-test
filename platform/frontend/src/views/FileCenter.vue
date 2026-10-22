@@ -87,7 +87,12 @@
           <el-icon :size="40"><Upload /></el-icon>
           <span>松开鼠标，上传到{{ filter.category_id ? '当前分类' : '文件中心' }}</span>
         </div>
-        <el-table v-loading="loading" :data="pagedFiles" stripe size="small" row-key="id" @sort-change="onSortChange">
+        <div v-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="loadFiles">重试</el-button>
+        </div>
+        <el-table v-else v-loading="loading" :data="pagedFiles" stripe size="small" row-key="id" @sort-change="onSortChange">
           <template #empty>
             <EmptyState description="暂无文件" :image-size="80">
               <span class="empty-hint">点击左上角「上传文件」，或直接把文件拖到这里</span>
@@ -149,8 +154,8 @@
 
     <!-- 重命名/改分类 弹窗 -->
     <el-dialog v-model="renameVisible" title="编辑文件" width="420px" align-center :close-on-click-modal="false">
-      <el-form v-if="editingFile" label-width="80px">
-        <el-form-item label="文件名" required>
+      <el-form v-if="editingFile" ref="renameFormRef" :model="editingFile" :rules="nameRules" label-width="80px">
+        <el-form-item label="文件名" prop="name">
           <el-input v-model="editingFile.name" />
         </el-form-item>
         <el-form-item label="分类">
@@ -167,14 +172,14 @@
       </el-form>
       <template #footer>
         <el-button @click="renameVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveRename">保存</el-button>
+        <el-button type="primary" :loading="renameSaving" @click="saveRename">保存</el-button>
       </template>
     </el-dialog>
 
     <!-- 分类编辑弹窗 -->
     <el-dialog v-model="categoryDialog.visible" :title="categoryDialog.editing ? '编辑分类' : '新建分类'" width="420px" align-center :close-on-click-modal="false">
-      <el-form label-width="80px">
-        <el-form-item label="名称" required>
+      <el-form ref="categoryFormRef" :model="categoryDialog" :rules="nameRules" label-width="80px">
+        <el-form-item label="名称" prop="name">
           <el-input v-model="categoryDialog.name" placeholder="如 身份证/合同/发票" />
         </el-form-item>
         <el-form-item label="父分类">
@@ -191,18 +196,18 @@
       </el-form>
       <template #footer>
         <el-button @click="categoryDialog.visible = false">取消</el-button>
-        <el-button type="primary" @click="saveCategory">保存</el-button>
+        <el-button type="primary" :loading="categorySaving" @click="saveCategory">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Plus, Edit, Delete, Files, FolderOpened, Search, Upload,
-  Picture, Document, VideoPlay, Files as FilesIcon,
+  Picture, Document, VideoPlay, Files as FilesIcon, WarningFilled,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
@@ -220,6 +225,7 @@ const files = ref<TestFile[]>([])
 // 全量文件列表（不带过滤条件），用于侧边栏各分类计数
 const allFiles = ref<TestFile[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const filter = ref<{ category_id?: number | null; keyword?: string }>({})
 const page = ref(1)
 const pageSize = ref(10)
@@ -247,6 +253,7 @@ function countFilesInCategory(catId: number): number {
 async function loadFiles() {
   if (!projectId.value) return
   loading.value = true
+  loadError.value = ''
   try {
     const params = {
       category_id: filter.value.category_id,
@@ -261,7 +268,8 @@ async function loadFiles() {
       allFiles.value = await fileApi.list(projectId.value, {})
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '加载文件失败')
+    // 页面级加载失败：内联错误块 + 重试（与其余列表页统一，不用一闪而过的 toast）
+    loadError.value = e.message || '加载文件失败'
   } finally {
     loading.value = false
   }
@@ -298,39 +306,51 @@ function setCategoryFilter(categoryId: number | undefined) {
 const categoryDialog = ref<{ visible: boolean; editing: FileCategory | null; name: string; parent_id: number | null }>({
   visible: false, editing: null, name: '', parent_id: null,
 })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const renameFormRef = ref<FormInstance>()
+const categoryFormRef = ref<FormInstance>()
+const nameRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入名称', trigger: 'blur' }],
+}
+const renameSaving = ref(false)
+const categorySaving = ref(false)
 
 function openCategoryDialog(cat: FileCategory | null) {
   categoryDialog.value.editing = cat
   categoryDialog.value.name = cat?.name || ''
   categoryDialog.value.parent_id = cat?.parent_id ?? null
   categoryDialog.value.visible = true
+  nextTick(() => categoryFormRef.value?.clearValidate())
 }
 
 async function saveCategory() {
-  if (!categoryDialog.value.name.trim()) {
-    ElMessage.warning('请输入分类名称')
-    return
-  }
-  try {
-    if (categoryDialog.value.editing) {
-      await fileCategoryApi.update(categoryDialog.value.editing.id, {
-        name: categoryDialog.value.name,
-        parent_id: categoryDialog.value.parent_id,
-      })
-      ElMessage.success('已保存')
-    } else {
-      await fileCategoryApi.create({
-        project_id: projectId.value!,
-        name: categoryDialog.value.name,
-        parent_id: categoryDialog.value.parent_id,
-      })
-      ElMessage.success('已创建')
+  if (!categoryFormRef.value) return
+  await categoryFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    categorySaving.value = true
+    try {
+      if (categoryDialog.value.editing) {
+        await fileCategoryApi.update(categoryDialog.value.editing.id, {
+          name: categoryDialog.value.name,
+          parent_id: categoryDialog.value.parent_id,
+        })
+        ElMessage.success('已保存')
+      } else {
+        await fileCategoryApi.create({
+          project_id: projectId.value!,
+          name: categoryDialog.value.name,
+          parent_id: categoryDialog.value.parent_id,
+        })
+        ElMessage.success('已创建')
+      }
+      categoryDialog.value.visible = false
+      await loadCategories()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      categorySaving.value = false
     }
-    categoryDialog.value.visible = false
-    await loadCategories()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  }
+  })
 }
 
 async function confirmDeleteCategory(cat: FileCategory) {
@@ -466,23 +486,28 @@ const editingFile = ref<TestFile | null>(null)
 function openRenameDialog(file: TestFile) {
   editingFile.value = { ...file }
   renameVisible.value = true
+  nextTick(() => renameFormRef.value?.clearValidate())
 }
 
 async function saveRename() {
-  if (!editingFile.value) return
-  // 必填校验对齐同页分类弹窗（原可保存空文件名）
-  if (!editingFile.value.name.trim()) return ElMessage.warning('文件名不能为空')
-  try {
-    await fileApi.update(editingFile.value.id, {
-      name: editingFile.value.name.trim(),
-      category_id: editingFile.value.category_id ?? null,
-    })
-    ElMessage.success('已保存')
-    renameVisible.value = false
-    await loadFiles()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  }
+  if (!editingFile.value || !renameFormRef.value) return
+  await renameFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    renameSaving.value = true
+    try {
+      await fileApi.update(editingFile.value!.id, {
+        name: editingFile.value!.name.trim(),
+        category_id: editingFile.value!.category_id ?? null,
+      })
+      ElMessage.success('已保存')
+      renameVisible.value = false
+      await loadFiles()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      renameSaving.value = false
+    }
+  })
 }
 
 async function confirmDeleteFile(file: TestFile) {
