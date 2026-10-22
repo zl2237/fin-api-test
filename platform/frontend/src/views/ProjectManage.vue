@@ -296,7 +296,6 @@ async function onRemove(row: Project) {
       if (first) store.setProject(first.id)
       else {
         store.currentProjectId = null
-        store.currentEnvId = null
         store.environments = []
       }
     }

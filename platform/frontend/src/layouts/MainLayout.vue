@@ -199,19 +199,8 @@
               <el-icon><DataLine /></el-icon>版本
             </el-button>
           </el-tooltip>
-          <el-select
-            v-model="store.currentEnvId"
-            placeholder="选择环境"
-            size="default"
-            style="width: 160px"
-          >
-            <el-option
-              v-for="e in store.environments"
-              :key="e.id"
-              :label="e.name"
-              :value="e.id"
-            />
-          </el-select>
+          <!-- 执行环境已收敛为用例绑定属性（ed9ae8c），顶栏全局环境选择器随之移除；
+               环境的增删改在「环境配置」页，用例改绑在用例列表行内 -->
           <el-tooltip :content="isFullscreen ? '退出全屏' : '进入全屏'" placement="top" popper-class="app-tip">
             <el-button text @click="toggleFullscreen">
               <el-icon><FullScreen /></el-icon>
