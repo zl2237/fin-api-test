@@ -42,6 +42,11 @@
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
+        <div v-else-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="load">重试</el-button>
+        </div>
         <el-table v-else :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
           <template #empty>
             <EmptyState :description="hasActiveFilter ? '没有匹配的字典，试试调整筛选条件' : '暂无字段字典'" :image-size="80">
@@ -137,7 +142,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { Search, WarningFilled } from '@element-plus/icons-vue'
 import { dictApi, userApi, type FieldDictionary, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { debounce } from '@/utils/ui'
@@ -149,6 +154,7 @@ const store = useAppStore()
 const list = ref<FieldDictionary[]>([])
 const users = ref<SimpleUser[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
@@ -182,10 +188,12 @@ const pagedList = computed(() => {
 async function load() {
   if (!store.currentProjectId) return
   loading.value = true
+  loadError.value = ''
   try {
     list.value = await dictApi.list(store.currentProjectId, keyword.value || undefined)
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    // 页面级加载失败：内联错误块 + 重试（与其余列表页统一，不用一闪而过的 toast）
+    loadError.value = e.message || '加载失败'
   } finally {
     loading.value = false
   }

@@ -13,7 +13,12 @@
     </div>
 
     <!-- 主体：分区卡片 -->
-    <div class="edit-body" v-loading="loading" element-loading-text="加载环境配置中...">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="initialLoad">重试</el-button>
+    </div>
+    <div v-else class="edit-body" v-loading="loading" element-loading-text="加载环境配置中...">
       <!-- 基础信息 -->
       <div class="card-section">
         <div class="section-title">基础信息</div>
@@ -232,7 +237,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, WarningFilled } from '@element-plus/icons-vue'
 import { envApi, type Environment } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
@@ -249,6 +254,20 @@ const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
 const dirty = ref(false)
 const loading = ref(false)
+// 页面级加载失败（编辑模式拉环境配置失败）：内联错误块 + 重试，不让页面静默空壳
+const loadError = ref('')
+
+async function initialLoad() {
+  loading.value = isEdit.value
+  loadError.value = ''
+  try {
+    await loadEnv()
+  } catch (e: any) {
+    loadError.value = e?.message || '加载环境配置失败'
+  } finally {
+    loading.value = false
+  }
+}
 const testingDb = ref(false)
 const testingLogin = ref(false)
 
@@ -492,9 +511,7 @@ async function onTestLogin() {
 }
 
 onMounted(() => {
-  // 编辑模式加载数据期间显示遮罩，避免空白无反馈
-  loading.value = isEdit.value
-  loadEnv().finally(() => { loading.value = false })
+  initialLoad()
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {

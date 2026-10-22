@@ -49,7 +49,13 @@
     </div>
 
     <!-- 文件列表 -->
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="loadFiles">重试</el-button>
+    </div>
     <el-table
+      v-else
       v-loading="loading"
       :data="files"
       stripe
@@ -99,7 +105,7 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  Search, Upload, Picture, Document, VideoPlay, Files as FilesIcon,
+  Search, Upload, Picture, Document, VideoPlay, Files as FilesIcon, WarningFilled,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { fileApi, fileCategoryApi, type TestFile, type FileCategory } from '@/api'
@@ -123,6 +129,7 @@ const visible = defineModel<boolean>({ default: false })
 const files = ref<TestFile[]>([])
 const categories = ref<FileCategory[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const filterCategory = ref<number | undefined>(undefined)
 const selectedId = ref<number | null>(null)
@@ -133,13 +140,15 @@ const selectedFile = computed(() => files.value.find((f) => f.id === selectedId.
 async function loadFiles() {
   if (!projectId.value) return
   loading.value = true
+  loadError.value = ''
   try {
     files.value = await fileApi.list(projectId.value, {
       category_id: filterCategory.value,
       keyword: keyword.value,
     })
   } catch (e: any) {
-    ElMessage.error(e.message || '加载文件失败')
+    // 弹窗内列表加载失败同样内联展示 + 重试（与其余页面统一）
+    loadError.value = e.message || '加载文件失败'
   } finally {
     loading.value = false
   }
