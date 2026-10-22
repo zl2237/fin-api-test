@@ -102,7 +102,7 @@
     </el-card>
 
     <!-- 操作详情对话框：完整文本 + 复制（表格内单行截断，长变更列表看不全） -->
-    <el-dialog v-model="detailVisible" title="操作详情" width="560px" align-center>
+    <el-dialog v-model="detailVisible" title="操作详情" width="min(560px, 92vw)" align-center>
       <div v-if="detailRow" class="detail-meta">
         <el-tag :type="actionTagType(detailRow.action)" effect="light" size="small">{{ actionText(detailRow.action) }}</el-tag>
         <span>{{ detailRow.username || '未知' }}</span>

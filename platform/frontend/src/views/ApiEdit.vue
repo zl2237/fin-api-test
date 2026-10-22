@@ -15,7 +15,7 @@
     </div>
 
     <!-- 调试弹窗 -->
-    <el-dialog v-model="debugVisible" title="接口调试" width="780px" align-center :close-on-click-modal="false">
+    <el-dialog v-model="debugVisible" title="接口调试" width="min(780px, 92vw)" align-center :close-on-click-modal="false">
       <div class="debug-bar">
         <el-select v-model="debugEnvId" placeholder="选择环境" style="width: 200px" :disabled="debugging">
           <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
@@ -64,7 +64,7 @@
     </el-dialog>
 
     <!-- 导入覆盖字段弹窗（cURL 粘贴 / HAR 上传 / OpenAPI 粘贴） -->
-    <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="900px" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
+    <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="min(900px, 92vw)" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
       <div class="import-fields-body">
         <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
           粘贴 cURL 命令、上传 HAR 或粘贴 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。

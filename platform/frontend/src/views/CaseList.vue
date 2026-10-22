@@ -1255,6 +1255,12 @@ function onGlobalKey(e: KeyboardEvent) {
 .side-node.on .side-cnt {
   color: var(--app-primary);
 }
+/* 窄屏（平板档）：分组侧栏让位主列表——收窄 + 藏计数徽标（P2-c 并组时合并为单份） */
+@media (max-width: 960px) {
+  .group-side { width: 160px; }
+  .side-cnt { display: none; }
+}
+
 .side-foot {
   margin-top: auto;
   padding: 10px 6px 2px;

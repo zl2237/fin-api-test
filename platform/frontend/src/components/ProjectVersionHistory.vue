@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     title="项目版本管理"
-    width="1000px"
+    width="min(1000px, 92vw)"
     align-center
     :close-on-click-modal="false"
     @open="loadVersions"
@@ -105,7 +105,7 @@
   <el-dialog
     v-model="diffVisible"
     title="版本对比"
-    width="960px"
+    width="min(960px, 92vw)"
     align-center
     :close-on-click-modal="false"
     append-to-body
@@ -156,7 +156,7 @@
   <el-dialog
     v-model="fieldDiffVisible"
     :title="fieldDiffTitle"
-    width="860px"
+    width="min(860px, 92vw)"
     align-center
     :close-on-click-modal="false"
     append-to-body

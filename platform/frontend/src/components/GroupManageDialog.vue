@@ -121,7 +121,7 @@ async function onTreeNodeDrop() {
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="title" width="620px" align-center class="group-manage-dialog" :close-on-click-modal="false">
+  <el-dialog v-model="visible" :title="title" width="min(620px, 92vw)" align-center class="group-manage-dialog" :close-on-click-modal="false">
     <div class="group-dialog-body">
       <div class="group-add">
         <el-input
