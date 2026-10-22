@@ -105,11 +105,6 @@ function remove(idx: number) {
 .kv-table {
   width: 100%;
 }
-.add-btn {
-  margin-top: 10px;
-  width: 100%;
-  border-style: dashed;
-}
 /* 重复 key 行提示 */
 :deep(.kv-dup-row) {
   background: color-mix(in srgb, var(--el-color-warning) 8%, transparent);

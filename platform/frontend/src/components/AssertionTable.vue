@@ -132,14 +132,3 @@ function remove(idx: number) {
   emit('update:modelValue', next)
 }
 </script>
-
-<style scoped>
-.add-btn {
-  margin-top: 8px;
-  width: 100%;
-  border-style: dashed;
-}
-.muted {
-  color: var(--app-text-muted);
-}
-</style>

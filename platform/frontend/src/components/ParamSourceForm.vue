@@ -150,6 +150,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { ParamSpec, TestFile } from '@/api'
 import { fileApi } from '@/api'
 import { FUNC_REGISTRY, funcMeta } from '@/constants/funcRegistry'
+import { isParamSpec, toFileId } from '@/utils/paramSource'
 import VarRefSelect from './VarRefSelect.vue'
 import type { RefVarGroup } from './VarRefSelect.vue'
 import SqlRefMenu from './SqlRefMenu.vue'
@@ -174,9 +175,7 @@ const emit = defineEmits<{
   (e: 'open-picker'): void
 }>()
 
-const isSpec = (v: any): v is ParamSpec =>
-  !!v && typeof v === 'object' && !Array.isArray(v)
-  && typeof v.source === 'string' && ['constant', 'func', 'ref', 'sql'].includes(v.source)
+const isSpec = isParamSpec
 
 const spec = computed<ParamSpec>(() => {
   if (isSpec(props.modelValue)) return props.modelValue
@@ -217,12 +216,7 @@ const fileInfo = ref<TestFile | null>(null)
 const fileInfoMissing = ref(false)
 const hasFileValue = computed(() =>
   source.value === 'constant' && spec.value.value !== '' && spec.value.value != null)
-const fileIdNum = computed(() => {
-  const v = spec.value.value
-  if (typeof v === 'number') return v
-  if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v)
-  return null
-})
+const fileIdNum = computed(() => toFileId(spec.value.value))
 // 组件随 popover 打开才挂载：此处只发一次单查请求，文件名回显
 watch(() => [props.modelValue, source.value, props.fileField] as const, async () => {
   fileInfo.value = null

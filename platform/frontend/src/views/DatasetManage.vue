@@ -667,62 +667,6 @@ watch(() => store.currentProjectId, () => {
   color: var(--app-text-muted);
 }
 /* 左用例列表 + 右该用例数据集（用例维度 master-detail） */
-.group-layout {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-/* 窄屏（平板档）：分组侧栏让位主列表——收窄 + 藏计数徽标（P2-c 并组时合并为单份） */
-@media (max-width: 960px) {
-  .group-side { width: 160px; }
-  .side-cnt { display: none; }
-}
-.group-side {
-  width: 220px;
-  flex-shrink: 0;
-  overflow: auto;
-  padding: 12px 8px;
-  background: var(--app-card);
-  border-right: 1px solid var(--app-border);
-  display: flex;
-  flex-direction: column;
-}
-.side-node {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  height: 32px;
-  border-radius: var(--app-radius-sm);
-  cursor: pointer;
-  user-select: none;
-  color: var(--app-text-muted);
-  font-size: 13px;
-  white-space: nowrap;
-}
-.side-node:hover {
-  background: var(--app-hover);
-  color: var(--app-text);
-}
-.side-node.on {
-  background: var(--app-active);
-  color: var(--app-primary);
-  font-weight: 500;
-}
-.side-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.side-cnt {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--app-text-faint);
-}
-.side-node.on .side-cnt {
-  color: var(--app-primary);
-}
 .case-icon {
   font-size: 14px;
   color: var(--app-text-faint);
@@ -742,14 +686,6 @@ watch(() => store.currentProjectId, () => {
 .expand-spacer {
   width: 14px;
   flex-shrink: 0;
-}
-.group-main {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
 }
 /* 数据集切换条：吸顶（单行横向滚动，高度稳定供节点 tab sticky 对位） */
 .ds-bar {
