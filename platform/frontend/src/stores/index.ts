@@ -6,7 +6,6 @@ export const useAppStore = defineStore('app', () => {
   const projects = ref<Project[]>([])
   const currentProjectId = ref<number | null>(null)
   const environments = ref<Environment[]>([])
-  const currentEnvId = ref<number | null>(null)
   const user = ref<User | null>(null)
   // 字段字典：当前项目的 {英文字段名: 中文含义} 映射
   const fieldDictMap = ref<Record<string, string>>({})
@@ -49,8 +48,8 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // 当前项目记忆：localStorage 持久化，刷新后恢复
+  // （全局环境记忆已随用例严格绑定环境改造移除：环境是用例属性，不再是全局工作态）
   const PROJECT_KEY = 'fin_current_project_id'
-  const ENV_KEY = 'fin_current_env_id'
 
   function isLoggedIn(): boolean {
     return !!getToken()
@@ -82,7 +81,6 @@ export const useAppStore = defineStore('app', () => {
     projects.value = []
     environments.value = []
     currentProjectId.value = null
-    currentEnvId.value = null
     // 退出登录不清理 localStorage 项目记忆，下次登录仍可恢复
   }
 
@@ -96,23 +94,13 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  /** 按当前项目加载环境列表（用例改绑 / 接口调试的选项源；无全局选中态） */
   async function loadEnvironments() {
     if (!currentProjectId.value) {
       environments.value = []
       return
     }
     environments.value = await envApi.list(currentProjectId.value)
-    // 恢复记忆的环境：优先 localStorage，其次默认环境，最后第一个
-    if (!currentEnvId.value) {
-      const saved = Number(localStorage.getItem(ENV_KEY))
-      const exists = saved && environments.value.some((e) => e.id === saved)
-      if (exists) {
-        currentEnvId.value = saved
-      } else {
-        const def = environments.value.find((e) => e.is_default)
-        currentEnvId.value = def?.id ?? environments.value[0]?.id ?? null
-      }
-    }
   }
 
   // 加载当前项目的字段字典映射（供配置界面自动展示中文标签）
@@ -138,22 +126,14 @@ export const useAppStore = defineStore('app', () => {
   function setProject(id: number) {
     currentProjectId.value = id
     localStorage.setItem(PROJECT_KEY, String(id))
-    currentEnvId.value = null
-    localStorage.removeItem(ENV_KEY)
     loadEnvironments()
     loadFieldDict()
   }
-
-  // 环境切换时自动记忆（顶部选择器 v-model 改变 currentEnvId 即触发）
-  watch(currentEnvId, (v) => {
-    if (v !== null) localStorage.setItem(ENV_KEY, String(v))
-  })
 
   return {
     projects,
     currentProjectId,
     environments,
-    currentEnvId,
     user,
     fieldDictMap,
     coreCapVisible,
