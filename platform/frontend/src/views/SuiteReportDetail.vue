@@ -132,19 +132,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Loading, WarningFilled } from '@element-plus/icons-vue'
-import { execApi, type ExecutionRecord } from '@/api'
+import { execApi, type ExecutionRecord, type ExecutionSummary, type SuiteMemberReport } from '@/api'
 import { formatTime, execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 import EnvBadge from '@/components/EnvBadge.vue'
-
-interface MemberReport {
-  sort_order?: number
-  case_id?: number
-  case_name?: string
-  status?: string
-  error?: string
-  rows?: { row_index?: number | null; execution_id?: number; status?: string; reason?: string }[]
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -154,8 +145,8 @@ const record = ref<ExecutionRecord | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 
-const summary = computed<Record<string, any>>(() => record.value?.summary || {})
-const memberReports = computed<MemberReport[]>(() => summary.value.members || [])
+const summary = computed<ExecutionSummary>(() => record.value?.summary || {})
+const memberReports = computed<SuiteMemberReport[]>(() => summary.value.members || [])
 const sharedEntries = computed<[string, any][]>(() =>
   Object.entries(summary.value.shared_vars || {}).filter(([, v]) => v !== null && v !== undefined))
 
