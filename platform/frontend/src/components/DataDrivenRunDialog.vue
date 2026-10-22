@@ -52,7 +52,7 @@ function confirm() {
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="`数据集执行：${caseItem?.name || ''}`" width="560px">
+  <el-dialog v-model="visible" :title="`数据集执行：${caseItem?.name || ''}`" width="min(560px, 92vw)">
     <div class="dd-tip">
       <el-icon style="color: var(--el-color-warning)"><WarningFilled /></el-icon>
       将使用所选的 <b>{{ datasetIds.length }} 个数据集各执行一次</b>（每个数据集 = 全部节点的一套入参取值），编排按用例当前配置；临时换数据集不改变用例绑定

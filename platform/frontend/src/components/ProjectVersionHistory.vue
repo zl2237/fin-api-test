@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     title="项目版本管理"
-    width="1000px"
+    width="min(1000px, 92vw)"
     align-center
     :close-on-click-modal="false"
     @open="loadVersions"
@@ -12,7 +12,12 @@
       <el-button type="primary" @click="onOpenCreate">保存新版本</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="versions" border size="small" row-key="id" max-height="420">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="loadVersions">重试</el-button>
+    </div>
+    <el-table v-else v-loading="loading" :data="versions" border size="small" row-key="id" max-height="420">
       <el-table-column label="版本" width="70">
         <template #default="{ row }">
           <span class="pv-ver">v{{ row.version_no }}</span>
@@ -82,8 +87,8 @@
     :close-on-click-modal="false"
     append-to-body
   >
-    <el-form :model="createForm" label-width="80px">
-      <el-form-item label="版本名称" required>
+    <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="80px">
+      <el-form-item label="版本名称" prop="name">
         <el-input v-model="createForm.name" placeholder="如 v1.0 / 冒烟基线" maxlength="100" show-word-limit />
       </el-form-item>
       <el-form-item label="说明">
@@ -100,7 +105,7 @@
   <el-dialog
     v-model="diffVisible"
     title="版本对比"
-    width="960px"
+    width="min(960px, 92vw)"
     align-center
     :close-on-click-modal="false"
     append-to-body
@@ -151,7 +156,7 @@
   <el-dialog
     v-model="fieldDiffVisible"
     :title="fieldDiffTitle"
-    width="860px"
+    width="min(860px, 92vw)"
     align-center
     :close-on-click-modal="false"
     append-to-body
@@ -171,9 +176,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Right } from '@element-plus/icons-vue'
+import { ref, computed, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { Check, Right, WarningFilled } from '@element-plus/icons-vue'
 import {
   projectVersionApi,
   type ProjectVersionListItem,
@@ -192,6 +197,7 @@ const visible = defineModel<boolean>({ default: false })
 
 const versions = ref<ProjectVersionListItem[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const baseId = ref<number | null>(null)
 const targetId = ref<number | null>(null)
 
@@ -201,6 +207,7 @@ const targetVerNo = computed(() => versions.value.find(v => v.id === targetId.va
 async function loadVersions() {
   if (!props.projectId) return
   loading.value = true
+  loadError.value = ''
   baseId.value = null
   targetId.value = null
   try {
@@ -210,7 +217,8 @@ async function loadVersions() {
       baseId.value = versions.value[1].id
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '加载版本列表失败')
+    // 弹窗内列表加载失败同样内联展示 + 重试（关掉弹窗才发现没数据是差体验）
+    loadError.value = e.message || '加载版本列表失败'
   } finally {
     loading.value = false
   }
@@ -220,33 +228,38 @@ async function loadVersions() {
 const createVisible = ref(false)
 const creating = ref(false)
 const createForm = ref({ name: '', description: '' })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const createFormRef = ref<FormInstance>()
+const createRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入版本名称', trigger: 'blur' }],
+}
 
 function onOpenCreate() {
   const nextNo = versions.value.length ? versions.value[0].version_no + 1 : 1
   createForm.value = { name: `v${nextNo}.0`, description: '' }
   createVisible.value = true
+  nextTick(() => createFormRef.value?.clearValidate())
 }
 
 async function onCreate() {
-  if (!createForm.value.name.trim()) {
-    ElMessage.warning('请输入版本名称')
-    return
-  }
-  if (!props.projectId) return
-  creating.value = true
-  try {
-    await projectVersionApi.create(props.projectId, {
-      name: createForm.value.name.trim(),
-      description: createForm.value.description.trim() || undefined,
-    })
-    ElMessage.success('已保存新版本')
-    createVisible.value = false
-    await loadVersions()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    creating.value = false
-  }
+  if (!createFormRef.value) return
+  await createFormRef.value.validate(async (valid) => {
+    if (!valid || !props.projectId) return
+    creating.value = true
+    try {
+      await projectVersionApi.create(props.projectId, {
+        name: createForm.value.name.trim(),
+        description: createForm.value.description.trim() || undefined,
+      })
+      ElMessage.success('已保存新版本')
+      createVisible.value = false
+      await loadVersions()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      creating.value = false
+    }
+  })
 }
 
 // ============ 回滚 ============

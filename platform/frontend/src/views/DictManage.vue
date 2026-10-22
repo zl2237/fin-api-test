@@ -42,6 +42,11 @@
     <div class="table-wrap">
       <el-card shadow="never" class="card">
         <el-skeleton v-if="loading" :rows="5" animated class="skeleton-wrap" />
+        <div v-else-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="load">重试</el-button>
+        </div>
         <el-table v-else :data="pagedList" stripe size="small" row-key="id" @sort-change="onSortChange">
           <template #empty>
             <EmptyState :description="hasActiveFilter ? '没有匹配的字典，试试调整筛选条件' : '暂无字段字典'" :image-size="80">
@@ -87,11 +92,11 @@
 
     <!-- 新增/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑字典' : '新增字典'" width="420px" align-center :close-on-click-modal="false">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="字段名" required>
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="80px">
+        <el-form-item label="字段名" prop="key">
           <el-input v-model="form.key" placeholder="如 order_id / bl_no" />
         </el-form-item>
-        <el-form-item label="中文名" required>
+        <el-form-item label="中文名" prop="label">
           <el-input v-model="form.label" placeholder="如 订单ID / 提单号" />
         </el-form-item>
       </el-form>
@@ -102,7 +107,7 @@
     </el-dialog>
 
     <!-- 批量导入弹窗（宽度归档：420 / 560 / 720 三档） -->
-    <el-dialog v-model="batchVisible" title="批量导入字典" width="560px" align-center :close-on-click-modal="false">
+    <el-dialog v-model="batchVisible" title="批量导入字典" width="min(560px, 92vw)" align-center :close-on-click-modal="false">
       <el-alert type="info" :closable="false" style="margin-bottom: 12px">
         <div class="batch-guide">
           <div class="guide-title">导入格式说明</div>
@@ -135,9 +140,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { Search, WarningFilled } from '@element-plus/icons-vue'
 import { dictApi, userApi, type FieldDictionary, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { debounce } from '@/utils/ui'
@@ -149,6 +154,7 @@ const store = useAppStore()
 const list = ref<FieldDictionary[]>([])
 const users = ref<SimpleUser[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const filterCreator = ref<number | null>(null)
 const filterUpdater = ref<number | null>(null)
@@ -182,10 +188,12 @@ const pagedList = computed(() => {
 async function load() {
   if (!store.currentProjectId) return
   loading.value = true
+  loadError.value = ''
   try {
     list.value = await dictApi.list(store.currentProjectId, keyword.value || undefined)
   } catch (e: any) {
-    ElMessage.error(e.message || '加载失败')
+    // 页面级加载失败：内联错误块 + 重试（与其余列表页统一，不用一闪而过的 toast）
+    loadError.value = e.message || '加载失败'
   } finally {
     loading.value = false
   }
@@ -210,42 +218,50 @@ const dialogVisible = ref(false)
 const editing = ref<FieldDictionary | null>(null)
 const form = ref({ key: '', label: '' })
 const saving = ref(false)
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const formRef = ref<FormInstance>()
+const formRules: FormRules = {
+  key: [{ required: true, whitespace: true, message: '请输入字段名', trigger: 'blur' }],
+  label: [{ required: true, whitespace: true, message: '请输入中文名', trigger: 'blur' }],
+}
 
 function openCreate() {
   editing.value = null
   form.value = { key: '', label: '' }
   dialogVisible.value = true
+  nextTick(() => formRef.value?.clearValidate())
 }
 
 function onEdit(row: FieldDictionary) {
   editing.value = row
   form.value = { key: row.key, label: row.label }
   dialogVisible.value = true
+  nextTick(() => formRef.value?.clearValidate())
 }
 
 async function onSave() {
-  if (!form.value.key.trim() || !form.value.label.trim()) {
-    ElMessage.warning('字段名和中文名都不能为空')
-    return
-  }
-  if (!store.currentProjectId) return
-  saving.value = true
-  try {
-    if (editing.value) {
-      await dictApi.update(editing.value.id, { key: form.value.key.trim(), label: form.value.label.trim() })
-      ElMessage.success('已更新')
-    } else {
-      await dictApi.create({ project_id: store.currentProjectId, key: form.value.key.trim(), label: form.value.label.trim() })
-      ElMessage.success('已新增')
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    if (!store.currentProjectId) return
+    saving.value = true
+    try {
+      if (editing.value) {
+        await dictApi.update(editing.value.id, { key: form.value.key.trim(), label: form.value.label.trim() })
+        ElMessage.success('已更新')
+      } else {
+        await dictApi.create({ project_id: store.currentProjectId, key: form.value.key.trim(), label: form.value.label.trim() })
+        ElMessage.success('已新增')
+      }
+      dialogVisible.value = false
+      await load()
+      await store.loadFieldDict()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      saving.value = false
     }
-    dialogVisible.value = false
-    await load()
-    await store.loadFieldDict()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  })
 }
 
 async function onRemove(row: FieldDictionary) {

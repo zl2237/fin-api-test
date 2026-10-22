@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="visible"
     title="编辑并重放节点"
-    width="1080px"
+    width="min(1080px, 92vw)"
     :close-on-click-modal="false"
     class="replay-dialog"
     @update:model-value="(v: boolean) => emit('update:visible', v)"

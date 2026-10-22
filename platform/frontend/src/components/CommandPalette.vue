@@ -22,6 +22,11 @@
       />
       <el-tag size="small" effect="plain" round class="cmd-kbd">Esc</el-tag>
     </div>
+    <!-- 主搜索源（用例/接口）加载失败：降级提示而非静默，避免「搜不到」被误读为「不存在」 -->
+    <div v-if="sourcesError" class="cmd-src-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>部分搜索源加载失败，结果可能不全（重新打开可重试）</span>
+    </div>
     <div class="cmd-list">
       <div
         v-for="(item, idx) in results"
@@ -55,7 +60,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Share, Connection, Folder, Document, Coin, Monitor, Paperclip, Notebook } from '@element-plus/icons-vue'
+import { Search, Share, Connection, Folder, Document, Coin, Monitor, Paperclip, Notebook, WarningFilled } from '@element-plus/icons-vue'
 import {
   caseApi, apiApi, projectApi, datasetApi, envApi, fileApi, dictApi,
   type TestCase, type ApiDef, type Project, type DataSet, type Environment, type TestFile, type FieldDictionary,
@@ -70,6 +75,7 @@ const store = useAppStore()
 
 const visible = ref(false)
 const keyword = ref('')
+const sourcesError = ref(false)
 const inputRef = shallowRef<HTMLInputElement | null>(null)
 const activeIdx = ref(0)
 
@@ -237,6 +243,7 @@ function onOpened() {
 
 async function loadAll() {
   if (!store.currentProjectId) return
+  sourcesError.value = false
   try {
     // 四类新数据源独立兜底：任一失败不影响其余搜索范围
     const [cs, as, dss, vs, fs, ds2] = await Promise.all([
@@ -253,7 +260,10 @@ async function loadAll() {
     envs.value = vs
     files.value = fs
     dicts.value = ds2
-  } catch { /* ignore */ }
+  } catch {
+    // 主搜索源（用例/接口）失败：不静默，面板顶部降级提示
+    sourcesError.value = true
+  }
 }
 
 async function ensureProjects() {
@@ -315,6 +325,18 @@ defineExpose({ open, close })
 }
 .cmd-kbd {
   flex-shrink: 0;
+}
+/* 搜索源降级提示：警告色细条，不打断搜索（区别于页面级 app-load-error 的阻断式重试） */
+.cmd-src-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-warn-bg);
+  color: var(--app-warn-text);
+  font-size: 12px;
 }
 .cmd-list {
   max-height: 360px;

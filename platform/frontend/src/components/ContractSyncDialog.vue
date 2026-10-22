@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="visible"
     :title="`接口参数与数据集配置有出入`"
-    width="720px"
+    width="min(720px, 92vw)"
     :close-on-click-modal="false"
     @update:model-value="(v: boolean) => emit('update:visible', v)"
   >

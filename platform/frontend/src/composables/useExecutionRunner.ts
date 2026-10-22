@@ -14,20 +14,13 @@
  */
 import { onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { caseApi, execApi } from '@/api'
+import { caseApi, execApi, type ExecutionSummary } from '@/api'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
-
-export interface ExecSummary {
-  total?: number
-  passed?: number
-  failed?: number
-  [key: string]: unknown
-}
 
 export interface ExecRecordLike {
   id: number
   status: string
-  summary?: ExecSummary
+  summary?: ExecutionSummary
 }
 
 export interface PollOptions {
