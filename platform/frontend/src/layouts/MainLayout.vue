@@ -285,22 +285,31 @@
       </el-header>
       <!-- 标签页栏（TransitionGroup 开关动画 + 右键快捷菜单） -->
       <div class="tab-bar">
-        <div class="tab-scroll">
+        <div ref="tabScrollRef" class="tab-scroll" role="tablist" aria-label="打开的标签页">
           <TransitionGroup name="tab">
             <div
               v-for="tab in tabStore.tabs"
               :key="tab.path"
               class="tab-item"
               :class="{ active: tab.path === route.path }"
+              role="tab"
+              :aria-selected="tab.path === route.path"
+              :tabindex="tab.path === route.path ? 0 : -1"
+              :data-path="tab.path"
               @click="router.push(tab.path)"
               @mousedown="onTabMouseDown($event, tab)"
               @contextmenu.prevent="onTabContextMenu($event, tab)"
+              @keydown="onTabKeydown($event, tab)"
             >
               <span class="tab-title">{{ tab.title }}</span>
               <el-icon
                 v-if="tab.closable"
                 class="tab-close"
+                role="button"
+                aria-label="关闭标签"
+                tabindex="0"
                 @click.stop="onTabClose(tab.path)"
+                @keydown.enter.stop.prevent="onTabClose(tab.path)"
               >
                 <Close />
               </el-icon>
@@ -322,22 +331,29 @@
         </el-dropdown>
       </div>
 
-      <!-- 标签页右键菜单（关闭/关闭左侧/右侧/其他，浏览器 tab 式操作） -->
+      <!-- 标签页右键菜单（关闭/关闭左侧/右侧/其他，浏览器 tab 式操作；键盘可经 Menu/Shift+F10 唤出） -->
       <Teleport to="body">
         <div
           v-if="tabCtx.visible"
+          ref="tabCtxMenuRef"
           class="tab-ctxmenu"
+          role="menu"
+          tabindex="-1"
           :style="{ left: tabCtx.x + 'px', top: tabCtx.y + 'px' }"
           @click.stop
+          @keydown="onCtxMenuKeydown"
         >
           <div
             v-if="tabCtx.tab?.closable"
             class="ctx-item"
+            role="menuitem"
+            tabindex="0"
             @click="onCtxAction('close')"
+            @keydown.enter.prevent="onCtxAction('close')"
           >关闭标签</div>
-          <div class="ctx-item" @click="onCtxAction('closeLeft')">关闭左侧</div>
-          <div class="ctx-item" @click="onCtxAction('closeRight')">关闭右侧</div>
-          <div class="ctx-item" @click="onCtxAction('closeOthers')">关闭其他</div>
+          <div class="ctx-item" role="menuitem" tabindex="0" @click="onCtxAction('closeLeft')" @keydown.enter.prevent="onCtxAction('closeLeft')">关闭左侧</div>
+          <div class="ctx-item" role="menuitem" tabindex="0" @click="onCtxAction('closeRight')" @keydown.enter.prevent="onCtxAction('closeRight')">关闭右侧</div>
+          <div class="ctx-item" role="menuitem" tabindex="0" @click="onCtxAction('closeOthers')" @keydown.enter.prevent="onCtxAction('closeOthers')">关闭其他</div>
         </div>
       </Teleport>
       <el-main class="main">
@@ -561,7 +577,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled } from '@element-plus/icons-vue'
@@ -890,6 +906,60 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
     e.preventDefault()
     if (tab.closable) onTabClose(tab.path)
   }
+}
+
+// ===== 标签栏键盘可达（浏览器 tab 语义：焦点随激活走，菜单可键盘唤出） =====
+const tabScrollRef = ref<HTMLElement>()
+const tabCtxMenuRef = ref<HTMLElement>()
+
+function focusTabEl(path: string) {
+  const el = tabScrollRef.value?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)
+  el?.focus()
+}
+
+/** ←/→ 切换并随动焦点（单选 tab 模式），Home/End 首尾，Menu/Shift+F10 唤出右键菜单的键盘等价物 */
+function onTabKeydown(e: KeyboardEvent, tab: TabItem) {
+  const idx = tabStore.tabs.findIndex((t) => t.path === tab.path)
+  if (idx === -1) return
+  let next = -1
+  if (e.key === 'ArrowRight') next = (idx + 1) % tabStore.tabs.length
+  else if (e.key === 'ArrowLeft') next = (idx - 1 + tabStore.tabs.length) % tabStore.tabs.length
+  else if (e.key === 'Home') next = 0
+  else if (e.key === 'End') next = tabStore.tabs.length - 1
+  else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+    e.preventDefault()
+    openTabCtxAtEl(tab)
+    return
+  } else return
+  e.preventDefault()
+  const target = tabStore.tabs[next]
+  if (!target || target.path === tab.path) return
+  router.push(target.path)
+  nextTick(() => focusTabEl(target.path))
+}
+
+/** 键盘唤出：菜单位置对齐到标签正下方（鼠标右键定位在光标处，两者语义一致） */
+function openTabCtxAtEl(tab: TabItem) {
+  const el = tabScrollRef.value?.querySelector<HTMLElement>(`[data-path="${CSS.escape(tab.path)}"]`)
+  const r = el?.getBoundingClientRect()
+  tabCtx.value = { visible: true, x: r?.left ?? 0, y: r ? r.bottom + 4 : 0, tab }
+  nextTick(() => tabCtxMenuRef.value?.focus())
+}
+
+/** 菜单键盘：↑/↓ 循环移动焦点，Esc 关闭并归还焦点到标签 */
+function onCtxMenuKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    hideTabCtx()
+    focusTabEl(tabCtx.value.tab?.path || route.path)
+    return
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  const items = Array.from(tabCtxMenuRef.value?.querySelectorAll<HTMLElement>('[role="menuitem"]') || [])
+  if (!items.length) return
+  const cur = items.indexOf(document.activeElement as HTMLElement)
+  const next = e.key === 'ArrowDown' ? (cur + 1) % items.length : (cur - 1 + items.length) % items.length
+  items[next]?.focus()
 }
 
 async function onTabCommand(cmd: string) {
@@ -1300,6 +1370,10 @@ onMounted(async () => {
 }
 .tab-scroll::-webkit-scrollbar {
   display: none;
+}
+.tab-item:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
 }
 .tab-item {
   position: relative;
