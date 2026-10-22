@@ -193,7 +193,12 @@
     </el-dialog>
 
     <!-- 主体：左右布局 -->
-    <div class="edit-body" v-loading="loading" element-loading-text="加载接口配置中...">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="initialLoad">重试</el-button>
+    </div>
+    <div v-else class="edit-body" v-loading="loading" element-loading-text="加载接口配置中...">
       <!-- 左侧：基础信息 -->
       <div class="basic-panel">
         <div class="panel-title">基础信息</div>
@@ -251,7 +256,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Upload, Search, QuestionFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, Upload, Search, QuestionFilled, WarningFilled } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import ContractSyncDialog from '@/components/ContractSyncDialog.vue'
@@ -280,6 +285,21 @@ const saving = ref(false)
 const contractDlgVisible = ref(false)
 const dirty = ref(false)
 const loading = ref(false)
+// 页面级加载失败（编辑模式拉接口配置失败）：内联错误块 + 重试，不让页面静默空壳
+const loadError = ref('')
+
+async function initialLoad() {
+  loading.value = isEdit.value
+  loadError.value = ''
+  try {
+    await loadGroups()
+    await loadApi()
+  } catch (e: any) {
+    loadError.value = e?.message || '加载接口配置失败'
+  } finally {
+    loading.value = false
+  }
+}
 const groups = ref<ApiGroup[]>([])
 
 // ===== 调试 =====
@@ -695,14 +715,7 @@ async function onSave() {
 }
 
 onMounted(async () => {
-  // 编辑模式加载数据期间显示骨架屏，避免空白无反馈
-  loading.value = isEdit.value
-  try {
-    await loadGroups()
-    await loadApi()
-  } finally {
-    loading.value = false
-  }
+  await initialLoad()
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('beforeunload', onBeforeUnload)
 })

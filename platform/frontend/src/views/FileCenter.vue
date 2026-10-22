@@ -87,7 +87,12 @@
           <el-icon :size="40"><Upload /></el-icon>
           <span>松开鼠标，上传到{{ filter.category_id ? '当前分类' : '文件中心' }}</span>
         </div>
-        <el-table v-loading="loading" :data="pagedFiles" stripe size="small" row-key="id" @sort-change="onSortChange">
+        <div v-if="loadError" class="app-load-error">
+          <el-icon><WarningFilled /></el-icon>
+          <span>{{ loadError }}</span>
+          <el-button size="small" @click="loadFiles">重试</el-button>
+        </div>
+        <el-table v-else v-loading="loading" :data="pagedFiles" stripe size="small" row-key="id" @sort-change="onSortChange">
           <template #empty>
             <EmptyState description="暂无文件" :image-size="80">
               <span class="empty-hint">点击左上角「上传文件」，或直接把文件拖到这里</span>
@@ -202,7 +207,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Edit, Delete, Files, FolderOpened, Search, Upload,
-  Picture, Document, VideoPlay, Files as FilesIcon,
+  Picture, Document, VideoPlay, Files as FilesIcon, WarningFilled,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
@@ -220,6 +225,7 @@ const files = ref<TestFile[]>([])
 // 全量文件列表（不带过滤条件），用于侧边栏各分类计数
 const allFiles = ref<TestFile[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const filter = ref<{ category_id?: number | null; keyword?: string }>({})
 const page = ref(1)
 const pageSize = ref(10)
@@ -247,6 +253,7 @@ function countFilesInCategory(catId: number): number {
 async function loadFiles() {
   if (!projectId.value) return
   loading.value = true
+  loadError.value = ''
   try {
     const params = {
       category_id: filter.value.category_id,
@@ -261,7 +268,8 @@ async function loadFiles() {
       allFiles.value = await fileApi.list(projectId.value, {})
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '加载文件失败')
+    // 页面级加载失败：内联错误块 + 重试（与其余列表页统一，不用一闪而过的 toast）
+    loadError.value = e.message || '加载文件失败'
   } finally {
     loading.value = false
   }

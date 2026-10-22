@@ -12,7 +12,12 @@
       <el-button type="primary" @click="onOpenCreate">保存新版本</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="versions" border size="small" row-key="id" max-height="420">
+    <div v-if="loadError" class="app-load-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ loadError }}</span>
+      <el-button size="small" @click="loadVersions">重试</el-button>
+    </div>
+    <el-table v-else v-loading="loading" :data="versions" border size="small" row-key="id" max-height="420">
       <el-table-column label="版本" width="70">
         <template #default="{ row }">
           <span class="pv-ver">v{{ row.version_no }}</span>
@@ -173,7 +178,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Right } from '@element-plus/icons-vue'
+import { Check, Right, WarningFilled } from '@element-plus/icons-vue'
 import {
   projectVersionApi,
   type ProjectVersionListItem,
@@ -192,6 +197,7 @@ const visible = defineModel<boolean>({ default: false })
 
 const versions = ref<ProjectVersionListItem[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const baseId = ref<number | null>(null)
 const targetId = ref<number | null>(null)
 
@@ -201,6 +207,7 @@ const targetVerNo = computed(() => versions.value.find(v => v.id === targetId.va
 async function loadVersions() {
   if (!props.projectId) return
   loading.value = true
+  loadError.value = ''
   baseId.value = null
   targetId.value = null
   try {
@@ -210,7 +217,8 @@ async function loadVersions() {
       baseId.value = versions.value[1].id
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '加载版本列表失败')
+    // 弹窗内列表加载失败同样内联展示 + 重试（关掉弹窗才发现没数据是差体验）
+    loadError.value = e.message || '加载版本列表失败'
   } finally {
     loading.value = false
   }
