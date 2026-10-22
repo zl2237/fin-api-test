@@ -42,6 +42,7 @@ const visible = computed({
 
 const newGroupName = ref('')
 const newGroupParentId = ref<number | null>(null)
+const adding = ref(false)
 // el-tree 可变数据（管理弹窗拖拽用），treeData 变化（分组重载）或弹窗打开时重建
 const groupTreeNodes = ref<GroupTreeNode[]>([])
 const treeProps = { label: 'label', children: 'children' }
@@ -55,7 +56,9 @@ watch([() => props.modelValue, () => props.treeData], ([open]) => {
 })
 
 async function onAddGroup() {
-  if (!newGroupName.value.trim()) return
+  // 空名静默 return 是差体验（点了没反应）：指名提示
+  if (!newGroupName.value.trim()) return ElMessage.warning('请输入分组名称')
+  adding.value = true
   try {
     await props.api.create({
       project_id: props.projectId!,
@@ -68,6 +71,8 @@ async function onAddGroup() {
     ElMessage.success('已添加')
   } catch (e: any) {
     ElMessage.error(e.message || '添加失败')
+  } finally {
+    adding.value = false
   }
 }
 
@@ -135,7 +140,7 @@ async function onTreeNodeDrop() {
           check-strictly
           style="width: 220px"
         />
-        <el-button type="primary" @click="onAddGroup">添加</el-button>
+        <el-button type="primary" :loading="adding" @click="onAddGroup">添加</el-button>
       </div>
       <div class="group-drag-tip">拖拽节点可调整层级与顺序，松开自动保存</div>
       <div class="group-tree-scroll">

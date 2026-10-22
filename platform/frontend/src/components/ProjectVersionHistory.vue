@@ -87,8 +87,8 @@
     :close-on-click-modal="false"
     append-to-body
   >
-    <el-form :model="createForm" label-width="80px">
-      <el-form-item label="版本名称" required>
+    <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="80px">
+      <el-form-item label="版本名称" prop="name">
         <el-input v-model="createForm.name" placeholder="如 v1.0 / 冒烟基线" maxlength="100" show-word-limit />
       </el-form-item>
       <el-form-item label="说明">
@@ -176,8 +176,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Check, Right, WarningFilled } from '@element-plus/icons-vue'
 import {
   projectVersionApi,
@@ -228,33 +228,38 @@ async function loadVersions() {
 const createVisible = ref(false)
 const creating = ref(false)
 const createForm = ref({ name: '', description: '' })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const createFormRef = ref<FormInstance>()
+const createRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入版本名称', trigger: 'blur' }],
+}
 
 function onOpenCreate() {
   const nextNo = versions.value.length ? versions.value[0].version_no + 1 : 1
   createForm.value = { name: `v${nextNo}.0`, description: '' }
   createVisible.value = true
+  nextTick(() => createFormRef.value?.clearValidate())
 }
 
 async function onCreate() {
-  if (!createForm.value.name.trim()) {
-    ElMessage.warning('请输入版本名称')
-    return
-  }
-  if (!props.projectId) return
-  creating.value = true
-  try {
-    await projectVersionApi.create(props.projectId, {
-      name: createForm.value.name.trim(),
-      description: createForm.value.description.trim() || undefined,
-    })
-    ElMessage.success('已保存新版本')
-    createVisible.value = false
-    await loadVersions()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    creating.value = false
-  }
+  if (!createFormRef.value) return
+  await createFormRef.value.validate(async (valid) => {
+    if (!valid || !props.projectId) return
+    creating.value = true
+    try {
+      await projectVersionApi.create(props.projectId, {
+        name: createForm.value.name.trim(),
+        description: createForm.value.description.trim() || undefined,
+      })
+      ElMessage.success('已保存新版本')
+      createVisible.value = false
+      await loadVersions()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      creating.value = false
+    }
+  })
 }
 
 // ============ 回滚 ============
