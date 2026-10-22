@@ -163,7 +163,7 @@ async function onRemoveSchedule(s: TestSchedule) {
   <!-- 标题单行省略：用例名过长时不撑高弹窗（hover title 看全名）；外壳样式在全局 style.css -->
   <el-dialog
     v-model="visible"
-    width="560px"
+    width="min(560px, 92vw)"
     align-center
     :close-on-click-modal="false"
     class="schedule-dialog"

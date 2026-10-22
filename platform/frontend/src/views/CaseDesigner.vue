@@ -153,7 +153,7 @@
     />
 
     <!-- 拆分确认弹窗：选中节点抽离 + 跨界变量清单 -->
-    <el-dialog v-model="splitVisible" title="拆分用例" width="580px" align-center :close-on-click-modal="false">
+    <el-dialog v-model="splitVisible" title="拆分用例" width="min(580px, 92vw)" align-center :close-on-click-modal="false">
       <div class="split-tip">
         将把选中的 {{ splitNodeIds.length }} 个节点抽离为新用例（复制其配置与内部连线），原用例保留其余节点；
         两侧之间的连线会被移除。

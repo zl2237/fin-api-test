@@ -152,7 +152,7 @@
     </div>
 
     <!-- 新建/编辑数据集信息（名称/描述） -->
-    <el-dialog v-model="dlgVisible" :title="dlgMode === 'create' ? '新建数据集' : '编辑数据集'" width="560px">
+    <el-dialog v-model="dlgVisible" :title="dlgMode === 'create' ? '新建数据集' : '编辑数据集'" width="min(560px, 92vw)">
       <el-form label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="如：运单数据-场景A" maxlength="100" />
@@ -671,6 +671,11 @@ watch(() => store.currentProjectId, () => {
   flex: 1;
   min-height: 0;
   display: flex;
+}
+/* 窄屏（平板档）：分组侧栏让位主列表——收窄 + 藏计数徽标（P2-c 并组时合并为单份） */
+@media (max-width: 960px) {
+  .group-side { width: 160px; }
+  .side-cnt { display: none; }
 }
 .group-side {
   width: 220px;

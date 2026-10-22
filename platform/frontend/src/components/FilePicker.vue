@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     title="选择文件"
-    width="780px"
+    width="min(780px, 92vw)"
     align-center
     append-to-body
     destroy-on-close

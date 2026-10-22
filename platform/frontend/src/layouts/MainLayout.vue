@@ -359,7 +359,7 @@
   <el-dialog
     v-model="store.coreCapVisible"
     :title="coreCapTitle"
-    width="860px"
+    width="min(860px, 92vw)"
     align-center
     class="corecap-dialog"
   >

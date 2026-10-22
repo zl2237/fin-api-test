@@ -107,7 +107,7 @@
     </el-dialog>
 
     <!-- 批量导入弹窗（宽度归档：420 / 560 / 720 三档） -->
-    <el-dialog v-model="batchVisible" title="批量导入字典" width="560px" align-center :close-on-click-modal="false">
+    <el-dialog v-model="batchVisible" title="批量导入字典" width="min(560px, 92vw)" align-center :close-on-click-modal="false">
       <el-alert type="info" :closable="false" style="margin-bottom: 12px">
         <div class="batch-guide">
           <div class="guide-title">导入格式说明</div>
