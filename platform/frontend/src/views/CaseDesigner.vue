@@ -73,23 +73,10 @@
         </div>
         <div class="toolbar-right">
           <span class="dirty-tip">{{ dirty ? '有未保存改动' : '已保存' }}</span>
-          <el-select
-            v-model="store.currentEnvId"
-            placeholder="选择环境"
-            size="default"
-            style="width: 160px"
-            :disabled="!store.environments.length"
-          >
-            <template #prefix>
-              <el-icon><Connection /></el-icon>
-            </template>
-            <el-option
-              v-for="e in store.environments"
-              :key="e.id"
-              :label="e.name"
-              :value="e.id"
-            />
-          </el-select>
+          <!-- 执行环境=用例绑定属性（严格绑定）：只读展示，改绑在用例列表行内。
+               原全局环境选择器与执行解耦后成误导（选了 A 环境实际跑绑定环境），已移除 -->
+          <EnvBadge v-if="caseData.env_id" :name="caseData.env_name" :id="caseData.env_id" />
+          <el-tag v-else size="small" type="danger" effect="plain">环境未绑定</el-tag>
           <!-- dirty 圆点提示：抽屉「应用配置」只写内存，此处按钮才是持久化（双层保存语义可视化） -->
           <el-button type="primary" :class="{ 'save-dirty': dirty }" :loading="saving" @click="onSave">
             保存用例<span v-if="dirty" class="dirty-dot" aria-hidden="true" />
@@ -211,8 +198,9 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Connection, CaretRight, Search, Grid, Share, Scissor, Loading } from '@element-plus/icons-vue'
+import { ArrowLeft, CaretRight, Search, Grid, Share, Scissor, Loading } from '@element-plus/icons-vue'
 import DagCanvas from '@/components/DagCanvas.vue'
+import EnvBadge from '@/components/EnvBadge.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
 import { caseApi, apiApi, apiGroupApi, datasetApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
 import { useAppStore } from '@/stores'
@@ -657,7 +645,7 @@ async function onSave(): Promise<boolean> {
 
 async function onRun() {
   if (!caseData.value.id) return ElMessage.warning('请先保存用例')
-  // 整用例执行走用例绑定环境（工具栏环境仅用于节点调试）；保存失败即中断：避免「跑的是旧数据」
+  // 整用例执行走用例绑定环境；保存失败即中断：避免「跑的是旧数据」
   const saved = await onSave()
   if (!saved) return
   running.value = true
