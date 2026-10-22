@@ -343,7 +343,7 @@
       <el-main class="main">
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
-            <keep-alive :max="15">
+            <keep-alive :max="keepAliveMax">
               <component :is="Component" :key="route.fullPath" />
             </keep-alive>
           </transition>
@@ -813,6 +813,14 @@ async function onUserCommand(cmd: string) {
 }
 
 // ===== 标签页操作 =====
+/**
+ * keep-alive 缓存上限随打开标签数增长（下限 15）。
+ * 固定 15 的问题：开到第 16 个标签时 LRU 会静默逐出最旧实例——若那正是带未保存
+ * 改动的编辑页（浏览器标签模型下切换不提示），改动就无声丢失。绑定标签数后，
+ * 「标签还开着却被逐出」不再可能；关掉的标签随下限回落自然老化出缓存（与浏览器
+ * 标签占内存、关掉即释放的行为一致）。
+ */
+const keepAliveMax = computed(() => Math.max(15, tabStore.tabs.length))
 /**
  * 关闭前未保存确认（浏览器标签模型：切换标签永不弹，仅关闭时提示）。
  * dirty 登记由各编辑页 watch(dirty) 上报（tabs.dirtyTabs）。
