@@ -202,11 +202,11 @@
       <!-- 左侧：基础信息 -->
       <div class="basic-panel">
         <div class="panel-title">基础信息</div>
-        <el-form label-width="90px" :model="formData">
-          <el-form-item label="接口名称" required>
+        <el-form ref="formRef" label-width="90px" :model="formData" :rules="formRules">
+          <el-form-item label="接口名称" prop="name">
             <el-input v-model="formData.name" placeholder="创建订单" />
           </el-form-item>
-          <el-form-item label="接口编码" required>
+          <el-form-item label="接口编码" prop="code">
             <el-input v-model="formData.code" placeholder="order_create" />
           </el-form-item>
           <el-form-item label="接口分组">
@@ -222,7 +222,7 @@
               <el-option label="DELETE" value="DELETE" />
             </el-select>
           </el-form-item>
-          <el-form-item label="请求路径" required>
+          <el-form-item label="请求路径" prop="path">
             <el-input v-model="formData.path" placeholder="/api/order/orderEntrust/orderAdd" />
           </el-form-item>
           <el-form-item label="描述">
@@ -255,7 +255,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft, Upload, Search, QuestionFilled, WarningFilled } from '@element-plus/icons-vue'
 import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
@@ -620,6 +620,13 @@ const formData = reactive<ApiFormData>({
   fields: [],
   is_array_body: false,
 })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const formRef = ref<FormInstance>()
+const formRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入接口名称', trigger: 'blur' }],
+  code: [{ required: true, whitespace: true, message: '请输入接口编码', trigger: 'blur' }],
+  path: [{ required: true, whitespace: true, message: '请输入请求路径', trigger: 'blur' }],
+}
 
 // 监听变更
 watch(formData, () => { dirty.value = true }, { deep: true })
@@ -666,52 +673,52 @@ const onBeforeUnload = (e: BeforeUnloadEvent) => {
 }
 
 async function onSave() {
-  // trim 关键字段，避免首尾空格
-  formData.name = formData.name.trim()
-  formData.code = formData.code.trim()
-  formData.path = formData.path.trim()
-  if (!formData.name || !formData.code || !formData.path) {
-    ElMessage.warning('名称、编码、路径不能为空')
-    return
-  }
-  saving.value = true
-  try {
-    const payload: Partial<ApiDef> = {
-      project_id: projectId.value!,
-      group_id: formData.group_id,
-      name: formData.name,
-      code: formData.code,
-      method: formData.method,
-      path: formData.path,
-      description: formData.description,
-      fields: formData.fields.filter(f => f.key),
-      // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
-      // 普通请求体用 {} 标记
-      request_template: formData.is_array_body ? [] : {},
-    }
-    if (isEdit.value) {
-      await apiApi.update(formData.id!, payload)
-      ElMessage.success('已保存')
-      // 契约出入检测（Q4 触发点之一）：字段契约变更影响引用数据集时有出入弹同步预览；
-      // 查询失败静默（不影响保存结果）
-      try {
-        const impact = await apiApi.contractImpact(formData.id!)
-        if (impact.length) contractDlgVisible.value = true
-      } catch { /* 静默 */ }
-    } else {
-      await apiApi.create(payload)
-      ElMessage.success('已创建')
-      // 先复位 dirty 再导航：watch 会据此清标签的未保存登记
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    // trim 关键字段，避免首尾空格（rules 的 whitespace 已拦全空格，此处只清首尾）
+    formData.name = formData.name.trim()
+    formData.code = formData.code.trim()
+    formData.path = formData.path.trim()
+    saving.value = true
+    try {
+      const payload: Partial<ApiDef> = {
+        project_id: projectId.value!,
+        group_id: formData.group_id,
+        name: formData.name,
+        code: formData.code,
+        method: formData.method,
+        path: formData.path,
+        description: formData.description,
+        fields: formData.fields.filter(f => f.key),
+        // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
+        // 普通请求体用 {} 标记
+        request_template: formData.is_array_body ? [] : {},
+      }
+      if (isEdit.value) {
+        await apiApi.update(formData.id!, payload)
+        ElMessage.success('已保存')
+        // 契约出入检测（Q4 触发点之一）：字段契约变更影响引用数据集时有出入弹同步预览；
+        // 查询失败静默（不影响保存结果）
+        try {
+          const impact = await apiApi.contractImpact(formData.id!)
+          if (impact.length) contractDlgVisible.value = true
+        } catch { /* 静默 */ }
+      } else {
+        await apiApi.create(payload)
+        ElMessage.success('已创建')
+        // 先复位 dirty 再导航：watch 会据此清标签的未保存登记
+        dirty.value = false
+        router.push('/apis')
+        return
+      }
       dirty.value = false
-      router.push('/apis')
-      return
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      saving.value = false
     }
-    dirty.value = false
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  })
 }
 
 onMounted(async () => {

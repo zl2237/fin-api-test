@@ -368,7 +368,7 @@
 
     <!-- 新建用例弹窗 -->
     <el-dialog v-model="dialogVisible" title="新建用例" width="420px" align-center :close-on-click-modal="false">
-      <el-form :model="form" label-width="80px">
+      <el-form ref="createFormRef" :model="form" :rules="createRules" label-width="80px">
         <el-form-item label="类型">
           <el-radio-group v-model="form.case_type">
             <el-radio value="normal">普通用例</el-radio>
@@ -378,10 +378,10 @@
             套件按顺序串行执行多个用例（可跨项目），上游变量池字段可注入下游（共享变量白名单），适合跨系统业务链
           </div>
         </el-form-item>
-        <el-form-item label="名称" required>
+        <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" :placeholder="form.case_type === 'suite' ? '融资全链路-套件' : '创建订单-冒烟'" />
         </el-form-item>
-        <el-form-item v-if="form.case_type !== 'suite'" label="执行环境" required>
+        <el-form-item v-if="form.case_type !== 'suite'" label="执行环境" prop="env_id">
           <el-select v-model="form.env_id" placeholder="选择执行环境（执行时严格使用）" style="width: 100%">
             <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
           </el-select>
@@ -404,7 +404,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="onCreate">创建</el-button>
+        <el-button type="primary" :loading="creating" @click="onCreate">创建</el-button>
       </template>
     </el-dialog>
 
@@ -508,7 +508,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import Sortable from 'sortablejs'
 import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
@@ -634,6 +634,20 @@ const batchRunVisible = ref(false)
 // 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
 const batchRunItems = ref<{ id: number; name: string }[]>([])
 const form = ref<{ case_type: string; name: string; group_id: number | null; description: string; env_id: number | null }>({ case_type: 'normal', name: '', group_id: null, description: '', env_id: null })
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const createFormRef = ref<FormInstance>()
+const creating = ref(false)
+const createRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入用例名称', trigger: 'blur' }],
+  // 环境严格绑定：普通用例必须绑定执行环境（套件成员各自绑定，套件本体不需要）
+  env_id: [{
+    validator: (_rule, _value, callback) => {
+      if (form.value.case_type !== 'suite' && !form.value.env_id) callback(new Error('请选择执行环境'))
+      else callback()
+    },
+    trigger: 'change',
+  }],
+}
 
 // 环境严格绑定：列表行内改绑执行环境（成功后同步冗余名，失败提示并刷新还原）
 async function onEnvChange(row: TestCase, envId: number | null) {
@@ -807,25 +821,34 @@ async function loadGroups() {
 function openCreate() {
   form.value = { case_type: 'normal', name: '', group_id: null, description: '', env_id: null }
   dialogVisible.value = true
+  nextTick(() => createFormRef.value?.clearValidate())
 }
 
 async function onCreate() {
-  if (!form.value.name?.trim()) return ElMessage.warning('请输入用例名称')
-  // 环境严格绑定：普通用例必须绑定执行环境（套件成员各自绑定，套件本体不需要）
-  if (form.value.case_type !== 'suite' && !form.value.env_id) return ElMessage.warning('请选择执行环境')
-  const created = await caseApi.create({
-    project_id: store.currentProjectId!,
-    group_id: form.value.group_id,
-    name: form.value.name.trim(),
-    description: form.value.description,
-    case_type: form.value.case_type,
-    env_id: form.value.env_id,
-    dag_config: { nodes: [], edges: [] },
-    node_configs: [],
+  if (!createFormRef.value) return
+  await createFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    creating.value = true
+    try {
+      const created = await caseApi.create({
+        project_id: store.currentProjectId!,
+        group_id: form.value.group_id,
+        name: form.value.name.trim(),
+        description: form.value.description,
+        case_type: form.value.case_type,
+        env_id: form.value.env_id,
+        dag_config: { nodes: [], edges: [] },
+        node_configs: [],
+      })
+      ElMessage.success('已创建')
+      dialogVisible.value = false
+      goDesign(created)
+    } catch (e: any) {
+      ElMessage.error(e.message || '创建失败')
+    } finally {
+      creating.value = false
+    }
   })
-  ElMessage.success('已创建')
-  dialogVisible.value = false
-  goDesign(created)
 }
 
 // 编排入口分流：普通用例进 DAG 编排页，套件进套件编排页（成员链/白名单/执行）

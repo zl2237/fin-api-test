@@ -106,8 +106,8 @@
 
     <!-- 新建/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑项目' : '新建项目'" width="420px" align-center :close-on-click-modal="false">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="项目名称">
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="80px">
+        <el-form-item label="项目名称" prop="name">
           <el-input v-model="form.name" placeholder="如：fin-order 测试" />
         </el-form-item>
         <el-form-item label="描述">
@@ -123,8 +123,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import Sortable from 'sortablejs'
 import { Rank, WarningFilled } from '@element-plus/icons-vue'
 import { projectApi, userApi, type Project, type SimpleUser } from '@/api'
@@ -210,6 +210,11 @@ onBeforeUnmount(() => {
   if (sortableInst) { sortableInst.destroy(); sortableInst = null }
 })
 const dialogVisible = ref(false)
+// 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
+const formRef = ref<FormInstance>()
+const formRules: FormRules = {
+  name: [{ required: true, whitespace: true, message: '请输入项目名称', trigger: 'blur' }],
+}
 const isEdit = ref(false)
 const saving = ref(false)
 const form = ref<{ id?: number; name: string; description: string }>({ name: '', description: '' })
@@ -240,35 +245,40 @@ function openCreate() {
   isEdit.value = false
   form.value = { name: '', description: '' }
   dialogVisible.value = true
+  nextTick(() => formRef.value?.clearValidate())
 }
 
 function onEdit(row: Project) {
   isEdit.value = true
   form.value = { id: row.id, name: row.name, description: row.description || '' }
   dialogVisible.value = true
+  nextTick(() => formRef.value?.clearValidate())
 }
 
 async function onSave() {
-  if (!form.value.name.trim()) return ElMessage.warning('请输入项目名称')
-  saving.value = true
-  try {
-    if (isEdit.value && form.value.id) {
-      await projectApi.update(form.value.id, { name: form.value.name, description: form.value.description })
-      ElMessage.success('已保存')
-    } else {
-      const created = await projectApi.create({ name: form.value.name, description: form.value.description })
-      ElMessage.success('已创建')
-      // 新建后自动切换为当前项目，避免新用户卡死
-      await store.loadProjects()
-      store.setProject(created.id)
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    saving.value = true
+    try {
+      if (isEdit.value && form.value.id) {
+        await projectApi.update(form.value.id, { name: form.value.name, description: form.value.description })
+        ElMessage.success('已保存')
+      } else {
+        const created = await projectApi.create({ name: form.value.name, description: form.value.description })
+        ElMessage.success('已创建')
+        // 新建后自动切换为当前项目，避免新用户卡死
+        await store.loadProjects()
+        store.setProject(created.id)
+      }
+      dialogVisible.value = false
+      await load()
+    } catch (e: any) {
+      ElMessage.error(e.message || '保存失败')
+    } finally {
+      saving.value = false
     }
-    dialogVisible.value = false
-    await load()
-  } catch (e: any) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  })
 }
 
 async function onSwitch(row: Project) {
