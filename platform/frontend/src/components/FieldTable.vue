@@ -170,11 +170,6 @@ function onFileSelect(file: TestFile) {
   font-size: 12px;
   color: var(--app-text-muted);
 }
-.add-btn {
-  margin-top: 10px;
-  width: 100%;
-  border-style: dashed;
-}
 .dict-hint {
   font-size: 11px;
   color: var(--app-text-muted);

@@ -42,6 +42,7 @@ import FilePicker from './FilePicker.vue'
 import ParamSourceForm from './ParamSourceForm.vue'
 import type { RefVarGroup } from './VarRefSelect.vue'
 import { funcMeta } from '@/constants/funcRegistry'
+import { isParamSpec, toFileId } from '@/utils/paramSource'
 
 const props = withDefaults(defineProps<{
   modelValue: any
@@ -58,9 +59,7 @@ const props = withDefaults(defineProps<{
 })
 const emit = defineEmits<{ (e: 'update:modelValue', v: ParamSpec): void }>()
 
-const isSpec = (v: any): v is ParamSpec =>
-  !!v && typeof v === 'object' && !Array.isArray(v)
-  && typeof v.source === 'string' && ['constant', 'func', 'ref', 'sql'].includes(v.source)
+const isSpec = isParamSpec
 
 const spec = computed<ParamSpec>(() => {
   if (isSpec(props.modelValue)) return props.modelValue
@@ -139,12 +138,8 @@ const isEmpty = computed(() => {
 
 // ===== 文件字段：文件中心选择器（弹层外持有，选中后以 constant file_id 提交） =====
 const filePickerVisible = ref(false)
-const fileIdNum = computed(() => {
-  const v = spec.value.source === 'constant' ? spec.value.value : null
-  if (typeof v === 'number') return v
-  if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v)
-  return null
-})
+const fileIdNum = computed(() =>
+  spec.value.source === 'constant' ? toFileId(spec.value.value) : null)
 function onFileSelect(f: TestFile) {
   emit('update:modelValue', { source: 'constant', value: String(f.id) })
 }
