@@ -299,11 +299,25 @@ class TestUpsertPlanJob:
 
         s._scheduler = FakeSched()
         monkeypatch.setattr(s, "_sync_next_run", lambda *a, **k: None)  # 不碰真库
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: FakeDb())  # remove 分支不碰真库
         return s
 
     def test_configured_plan_registers_plan_job(self, svc):
         svc.upsert_plan_job(_plan(schedule_type="interval", schedule_interval_minutes=5))
         assert "plan-3" in svc._scheduler.jobs
+
+    def test_remove_plan_job_clears_next_run_at(self, monkeypatch):
+        """移除 job 连带清 next_run_at：关开关/清定时后「下次」不再残留误导"""
+        s = SchedulerService()
+        s._scheduler = SimpleNamespace(remove_job=lambda jid: None)
+        plan = _plan(next_run_at="2026-10-27 23:58")
+        db = FakeDb({sched_mod.models.ExecutionPlan: plan})
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
+
+        s.remove_plan_job(3)
+
+        assert plan.next_run_at is None
+        assert db.committed == 1 and db.closed
 
     def test_no_schedule_removes(self, svc):
         svc._scheduler.jobs["plan-3"] = None

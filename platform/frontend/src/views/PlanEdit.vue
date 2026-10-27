@@ -128,8 +128,21 @@
             <div class="card-head">
               <span>定时执行</span>
               <div class="schedule-head-right">
-                <el-tooltip v-if="plan.schedule_type" content="停用后调度器跳过本轮（配置保留）" placement="top" popper-class="app-tip">
-                  <el-switch v-model="scheduleEnabled" size="small" @change="dirty = true" />
+                <el-tooltip
+                  :content="!plan.schedule_type
+                    ? '尚未配置定时：先在下方选择调度类型并保存，之后可在此开关'
+                    : scheduleEnabled
+                      ? '停用后调度器跳过本轮（配置保留）· 保存后生效'
+                      : '开启后由调度器接管定时执行 · 保存后生效'"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <el-switch
+                    :model-value="!!plan.schedule_type && scheduleEnabled"
+                    :disabled="!plan.schedule_type"
+                    size="small"
+                    @change="onToggleSchedule"
+                  />
                 </el-tooltip>
                 <el-tag v-if="plan.next_run_at" size="small" effect="plain" type="info">
                   下次 {{ formatTime(plan.next_run_at) }}
@@ -140,16 +153,16 @@
           </template>
           <el-form label-width="110px" @submit.prevent>
             <el-form-item label="调度类型">
-              <el-radio-group v-model="scheduleType" @change="dirty = true">
+              <el-radio-group v-model="scheduleType" @change="onScheduleTouched">
                 <el-radio value="interval">间隔执行</el-radio>
                 <el-radio value="daily">每日定时</el-radio>
               </el-radio-group>
             </el-form-item>
             <el-form-item v-if="scheduleType === 'interval'" label="间隔分钟">
-              <el-input-number v-model="scheduleMinutes" :min="1" :max="525600" style="width: 180px" @change="dirty = true" />
+              <el-input-number v-model="scheduleMinutes" :min="1" :max="525600" style="width: 180px" @change="onScheduleTouched" />
             </el-form-item>
             <el-form-item v-else label="每日时刻">
-              <el-time-picker v-model="scheduleDaily" format="HH:mm" value-format="HH:mm" placeholder="如 08:30" style="width: 180px" @change="dirty = true" />
+              <el-time-picker v-model="scheduleDaily" format="HH:mm" value-format="HH:mm" placeholder="如 08:30" style="width: 180px" @change="onScheduleTouched" />
             </el-form-item>
           </el-form>
           <div class="schedule-tip">
@@ -198,6 +211,19 @@ const scheduleType = ref<'interval' | 'daily'>('interval')
 const scheduleMinutes = ref(30)
 const scheduleDaily = ref('08:00')
 const scheduleEnabled = ref(true)
+// 本次编辑是否动过定时表单：决定保存时是否提交定时四件套
+// （未配置的方案不得因普通保存被隐式配上默认 30 分钟定时；清除后不得随保存复活）
+const scheduleTouched = ref(false)
+
+function onScheduleTouched() {
+  scheduleTouched.value = true
+  dirty.value = true
+}
+
+function onToggleSchedule(v: string | number | boolean) {
+  scheduleEnabled.value = !!v
+  onScheduleTouched()
+}
 
 // 本地成员行（保存时整体替换提交）；env/project 信息由 caseApi.get 补全展示
 interface ItemRow {
@@ -236,6 +262,7 @@ async function load() {
     scheduleMinutes.value = plan.value.schedule_interval_minutes || 30
     scheduleDaily.value = plan.value.schedule_daily_time || '08:00'
     scheduleEnabled.value = plan.value.schedule_enabled
+    scheduleTouched.value = false
     // 成员行回填 + caseApi.get 补全 env/project 展示（并行，成员数通常个位数）
     items.value = await Promise.all(plan.value.items.map(async (it) => {
       const base: ItemRow = {
@@ -359,10 +386,15 @@ async function onSave(silent = false) {
       name: name.value.trim(),
       description: description.value,
       concurrency: concurrency.value,
-      schedule_type: scheduleType.value,
-      schedule_interval_minutes: scheduleType.value === 'interval' ? scheduleMinutes.value : null,
-      schedule_daily_time: scheduleType.value === 'daily' ? scheduleDaily.value : null,
-      schedule_enabled: scheduleEnabled.value,
+      // 已配置或本次动过定时才提交四件套：未配置不得隐式配上默认定时，清除后不得随保存复活
+      ...(plan.value?.schedule_type || scheduleTouched.value
+        ? {
+            schedule_type: scheduleType.value,
+            schedule_interval_minutes: scheduleType.value === 'interval' ? scheduleMinutes.value : null,
+            schedule_daily_time: scheduleType.value === 'daily' ? scheduleDaily.value : null,
+            schedule_enabled: scheduleEnabled.value,
+          }
+        : {}),
     })
     plan.value = await planApi.updateItems(planId, items.value.map((m, i) => ({
       case_id: m.case_id,
@@ -384,7 +416,12 @@ async function onSave(silent = false) {
 async function onClearSchedule() {
   try {
     plan.value = await planApi.update(planId, { schedule_off: true })
+    // 本地表单一并复位，防后续普通保存让定时以默认值复活
+    scheduleType.value = 'interval'
+    scheduleMinutes.value = 30
+    scheduleDaily.value = '08:00'
     scheduleEnabled.value = plan.value.schedule_enabled
+    scheduleTouched.value = false
     ElMessage.success('已清除定时')
   } catch (e: any) {
     ElMessage.error(e.message || '清除失败')
