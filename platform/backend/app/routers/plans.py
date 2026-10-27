@@ -30,8 +30,8 @@ def _get_or_404(db: Session, plan_id: int) -> models.ExecutionPlan:
 def _fill_item(db: Session, item: models.ExecutionPlanItem) -> schemas.PlanItemOut:
     """成员展示回填：case/数据集实时值 + 悬空标记（不炸、标红交前端）。
 
-    dataset_id 为空 = 沿用用例自身绑定（前端显示「用例绑定」，不在此展开——
-    绑定随时可改，展开即成过期快照）。
+    dataset_id 为空 = 沿用用例自身绑定：回传 case_dataset_id（而非名称快照，
+    绑定随时可改，名称由前端按 id 在数据集列表里实时取）。
     """
     case = crud.get_testcase(db, item.case_id)
     dataset_name = None
@@ -49,6 +49,7 @@ def _fill_item(db: Session, item: models.ExecutionPlanItem) -> schemas.PlanItemO
         case_name=case.name if case else f"# {item.case_id}",
         case_type=getattr(case, "case_type", "normal") if case else None,
         dataset_name=dataset_name,
+        case_dataset_id=getattr(case, "dataset_id", None) if case else None,
         case_missing=case is None, dataset_missing=dataset_missing)
 
 
