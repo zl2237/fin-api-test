@@ -183,11 +183,19 @@ class SchedulerService:
             job = self._scheduler.get_job(jid)
             if not job or not job.next_run_time:
                 return
-            model = models.ExecutionPlan if is_plan else models.TestSchedule
-            row = db.query(model).filter(model.id == schedule_id).first()
-            if row:
-                row.next_run_at = job.next_run_time.replace(tzinfo=None)
-                db.commit()
+            # 分支查询而非二选一模型变量：mypy 无法对联合模型的 query 收窄属性
+            if is_plan:
+                prow = db.query(models.ExecutionPlan).filter(
+                    models.ExecutionPlan.id == schedule_id).first()
+                if prow:
+                    prow.next_run_at = job.next_run_time.replace(tzinfo=None)
+                    db.commit()
+            else:
+                srow = db.query(models.TestSchedule).filter(
+                    models.TestSchedule.id == schedule_id).first()
+                if srow:
+                    srow.next_run_at = job.next_run_time.replace(tzinfo=None)
+                    db.commit()
         finally:
             db.close()
 
