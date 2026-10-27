@@ -9,22 +9,17 @@ from sqlalchemy.orm import Session
 from .. import crud, models, schemas
 from ..auth import get_current_user
 from ..database import get_db
-from ..services.scheduler import _parse_daily_time, scheduler_service
+from ..services.scheduler import _validate_schedule_payload, scheduler_service
 
 router = APIRouter(prefix="/api/schedules", tags=["定时任务"])
 
 
 def _validate_payload(schedule_type, interval_minutes, daily_time):
-    """校验调度配置：类型合法 + 对应参数存在且合法；错误信息直给前端"""
-    if schedule_type not in ("interval", "daily"):
-        raise HTTPException(400, "schedule_type 仅支持 interval / daily")
-    if schedule_type == "interval":
-        if not interval_minutes or interval_minutes < 1:
-            raise HTTPException(400, "间隔分钟数必须 ≥ 1")
-    else:
-        hh, mm = _parse_daily_time(daily_time)
-        if hh is None:
-            raise HTTPException(400, "每日时刻格式应为 HH:MM（24小时制）")
+    """校验调度配置：共用口径（与方案内嵌定时一致），转 HTTP 400 直给前端"""
+    try:
+        _validate_schedule_payload(schedule_type, interval_minutes, daily_time)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 def _require_scheduler():

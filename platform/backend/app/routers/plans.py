@@ -1,4 +1,4 @@
-"""执行方案路由：方案的 CRUD、成员整替与一键执行（内嵌定时的调度同步后续接入）。
+"""执行方案路由：方案的 CRUD、成员整替、一键执行与内嵌定时。
 
 方案=执行配置组合（成员独立并行）；权限与用例一致（登录即可管理）。
 成员用例删除由 DB 级联清行（case_id ondelete=CASCADE），换绑数据集悬空不炸——
@@ -12,6 +12,7 @@ from ..auth import get_current_user
 from ..crud.plans import get_plan, list_plans
 from ..database import get_db
 from ..services import plan_executor
+from ..services.scheduler import _validate_schedule_payload, scheduler_service
 
 router = APIRouter(prefix="/api/plans", tags=["执行方案"])
 
@@ -99,7 +100,7 @@ def get_one(plan_id: int, db: Session = Depends(get_db),
 @router.put("/{plan_id}", response_model=schemas.ExecutionPlanDetailOut)
 def update(plan_id: int, data: schemas.ExecutionPlanUpdate, db: Session = Depends(get_db),
            user: models.User = Depends(get_current_user)):
-    """基础字段局部更新（内嵌定时配置的调度同步后续接入）"""
+    """基础字段 + 内嵌定时局部更新（定时变化后同步调度器 job；清空用 schedule_off）"""
     obj = _get_or_404(db, plan_id)
     if data.name is not None:
         if not data.name.strip():
@@ -114,9 +115,40 @@ def update(plan_id: int, data: schemas.ExecutionPlanUpdate, db: Session = Depend
     if data.enabled is not None:
         obj.enabled = data.enabled
 
+    schedule_touched = (data.schedule_off or data.schedule_type is not None
+                        or data.schedule_enabled is not None)
+    if schedule_touched and not scheduler_service.available:
+        raise HTTPException(503, "定时任务功能未启用：服务器未安装 APScheduler")
+    if data.schedule_off:
+        # 显式清除定时（schedule_type=None 在局部更新里表示「未提供」，无法区分清除）
+        obj.schedule_type = None
+        obj.schedule_interval_minutes = None
+        obj.schedule_daily_time = None
+        obj.next_run_at = None
+    elif data.schedule_type is not None:
+        # 合并后的最终配置整体校验（与单用例定时共用口径，避免局部更新漏配必填项）
+        minutes = (data.schedule_interval_minutes if data.schedule_interval_minutes is not None
+                   else obj.schedule_interval_minutes)
+        daily = (data.schedule_daily_time if data.schedule_daily_time is not None
+                 else obj.schedule_daily_time)
+        try:
+            _validate_schedule_payload(data.schedule_type, minutes, daily)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        # 按最终类型收纳参数：interval 只留分钟，daily 只留时刻（防脏数据残留）
+        obj.schedule_type = data.schedule_type
+        obj.schedule_interval_minutes = minutes if data.schedule_type == "interval" else None
+        obj.schedule_daily_time = daily if data.schedule_type == "daily" else None
+        obj.next_run_at = None  # 调度器注册后回写
+    if data.schedule_enabled is not None:
+        obj.schedule_enabled = data.schedule_enabled
+
     obj.updated_by = user.id
     db.commit()
     db.refresh(obj)
+    if schedule_touched:
+        scheduler_service.upsert_plan_job(obj)  # 注册/替换/移除 job 一处收敛
+        db.refresh(obj)  # next_run_at 已回写
     crud.log_operation(db, user, "update", "plan", obj.id, obj.name)
     return _fill_detail(db, obj)
 
@@ -165,6 +197,7 @@ def delete(plan_id: int, db: Session = Depends(get_db),
            user: models.User = Depends(get_current_user)):
     obj = _get_or_404(db, plan_id)
     name = obj.name
+    scheduler_service.remove_plan_job(plan_id)  # 先移除定时 job（若配过）再删，防空转
     db.delete(obj)  # items 级联（delete-orphan）；执行记录 plan_id 无外键、历史存活
     db.commit()
     crud.log_operation(db, user, "delete", "plan", obj.id, name)
