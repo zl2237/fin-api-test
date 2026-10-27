@@ -108,7 +108,10 @@
             </el-alert>
 
             <div v-loading="viewLoading" class="params-area">
-              <el-tabs v-if="view && view.nodes.length" v-model="activeNodeId" class="node-tabs" @tab-change="writeLast({})">
+              <el-tabs v-if="view && view.nodes.length" v-model="activeNodeId" class="node-tabs"
+                       @tab-change="writeLast({})"
+                       @keydown.left="onNodeTabsKeydown($event, -1)"
+                       @keydown.right="onNodeTabsKeydown($event, 1)">
                 <el-tab-pane
                   v-for="n in view.nodes"
                   :key="n.node_id"
@@ -352,6 +355,26 @@ function scrollActiveTabIntoView() {
       nav.style.transform = `translateX(-${Math.min(Math.max(0, target), maxOffset)}px)`
     }, 0)
   })
+}
+
+/** 节点 tab 键盘导航：焦点在标签栏时 ←/→ 切换相邻节点（tab-change 联动写记忆、居中） */
+function stepNode(dir: 1 | -1) {
+  const nodes = view.value?.nodes || []
+  if (nodes.length < 2) return
+  const i = nodes.findIndex((n) => n.node_id === activeNodeId.value)
+  const next = nodes[Math.min(nodes.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir))]
+  if (next && next.node_id !== activeNodeId.value) {
+    activeNodeId.value = next.node_id
+    scrollActiveTabIntoView()
+    setTimeout(() => document.querySelector<HTMLElement>('.node-tabs .el-tabs__item.is-active')?.focus(), 0)
+  }
+}
+
+function onNodeTabsKeydown(e: KeyboardEvent, dir: 1 | -1) {
+  // 只响应标签项上的按键，避免拦截参数表格输入框里的方向键
+  if (!(e.target as HTMLElement).closest('.el-tabs__item')) return
+  e.preventDefault()
+  stepNode(dir)
 }
 
 async function loadView(keepTab = false) {
