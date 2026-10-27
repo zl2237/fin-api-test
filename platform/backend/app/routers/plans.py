@@ -1,4 +1,4 @@
-"""执行方案路由：方案的 CRUD 与成员整替（一键执行与内嵌定时的调度同步后续接入）。
+"""执行方案路由：方案的 CRUD、成员整替与一键执行（内嵌定时的调度同步后续接入）。
 
 方案=执行配置组合（成员独立并行）；权限与用例一致（登录即可管理）。
 成员用例删除由 DB 级联清行（case_id ondelete=CASCADE），换绑数据集悬空不炸——
@@ -144,6 +144,20 @@ def replace_items(plan_id: int, data: schemas.PlanItemsReplaceIn,
     db.refresh(obj)
     crud.log_operation(db, user, "update", "plan", obj.id, f"{obj.name} 成员×{len(data.items)}")
     return _fill_detail(db, obj)
+
+
+@router.post("/{plan_id}/execute", response_model=list[schemas.ExecutionRecordOut])
+def execute(plan_id: int, db: Session = Depends(get_db),
+            user: models.User = Depends(get_current_user)):
+    """一键执行方案：先全量预检（任一成员不可执行 → 400、零记录），
+    再逐成员发射（成员独立并行，concurrency=方案配置），返回本次全部记录供轮询"""
+    obj = _get_or_404(db, plan_id)
+    try:
+        records = plan_executor.run_plan(db, obj, user.id, trigger_type="plan")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    crud.log_operation(db, user, "execute", "plan", obj.id, obj.name)
+    return records
 
 
 @router.delete("/{plan_id}", response_model=schemas.MessageOut)

@@ -35,7 +35,8 @@ class LaunchPlan:
 def build_launch_plan(db: Session, case, user_id: int, *,
                       trigger_type: str = "manual",
                       dataset_id: int | None = None,
-                      run_count: int = 1) -> LaunchPlan:
+                      run_count: int = 1,
+                      plan_id: int | None = None) -> LaunchPlan:
     """规划一个用例的一次发射：展开 → 建记录 → 组装 specs。
 
     数据集不可执行（无数据/不存在）或用例未绑定环境抛 ValueError，由调用方决定 4xx 或跳过。
@@ -61,7 +62,8 @@ def build_launch_plan(db: Session, case, user_id: int, *,
             record = exec_domain.create_execution(db, case_id=case.id, env_id=launch_env_id,
                                                   user_id=user_id, trigger_type=trigger_type,
                                                   dataset_id=item["dataset_id"],
-                                                  dataset_row=item["row"])
+                                                  dataset_row=item["row"],
+                                                  plan_id=plan_id)
             launch.records.append(record)
             launch.specs.append(ExecutionSpec(
                 execution_id=record.id,

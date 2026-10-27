@@ -656,6 +656,8 @@ class ExecutionRecordOut(ORMBase):
     dataset_id: int | None = None
     dataset_row: dict[str, Any] | None = None  # 数据驱动行快照 {row_index, data, label}
     suite_execution_id: int | None = None  # 套件来源：非空=套件链成员执行，指向套件主记录
+    plan_id: int | None = None  # 方案来源：非空=方案（一键/定时）触发；方案可删，plan_name 尽力回查
+    plan_name: str | None = None
     steps: list[StepRecordOut] = []
     created_by: int | None = None
     created_by_name: str | None = None
