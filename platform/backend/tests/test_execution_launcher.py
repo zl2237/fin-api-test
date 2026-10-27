@@ -28,9 +28,9 @@ def patched(monkeypatch):
     created, submitted = [], []
 
     def fake_create(db, case_id, env_id, user_id, trigger_type="manual",
-                    dataset_id=None, dataset_row=None):
+                    dataset_id=None, dataset_row=None, plan_id=None):
         rec = SimpleNamespace(id=100 + len(created), case_id=case_id, env_id=env_id,
-                              dataset_id=dataset_id, dataset_row=dataset_row)
+                              dataset_id=dataset_id, dataset_row=dataset_row, plan_id=plan_id)
         created.append({"record": rec, "trigger_type": trigger_type})
         return rec
 
