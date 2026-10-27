@@ -66,7 +66,7 @@
                   style="width: 240px"
                   size="small"
                   :loading="!dsOptions[m.case_id]"
-                  placeholder="数据集"
+                  :placeholder="m.dataset_id == null ? '用例默认绑定' : '数据集'"
                   @visible-change="(v: boolean) => v && loadDsOptions(m)"
                   @change="(v: any) => onPickDataset(m, v)"
                 >
@@ -233,6 +233,7 @@ interface ItemRow {
   project_id: number | null
   env_id: number | null
   dataset_id: number | null
+  case_dataset_id: number | null  // 用例自身绑定（dataset_id 空时实际生效）
   run_count: number
   case_missing: boolean
   dataset_missing: boolean
@@ -269,6 +270,7 @@ async function load() {
         case_id: it.case_id, case_name: it.case_name || '', case_type: it.case_type || 'normal',
         project_id: null, env_id: null,
         dataset_id: it.dataset_id ?? null,
+        case_dataset_id: it.case_dataset_id ?? null,
         run_count: it.run_count || 1,
         case_missing: !!it.case_missing, dataset_missing: !!it.dataset_missing,
       }
@@ -279,6 +281,7 @@ async function load() {
         base.case_type = c.case_type || 'normal'
         base.project_id = c.project_id
         base.env_id = c.env_id ?? null
+        base.case_dataset_id = c.dataset_id ?? null
       } catch { /* 用例详情取失败不阻塞编辑（执行预检兜底） */ }
       return base
     }))
@@ -344,7 +347,7 @@ function addItem() {
   items.value.push({
     case_id: c.id, case_name: c.name, case_type: c.case_type || 'normal',
     project_id: addProjectId.value, env_id: c.env_id ?? null,
-    dataset_id: null, run_count: 1,
+    dataset_id: null, case_dataset_id: c.dataset_id ?? null, run_count: 1,
     case_missing: false, dataset_missing: false,
   })
   dirty.value = true
@@ -360,10 +363,13 @@ function removeItem(i: number) {
 async function loadDsOptions(m: ItemRow) {
   if (dsOptions.value[m.case_id]) return
   try {
-    const list = await datasetApi.list({ case_id: m.case_id })
+    // with_rows：判断「（无数据）」置灰必须有行数据（list 缺省不带 rows）
+    const list = await datasetApi.list({ case_id: m.case_id, with_rows: true })
     dsOptions.value[m.case_id] = list.map(ds => ({
       id: ds.id,
-      label: ds.rows.length ? ds.name : `${ds.name}（无数据）`,
+      label: ds.rows.length
+        ? ds.name + (ds.id === m.case_dataset_id ? '（用例绑定）' : '')
+        : `${ds.name}（无数据）`,
       disabled: !ds.rows.length,
     }))
   } catch {

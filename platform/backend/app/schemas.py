@@ -917,6 +917,7 @@ class PlanItemOut(BaseModel):
     case_name: str | None = None
     case_type: str | None = None
     dataset_name: str | None = None
+    case_dataset_id: int | None = None  # 用例自身绑定（dataset_id 空时实际生效者，前端标记用）
     case_missing: bool = False      # 防御标记（DB 级联删除正常时不出现）
     dataset_missing: bool = False   # 换绑数据集已删：标红交前端，执行预检会精确报错
 

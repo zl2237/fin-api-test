@@ -600,6 +600,7 @@ export interface PlanItem {
   case_name?: string | null
   case_type?: string | null
   dataset_name?: string | null
+  case_dataset_id?: number | null   // 用例自身绑定（dataset_id 空时实际生效）
   case_missing?: boolean
   dataset_missing?: boolean
 }
