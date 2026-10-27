@@ -12,6 +12,10 @@ from .datasets import (  # noqa: F401  数据集域（数据驱动测试）
     list_datasets,
     list_rows,
 )
+from .plans import (  # noqa: F401  方案域（执行方案）
+    get_plan,
+    list_plans,
+)
 from .legacy import *  # noqa: F401,F403  兼容期：旧引用 from app import crud; crud.xxx 继续可用
 from .legacy import (  # noqa: F401  显式 re-export
     fill_audit_names_batch as fill_audit_names_batch,

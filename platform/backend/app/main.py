@@ -39,6 +39,7 @@ from .routers import (
     files,
     home,
     operation_logs,
+    plans,
     projects,
     reports,
     schedules,
@@ -176,6 +177,7 @@ app.include_router(apis.group_router)
 app.include_router(testcases.router)
 app.include_router(testcases.group_router)
 app.include_router(schedules.router)
+app.include_router(plans.router)
 app.include_router(datasets.router)
 app.include_router(versions.router)
 app.include_router(executions.router)
