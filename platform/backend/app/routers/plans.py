@@ -146,9 +146,10 @@ def update(plan_id: int, data: schemas.ExecutionPlanUpdate, db: Session = Depend
     obj.updated_by = user.id
     db.commit()
     db.refresh(obj)
-    if schedule_touched:
-        scheduler_service.upsert_plan_job(obj)  # 注册/替换/移除 job 一处收敛
-        db.refresh(obj)  # next_run_at 已回写
+    if schedule_touched or (data.enabled is not None and obj.schedule_type):
+        # 定时四件套变化、或配了定时的方案切总开关，都收敛到 upsert（注册/替换/移除一处处理）
+        scheduler_service.upsert_plan_job(obj)
+        db.refresh(obj)  # next_run_at 已回写或随移除清空
     crud.log_operation(db, user, "update", "plan", obj.id, obj.name)
     return _fill_detail(db, obj)
 

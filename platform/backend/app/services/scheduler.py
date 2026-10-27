@@ -221,13 +221,22 @@ class SchedulerService:
             self.remove_plan_job(plan.id)
 
     def remove_plan_job(self, plan_id: int) -> None:
-        """方案删除/清定时时移除 job（幂等；执行记录 plan_id 无外键、历史存活）"""
+        """方案删除/清定时/关开关时移除 job（幂等；执行记录 plan_id 无外键、历史存活）；
+        连带清 next_run_at——job 已不在，残留的「下次」时间必不会到来，只会误导"""
         if self._scheduler is None:
             return
         try:
             self._scheduler.remove_job(_plan_job_id(plan_id))
         except Exception:
             pass
+        db = SessionLocal()
+        try:
+            row = db.query(models.ExecutionPlan).filter(models.ExecutionPlan.id == plan_id).first()
+            if row and row.next_run_at is not None:
+                row.next_run_at = None
+                db.commit()
+        finally:
+            db.close()
 
     def remove_by_case(self, case_id: int) -> None:
         """删除用例时连带清理其所有定时 job（业务表由路由层级联删）"""
