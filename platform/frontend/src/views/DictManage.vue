@@ -69,10 +69,14 @@
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="130" fixed="right">
+          <el-table-column label="操作" width="90" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
-              <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
+              <el-tooltip content="编辑" placement="top">
+                <el-button link type="primary" size="small" :icon="EditPen" @click="onEdit(row)" />
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button link type="danger" size="small" :icon="Delete" @click="onRemove(row)" />
+              </el-tooltip>
             </template>
           </el-table-column>
         </el-table>
@@ -142,7 +146,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Search, WarningFilled } from '@element-plus/icons-vue'
+import { Search, WarningFilled, EditPen, Delete } from '@element-plus/icons-vue'
 import { dictApi, userApi, type FieldDictionary, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { debounce } from '@/utils/ui'

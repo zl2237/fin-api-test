@@ -99,11 +99,17 @@
           <el-table-column label="更新人" width="100" align="center">
             <template #default="{ row }">{{ row.updated_by_name || '未知' }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="220" fixed="right">
+          <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
-              <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
-              <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
+              <el-tooltip content="编辑" placement="top">
+                <el-button link type="primary" size="small" :icon="EditPen" @click="onEdit(row)" />
+              </el-tooltip>
+              <el-tooltip content="复制" placement="top">
+                <el-button link type="primary" size="small" :icon="CopyDocument" @click="onCopy(row)" />
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button link type="danger" size="small" :icon="Delete" @click="onRemove(row)" />
+              </el-tooltip>
             </template>
           </el-table-column>
         </el-table>
@@ -128,7 +134,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, WarningFilled } from '@element-plus/icons-vue'
+import { Rank, WarningFilled, EditPen, CopyDocument, Delete } from '@element-plus/icons-vue'
 import { envApi, userApi, type Environment, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { useClientSort } from '@/composables/useClientSort'

@@ -164,17 +164,15 @@
         <el-table-column label="执行人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <!-- 套件主记录 → 套件报告（成员明细×数据行）；其余 → 普通执行报告 -->
-            <el-button
-              v-if="row.summary?.suite"
-              link
-              type="primary"
-              size="small"
-              @click="router.push(`/suite-reports/${row.id}`)"
-            >套件报告</el-button>
-            <el-button v-else link type="primary" size="small" @click="router.push(`/reports/${row.id}`)">查看报告</el-button>
+            <el-tooltip v-if="row.summary?.suite" content="套件报告" placement="top">
+              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push(`/suite-reports/${row.id}`)" />
+            </el-tooltip>
+            <el-tooltip v-else content="查看报告" placement="top">
+              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push(`/reports/${row.id}`)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -217,7 +215,7 @@
 import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, WarningFilled, Timer } from '@element-plus/icons-vue'
+import { Loading, WarningFilled, Timer, DataAnalysis } from '@element-plus/icons-vue'
 import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
