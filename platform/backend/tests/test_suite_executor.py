@@ -54,7 +54,7 @@ class FakeDB:
 def make_record():
     return SimpleNamespace(id=999, status="running", env_id=None, summary={},
                            started_at=None, ended_at=None, created_by=5,
-                           trigger_type="manual")
+                           trigger_type="manual", plan_id=None)
 
 
 @pytest.fixture
@@ -72,9 +72,10 @@ def harness(monkeypatch):
     created = []
 
     def fake_create(db, case_id, env_id, user_id=None, trigger_type=None,
-                    dataset_id=None, dataset_row=None):
+                    dataset_id=None, dataset_row=None, plan_id=None):
         rec = SimpleNamespace(id=100 + len(created), case_id=case_id, env_id=env_id,
                               status="running", summary={}, suite_execution_id=None,
+                              plan_id=plan_id,
                               started_at=None, ended_at=None,
                               steps=[])  # 对齐 ExecutionRecord ORM：steps 恒存在（_row_fail_reason 依赖）
         created.append(rec)
