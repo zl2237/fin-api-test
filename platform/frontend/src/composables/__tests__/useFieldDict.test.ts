@@ -32,6 +32,21 @@ describe('useFieldDict', () => {
     expect(dictLabel('to_customer.xxx.yyy')).toBe('') // 纯父级段不参与后缀匹配（与实现一致）
   })
 
+  it('下划线前缀剥离：节点_字段名 依次按切分点命中（剩余段从长到短）', () => {
+    const store = useAppStore()
+    store.fieldDictMap = {
+      atd: '到账日期',
+      booking_space_supplier: '订舱供应商',
+      order_no: '订单号',
+    }
+    const { dictLabel } = useFieldDict()
+    expect(dictLabel('s1_atd')).toBe('到账日期')
+    // 前缀本身含下划线：剩余段从长到短尝试，先命中最具体的字段名
+    expect(dictLabel('s1_booking_space_supplier')).toBe('订舱供应商')
+    expect(dictLabel('create_order_order_no')).toBe('订单号')
+    expect(dictLabel('发起付款需求_apd_amt')).toBe('') // 剥离后仍未命中
+  })
+
   it('空 key 与未命中返回空串', () => {
     useAppStore().fieldDictMap = { a: 'A' }
     const { dictLabel } = useFieldDict()

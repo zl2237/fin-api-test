@@ -19,10 +19,12 @@ export function useFieldDict() {
 
   /**
    * 仅查项目字典（不使用 existingLabel）
-   * 支持嵌套路径智能匹配：
+   * 支持嵌套路径与前缀剥离的智能匹配：
    *   1. 完整路径精确匹配（如 'to_customer.put_amount'）
    *   2. 末段匹配（如 'put_amount'）——适配字典中只配单层 key 的常见场景
    *   3. 各中间段匹配（如 'to_customer'）——适配字典中配了父级 key 的场景
+   *   4. 下划线前缀剥离（如 's1_atd' → 'atd'）——数据集行键存在「节点_字段名」格式，
+   *      依次尝试各下划线切分点（剩余段从长到短），兼容中文/编号节点前缀
    */
   function dictLabel(key: string): string {
     if (!key) return ''
@@ -34,6 +36,15 @@ export function useFieldDict() {
       for (let i = segs.length - 1; i >= 0; i--) {
         const sub = segs.slice(i).join('.')
         if (store.fieldDictMap[sub]) return store.fieldDictMap[sub]
+      }
+    }
+    // 3. 下划线前缀剥离：'节点_字段名' 依次剥到每个下划线处（剩余段从长到短，最具体的字段名优先）
+    if (key.includes('_')) {
+      let pos = key.indexOf('_')
+      while (pos !== -1) {
+        const sub = key.slice(pos + 1)
+        if (sub && store.fieldDictMap[sub]) return store.fieldDictMap[sub]
+        pos = key.indexOf('_', pos + 1)
       }
     }
     return ''
