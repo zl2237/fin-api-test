@@ -152,11 +152,17 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
-                <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
-                <el-button link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+                <el-tooltip content="编辑" placement="top">
+                  <el-button link type="primary" size="small" :icon="EditPen" @click="onEdit(row)" />
+                </el-tooltip>
+                <el-tooltip content="复制" placement="top">
+                  <el-button link type="primary" size="small" :icon="CopyDocument" @click="onCopy(row)" />
+                </el-tooltip>
+                <el-tooltip content="删除" placement="top">
+                  <el-button link type="danger" size="small" :icon="Delete" @click="onDelete(row)" />
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -220,11 +226,17 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
-                <el-button link type="primary" size="small" @click="onCopy(row)">复制</el-button>
-                <el-button link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+                <el-tooltip content="编辑" placement="top">
+                  <el-button link type="primary" size="small" :icon="EditPen" @click="onEdit(row)" />
+                </el-tooltip>
+                <el-tooltip content="复制" placement="top">
+                  <el-button link type="primary" size="small" :icon="CopyDocument" @click="onCopy(row)" />
+                </el-tooltip>
+                <el-tooltip content="删除" placement="top">
+                  <el-button link type="danger" size="small" :icon="Delete" @click="onDelete(row)" />
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -477,7 +489,7 @@ import { apiApi, apiGroupApi, userApi, type ApiDef, type ApiGroup, type SimpleUs
 // 项目 ID 获取
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
-import { Rank, Upload, Folder, Search, CaretRight, WarningFilled, ArrowDown } from '@element-plus/icons-vue'
+import { Rank, Upload, Folder, Search, CaretRight, WarningFilled, ArrowDown, EditPen, CopyDocument, Delete } from '@element-plus/icons-vue'
 import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupedTable'
 import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
 import { useClientSort } from '@/composables/useClientSort'

@@ -66,12 +66,18 @@
         <el-table-column label="更新人" width="90" align="center">
           <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="240">
+        <el-table-column label="操作" width="140">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDrawer(row)">编辑</el-button>
+            <el-tooltip content="编辑" placement="top">
+              <el-button link type="primary" size="small" :icon="EditPen" @click="openEditDrawer(row)" />
+            </el-tooltip>
             <!-- 重置密码影响他人凭据安全——与删除同级的高风险操作，用 danger 提示 -->
-            <el-button link type="danger" size="small" @click="openPasswordDialog(row)">重置密码</el-button>
-            <el-button link type="danger" size="small" @click="onDelete(row)" :disabled="row.id === store.user?.id">删除</el-button>
+            <el-tooltip content="重置密码" placement="top">
+              <el-button link type="danger" size="small" :icon="Key" @click="openPasswordDialog(row)" />
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button link type="danger" size="small" :icon="Delete" :disabled="row.id === store.user?.id" @click="onDelete(row)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -172,7 +178,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { WarningFilled } from '@element-plus/icons-vue'
+import { WarningFilled, EditPen, Key, Delete } from '@element-plus/icons-vue'
 import { userApi, type User } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'

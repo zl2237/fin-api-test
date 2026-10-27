@@ -50,10 +50,14 @@
       <el-table-column label="时间" width="160">
         <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="操作" width="90" fixed="right">
         <template #default="{ row }">
-          <el-button link type="warning" @click="onRollback(row)">回滚</el-button>
-          <el-button link type="danger" @click="onDelete(row)">删除</el-button>
+          <el-tooltip content="回滚" placement="top">
+            <el-button link type="warning" :icon="RefreshLeft" @click="onRollback(row)" />
+          </el-tooltip>
+          <el-tooltip content="删除" placement="top">
+            <el-button link type="danger" :icon="Delete" @click="onDelete(row)" />
+          </el-tooltip>
         </template>
       </el-table-column>
     </el-table>
@@ -178,7 +182,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Check, Right, WarningFilled } from '@element-plus/icons-vue'
+import { Check, Right, WarningFilled, RefreshLeft, Delete } from '@element-plus/icons-vue'
 import {
   projectVersionApi,
   type ProjectVersionListItem,

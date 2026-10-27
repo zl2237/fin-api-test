@@ -82,11 +82,17 @@
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="260" fixed="right">
+          <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="onSwitch(row)">切换为当前</el-button>
-              <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
-              <el-button link type="danger" size="small" @click="onRemove(row)">删除</el-button>
+              <el-tooltip content="切换为当前" placement="top">
+                <el-button link type="primary" size="small" :icon="Flag" @click="onSwitch(row)" />
+              </el-tooltip>
+              <el-tooltip content="编辑" placement="top">
+                <el-button link type="primary" size="small" :icon="EditPen" @click="onEdit(row)" />
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button link type="danger" size="small" :icon="Delete" @click="onRemove(row)" />
+              </el-tooltip>
             </template>
           </el-table-column>
         </el-table>
@@ -126,7 +132,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, WarningFilled } from '@element-plus/icons-vue'
+import { Rank, WarningFilled, Flag, EditPen, Delete } from '@element-plus/icons-vue'
 import { projectApi, userApi, type Project, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime } from '@/utils/format'
