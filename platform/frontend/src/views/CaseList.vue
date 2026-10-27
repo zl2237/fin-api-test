@@ -202,20 +202,20 @@
                 <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" @click="openBind(row)" />
                 </el-tooltip>
-                <!-- 低频操作收纳：报告/定时/复制/删除 -->
-                <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                  <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
+                <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
+                <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
+                  <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
                     <el-button link type="primary" size="small" :icon="MoreFilled" />
-                  </el-tooltip>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="report">查看报告</el-dropdown-item>
-                      <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
-                      <el-dropdown-item command="copy">复制用例</el-dropdown-item>
-                      <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="report">查看报告</el-dropdown-item>
+                        <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
+                        <el-dropdown-item command="copy">复制用例</el-dropdown-item>
+                        <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -335,20 +335,20 @@
                 <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
                   <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" @click="openBind(row)" />
                 </el-tooltip>
-                <!-- 低频操作收纳：报告/定时/复制/删除 -->
-                <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                  <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
+                <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
+                <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
+                  <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
                     <el-button link type="primary" size="small" :icon="MoreFilled" />
-                  </el-tooltip>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="report">查看报告</el-dropdown-item>
-                      <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
-                      <el-dropdown-item command="copy">复制用例</el-dropdown-item>
-                      <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="report">查看报告</el-dropdown-item>
+                        <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
+                        <el-dropdown-item command="copy">复制用例</el-dropdown-item>
+                        <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
