@@ -93,16 +93,16 @@
         <el-table-column label="操作" width="170" fixed="right" align="center">
           <template #default="{ row }">
             <el-tooltip content="一键执行（成员独立并行）" placement="top">
-              <el-button link type="success" size="small" :icon="VideoPlay" :loading="runningId === row.id" @click="onRun(row)" />
+              <el-button link type="success" size="small" :icon="VideoPlay" aria-label="一键执行方案" :loading="runningId === row.id" @click="onRun(row)" />
             </el-tooltip>
             <el-tooltip content="查看执行记录" placement="top">
-              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push({ path: '/executions', query: { plan_id: String(row.id) } })" />
+              <el-button link type="primary" size="small" :icon="DataAnalysis" aria-label="查看执行记录" @click="router.push({ path: '/executions', query: { plan_id: String(row.id) } })" />
             </el-tooltip>
             <el-tooltip content="编辑方案" placement="top">
-              <el-button link type="primary" size="small" :icon="Edit" @click="router.push(`/plans/edit/${row.id}`)" />
+              <el-button link type="primary" size="small" :icon="Edit" aria-label="编辑方案" @click="router.push(`/plans/edit/${row.id}`)" />
             </el-tooltip>
             <el-tooltip content="删除方案" placement="top">
-              <el-button link type="danger" size="small" :icon="Delete" @click="onRemove(row)" />
+              <el-button link type="danger" size="small" :icon="Delete" aria-label="删除方案" @click="onRemove(row)" />
             </el-tooltip>
           </template>
         </el-table-column>

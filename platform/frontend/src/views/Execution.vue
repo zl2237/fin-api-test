@@ -192,10 +192,10 @@
           <template #default="{ row }">
             <!-- 套件主记录 → 套件报告（成员明细×数据行）；其余 → 普通执行报告 -->
             <el-tooltip v-if="row.summary?.suite" content="套件报告" placement="top">
-              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push(`/suite-reports/${row.id}`)" />
+              <el-button link type="primary" size="small" :icon="DataAnalysis" aria-label="套件报告" @click="router.push(`/suite-reports/${row.id}`)" />
             </el-tooltip>
             <el-tooltip v-else content="查看报告" placement="top">
-              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push(`/reports/${row.id}`)" />
+              <el-button link type="primary" size="small" :icon="DataAnalysis" aria-label="查看报告" @click="router.push(`/reports/${row.id}`)" />
             </el-tooltip>
           </template>
         </el-table-column>
