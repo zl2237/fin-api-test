@@ -70,6 +70,10 @@
             <el-icon><Grid /></el-icon>
             <template #title><span>数据集</span></template>
           </el-menu-item>
+          <el-menu-item index="/plans">
+            <el-icon><Operation /></el-icon>
+            <template #title><span>执行方案</span></template>
+          </el-menu-item>
           <el-menu-item index="/executions">
             <el-icon><Histogram /></el-icon>
             <template #title><span>执行记录</span></template>
@@ -580,7 +584,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled, Operation } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -610,7 +614,7 @@ const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CA
 
 // 侧边菜单项（与模板 el-menu-item index 一一对应，供子路由激活态前缀匹配）
 const MENU_PATHS = [
-  '/apis', '/cases', '/datasets', '/executions',
+  '/apis', '/cases', '/datasets', '/plans', '/executions',
   '/projects', '/envs', '/dictionary', '/files',
   '/users', '/operation-logs',
 ]
