@@ -56,14 +56,24 @@
         <EmptyState v-else-if="!loading && !currentCase" description="选择左侧用例查看其数据集" />
 
         <template v-else-if="currentCase">
-          <!-- 该用例的数据集切换条 -->
+          <!-- 该用例的数据集切换条（chip 可拖拽排序，顺序按用户记忆） -->
           <div class="ds-bar">
             <div
-              v-for="d in caseDatasets"
+              v-for="d in orderedCaseDatasets"
               :key="d.id"
               class="ds-chip"
-              :class="{ on: current?.id === d.id }"
+              :class="{
+                on: current?.id === d.id,
+                dragging: dragId === d.id,
+                'drop-before': overId === d.id && overPos === 'before',
+                'drop-after': overId === d.id && overPos === 'after',
+              }"
+              draggable="true"
               @click="select(d)"
+              @dragstart="onDragStart(d, $event)"
+              @dragover.prevent="onDragOver(d, $event)"
+              @drop.prevent="onDrop(d)"
+              @dragend="resetDrag"
             >
               <el-icon class="ds-icon"><Grid /></el-icon>
               <span class="ds-name">{{ d.name }}</span>
@@ -222,6 +232,73 @@ const dirtyMap = reactive<Record<string, boolean>>({})
 
 const caseDatasets = computed(() => datasets.value.filter((d) => d.case_id === currentCase.value?.id))
 
+// ----- 数据集条拖拽排序（用户级记忆：按 用户|项目|用例 存展示顺序，与 LAST_KEY 同走 localStorage） -----
+const ORDER_KEY = 'fin_ds_order'
+const savedDsOrder = ref<number[]>([]) // 原始记忆 id 序列（含已删除也无妨，匹配不上自然沉底）
+const dragId = ref<number | null>(null)
+const overId = ref<number | null>(null)
+const overPos = ref<'before' | 'after'>('before')
+
+function dsOrderStorageKey(): string {
+  return `${store.user?.username ?? ''}|${store.currentProjectId}|${currentCase.value?.id ?? ''}`
+}
+
+function readDsOrder() {
+  savedDsOrder.value = []
+  try {
+    const raw = JSON.parse(localStorage.getItem(ORDER_KEY) || '{}')
+    const ids = raw?.[dsOrderStorageKey()]
+    if (Array.isArray(ids)) savedDsOrder.value = ids.filter((id) => typeof id === 'number')
+  } catch { /* 损坏数据忽略，按默认序展示 */ }
+}
+
+function writeDsOrder() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ORDER_KEY) || '{}')
+    raw[dsOrderStorageKey()] = savedDsOrder.value
+    localStorage.setItem(ORDER_KEY, JSON.stringify(raw))
+  } catch { /* 存储失败忽略 */ }
+}
+
+/** 展示顺序 = 记忆序在前，未记忆（新建）的按后端返回序稳定续尾 */
+const orderedCaseDatasets = computed(() => {
+  const rank = new Map(savedDsOrder.value.map((id, i) => [id, i]))
+  return [...caseDatasets.value].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity))
+})
+
+watch(() => currentCase.value?.id, readDsOrder, { immediate: true })
+
+function onDragStart(d: DataSet, e: DragEvent) {
+  if (!e.dataTransfer) return
+  dragId.value = d.id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', String(d.id)) // Firefox 必需：无 payload 不启动拖拽
+}
+
+/** 悬停定位：按鼠标在目标 chip 左/右半侧决定插前/插后 */
+function onDragOver(d: DataSet, e: DragEvent) {
+  if (dragId.value === null || d.id === dragId.value) return
+  overId.value = d.id
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  overPos.value = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+}
+
+function onDrop(d: DataSet) {
+  const from = dragId.value
+  if (from === null || from === d.id) { resetDrag(); return }
+  const ids = orderedCaseDatasets.value.map((x) => x.id).filter((id) => id !== from)
+  const at = ids.indexOf(d.id)
+  ids.splice(overPos.value === 'before' ? at : at + 1, 0, from)
+  savedDsOrder.value = ids
+  writeDsOrder()
+  resetDrag()
+}
+
+function resetDrag() {
+  dragId.value = null
+  overId.value = null
+}
+
 /** 数据集已配置节点数（行内 nodes 键数） */
 function nodeCount(d: DataSet): number {
   return Object.keys(d.rows?.[0]?.data?.nodes || {}).length
@@ -256,12 +333,24 @@ function initDrafts() {
   }
 }
 
-/** 激活 tab 滚动进可视区：记忆的节点在长 tab 栏深处时，免每次手动点 > 翻页 */
+/** 激活 tab 居中到 tab 栏可视区：记忆的节点在长 tab 栏深处时，免每次手动点 > 翻页。
+ *  只平移 el-tabs 自身的 nav（EP 内部即用 translateX 表达偏移，箭头翻页同源）；
+ *  不能用 scrollIntoView——它会连横向可滚动的祖先（.main/.group-main）一起卷动，
+ *  把 sticky 的 tab 头（含左右切换箭头）推出可视区，向左箭头从此点不到 */
 function scrollActiveTabIntoView() {
   nextTick(() => {
-    document
-      .querySelector('.node-tabs .el-tabs__item.is-active')
-      ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+    // setTimeout 兜底排在 EP 自身的 scrollToActiveTab（watch 激活名触发）之后，避免被其边缘对齐覆盖
+    setTimeout(() => {
+      const scroller = document.querySelector<HTMLElement>('.node-tabs .el-tabs__nav-scroll')
+      const nav = document.querySelector<HTMLElement>('.node-tabs .el-tabs__nav')
+      const item = document.querySelector<HTMLElement>('.node-tabs .el-tabs__item.is-active')
+      if (!scroller || !nav || !item) return
+      const maxOffset = nav.offsetWidth - scroller.clientWidth
+      if (maxOffset <= 0) return
+      // item.offsetLeft 相对 nav（nav 是 relative 定位），不受当前 transform 影响；目标 = 激活项中心对齐可视区中心
+      const target = item.offsetLeft + item.offsetWidth / 2 - scroller.clientWidth / 2
+      nav.style.transform = `translateX(-${Math.min(Math.max(0, target), maxOffset)}px)`
+    }, 0)
   })
 }
 
@@ -720,6 +809,16 @@ watch(() => store.currentProjectId, () => {
 }
 .ds-chip:hover {
   border-color: var(--app-primary);
+}
+/* 拖拽排序反馈：被拖项半透明，插入位置以 2px 竖线指示 */
+.ds-chip.dragging {
+  opacity: 0.35;
+}
+.ds-chip.drop-before {
+  box-shadow: -2px 0 0 0 var(--app-primary);
+}
+.ds-chip.drop-after {
+  box-shadow: 2px 0 0 0 var(--app-primary);
 }
 .ds-chip.on {
   border-color: var(--app-primary);
