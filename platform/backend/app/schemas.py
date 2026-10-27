@@ -656,6 +656,8 @@ class ExecutionRecordOut(ORMBase):
     dataset_id: int | None = None
     dataset_row: dict[str, Any] | None = None  # 数据驱动行快照 {row_index, data, label}
     suite_execution_id: int | None = None  # 套件来源：非空=套件链成员执行，指向套件主记录
+    plan_id: int | None = None  # 方案来源：非空=方案（一键/定时）触发；方案可删，plan_name 尽力回查
+    plan_name: str | None = None
     steps: list[StepRecordOut] = []
     created_by: int | None = None
     created_by_name: str | None = None
@@ -890,3 +892,76 @@ class AvatarOut(BaseModel):
     """按用户 ID 查头像的响应"""
     avatar: str | None = None
     name: str
+
+
+# ============ ExecutionPlan 执行方案（与 fin-ui-test 同构，单套语义无行选择） ============
+class PlanItemIn(BaseModel):
+    """方案成员提交：dataset 换绑须属于该成员用例；套件成员禁换绑（服务层校验）"""
+    case_id: int
+    dataset_id: int | None = None
+    run_count: int = 1
+    sort_order: int = 0
+
+
+class PlanItemsReplaceIn(BaseModel):
+    items: list[PlanItemIn]
+
+
+class PlanItemOut(BaseModel):
+    id: int
+    case_id: int
+    dataset_id: int | None = None
+    run_count: int
+    sort_order: int
+    # 展示回填（详情接口填充）
+    case_name: str | None = None
+    case_type: str | None = None
+    dataset_name: str | None = None
+    case_missing: bool = False      # 防御标记（DB 级联删除正常时不出现）
+    dataset_missing: bool = False   # 换绑数据集已删：标红交前端，执行预检会精确报错
+
+
+class ExecutionPlanCreate(BaseModel):
+    project_id: int | None = None
+    name: str
+    description: str | None = None
+    concurrency: int = 4
+
+
+class ExecutionPlanUpdate(BaseModel):
+    """局部更新；schedule_off=True 显式清除定时（schedule_type=None 表示「未提供」无法区分清除）"""
+    name: str | None = None
+    description: str | None = None
+    concurrency: int | None = None
+    enabled: bool | None = None
+    schedule_type: Literal["interval", "daily"] | None = None
+    schedule_interval_minutes: int | None = None
+    schedule_daily_time: str | None = None
+    schedule_enabled: bool | None = None
+    schedule_off: bool = False
+
+
+class ExecutionPlanOut(ORMBase):
+    id: int
+    project_id: int | None = None
+    name: str
+    description: str | None = None
+    concurrency: int
+    enabled: bool
+    schedule_type: str | None = None
+    schedule_interval_minutes: int | None = None
+    schedule_daily_time: str | None = None
+    schedule_enabled: bool
+    last_run_at: datetime | None = None
+    next_run_at: datetime | None = None
+    item_count: int = 0  # 列表聚合填充
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: int | None = None
+    created_by_name: str | None = None
+    updated_by: int | None = None
+    updated_by_name: str | None = None
+
+
+class ExecutionPlanDetailOut(ExecutionPlanOut):
+    items: list[PlanItemOut] = []

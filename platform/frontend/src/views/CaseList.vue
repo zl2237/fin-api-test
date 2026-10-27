@@ -191,29 +191,31 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="240" fixed="right">
+            <el-table-column label="操作" width="170" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="goDesign(row)">编排</el-button>
+                <el-tooltip content="编排" placement="top">
+                  <el-button link type="primary" size="small" :icon="EditPen" @click="goDesign(row)" />
+                </el-tooltip>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
-                  <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
+                  <el-button link type="success" size="small" :icon="VideoPlay" @click="runCase(row)" />
                 </el-tooltip>
                 <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
-                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
+                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" @click="openBind(row)" />
                 </el-tooltip>
-                <!-- 低频操作收纳：报告/定时/复制/删除 -->
-                <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                  <el-button link type="primary" size="small">
-                    更多<el-icon class="row-more-icon"><ArrowDown /></el-icon>
-                  </el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="report">查看报告</el-dropdown-item>
-                      <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
-                      <el-dropdown-item command="copy">复制用例</el-dropdown-item>
-                      <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
+                <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
+                  <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
+                    <el-button link type="primary" size="small" :icon="MoreFilled" />
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="report">查看报告</el-dropdown-item>
+                        <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
+                        <el-dropdown-item command="copy">复制用例</el-dropdown-item>
+                        <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -322,29 +324,31 @@
             <el-table-column label="更新人" width="100" align="center">
               <template #default="{ row }">{{ row.updated_by_name || '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="240" fixed="right">
+            <el-table-column label="操作" width="170" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="goDesign(row)">编排</el-button>
+                <el-tooltip content="编排" placement="top">
+                  <el-button link type="primary" size="small" :icon="EditPen" @click="goDesign(row)" />
+                </el-tooltip>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
-                  <el-button link type="success" size="small" @click="runCase(row)">执行</el-button>
+                  <el-button link type="success" size="small" :icon="VideoPlay" @click="runCase(row)" />
                 </el-tooltip>
                 <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
-                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" @click="openBind(row)">数据</el-button>
+                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" @click="openBind(row)" />
                 </el-tooltip>
-                <!-- 低频操作收纳：报告/定时/复制/删除 -->
-                <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                  <el-button link type="primary" size="small">
-                    更多<el-icon class="row-more-icon"><ArrowDown /></el-icon>
-                  </el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="report">查看报告</el-dropdown-item>
-                      <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
-                      <el-dropdown-item command="copy">复制用例</el-dropdown-item>
-                      <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
+                <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
+                  <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
+                    <el-button link type="primary" size="small" :icon="MoreFilled" />
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="report">查看报告</el-dropdown-item>
+                        <el-dropdown-item command="schedule">定时任务</el-dropdown-item>
+                        <el-dropdown-item command="copy">复制用例</el-dropdown-item>
+                        <el-dropdown-item command="remove" divided>删除用例</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -510,7 +514,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRef } from 'v
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import Sortable from 'sortablejs'
-import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown } from '@element-plus/icons-vue'
+import { Rank, Folder, CaretRight, Search, WarningFilled, Timer, ArrowDown, EditPen, VideoPlay, Grid, MoreFilled } from '@element-plus/icons-vue'
 import { caseApi, caseGroupApi, userApi, scheduleApi, datasetApi, type TestCase, type CaseGroup, type SimpleUser, type TestSchedule, type DataSet } from '@/api'
 import { useAppStore } from '@/stores'
 import { formatTime, formatRelativeTime, execStatusText, execStatusType, fileTimestamp } from '@/utils/format'
@@ -1325,11 +1329,6 @@ function onGlobalKey(e: KeyboardEvent) {
 .env-suite-tip {
   font-size: 12px;
   color: var(--app-text-muted);
-}
-/* 行内「更多」下拉触发按钮：与链接按钮同高，图标小箭头 */
-.row-more-icon {
-  font-size: 12px;
-  margin-left: 1px;
 }
 /* 数据集绑定弹窗 */
 .bind-tip {

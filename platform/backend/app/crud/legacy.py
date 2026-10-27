@@ -66,15 +66,17 @@ def fill_case_env_names(db: Session, objs) -> None:
 
 
 def fill_exec_names(db: Session, objs) -> None:
-    """给 ExecutionRecord 填充 case_name / env_name / project_id / project_name（支持单个对象或列表）"""
+    """给 ExecutionRecord 填充 case_name / env_name / project_id / project_name / plan_name（支持单个对象或列表）"""
     if not objs:
         return
     single = not isinstance(objs, list)
     obj_list = [objs] if single else objs
     case_ids = {o.case_id for o in obj_list if getattr(o, "case_id", None)}
     env_ids = {o.env_id for o in obj_list if getattr(o, "env_id", None)}
+    plan_ids = {o.plan_id for o in obj_list if getattr(o, "plan_id", None)}
     case_map = {}
     env_map = {}
+    plan_map = {}  # plan_id -> plan_name（方案可删：查不到时前端回落「方案 #id」）
     project_map = {}  # case_id -> (project_id, project_name)
     if case_ids:
         # 一次联表查询拿到 case_name + project_id + project_name
@@ -88,10 +90,15 @@ def fill_exec_names(db: Session, objs) -> None:
     if env_ids:
         env_rows = db.query(models.Environment.id, models.Environment.name).filter(models.Environment.id.in_(env_ids)).all()
         env_map = {r[0]: r[1] for r in env_rows}
+    if plan_ids:
+        plan_rows = db.query(models.ExecutionPlan.id, models.ExecutionPlan.name).filter(
+            models.ExecutionPlan.id.in_(plan_ids)).all()
+        plan_map = {r[0]: r[1] for r in plan_rows}
     for o in obj_list:
         cid = getattr(o, "case_id", None)
         o.case_name = case_map.get(cid)
         o.env_name = env_map.get(getattr(o, "env_id", None))
+        o.plan_name = plan_map.get(getattr(o, "plan_id", None))
         proj_info = project_map.get(cid)
         o.project_id = proj_info[0] if proj_info else None
         o.project_name = proj_info[1] if proj_info else None
@@ -699,7 +706,7 @@ def get_execution(db: Session, exec_id: int) -> models.ExecutionRecord | None:
 def _execution_filter_query(db: Session, case_id: int | None = None, project_id: int | None = None,
                             created_by: int | None = None, case_name: str | None = None,
                             status: str | None = None, start_time: datetime | None = None,
-                            end_time: datetime | None = None):
+                            end_time: datetime | None = None, plan_id: int | None = None):
     """执行记录过滤查询管道：list / count 共用，保证总数与列表口径一致"""
     q = db.query(models.ExecutionRecord)
     if case_id is not None:
@@ -719,6 +726,8 @@ def _execution_filter_query(db: Session, case_id: int | None = None, project_id:
         q = q.filter(models.ExecutionRecord.started_at >= start_time)
     if end_time is not None:
         q = q.filter(models.ExecutionRecord.started_at <= end_time)
+    if plan_id is not None:
+        q = q.filter(models.ExecutionRecord.plan_id == plan_id)
     return q
 
 
@@ -730,11 +739,12 @@ def list_executions(db: Session, case_id: int | None = None, project_id: int | N
                     created_by: int | None = None, limit: int = 50, offset: int = 0,
                     case_name: str | None = None, status: str | None = None,
                     start_time: datetime | None = None, end_time: datetime | None = None,
+                    plan_id: int | None = None,
                     sort_by: str = "id", order: str = "desc") -> list[models.ExecutionRecord]:
     """执行记录列表：支持按用例、项目（联表 case.project_id）、执行人、用例名（模糊）、状态、
-    开始时间范围过滤（ExecutionRecord 无 created_at，时间口径用 started_at）；
+    开始时间范围、执行方案过滤（ExecutionRecord 无 created_at，时间口径用 started_at）；
     offset/limit 服务端翻页 + sort_by/order 服务端排序（分页组件的整页排序口径）"""
-    q = _execution_filter_query(db, case_id, project_id, created_by, case_name, status, start_time, end_time)
+    q = _execution_filter_query(db, case_id, project_id, created_by, case_name, status, start_time, end_time, plan_id)
     col = EXECUTION_SORT_FIELDS.get(sort_by, models.ExecutionRecord.id)
     q = q.order_by(col.asc() if order == "asc" else col.desc())
     return cast(list[models.ExecutionRecord], q.offset(offset).limit(limit).all())
@@ -743,10 +753,10 @@ def list_executions(db: Session, case_id: int | None = None, project_id: int | N
 def count_executions(db: Session, case_id: int | None = None, project_id: int | None = None,
                      created_by: int | None = None, case_name: str | None = None,
                      status: str | None = None, start_time: datetime | None = None,
-                     end_time: datetime | None = None) -> int:
+                     end_time: datetime | None = None, plan_id: int | None = None) -> int:
     """执行记录总数（与 list 同口径过滤）：分页组件 total 用"""
     return cast(int, _execution_filter_query(db, case_id, project_id, created_by, case_name, status,
-                                   start_time, end_time).count())
+                                   start_time, end_time, plan_id).count())
 
 
 # ============ FieldDictionary 字段字典 ============

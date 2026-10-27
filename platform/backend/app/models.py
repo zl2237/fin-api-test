@@ -306,7 +306,7 @@ class ExecutionRecord(Base):
     case_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("test_cases.id"), comment="所属用例ID")
     env_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("environments.id"), comment="执行环境ID")
     status: Mapped[str] = mapped_column(String(20), default="running", comment="执行状态：running 进行中 / success 成功 / failed 失败 / terminated 手动终止")
-    trigger_type: Mapped[str] = mapped_column(String(20), default="manual", comment="触发方式：manual 手动 / schedule 定时任务")
+    trigger_type: Mapped[str] = mapped_column(String(20), default="manual", comment="触发方式：manual 手动 / schedule 用例定时 / plan 执行方案一键 / plan_schedule 方案定时")
     started_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="开始执行时间")
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, comment="结束时间")
     summary: Mapped[Any] = mapped_column(JSON, default=dict, comment="执行摘要：{total 总数, passed 通过, failed 失败}")
@@ -317,6 +317,9 @@ class ExecutionRecord(Base):
     suite_execution_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True,
                                 comment="套件来源：非空表示本记录是套件链中某成员的一次执行，"
                                         "指向套件主执行记录ID；普通执行为 NULL")
+    plan_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True,
+                          comment="执行方案来源：非空表示由方案（一键/方案定时）触发，"
+                                  "指向 execution_plans.id；纯溯源编号无外键，方案可删、执行历史存活")
     orchestration_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True,
                                 comment="编排结构指纹（执行时快照：节点/边/接口绑定，不含参数配置）；"
                                         "续跑前重算比对，结构变了拒绝续跑；旧报告 NULL=不可续跑")
@@ -473,6 +476,57 @@ class TestFile(Base):
 
     project: Mapped["Project"] = relationship("Project")
     category: Mapped["FileCategory | None"] = relationship("FileCategory", back_populates="files")
+
+
+class ExecutionPlan(Base):
+    """执行方案：一组执行配置的组合（选用例 + 每成员数据集换绑/次数 + 并发 + 内嵌定时）。
+    与套件并存且语义不同——套件=跨接口依赖链（串行+变量传递+阻断），
+    方案=执行配置组合（成员相互独立、按 concurrency 并行），无变量传递。"""
+    __tablename__ = "execution_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="方案名称")
+    description: Mapped[str | None] = mapped_column(Text, comment="方案描述")
+    concurrency: Mapped[int] = mapped_column(Integer, default=4, server_default="4",
+                    comment="执行并发数（1~16，提交线程池 max_workers）")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1",
+                  comment="方案总开关：禁用时定时触发跳过本轮（手动一键不受限）")
+    # —— 内嵌定时（schedule_type 为 NULL = 未配置定时；两档与用例定时一致，不暴露原生 cron）——
+    schedule_type: Mapped[str | None] = mapped_column(String(20), comment="调度类型：interval 间隔分钟 / daily 每日固定时刻；NULL=未配置定时")
+    schedule_interval_minutes: Mapped[int | None] = mapped_column(Integer, comment="interval 类型：间隔分钟数（≥1）")
+    schedule_daily_time: Mapped[str | None] = mapped_column(String(5), comment="daily 类型：每日执行时刻 HH:MM（24小时制）")
+    schedule_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1",
+                          comment="定时启停（schedule_type 非空才有意义；关闭时调度器跳过本轮）")
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, comment="最近一次执行时间（手动/定时均回写）")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, comment="下次预计触发时间（调度器计算，冗余展示用）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="更新人 user_id")
+
+    project: Mapped["Project"] = relationship("Project")
+    items: Mapped[list["ExecutionPlanItem"]] = relationship(
+        "ExecutionPlanItem", back_populates="plan", cascade="all, delete-orphan",
+        order_by="ExecutionPlanItem.sort_order")
+
+
+class ExecutionPlanItem(Base):
+    """方案成员：方案 → 用例的独立引用（可跨项目、可重复添加同一用例配不同数据）。
+    与 SuiteMember 的区别：无依赖链语义，成员相互独立并行；数据集换绑为成员级。"""
+    __tablename__ = "execution_plan_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("execution_plans.id"), nullable=False, index=True, comment="所属方案ID")
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False,
+                  comment="成员用例ID（普通用例或套件均可；可跨项目引用，删除成员用例时级联清理本行）")
+    dataset_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
+                       comment="成员级数据集换绑（须属于该成员用例；NULL=用例自身绑定；纯引用无外键，悬空在执行预检报错）")
+    run_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1", comment="该成员执行次数（1~9999）")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="成员顺序（展示/执行提交序；并行语义下仅影响记录生成序）")
+
+    plan: Mapped["ExecutionPlan"] = relationship("ExecutionPlan", back_populates="items")
+    case: Mapped["TestCase"] = relationship("TestCase")
 
 
 class TestSchedule(Base):

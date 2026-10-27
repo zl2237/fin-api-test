@@ -7,6 +7,8 @@
 - _validate_payload（schedules 路由）：配置校验错误直给前端
 - _run_schedule_job：触发动作编排（查 schedule → 校验引用 → 建记录 → 提交执行），
   含引用被删后的自愈禁用路径
+- 方案内嵌定时（B 方案）：upsert_plan_job 分流注册/移除、_run_plan_job 编排
+  （plan_schedule 触发/自愈移除/开关跳过/预检失败跳过本轮）
 """
 from types import SimpleNamespace
 
@@ -53,25 +55,25 @@ class TestBuildTrigger:
 
     @requires_apscheduler
     def test_interval_valid(self):
-        trigger = self.svc._build_trigger(_schedule(interval_minutes=5))
+        trigger = self.svc._build_trigger("interval", 5, None)
         assert trigger is not None
         assert trigger.interval.total_seconds() == 5 * 60
 
     @requires_apscheduler
     def test_daily_valid(self):
-        trigger = self.svc._build_trigger(_schedule(schedule_type="daily", daily_time="08:30"))
+        trigger = self.svc._build_trigger("daily", None, "08:30")
         assert trigger is not None
 
     def test_interval_below_one_rejected(self):
-        assert self.svc._build_trigger(_schedule(interval_minutes=0)) is None
-        assert self.svc._build_trigger(_schedule(interval_minutes=None)) is None
+        assert self.svc._build_trigger("interval", 0, None) is None
+        assert self.svc._build_trigger("interval", None, None) is None
 
     def test_daily_invalid_time_rejected(self):
-        assert self.svc._build_trigger(_schedule(schedule_type="daily", daily_time="25:00")) is None
-        assert self.svc._build_trigger(_schedule(schedule_type="daily", daily_time=None)) is None
+        assert self.svc._build_trigger("daily", None, "25:00") is None
+        assert self.svc._build_trigger("daily", None, None) is None
 
     def test_unknown_type_rejected(self):
-        assert self.svc._build_trigger(_schedule(schedule_type="weekly")) is None
+        assert self.svc._build_trigger("weekly", 10, None) is None
 
 
 class TestValidatePayload:
@@ -263,6 +265,125 @@ class TestRunScheduleJob:
         sched_mod._run_schedule_job(11)  # 不应抛出
 
         assert patched.built  # launcher 已规划（执行会停在 running，由清理任务兜底）
+
+
+def _plan(**kw):
+    """构造 ExecutionPlan 假对象（仅方案定时同步/触发所需字段）。"""
+    base = dict(id=3, enabled=True, schedule_type=None, schedule_interval_minutes=None,
+                schedule_daily_time=None, schedule_enabled=True, created_by=5,
+                concurrency=4, items=[])
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+class TestUpsertPlanJob:
+    """upsert_plan_job 分流：配置了定时且方案/定时双开关开 → 注册 plan-{id}；否则移除。"""
+
+    @pytest.fixture
+    def svc(self, monkeypatch):
+        s = SchedulerService()
+
+        class FakeSched:
+            def __init__(self):
+                self.jobs, self.removed = {}, []
+
+            def add_job(self, fn, trigger=None, id=None, replace_existing=True, **kw):
+                self.jobs[id] = (fn, trigger, kw)
+
+            def remove_job(self, jid):
+                self.removed.append(jid)
+                self.jobs.pop(jid, None)
+
+            def get_jobs(self):
+                return [SimpleNamespace(id=k) for k in self.jobs]
+
+        s._scheduler = FakeSched()
+        monkeypatch.setattr(s, "_sync_next_run", lambda *a, **k: None)  # 不碰真库
+        return s
+
+    def test_configured_plan_registers_plan_job(self, svc):
+        svc.upsert_plan_job(_plan(schedule_type="interval", schedule_interval_minutes=5))
+        assert "plan-3" in svc._scheduler.jobs
+
+    def test_no_schedule_removes(self, svc):
+        svc._scheduler.jobs["plan-3"] = None
+        svc.upsert_plan_job(_plan())
+        assert "plan-3" not in svc._scheduler.jobs
+        assert "plan-3" in svc._scheduler.removed
+
+    def test_schedule_disabled_removes(self, svc):
+        svc.upsert_plan_job(_plan(schedule_type="interval", schedule_interval_minutes=5,
+                                  schedule_enabled=False))
+        assert "plan-3" not in svc._scheduler.jobs
+
+    def test_plan_disabled_removes(self, svc):
+        svc.upsert_plan_job(_plan(schedule_type="daily", schedule_daily_time="08:00",
+                                  enabled=False))
+        assert "plan-3" not in svc._scheduler.jobs
+
+
+class TestRunPlanJob:
+    """方案定时触发编排：SessionLocal/run_plan 打桩；自愈与跳过语义同单用例定时。"""
+
+    @pytest.fixture
+    def patched(self, monkeypatch):
+        ran, removed = [], []
+        monkeypatch.setattr(sched_mod, "run_plan",
+                            lambda db, plan, uid, *, trigger_type="plan":
+                                ran.append(dict(plan=plan, user_id=uid,
+                                                trigger_type=trigger_type)))
+        monkeypatch.setattr(sched_mod.scheduler_service, "remove_plan_job", removed.append)
+        return SimpleNamespace(ran=ran, removed=removed)
+
+    def _mk_db(self, plan):
+        return FakeDb({sched_mod.models.ExecutionPlan: plan})
+
+    def test_happy_path_runs_plan_schedule(self, patched, monkeypatch):
+        """正常触发：run_plan(trigger_type=plan_schedule)，执行人归属方案创建者"""
+        plan = _plan(id=3, created_by=9)
+        db = self._mk_db(plan)
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
+
+        sched_mod._run_plan_job(3)
+
+        assert patched.ran == [dict(plan=plan, user_id=9, trigger_type="plan_schedule")]
+        assert db.closed
+
+    def test_plan_missing_removes_job(self, patched, monkeypatch):
+        """方案已删除：移除 job（自愈），不再触发"""
+        db = self._mk_db(None)
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: db)
+
+        sched_mod._run_plan_job(404)
+
+        assert patched.ran == []
+        assert patched.removed == [404]
+
+    @pytest.mark.parametrize("kw", [
+        dict(enabled=False),
+        dict(schedule_enabled=False),
+        dict(enabled=False, schedule_enabled=False),
+    ])
+    def test_switches_off_skip_round(self, patched, monkeypatch, kw):
+        """方案总开关/定时开关关闭：跳过本轮（job 去留由 upsert 分流，此处不重复移除）"""
+        plan = _plan(**kw)
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: self._mk_db(plan))
+
+        sched_mod._run_plan_job(3)
+
+        assert patched.ran == []
+        assert patched.removed == []
+
+    def test_precheck_failure_swallowed(self, patched, monkeypatch):
+        """成员预检失败：打印跳过本轮（自愈语义，不让调度线程崩掉）"""
+        plan = _plan(id=3)
+        monkeypatch.setattr(sched_mod, "SessionLocal", lambda: self._mk_db(plan))
+
+        def boom(db, plan_, uid, *, trigger_type="plan"):
+            raise ValueError("成员「提单」未绑定执行环境，请先在用例编辑中选择")
+
+        monkeypatch.setattr(sched_mod, "run_plan", boom)
+        sched_mod._run_plan_job(3)  # 不应抛出
 
 
 class TestSchedulerDegradation:

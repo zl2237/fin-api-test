@@ -69,13 +69,13 @@ describe('useGroupTree', () => {
     return useGroupTree(ref(groups), ref<number | null>(projectId), scope)
   }
 
-  it('无记忆时 applyDefaultExpand 展开全部分组；toggleExpand 持久化到 localStorage', async () => {
+  it('无记忆时 applyDefaultExpand 保持全收起；toggleExpand 持久化到 localStorage', async () => {
     const t = setup([G(1, null, 'a'), G(2, 1, 'b')])
     t.applyDefaultExpand()
-    expect(t.expandedIds.value).toEqual([1, 2])
-    t.toggleExpand(2)
+    expect(t.expandedIds.value).toEqual([]) // 2026-10-27 需求：无记忆默认全收起
+    t.toggleExpand(1)
     await nextTick() // 持久化 watch 异步 flush
-    expect(t.isExpanded(2)).toBe(false)
+    expect(t.isExpanded(1)).toBe(true)
     expect(JSON.parse(localStorage.getItem('fin_group_expand_test_1')!)).toEqual([1])
   })
 
@@ -88,11 +88,11 @@ describe('useGroupTree', () => {
     expect(t.isExpanded(2)).toBe(false) // 有记忆，不默认全展开
   })
 
-  it('损坏的记忆回退为无记忆（默认展开生效）；无项目（null）不读写存储', async () => {
+  it('损坏的记忆回退为无记忆（默认全收起）；无项目（null）不读写存储', async () => {
     localStorage.setItem('fin_group_expand_test_1', '{bad json')
     const t = setup([G(1, null, 'a')])
-    t.applyDefaultExpand() // 记忆损坏 → 视为无记忆 → 默认全展开
-    expect(t.isExpanded(1)).toBe(true)
+    t.applyDefaultExpand() // 记忆损坏 → 视为无记忆 → 默认全收起
+    expect(t.isExpanded(1)).toBe(false)
 
     const t2 = setup([G(1, null, 'a')], null)
     t2.toggleExpand(1)
@@ -102,7 +102,7 @@ describe('useGroupTree', () => {
 
   it('computeVisibleRows：未分组行按需追加，叶子分组有数据可展开', () => {
     const t = setup([G(1, null, 'a'), G(2, 1, 'b')])
-    t.applyDefaultExpand()
+    t.toggleExpand(1) // 显式展开父，验证子孙行可见性
     const rows = t.computeVisibleRows(true, (id) => (id === 2 ? 3 : 0))
     expect(rows.map((r) => r.key)).toEqual([1, 2, 'ungrouped'])
     expect(rows[1]!.expandable).toBe(true)   // 叶子分组有数据

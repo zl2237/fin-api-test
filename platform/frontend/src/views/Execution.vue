@@ -32,6 +32,16 @@
           @keyup.enter="onQuery"
           @clear="onQuery"
         />
+        <el-select
+          v-model="filterPlanId"
+          style="width: 150px"
+          placeholder="执行方案"
+          clearable
+          filterable
+          @change="onQuery"
+        >
+          <el-option v-for="pl in plans" :key="pl.id" :label="pl.name" :value="pl.id" />
+        </el-select>
         <el-select v-model="filterStatus" style="width: 140px" placeholder="状态" clearable>
           <el-option label="通过" value="success" />
           <el-option label="失败" value="failed" />
@@ -102,9 +112,23 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="来源" width="90" align="center">
+        <el-table-column label="来源" width="100" align="center">
           <template #default="{ row }">
-            <el-tooltip v-if="row.trigger_type === 'schedule'" content="定时任务触发" placement="top">
+            <!-- 方案触发（一键/定时）：tag 可回链方案页；方案名尽力回查（已删显示 #id） -->
+            <el-tooltip
+              v-if="row.plan_id"
+              :content="`执行方案${row.plan_name ? `「${row.plan_name}」` : ` #${row.plan_id}`} · ${row.trigger_type === 'plan_schedule' ? '定时触发' : '一键执行'}（点击查看方案）`"
+              placement="top"
+            >
+              <el-tag
+                class="plan-tag"
+                :type="row.trigger_type === 'plan_schedule' ? 'warning' : 'primary'"
+                effect="plain"
+                size="small"
+                @click="router.push('/plans')"
+              ><el-icon><Operation /></el-icon>{{ row.plan_name || `方案#${row.plan_id}` }}</el-tag>
+            </el-tooltip>
+            <el-tooltip v-else-if="row.trigger_type === 'schedule'" content="定时任务触发" placement="top">
               <el-tag type="warning" effect="plain" size="small"><el-icon><Timer /></el-icon>定时</el-tag>
             </el-tooltip>
             <span v-else class="trigger-manual">手动</span>
@@ -164,17 +188,15 @@
         <el-table-column label="执行人" width="100" align="center">
           <template #default="{ row }">{{ row.created_by_name || '未知' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <!-- 套件主记录 → 套件报告（成员明细×数据行）；其余 → 普通执行报告 -->
-            <el-button
-              v-if="row.summary?.suite"
-              link
-              type="primary"
-              size="small"
-              @click="router.push(`/suite-reports/${row.id}`)"
-            >套件报告</el-button>
-            <el-button v-else link type="primary" size="small" @click="router.push(`/reports/${row.id}`)">查看报告</el-button>
+            <el-tooltip v-if="row.summary?.suite" content="套件报告" placement="top">
+              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push(`/suite-reports/${row.id}`)" />
+            </el-tooltip>
+            <el-tooltip v-else content="查看报告" placement="top">
+              <el-button link type="primary" size="small" :icon="DataAnalysis" @click="router.push(`/reports/${row.id}`)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -217,8 +239,8 @@
 import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, WarningFilled, Timer } from '@element-plus/icons-vue'
-import { execApi, userApi, type ExecutionRecord, type SimpleUser } from '@/api'
+import { Loading, WarningFilled, Timer, DataAnalysis, Operation } from '@element-plus/icons-vue'
+import { execApi, planApi, userApi, type ExecutionPlan, type ExecutionRecord, type SimpleUser } from '@/api'
 import { useAppStore } from '@/stores'
 import { storeToRefs } from 'pinia'
 import { formatTime, formatRelativeTime, execStatusType as statusType, execStatusText as statusText } from '@/utils/format'
@@ -235,6 +257,16 @@ const list = ref<ExecutionRecord[]>([])
 const loading = ref(false)
 const loadError = ref('')
 const users = ref<SimpleUser[]>([])
+// 执行方案过滤数据源（来源 tag 回链与方案「查看执行」共用口径）
+const plans = ref<ExecutionPlan[]>([])
+
+async function loadPlans() {
+  try {
+    plans.value = await planApi.list()
+  } catch {
+    plans.value = []
+  }
+}
 
 // 清理旧记录
 const cleanupVisible = ref(false)
@@ -255,6 +287,7 @@ const sortOrder = ref<'asc' | 'desc'>('desc')
 const filterProjectId = ref<number | null>(currentProjectId.value)
 const filterExecutor = ref<number | null>(null)
 const filterCase = ref('')
+const filterPlanId = ref<number | null>(null)
 const filterStatus = ref('')
 const filterRange = ref<[string, string] | null>(null)
 
@@ -264,6 +297,7 @@ const applied = reactive({
   projectId: currentProjectId.value as number | null,
   executor: null as number | null,
   case: '',
+  plan: null as number | null,
   status: '',
   range: null as [string, string] | null,
 })
@@ -274,6 +308,7 @@ function onQuery() {
   applied.projectId = filterProjectId.value
   applied.executor = filterExecutor.value
   applied.case = filterCase.value.trim()
+  applied.plan = filterPlanId.value
   applied.status = filterStatus.value
   applied.range = filterRange.value
   syncQueryToUrl()
@@ -290,6 +325,7 @@ function syncQueryToUrl() {
     if (/^\d+$/.test(applied.case)) q.case_id = applied.case
     else q.case_name = applied.case
   }
+  if (applied.plan) q.plan_id = String(applied.plan)
   if (applied.status) q.status = applied.status
   if (applied.range && applied.range.length === 2) {
     q.start = applied.range[0]
@@ -311,6 +347,10 @@ function restoreFromQuery() {
   }
   if (q.case_id) filterCase.value = String(q.case_id)
   else if (q.case_name) filterCase.value = String(q.case_name)
+  if (q.plan_id) {
+    const n = Number(q.plan_id)
+    if (!Number.isNaN(n)) filterPlanId.value = n
+  }
   if (q.status) filterStatus.value = String(q.status)
   if (q.start && q.end) filterRange.value = [String(q.start), String(q.end)]
 }
@@ -319,6 +359,7 @@ function resetFilter() {
   filterProjectId.value = null
   filterExecutor.value = null
   filterCase.value = ''
+  filterPlanId.value = null
   filterStatus.value = ''
   filterRange.value = null
   onQuery()
@@ -364,6 +405,7 @@ function execListParams(): ExecListParams | null {
   if (c && /^\d+$/.test(c)) params.case_id = Number(c)
   else if (c) params.case_name = c
   if (applied.executor) params.created_by = applied.executor
+  if (applied.plan) params.plan_id = applied.plan
   if (applied.status) params.status = applied.status
   if (applied.range && applied.range.length === 2) {
     params.start_time = applied.range[0]
@@ -480,6 +522,7 @@ onMounted(() => {
   restoreFromQuery()
   onQuery()
   loadUsers()
+  loadPlans()
 })
 
 // 切换项目（顶栏全局上下文）时：同步草稿与生效条件、回到第一页并重新加载，实现项目级数据隔离
@@ -526,7 +569,10 @@ onUnmounted(() => {
   justify-content: flex-end;
   margin-top: 12px;
 }
-/* 来源列：手动为常态弱文本，定时用 warning tag 区分（见模板） */
+/* 来源列：手动为常态弱文本；定时/方案触发用 tag 区分（见模板），方案 tag 可回链 */
+.plan-tag {
+  cursor: pointer;
+}
 .trigger-manual {
   font-size: 12px;
   color: var(--app-text-muted);

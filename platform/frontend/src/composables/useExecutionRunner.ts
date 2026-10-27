@@ -14,7 +14,7 @@
  */
 import { onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { caseApi, execApi, type ExecutionSummary } from '@/api'
+import { caseApi, execApi, planApi, type ExecutionRecord, type ExecutionSummary } from '@/api'
 import { useFaviconStatus } from '@/composables/useFaviconStatus'
 
 export interface ExecRecordLike {
@@ -107,6 +107,56 @@ export function useExecutionRunner() {
   }
 
   /**
+   * 方案一键执行完整反馈：execute → 批量轮询（execApi.list 按 plan_id 一页取回，
+   * 不逐条轮询防成员多时定时器泛滥）→ 聚合提示 n/m 通过。
+   * 本次运行按「基线 id」圈定：id ≥ execute 返回的最小 id——旧轮次 id 更小被排除，
+   * 套件成员行执行中陆续创建（id 恒大于基线）自动纳入。
+   * 返回本次全部记录终态（超时含 running）；execute 失败（预检 400）原样抛出。
+   */
+  async function runPlanWithFeedback(
+    planId: number,
+    name: string,
+    opts: PollOptions = {},
+  ): Promise<ExecRecordLike[]> {
+    const started: ExecutionRecord[] = await planApi.execute(planId)
+    favicon.running()
+    const msg = ElMessage({ message: `方案「${name}」执行中...`, type: 'info', duration: 0 })
+    const baseline = Math.min(...started.map((r) => r.id))
+    const interval = opts.interval ?? 2000
+    const maxPolls = opts.maxPolls ?? 300
+    try {
+      let polls = 0
+      for (;;) {
+        // eslint-disable-next-line no-await-in-loop -- 轮询本身就是顺序重试
+        await new Promise<void>((r) => track(setTimeout(r, interval)))
+        polls++
+        const page = await execApi.list({ plan_id: planId, limit: 500, sort_by: 'id', order: 'desc' })
+        const cur = page.items.filter((r) => r.id >= baseline)
+        const running = cur.filter((r) => r.status === 'running').length
+        if (running === 0 || polls >= maxPolls) {
+          msg.close()
+          const passed = cur.filter((r) => r.status === 'success').length
+          if (running > 0) {
+            favicon.reset()
+            ElMessage.warning('执行超时，请到执行记录查看结果')
+          } else if (passed === cur.length) {
+            favicon.success()
+            ElMessage.success(`方案「${name}」执行通过：${passed}/${cur.length}`)
+          } else {
+            favicon.failed()
+            ElMessage.warning(`方案「${name}」执行完成：${passed}/${cur.length} 通过，${cur.length - passed} 未通过`)
+          }
+          return cur
+        }
+      }
+    } catch (e) {
+      msg.close()
+      favicon.reset()
+      throw e
+    }
+  }
+
+  /**
    * running 态自刷新循环：每隔 interval 执行一次 fetcher；fetcher 返回 false
    * 或抛错即静默停止（刷新失败由调用方的加载逻辑兜底）。返回 stop()。
    */
@@ -129,5 +179,5 @@ export function useExecutionRunner() {
     }
   }
 
-  return { runWithFeedback, pollUntilDone, refreshWhileRunning, clearAllPolls: clearAll }
+  return { runWithFeedback, runPlanWithFeedback, pollUntilDone, refreshWhileRunning, clearAllPolls: clearAll }
 }

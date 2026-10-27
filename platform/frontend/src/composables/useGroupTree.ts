@@ -185,11 +185,10 @@ export function useGroupTree(
     else expandedIds.value.push(id)
   }
 
-  /** 无记忆时默认展开所有分组 */
+  /** 无记忆时默认全收起（2026-10-27 需求：不再自动全展开；用户展开过则以记忆为准）。
+   *  保留函数与调用点，语义变为 no-op，避免各视图散落删除。 */
   function applyDefaultExpand() {
-    if (!hasMemory.value) {
-      expandedIds.value = collectNodeIds(tree.value)
-    }
+    // 有记忆 → expandedIds 已由 loadMemory 还原；无记忆 → 保持空（全收起）
   }
 
   /**

@@ -28,8 +28,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // 用 /api/（带尾斜杠）避免误匹配前端路由 /apis、/api-manage 等
+      // 指向本平台后端 8001（service/nginx 同端口），勿照抄 UI 平台的 8000
       '/api/': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       },
     },
