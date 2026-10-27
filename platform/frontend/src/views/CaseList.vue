@@ -194,18 +194,18 @@
             <el-table-column label="操作" width="170" fixed="right">
               <template #default="{ row }">
                 <el-tooltip content="编排" placement="top">
-                  <el-button link type="primary" size="small" :icon="EditPen" @click="goDesign(row)" />
+                  <el-button link type="primary" size="small" :icon="EditPen" aria-label="编排用例" @click="goDesign(row)" />
                 </el-tooltip>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
-                  <el-button link type="success" size="small" :icon="VideoPlay" @click="runCase(row)" />
+                  <el-button link type="success" size="small" :icon="VideoPlay" aria-label="执行本行用例" @click="runCase(row)" />
                 </el-tooltip>
                 <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
-                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" @click="openBind(row)" />
+                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" aria-label="数据集绑定" @click="openBind(row)" />
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
                 <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
                   <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                    <el-button link type="primary" size="small" :icon="MoreFilled" />
+                    <el-button link type="primary" size="small" :icon="MoreFilled" aria-label="更多操作" />
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="report">查看报告</el-dropdown-item>
@@ -327,18 +327,18 @@
             <el-table-column label="操作" width="170" fixed="right">
               <template #default="{ row }">
                 <el-tooltip content="编排" placement="top">
-                  <el-button link type="primary" size="small" :icon="EditPen" @click="goDesign(row)" />
+                  <el-button link type="primary" size="small" :icon="EditPen" aria-label="编排用例" @click="goDesign(row)" />
                 </el-tooltip>
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
-                  <el-button link type="success" size="small" :icon="VideoPlay" @click="runCase(row)" />
+                  <el-button link type="success" size="small" :icon="VideoPlay" aria-label="执行本行用例" @click="runCase(row)" />
                 </el-tooltip>
                 <el-tooltip v-if="row.case_type !== 'suite'" :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
-                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" @click="openBind(row)" />
+                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" aria-label="数据集绑定" @click="openBind(row)" />
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
                 <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
                   <el-dropdown trigger="click" @command="(cmd: string) => onRowCommand(cmd, row)">
-                    <el-button link type="primary" size="small" :icon="MoreFilled" />
+                    <el-button link type="primary" size="small" :icon="MoreFilled" aria-label="更多操作" />
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="report">查看报告</el-dropdown-item>
