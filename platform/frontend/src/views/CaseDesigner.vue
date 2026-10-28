@@ -31,6 +31,7 @@
           <button
             type="button"
             class="group-header"
+            :class="{ 'is-open': row.isUngrouped || (row.expandable && isGroupExpanded(row.groupId!)) }"
             :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
             :aria-expanded="row.expandable ? isGroupExpanded(row.groupId!) : undefined"
             @click="onToggleGroup(row)"
@@ -775,6 +776,15 @@ watch(() => store.currentProjectId, async () => {
 .group-header:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: -2px;
+}
+/* 展开组吸顶：滚动接口列表时分组名钉在面板可视区顶部不消失
+   （仅展开组 sticky——收起态列表滚动不受粘滞干扰；同 UI 平台页面域树） */
+.group-header.is-open {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--app-card);
+  border-bottom: 1px solid var(--app-border);
 }
 .expand-icon {
   font-size: 14px;
