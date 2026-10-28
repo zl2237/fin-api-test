@@ -49,9 +49,11 @@
         router
         class="nav-menu"
         :collapse="collapsed"
-        :default-openeds="['workbench', 'config']"
+        unique-opened
+        :default-openeds="[activeMenuGroup]"
       >
-        <!-- 分组折叠：高频测试工作台默认展开，资源配置与系统管理按需展开；
+        <!-- 二组手风琴：高频测试工作台 / 低频系统管理（资源配置+用户日志合并），unique-opened 同时只展开一组；
+             默认展开当前页所在组（挂载时取值，之后展开状态交给用户）；
              折叠态（collapse）下 el-sub-menu 自动变为图标+hover 弹层，无需额外处理 -->
         <el-sub-menu index="workbench">
           <template #title>
@@ -80,10 +82,10 @@
           </el-menu-item>
         </el-sub-menu>
 
-        <el-sub-menu index="config">
+        <el-sub-menu index="system">
           <template #title>
             <el-icon><Setting /></el-icon>
-            <span>资源配置</span>
+            <span>系统管理</span>
           </template>
           <el-menu-item index="/projects">
             <el-icon><Folder /></el-icon>
@@ -101,18 +103,11 @@
             <el-icon><Files /></el-icon>
             <template #title><span>文件中心</span></template>
           </el-menu-item>
-        </el-sub-menu>
-
-        <el-sub-menu v-if="store.user?.role === 'admin'" index="admin">
-          <template #title>
-            <el-icon><UserFilled /></el-icon>
-            <span>系统管理</span>
-          </template>
-          <el-menu-item index="/users">
+          <el-menu-item v-if="store.user?.role === 'admin'" index="/users">
             <el-icon><UserFilled /></el-icon>
             <template #title><span>用户管理</span></template>
           </el-menu-item>
-          <el-menu-item index="/operation-logs">
+          <el-menu-item v-if="store.user?.role === 'admin'" index="/operation-logs">
             <el-icon><List /></el-icon>
             <template #title><span>操作日志</span></template>
           </el-menu-item>
@@ -620,6 +615,12 @@ const MENU_PATHS = [
 ]
 // 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失
 const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
+// 低频系统组路径——挂载时当前页在此列则默认展开 system 组，否则展开工作台
+// （default-openeds 仅初始生效，之后的展开/收起交给用户，unique-opened 同时只开一组）
+const SYSTEM_MENU_PATHS = ['/projects', '/envs', '/dictionary', '/files', '/users', '/operation-logs']
+const activeMenuGroup = computed(() =>
+  SYSTEM_MENU_PATHS.some((p) => route.path.startsWith(p)) ? 'system' : 'workbench',
+)
 // Mac 用户快捷键标签按平台显示（实际监听 Ctrl/Cmd 双键）
 const isMac = /mac|iphone|ipad/i.test(navigator.userAgent)
 
