@@ -66,21 +66,6 @@ class TestBuildLaunchPlan:
         assert spec.env_id == 5
         assert plan.records[0].env_id == 5
 
-    def test_suite_skips_dataset_binding(self, patched, monkeypatch):
-        """套件：本体无变量池，不走数据集展开（未绑环境也可执行），单条直发"""
-        called = []
-        monkeypatch.setattr(launcher.dataset_service, "plan_case_expansion",
-                            lambda db, case, **kw: called.append(1) or [])
-
-        suite = SimpleNamespace(id=12, name="融资套件", case_type="suite")
-        plan = build_launch_plan(object(), suite, 22)
-
-        assert called == []
-        assert len(plan.records) == 1
-        assert plan.records[0].dataset_id is None
-        assert plan.specs[0].dataset_row is None
-        assert plan.specs[0].env_id is None  # 套件无环境（run_suite 内对齐首成员）
-
     def test_bound_dataset_row_passthrough(self, patched, monkeypatch):
         """绑定数据集：row 的单套值作为 dataset_row 传入 spec"""
         _set_plan(monkeypatch, [{"dataset_id": 7, "row": _row(1, "BL001"),

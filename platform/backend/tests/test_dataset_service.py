@@ -288,14 +288,6 @@ def _api10():
 
 
 class TestEnsureCaseDataset:
-    def test_suite_case_skipped(self):
-        """套件用例跳过（成员用例各自管理数据集）"""
-        case = SimpleNamespace(id=5, project_id=1, case_type="suite", dataset_id=None,
-                               dag_config={"nodes": [{"id": "n1"}], "edges": []})
-        with patch.object(svc, "create_dataset") as mk:
-            svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case)
-        mk.assert_not_called()
-
     def test_unbound_creates_default_dataset_with_example_params(self):
         """未绑定：自动建「默认数据集」（示例值初始化节点参数）并绑定用例"""
         case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,

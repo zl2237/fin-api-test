@@ -138,7 +138,7 @@ describe('useExecutionRunner', () => {
       mockedList.mockResolvedValueOnce(page([
         prec(9, 'success'),   // 旧轮次（id < 基线 11）不计入
         prec(11, 'success'), prec(12, 'success'),
-        prec(13, 'success'),  // 套件成员行执行中创建（id > 基线）自动纳入
+        prec(13, 'success'),  // 串行链成员行执行中创建（id > 基线）自动纳入
       ]))
       const { result } = withSetup(() => useExecutionRunner())
       const p = result.runPlanWithFeedback(3, '冒烟方案', { interval: 10 })

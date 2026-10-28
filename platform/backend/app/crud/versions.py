@@ -4,12 +4,7 @@
 （删当前全部接口/用例/分组后按快照重建，执行记录分离再重关联），独立成域
 后本文件内自洽可读，可在此用假 Session 补测试。对外接口经 crud 包显式
 re-export，旧引用 `crud.rollback_project_version` 等继续可用。
-
-测试套件适配：cases 快照携带 case_type/shared_vars 与套件成员
-（suite_members），回滚时同步恢复；删除项目用例前先清理引用它的套件
-成员行（bulk delete 不触发 ORM 级联，且跨项目成员引用会触发 FK 约束）。
 """
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -66,8 +61,6 @@ def _snapshot_cases(db: Session, project_id: int) -> list[dict]:
             "group_id": c.group_id,
             "name": c.name,
             "description": c.description,
-            "case_type": getattr(c, "case_type", "normal") or "normal",
-            "shared_vars": getattr(c, "shared_vars", None),
             "dataset_id": c.dataset_id,  # 数据集 id 回滚后不变（按原 id 重建），绑定可直接沿用
             "dag_config": c.dag_config or {"nodes": [], "edges": []},
             "sort_order": c.sort_order,
@@ -80,15 +73,6 @@ def _snapshot_cases(db: Session, project_id: int) -> list[dict]:
                 } for nc in (c.node_configs or [])
             ],
         }
-        # 套件成员：member_case_id 按原 id 存（回滚时经本项目 case_id_map 转换，
-        # 跨项目成员不在本项目删除范围、id 不变，原样保留）
-        if item["case_type"] == "suite":
-            members = (db.query(models.SuiteMember)
-                       .filter(models.SuiteMember.suite_case_id == c.id)
-                       .order_by(models.SuiteMember.sort_order, models.SuiteMember.id).all())
-            item["suite_members"] = [
-                {"member_case_id": m.member_case_id, "env_id": m.env_id,
-                 "sort_order": m.sort_order} for m in members]
         result.append(item)
     return result
 
@@ -224,12 +208,6 @@ def rollback_project_version(
     ds_snap: list[dict] = []
     ds_rows_map: dict = {}
     if case_ids:
-        # 套件成员先行清理：bulk delete 不触发 ORM 级联，且跨项目套件可能引用本项目
-        # 用例（member_case_id 外键会阻止删除）；本项目套件的成员行也一并删除待重建
-        db.query(models.SuiteMember).filter(or_(
-            models.SuiteMember.suite_case_id.in_(case_ids),
-            models.SuiteMember.member_case_id.in_(case_ids),
-        )).delete(synchronize_session=False)
         # 定时任务/数据集同为 NOT NULL 外键引用用例：整行收集后删除，重建用例后
         # 按 case_id_map 恢复（配置与数据资产不丢；数据集按原 id 重建，绑定无需转换）
         sched_rows = [
@@ -355,9 +333,8 @@ def rollback_project_version(
             ))
 
     # 5. 重建用例（转换 group_id，node_configs 的 api_id 用映射转换）
-    # 同时建立 old_case_id → new_case_id 映射，用于重新关联执行记录与套件成员
+    # 同时建立 old_case_id → new_case_id 映射，用于重新关联执行记录
     case_id_map: dict = {}
-    suite_restore: list[tuple] = []  # (new_suite_case, 快照 members) 二阶段重建（成员引用需等全部用例重建完）
     dataset_bind: list[tuple] = []   # (new_case, 快照 dataset_id) 二阶段回填（data_sets 重建前后再绑，避免 FK 循环）
     for c in snap.get("cases", []):
         old_case_id = c.get("id")
@@ -368,8 +345,6 @@ def rollback_project_version(
             group_id=new_group_id,
             name=c["name"],
             description=c.get("description"),
-            case_type=c.get("case_type", "normal") or "normal",
-            shared_vars=c.get("shared_vars"),
             dag_config=c.get("dag_config", {"nodes": [], "edges": []}),
             sort_order=c.get("sort_order", 0),
             created_by=user_id,
@@ -379,8 +354,6 @@ def rollback_project_version(
         db.flush()
         if old_case_id is not None:
             case_id_map[old_case_id] = nc.id
-        if (c.get("case_type", "normal") or "normal") == "suite":
-            suite_restore.append((nc, c.get("suite_members", [])))
         if c.get("dataset_id"):
             dataset_bind.append((nc, c["dataset_id"]))
         for cfg in c.get("node_configs", []):
@@ -395,21 +368,7 @@ def rollback_project_version(
                 wait_after_ms=cfg.get("wait_after_ms", 0) or 0,
             ))
 
-    # 5.1 重建套件成员：member_case_id 优先经本项目 case_id_map 转换；
-    # 无映射（跨项目成员，id 未变）则原样保留；悬空引用（成员项目已另行回滚）
-    # 保留原 id，套件执行器对成员不存在有兜底（该成员 failed 报错，链阻断不崩）
-    for suite_case, members in suite_restore:
-        for idx, m in enumerate(members):
-            old_member_id = m.get("member_case_id")
-            db.add(models.SuiteMember(
-                suite_case_id=suite_case.id,
-                member_case_id=case_id_map.get(old_member_id, old_member_id),
-                env_id=m.get("env_id"),
-                sort_order=m.get("sort_order", idx),
-            ))
-        db.flush()
-
-    # 5.2 重建数据集（原 id 复用 → test_cases.dataset_id / data_set_rows.dataset_id
+    # 5.1 重建数据集（原 id 复用 → test_cases.dataset_id / data_set_rows.dataset_id
     # 引用零转换）：归属 case_id 经 map 转换；用例不在快照中的数据集丢弃（回到快照时刻）
     for d in ds_snap:
         new_cid = case_id_map.get(d["case_id"])

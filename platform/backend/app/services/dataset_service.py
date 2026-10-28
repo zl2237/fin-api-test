@@ -233,13 +233,10 @@ def ensure_case_dataset(db: Session, case, user_id: int | None = None,
     """保存用例钩子：未绑定 → 自动建「默认数据集」（示例值初始化全部节点）并绑定；
     已绑定 → 行内缺失的画布节点（新加节点）按接口字段补初始参数。
 
-    - 套件用例跳过（成员用例各自管理数据集）
     - 已有节点的参数一律不动（契约出入走接口保存/数据集保存的同步弹窗许可）
     - allow_create=False 用于用户显式解绑数据集的保存：不重建绑定，仅增量
     - 初始化失败不阻断保存（打印日志，数据集页可见未配置状态）
     """
-    if getattr(case, "case_type", "normal") == "suite":
-        return
     try:
         if not getattr(case, "dataset_id", None):
             if not allow_create:

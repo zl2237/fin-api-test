@@ -11,7 +11,7 @@
         <el-tag v-if="plan" type="primary" effect="plain">方案 #{{ planId }}</el-tag>
       </div>
       <div class="head-right">
-        <el-button :disabled="!dirty" :loading="saving" @click="onSave">保存 (Ctrl+S)</el-button>
+        <el-button :disabled="!dirty" :loading="saving" @click="onSave()">保存 (Ctrl+S)</el-button>
         <el-button type="success" :loading="running" @click="onExecute">一键执行</el-button>
       </div>
     </div>
@@ -27,41 +27,59 @@
         <!-- 基础信息 -->
         <el-card shadow="never" class="meta-card">
           <el-form label-width="110px" @submit.prevent>
+            <el-form-item label="方案模式">
+              <el-radio-group v-model="mode" @change="onModeChange">
+                <el-radio value="combo">并行组合</el-radio>
+                <el-radio value="chain">串行链</el-radio>
+              </el-radio-group>
+              <span class="field-tip">{{ mode === 'chain'
+                ? '链 = 依赖与传参的组织方式：轮内按序串行 + 相邻定向传参 + 失败阻断本轮下游；批量策略（轮数×并发）叠加在整链上'
+                : '成员独立并行执行，失败互不影响' }}</span>
+            </el-form-item>
             <el-form-item label="描述">
               <el-input v-model="description" placeholder="方案用途说明（可选）" maxlength="500" @input="dirty = true" />
             </el-form-item>
-            <el-form-item label="执行并发">
+            <el-form-item v-if="mode === 'combo'" label="执行并发">
               <el-input-number v-model="concurrency" :min="1" :max="16" @change="dirty = true" />
               <span class="field-tip">成员并行提交上限（1=串行）；成员相互独立，失败互不影响</span>
             </el-form-item>
+            <template v-else>
+              <el-form-item label="整链轮数">
+                <el-input-number v-model="rounds" :min="1" :max="9999" @change="dirty = true" />
+                <span class="field-tip">整链重复执行的轮数；第 r 轮取各成员数据集第 r 套值（不足沿用末套）</span>
+              </el-form-item>
+              <el-form-item label="轮间并发">
+                <el-input-number v-model="concurrency" :min="1" :max="16" @change="dirty = true" />
+                <span class="field-tip">轮与轮并行上限（1=逐轮）；轮内恒按序串行，上游失败只阻断本轮下游，其他轮不受影响</span>
+              </el-form-item>
+            </template>
           </el-form>
         </el-card>
 
-        <!-- 成员编辑：拖拽排序仅影响记录生成序（并行语义） -->
+        <!-- 成员编辑：combo 拖拽仅影响记录生成序；chain 顺序即轮内执行顺序 -->
         <el-card shadow="never" class="member-card">
           <template #header>
             <div class="card-head">
-              <span>方案成员（独立并行执行）</span>
+              <span>方案成员（{{ mode === 'chain' ? '按序串行（轮内链路）' : '独立并行执行' }}）</span>
               <span class="member-count">{{ items.length }} 个成员</span>
             </div>
           </template>
 
           <div v-if="items.length" ref="listRef" class="member-list">
             <div v-for="(m, i) in items" :key="m.case_id + '-' + i" class="member-row">
-              <el-tooltip content="拖拽调整顺序（仅影响记录生成序）" placement="top" popper-class="app-tip">
+              <el-tooltip :content="mode === 'chain' ? '拖拽调整执行顺序（上游 → 下游）' : '拖拽调整顺序（仅影响记录生成序）'" placement="top" popper-class="app-tip">
                 <el-icon class="drag-handle"><Rank /></el-icon>
               </el-tooltip>
               <span class="member-order">{{ i + 1 }}</span>
               <el-tag size="small" effect="plain" type="info">{{ projectName(m.project_id) }}</el-tag>
-              <el-tag v-if="m.case_type === 'suite'" size="small" type="warning">套件</el-tag>
               <span class="member-name" :title="m.case_name">{{ m.case_name || `用例#${m.case_id}` }}</span>
               <el-tag v-if="m.case_missing" size="small" type="danger">用例已删除</el-tag>
-              <el-tag v-else-if="m.case_type !== 'suite' && !m.env_id" size="small" type="danger">环境未绑定</el-tag>
+              <el-tag v-else-if="!m.env_id" size="small" type="danger">环境未绑定</el-tag>
 
               <div class="member-right">
-                <!-- 数据集单选（换套执行）：选项懒加载（按用例隔离归属）；套件成员禁配覆盖 -->
+                <!-- 数据集单选（换套执行）：选项懒加载（按用例隔离归属） -->
                 <el-select
-                  v-if="m.case_type !== 'suite' && !m.case_missing"
+                  v-if="!m.case_missing"
                   :model-value="m.dataset_id ?? ''"
                   style="width: 240px"
                   size="small"
@@ -79,14 +97,32 @@
                     :disabled="o.disabled"
                   />
                 </el-select>
-                <el-tooltip v-else-if="m.case_type === 'suite'" content="套件成员各自绑定数据集，不能覆盖" placement="top" popper-class="app-tip">
-                  <el-tag size="small" effect="plain" type="info">成员各自绑定</el-tag>
-                </el-tooltip>
                 <el-tooltip v-if="m.dataset_missing" :content="`覆盖数据集 #${m.dataset_id} 已删除，保存前请重选`" placement="top">
                   <el-tag size="small" type="danger">数据集悬空</el-tag>
                 </el-tooltip>
 
-                <span class="run-count-box">
+                <!-- chain：本成员成功后按名单把输出变量传给下一棒（末棒无下游，不配置） -->
+                <el-tooltip
+                  v-if="mode === 'chain' && i < items.length - 1"
+                  content="本成员执行成功后按名单快照输出变量传给下一棒；下一棒入参经「引用 → __prev__」取值（相邻定向传参）"
+                  placement="top" popper-class="app-tip"
+                >
+                  <div class="pass-vars-box">
+                    <span class="pass-vars-label">传下一棒</span>
+                    <el-select
+                      v-model="m.pass_vars"
+                      multiple filterable allow-create default-first-option
+                      :reserve-keyword="false"
+                      placeholder="变量名（如 bl_no），回车添加"
+                      size="small"
+                      style="width: 200px"
+                      @change="dirty = true"
+                    />
+                  </div>
+                </el-tooltip>
+                <el-tag v-else-if="mode === 'chain'" size="small" effect="plain" type="info">末棒</el-tag>
+
+                <span v-if="mode === 'combo'" class="run-count-box">
                   <span class="run-count-label">×N</span>
                   <el-input-number v-model="m.run_count" :min="1" :max="9999" size="small" style="width: 100px" controls-position="right" @change="dirty = true" />
                 </span>
@@ -103,7 +139,7 @@
             <el-select
               v-model="addCaseId"
               style="width: 280px"
-              placeholder="选择用例（普通用例或套件）"
+              placeholder="选择用例"
               filterable
               :loading="addCasesLoading"
               :disabled="!addProjectId"
@@ -111,14 +147,15 @@
               <el-option
                 v-for="c in addCases"
                 :key="c.id"
-                :label="`${c.name}${c.case_type === 'suite' ? '（套件）' : `（${c.dag_config?.nodes?.length || 0} 节点）`}`"
+                :label="`${c.name}（${c.dag_config?.nodes?.length || 0} 节点）`"
                 :value="c.id"
               />
             </el-select>
             <el-button type="primary" :disabled="!addCaseId" @click="addItem">添加成员</el-button>
           </div>
           <div class="add-tip">
-            普通用例需已绑定执行环境（未绑定的成员执行预检会精确报错）；套件作为成员时按其编排串行展开、数据集覆盖不生效
+            成员需已绑定执行环境（未绑定的成员执行预检会精确报错）；
+            串行链可跨项目跨系统组业务链，相邻成员经「传下一棒」名单定向传参（下一棒以 __prev__.变量名 引用）
           </div>
         </el-card>
 
@@ -204,7 +241,15 @@ const running = ref(false)
 
 const name = ref('')
 const description = ref('')
+// 方案模式：combo 并行组合 / chain 串行链（轮内按序+相邻定向传参+失败阻断；批量策略叠加）
+const mode = ref<'combo' | 'chain'>('combo')
+// chain 专用：整链轮数（轮内串行、轮间按 concurrency 并行）；combo 恒 1
+const rounds = ref(1)
 const concurrency = ref(4)
+
+function onModeChange() {
+  dirty.value = true
+}
 
 // 内嵌定时本地态（保存时随基础字段一并提交；清除走 schedule_off）
 const scheduleType = ref<'interval' | 'daily'>('interval')
@@ -229,12 +274,12 @@ function onToggleSchedule(v: string | number | boolean) {
 interface ItemRow {
   case_id: number
   case_name: string
-  case_type: string
   project_id: number | null
   env_id: number | null
   dataset_id: number | null
   case_dataset_id: number | null  // 用例自身绑定（dataset_id 空时实际生效）
   run_count: number
+  pass_vars: string[]             // chain：传给下一棒的输出变量名单（末棒空）
   case_missing: boolean
   dataset_missing: boolean
 }
@@ -258,6 +303,8 @@ async function load() {
     plan.value = await planApi.get(planId)
     name.value = plan.value.name
     description.value = plan.value.description || ''
+    mode.value = plan.value.mode || 'combo'
+    rounds.value = plan.value.rounds || 1
     concurrency.value = plan.value.concurrency
     scheduleType.value = plan.value.schedule_type || 'interval'
     scheduleMinutes.value = plan.value.schedule_interval_minutes || 30
@@ -267,18 +314,18 @@ async function load() {
     // 成员行回填 + caseApi.get 补全 env/project 展示（并行，成员数通常个位数）
     items.value = await Promise.all(plan.value.items.map(async (it) => {
       const base: ItemRow = {
-        case_id: it.case_id, case_name: it.case_name || '', case_type: it.case_type || 'normal',
+        case_id: it.case_id, case_name: it.case_name || '',
         project_id: null, env_id: null,
         dataset_id: it.dataset_id ?? null,
         case_dataset_id: it.case_dataset_id ?? null,
         run_count: it.run_count || 1,
+        pass_vars: it.pass_vars || [],
         case_missing: !!it.case_missing, dataset_missing: !!it.dataset_missing,
       }
       if (base.case_missing) return base
       try {
         const c = await caseApi.get(it.case_id)
         base.case_name = c.name
-        base.case_type = c.case_type || 'normal'
         base.project_id = c.project_id
         base.env_id = c.env_id ?? null
         base.case_dataset_id = c.dataset_id ?? null
@@ -321,7 +368,7 @@ function destroySortable() {
   if (sortable) { sortable.destroy(); sortable = null }
 }
 
-// ===== 添加成员（项目 → 用例两级级联，普通用例与套件均可） =====
+// ===== 添加成员（项目 → 用例两级级联） =====
 const addProjectId = ref<number | null>(null)
 const addCaseId = ref<number | null>(null)
 const addCases = ref<TestCase[]>([])
@@ -345,9 +392,10 @@ function addItem() {
   const c = addCases.value.find(x => x.id === addCaseId.value)
   if (!c) return
   items.value.push({
-    case_id: c.id, case_name: c.name, case_type: c.case_type || 'normal',
+    case_id: c.id, case_name: c.name,
     project_id: addProjectId.value, env_id: c.env_id ?? null,
     dataset_id: null, case_dataset_id: c.dataset_id ?? null, run_count: 1,
+    pass_vars: [],
     case_missing: false, dataset_missing: false,
   })
   dirty.value = true
@@ -391,6 +439,8 @@ async function onSave(silent = false) {
     plan.value = await planApi.update(planId, {
       name: name.value.trim(),
       description: description.value,
+      mode: mode.value,
+      rounds: mode.value === 'chain' ? rounds.value : 1,
       concurrency: concurrency.value,
       // 已配置或本次动过定时才提交四件套：未配置不得隐式配上默认定时，清除后不得随保存复活
       ...(plan.value?.schedule_type || scheduleTouched.value
@@ -406,6 +456,7 @@ async function onSave(silent = false) {
       case_id: m.case_id,
       dataset_id: m.dataset_id,
       run_count: m.run_count,
+      pass_vars: m.pass_vars,
       sort_order: i,
     })))
     dirty.value = false
@@ -516,6 +567,17 @@ onUnmounted(destroySortable)
   margin-left: 8px;
   font-size: 12px;
   color: var(--app-text-muted);
+}
+/* chain 相邻定向传参（传下一棒） */
+.pass-vars-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pass-vars-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
 }
 /* 成员列表 */
 .member-list {

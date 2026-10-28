@@ -624,7 +624,7 @@ def delete_testcase(db: Session, case: models.TestCase):
 
 
 def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
-    """复制用例，name 加 _copy 后缀（冲突时加数字），同时复制节点配置；套件连带复制成员与白名单"""
+    """复制用例，name 加 _copy 后缀（冲突时加数字），同时复制节点配置与数据集资产"""
     base_name = case.name + "_copy"
     new_name = base_name
     n = 1
@@ -642,7 +642,6 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
         case_type=getattr(case, "case_type", "normal"),
         env_id=getattr(case, "env_id", None),
         dag_config=case.dag_config or {"nodes": [], "edges": []},
-        shared_vars=case.shared_vars,
     )
     db.add(obj)
     db.commit()
@@ -658,12 +657,6 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
             wait_after_ms=nc.wait_after_ms or 0,
         )
         db.add(nnc)
-    # 套件：成员引用整表复制（成员用例与环境的引用关系保持）
-    if getattr(case, "case_type", "normal") == "suite":
-        for m in (case.members or []):
-            db.add(models.SuiteMember(
-                suite_case_id=obj.id, member_case_id=m.member_case_id,
-                env_id=m.env_id, sort_order=m.sort_order))
     db.commit()
     db.refresh(obj)
     # 数据集资产随迁：名下全部池深拷贝（保持原名），绑定关系照搬

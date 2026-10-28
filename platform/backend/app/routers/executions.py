@@ -162,9 +162,10 @@ def terminate_execution(exec_id: int, db: Session = Depends(get_db), user: model
 
     两类场景统一入口：
     - 僵尸记录：进程重启致后台线程丢失，记录永远停在 running——直接落 terminated
-    - 活动执行：runner 在节点间/套件成员间检查点感知本状态后提前退出，
-      剩余节点/成员并入未执行统计；套件主记录终止时级联标记其名下
-      running 的成员行记录（成员 DagExecutor 检查点只看自己的记录状态）
+    - 活动执行：runner 在节点间检查点感知本状态后提前退出，剩余节点并入未执行统计；
+      方案（combo 并行/chain 串行链）成员记录终止时连带终止同 plan_id 名下
+      running 的其他成员行（成员 DagExecutor 检查点只看自己的记录状态；
+      chain 驱动线程遇非 running 记录自动跳过，整链随之停摆）
     """
     obj = crud.get_execution(db, exec_id)
     if not obj:
@@ -177,13 +178,15 @@ def terminate_execution(exec_id: int, db: Session = Depends(get_db), user: model
                    "error": f"用户 {user.username} 手动终止"}
     cascaded = 0
     cascade_records: list[models.ExecutionRecord] = []
-    if (obj.summary or {}).get("suite"):
+    if obj.plan_id:
+        # 同方案其余 running 记录连带终止（含 combo 并行兄弟与 chain 未轮到的成员）
         for child in (db.query(models.ExecutionRecord)
-                      .filter(models.ExecutionRecord.suite_execution_id == exec_id,
+                      .filter(models.ExecutionRecord.plan_id == obj.plan_id,
+                              models.ExecutionRecord.id != exec_id,
                               models.ExecutionRecord.status == "running").all()):
             child.status = "terminated"
             child.ended_at = datetime.now()
-            child.summary = {**(child.summary or {}), "error": "套件主执行被手动终止"}
+            child.summary = {**(child.summary or {}), "error": "方案成员执行被手动终止，连带终止"}
             cascade_records.append(child)
             cascaded += 1
     db.commit()

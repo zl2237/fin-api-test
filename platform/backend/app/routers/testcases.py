@@ -68,7 +68,7 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
     _validate_case_env(db, data)
     obj = crud.create_testcase(db, data, user.id)
     # 默认数据集自动初始化（Q7）：新用例自动建「默认数据集」（示例值）并绑定；
-    # 套件/显式绑定数据集时函数内自行跳过
+    # 已显式绑定数据集时函数内自行跳过
     from ..services.dataset_service import ensure_case_dataset
     ensure_case_dataset(db, obj, user.id)
     crud.fill_audit_names(db, obj)
@@ -230,77 +230,6 @@ def copy(case_id: int, db: Session = Depends(get_db), user: models.User = Depend
     crud.fill_case_env_names(db, new_obj)
     crud.log_operation(db, user, "copy", "testcase", new_obj.id, new_obj.name)
     return new_obj
-
-
-# ============ 套件成员（case_type=suite 专用） ============
-def _member_out(db: Session, m: models.SuiteMember) -> schemas.SuiteMemberOut:
-    """ORM 成员行 → 带 用例名/项目/环境名 的展示 DTO（引用悬空时名称置空不炸）。
-    环境严格绑定：环境一律展示成员用例的绑定环境（行内 env_id 仅为编排时快照）"""
-    out = schemas.SuiteMemberOut(
-        id=m.id, member_case_id=m.member_case_id,
-        env_id=m.env_id, sort_order=m.sort_order)
-    mc = crud.get_testcase(db, m.member_case_id)
-    if mc:
-        out.case_name = mc.name
-        out.project_id = mc.project_id
-        assert mc.project_id is not None  # 用例必然属于某项目
-        project = crud.get_project(db, mc.project_id)
-        out.project_name = project.name if project else None
-        out.member_case_type = getattr(mc, "case_type", "normal")
-        out.env_id = mc.env_id  # 实时绑定环境
-        env = crud.get_environment(db, mc.env_id) if mc.env_id else None
-        out.env_name = env.name if env else None
-    return out
-
-
-@router.get("/{case_id}/members", response_model=list[schemas.SuiteMemberOut])
-def list_members(case_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """套件成员列表（按执行顺序），带用例/项目/环境冗余名"""
-    case = crud.get_testcase(db, case_id)
-    if not case:
-        raise HTTPException(404, "用例不存在")
-    members = (db.query(models.SuiteMember)
-               .filter(models.SuiteMember.suite_case_id == case_id)
-               .order_by(models.SuiteMember.sort_order, models.SuiteMember.id).all())
-    return [_member_out(db, m) for m in members]
-
-
-@router.put("/{case_id}/members", response_model=list[schemas.SuiteMemberOut])
-def replace_members(case_id: int, data: schemas.SuiteMembersUpdate,
-                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """整体替换套件成员（编排保存语义）。校验：宿主是套件、成员存在且非套件（禁嵌套）、
-    成员用例已绑定执行环境（环境严格绑定：成员执行用自己的绑定环境）、不得引用自身；
-    sort_order 按提交顺序重排（0 起）。"""
-    case = crud.get_testcase(db, case_id)
-    if not case:
-        raise HTTPException(404, "用例不存在")
-    if getattr(case, "case_type", "normal") != "suite":
-        raise HTTPException(400, "只有套件类型的用例才能配置成员")
-    member_env_ids: dict[int, int] = {}
-    for item in data.members:
-        if item.member_case_id == case_id:
-            raise HTTPException(400, "套件成员不能引用套件自身")
-        mc = crud.get_testcase(db, item.member_case_id)
-        if not mc:
-            raise HTTPException(400, f"成员用例不存在: {item.member_case_id}")
-        if getattr(mc, "case_type", "normal") == "suite":
-            raise HTTPException(400, f"套件不能嵌套套件：{mc.name}")
-        env_id = mc.env_id
-        if not env_id:
-            raise HTTPException(400, f"成员用例「{mc.name}」未绑定执行环境，请先在用例编辑中选择")
-        member_env_ids[item.member_case_id] = env_id
-    db.query(models.SuiteMember).filter(models.SuiteMember.suite_case_id == case_id).delete()
-    for idx, item in enumerate(data.members):
-        db.add(models.SuiteMember(suite_case_id=case_id, member_case_id=item.member_case_id,
-                                  env_id=member_env_ids[item.member_case_id],  # 编排时快照（执行读用例绑定）
-                                  sort_order=idx))
-    db.commit()
-    crud.log_operation(db, user, "update", "testcase", case_id,
-                       f"套件成员保存（{len(data.members)} 个）")
-    members = (db.query(models.SuiteMember)
-               .filter(models.SuiteMember.suite_case_id == case_id)
-               .order_by(models.SuiteMember.sort_order, models.SuiteMember.id).all())
-    return [_member_out(db, m) for m in members]
 
 
 @router.post("/{case_id}/scan-split")

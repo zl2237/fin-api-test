@@ -8,7 +8,7 @@
                "args": [{"name": "s", "kind": "const", "value": "abc"}
                         | {"name": "s", "kind": "ref", "node_id": "n_create", "var_path": "bl_no"}]}
 3. ref       上游引用：spec = {"source": "ref", "node_id": "n_create", "var_path": "order_id"}
-             —— node_id 可为画布节点 / SUITE_NS / 本节点（SQL 参数结果）
+             —— node_id 可为画布节点 / PREV_NS（串行链上一棒快照）/ 本节点（SQL 参数结果）
 4. sql       参数级标量：spec = {"source": "sql", "sql": "SELECT ... {{n_create.bl_no}} ...",
                "column": "order_id"(可选，缺省取首行首列)}
              —— 执行结果按 本节点.参数路径 注册进注册表（供本节点后续参数与下游引用）

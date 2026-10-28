@@ -1,4 +1,4 @@
-"""执行通知服务：用例执行完成后的企微通知（用例单条 + 套件汇总）。
+"""执行通知服务：用例执行完成后的企微通知（逐用例单条）。
 
 深模块约定：取数与门控都在本模块内部——执行人/项目名、环境/数据集名由
 notifier 自己查表，webhook 存在性与 enable_on_success/enable_on_failure
@@ -150,64 +150,3 @@ def send_notify(db, env, case, record) -> None:
     except Exception as e:
         # 通知失败不影响执行结果
         print(f"[通知发送] 企微通知发送失败（忽略）: {e}")
-
-
-def _member_error_text(member: dict) -> str:
-    """成员失败摘要：成员级 error 优先；否则首个失败执行的回填原因。"""
-    err = member.get("error")
-    if err:
-        return str(err)
-    for r in member.get("rows") or []:
-        if r.get("status") != "failed":
-            continue
-        head = "执行失败"
-        return f"{head}：{r['reason']}" if r.get("reason") else head
-    return ""
-
-
-def send_suite_notify(db, env, suite_case, record) -> None:
-    """套件执行完成的汇总通知（一条）：成员成败一览 + 共享变量终值。
-
-    成员逐条通知已在套件执行器内抑制，这里只发套件级汇总；
-    门控复用 _send_wecom（成功默认关、失败默认开）。失败不影响主流程。
-    """
-    try:
-        is_success = record.status == "success"
-        summary = record.summary or {}
-        members = summary.get("members") or []
-        duration = ""
-        if record.started_at and record.ended_at:
-            secs = (record.ended_at - record.started_at).total_seconds()
-            duration = f"（耗时 {secs:.1f}s）"
-        icon = {"success": "✅", "failed": "❌", "blocked": "⏭️"}
-        lines = [
-            "**测试套件执行通知**",
-            f"> 套件：{suite_case.name}",
-            f"> 状态：{'✅ 全链通过' if is_success else '❌ 存在失败/阻断'}{duration}",
-            f"> 成员：通过 {summary.get('passed', 0)} / 失败 {summary.get('failed', 0)}"
-            f" / 阻断 {summary.get('blocked', 0)}（共 {summary.get('total', 0)}）",
-        ]
-        if not is_success:
-            lines += ["> ", "**成员明细**"]
-            for m in members[:10]:  # 最多列 10 个成员，防通知超长
-                status = m.get("status", "-")
-                line = f"> {icon.get(status, '·')} {m.get('case_name', '')}"
-                err = _member_error_text(m)
-                if err:
-                    line += f"：{_clip(err, 120)}"
-                lines.append(line)
-            if len(members) > 10:
-                lines.append(f"> …另有 {len(members) - 10} 个成员已省略，详见套件报告")
-        shared = summary.get("shared_vars") or {}
-        if shared:
-            pair = "、".join(f"{k}={_clip(v, 40)}" for k, v in list(shared.items())[:6])
-            lines += ["> ", f"> 共享变量：{pair}"]
-        lines += [
-            f"> 环境（首成员）：{env.name}",
-            f"> 执行人：{_resolve_executor_name(db, record)}",
-            f"> 时间：{record.ended_at.strftime('%Y-%m-%d %H:%M:%S') if record.ended_at else ''}",
-        ]
-        _send_wecom(env.notify_config or {}, "测试套件执行通知", "\n".join(lines),
-                    success_event=is_success)
-    except Exception as e:
-        print(f"[套件通知] 发送失败（忽略）: {e}")

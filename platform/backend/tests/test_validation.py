@@ -23,9 +23,9 @@ class TestPass:
         assert errs == []
 
     def test_suite_ref_allowed(self):
-        """__suite__ 白名单运行期注入，保存期放行（__dataset__ 平铺键已退役）"""
+        """__prev__ 白名单运行期注入，保存期放行（__dataset__ 平铺键已退役）"""
         errs = validate_case_configs(DAG, [
-            n1_config(params={"body": {"pol": {"source": "ref", "node_id": "__suite__", "var_path": "pol"}}}),
+            n1_config(params={"body": {"pol": {"source": "ref", "node_id": "__prev__", "var_path": "pol"}}}),
         ])
         assert errs == []
 
