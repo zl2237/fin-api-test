@@ -24,50 +24,43 @@
       </div>
 
       <template v-else-if="plan">
-        <!-- 基础信息 -->
-        <el-card shadow="never" class="meta-card">
-          <el-form label-width="110px" @submit.prevent>
-            <el-form-item label="方案模式">
-              <el-radio-group v-model="mode" @change="onModeChange">
-                <el-radio value="combo">并行组合</el-radio>
-                <el-radio value="chain">串行链</el-radio>
-              </el-radio-group>
-              <span class="field-tip">{{ mode === 'chain'
-                ? '链 = 依赖与传参的组织方式：轮内按序串行 + 相邻定向传参 + 失败阻断本轮下游；批量策略（轮数×并发）叠加在整链上'
-                : '成员独立并行执行，失败互不影响' }}</span>
-            </el-form-item>
-            <el-form-item label="描述">
-              <el-input v-model="description" placeholder="方案用途说明（可选）" maxlength="500" @input="dirty = true" />
-            </el-form-item>
-            <el-form-item v-if="mode === 'combo'" label="执行并发">
-              <el-input-number v-model="concurrency" :min="1" :max="16" @change="dirty = true" />
-              <span class="field-tip">成员并行提交上限（1=串行）；成员相互独立，失败互不影响</span>
-            </el-form-item>
-            <template v-else>
-              <el-form-item label="整链轮数">
-                <el-input-number v-model="rounds" :min="1" :max="9999" @change="dirty = true" />
-                <span class="field-tip">整链重复执行的轮数；第 r 轮取各成员数据集第 r 套值（不足沿用末套）</span>
-              </el-form-item>
-              <el-form-item label="轮间并发">
-                <el-input-number v-model="concurrency" :min="1" :max="16" @change="dirty = true" />
-                <span class="field-tip">轮与轮并行上限（1=逐轮）；轮内恒按序串行，上游失败只阻断本轮下游，其他轮不受影响</span>
-              </el-form-item>
-            </template>
-          </el-form>
-        </el-card>
-
-        <!-- 成员编辑：combo 拖拽仅影响记录生成序；chain 顺序即轮内执行顺序 -->
+        <!-- 成员编排：模式与批量策略收进卡片头部（轻量条），正文只留成员与添加 -->
         <el-card shadow="never" class="member-card">
           <template #header>
             <div class="card-head">
-              <span>方案成员（{{ mode === 'chain' ? '按序串行（轮内链路）' : '独立并行执行' }}）</span>
-              <span class="member-count">{{ items.length }} 个成员</span>
+              <div class="head-title">
+                <span>方案成员</span>
+                <span class="member-count">{{ items.length }} 个</span>
+              </div>
+              <el-radio-group v-model="mode" size="small" @change="onModeChange">
+                <el-radio-button value="combo">并行组合</el-radio-button>
+                <el-radio-button value="chain">串行链</el-radio-button>
+              </el-radio-group>
             </div>
           </template>
 
+          <!-- 批量策略 + 描述：一行轻量条，说明文字全部收进 ? 提示 -->
+          <div class="meta-strip">
+            <template v-if="mode === 'chain'">
+              <span class="strip-label">整链轮数</span>
+              <el-input-number v-model="rounds" :min="1" :max="9999" size="small" controls-position="right" style="width: 100px" @change="dirty = true" />
+              <span class="strip-label">轮间并发</span>
+              <el-input-number v-model="concurrency" :min="1" :max="16" size="small" controls-position="right" style="width: 92px" @change="dirty = true" />
+            </template>
+            <template v-else>
+              <span class="strip-label">并发上限</span>
+              <el-input-number v-model="concurrency" :min="1" :max="16" size="small" controls-position="right" style="width: 92px" @change="dirty = true" />
+            </template>
+            <el-tooltip :content="mode === 'chain' ? chainTip : comboTip" placement="top" popper-class="app-tip">
+              <el-icon class="strip-help"><QuestionFilled /></el-icon>
+            </el-tooltip>
+            <el-input v-model="description" class="strip-desc" placeholder="方案描述（可选）" maxlength="500" @input="dirty = true" />
+          </div>
+
+          <!-- 成员编辑：combo 拖拽仅影响记录生成序；chain 顺序即轮内执行顺序 -->
           <div v-if="items.length" ref="listRef" class="member-list">
             <div v-for="(m, i) in items" :key="m.case_id + '-' + i" class="member-row">
-              <el-tooltip :content="mode === 'chain' ? '拖拽调整执行顺序（上游 → 下游）' : '拖拽调整顺序（仅影响记录生成序）'" placement="top" popper-class="app-tip">
+              <el-tooltip :content="mode === 'chain' ? '拖拽排序（上游 → 下游）' : '拖拽排序'" placement="top" popper-class="app-tip">
                 <el-icon class="drag-handle"><Rank /></el-icon>
               </el-tooltip>
               <span class="member-order">{{ i + 1 }}</span>
@@ -104,7 +97,7 @@
                 <!-- chain：本成员成功后按名单把输出变量传给下一棒（末棒无下游，不配置） -->
                 <el-tooltip
                   v-if="mode === 'chain' && i < items.length - 1"
-                  content="本成员执行成功后按名单快照输出变量传给下一棒；下一棒入参经「引用 → __prev__」取值（相邻定向传参）"
+                  content="成功后按名单快照输出变量传给下一棒（下一棒以 __prev__.变量名 引用）"
                   placement="top" popper-class="app-tip"
                 >
                   <div class="pass-vars-box">
@@ -113,9 +106,9 @@
                       v-model="m.pass_vars"
                       multiple filterable allow-create default-first-option
                       :reserve-keyword="false"
-                      placeholder="变量名（如 bl_no），回车添加"
+                      placeholder="变量名，回车添加"
                       size="small"
-                      style="width: 200px"
+                      style="width: 180px"
                       @change="dirty = true"
                     />
                   </div>
@@ -124,13 +117,13 @@
 
                 <span v-if="mode === 'combo'" class="run-count-box">
                   <span class="run-count-label">×N</span>
-                  <el-input-number v-model="m.run_count" :min="1" :max="9999" size="small" style="width: 100px" controls-position="right" @change="dirty = true" />
+                  <el-input-number v-model="m.run_count" :min="1" :max="9999" size="small" style="width: 96px" controls-position="right" @change="dirty = true" />
                 </span>
                 <el-button link type="danger" size="small" @click="removeItem(i)">移除</el-button>
               </div>
             </div>
           </div>
-          <EmptyState v-else :image-size="80" description="暂无成员，从下方添加用例（可跨项目，可重复添加同一用例）" />
+          <EmptyState v-else :image-size="70" description="暂无成员，从下方添加用例" />
 
           <div class="add-row">
             <el-select v-model="addProjectId" style="width: 160px" placeholder="选择项目" filterable @change="onAddProjectChange">
@@ -153,59 +146,53 @@
             </el-select>
             <el-button type="primary" :disabled="!addCaseId" @click="addItem">添加成员</el-button>
           </div>
-          <div class="add-tip">
-            成员需已绑定执行环境（未绑定的成员执行预检会精确报错）；
-            串行链可跨项目跨系统组业务链，相邻成员经「传下一棒」名单定向传参（下一棒以 __prev__.变量名 引用）
-          </div>
         </el-card>
 
-        <!-- 内嵌定时（B 方案：方案自带调度，与单用例定时互不影响） -->
+        <!-- 定时执行：未配置只留一行入口；已配置折叠为摘要行，点「编辑」才展开单行表单 -->
         <el-card shadow="never" class="schedule-card">
           <template #header>
             <div class="card-head">
-              <span>定时执行</span>
-              <div class="schedule-head-right">
-                <el-tooltip
-                  :content="!plan.schedule_type
-                    ? '尚未配置定时：先在下方选择调度类型并保存，之后可在此开关'
-                    : scheduleEnabled
-                      ? '停用后调度器跳过本轮（配置保留）· 保存后生效'
-                      : '开启后由调度器接管定时执行 · 保存后生效'"
-                  placement="top"
-                  popper-class="app-tip"
-                >
-                  <el-switch
-                    :model-value="!!plan.schedule_type && scheduleEnabled"
-                    :disabled="!plan.schedule_type"
-                    size="small"
-                    @change="onToggleSchedule"
-                  />
+              <div class="head-title">
+                <span>定时执行</span>
+                <el-tooltip content="保存后由调度器接管；上轮未结束自动跳过，错过 60s 不补跑" placement="top" popper-class="app-tip">
+                  <el-icon class="strip-help"><QuestionFilled /></el-icon>
                 </el-tooltip>
-                <el-tag v-if="plan.next_run_at" size="small" effect="plain" type="info">
-                  下次 {{ formatTime(plan.next_run_at) }}
-                </el-tag>
-                <el-button v-if="plan.schedule_type" link type="danger" size="small" @click="onClearSchedule">清除定时</el-button>
+              </div>
+              <div class="schedule-head-right">
+                <template v-if="scheduleConfigured">
+                  <span class="schedule-summary">{{ scheduleSummaryText }}</span>
+                  <el-tag v-if="plan.next_run_at && scheduleEnabled" size="small" effect="plain" type="info">
+                    下次 {{ formatTime(plan.next_run_at) }}
+                  </el-tag>
+                  <el-tooltip :content="switchTip" placement="top" popper-class="app-tip">
+                    <el-switch
+                      :model-value="!!plan.schedule_type && scheduleEnabled"
+                      :disabled="!plan.schedule_type"
+                      size="small"
+                      @change="onToggleSchedule"
+                    />
+                  </el-tooltip>
+                  <el-button link type="primary" size="small" @click="scheduleEditing = !scheduleEditing">
+                    {{ scheduleEditing ? '收起' : '编辑' }}
+                  </el-button>
+                  <el-button v-if="plan.schedule_type" link type="danger" size="small" @click="onClearSchedule">清除</el-button>
+                </template>
+                <el-button v-else link type="primary" size="small" @click="onStartScheduleConfig">＋ 配置定时</el-button>
               </div>
             </div>
           </template>
-          <el-form label-width="110px" @submit.prevent>
-            <el-form-item label="调度类型">
-              <el-radio-group v-model="scheduleType" @change="onScheduleTouched">
-                <el-radio value="interval">间隔执行</el-radio>
-                <el-radio value="daily">每日定时</el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item v-if="scheduleType === 'interval'" label="间隔分钟">
-              <el-input-number v-model="scheduleMinutes" :min="1" :max="525600" style="width: 180px" @change="onScheduleTouched" />
-            </el-form-item>
-            <el-form-item v-else label="每日时刻">
-              <el-time-picker v-model="scheduleDaily" format="HH:mm" value-format="HH:mm" placeholder="如 08:30" style="width: 180px" @change="onScheduleTouched" />
-            </el-form-item>
-          </el-form>
-          <div class="schedule-tip">
-            保存后由调度器接管（时区 Asia/Shanghai；上轮未结束自动跳过合并，错过 60s 不补跑）。
-            触发记录 trigger_type=方案定时，执行人归属方案创建者
+          <div v-if="scheduleConfigured && scheduleEditing" class="schedule-form">
+            <el-radio-group v-model="scheduleType" size="small" @change="onScheduleTouched">
+              <el-radio-button value="interval">间隔执行</el-radio-button>
+              <el-radio-button value="daily">每日定时</el-radio-button>
+            </el-radio-group>
+            <template v-if="scheduleType === 'interval'">
+              <el-input-number v-model="scheduleMinutes" :min="1" :max="525600" size="small" controls-position="right" style="width: 110px" @change="onScheduleTouched" />
+              <span class="strip-label">分钟</span>
+            </template>
+            <el-time-picker v-else v-model="scheduleDaily" format="HH:mm" value-format="HH:mm" size="small" placeholder="08:30" style="width: 110px" @change="onScheduleTouched" />
           </div>
+          <div v-else-if="!scheduleConfigured" class="schedule-empty">未配置 —— 方案仅手动执行</div>
         </el-card>
       </template>
     </div>
@@ -213,11 +200,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import Sortable from 'sortablejs'
-import { ArrowLeft, Rank, WarningFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, QuestionFilled, Rank, WarningFilled } from '@element-plus/icons-vue'
 import { caseApi, datasetApi, planApi, type TestCase } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
@@ -247,6 +234,10 @@ const mode = ref<'combo' | 'chain'>('combo')
 const rounds = ref(1)
 const concurrency = ref(4)
 
+// 模式说明（tooltip 文案集中在此，界面不再铺文字）
+const chainTip = '轮内按序串行＋相邻定向传参＋失败阻断本轮下游；第 r 轮取各成员数据集第 r 套值（不足沿用末套）'
+const comboTip = '成员独立并行执行，失败互不影响；并发为提交上限（1=串行）'
+
 function onModeChange() {
   dirty.value = true
 }
@@ -259,9 +250,32 @@ const scheduleEnabled = ref(true)
 // 本次编辑是否动过定时表单：决定保存时是否提交定时四件套
 // （未配置的方案不得因普通保存被隐式配上默认 30 分钟定时；清除后不得随保存复活）
 const scheduleTouched = ref(false)
+// 定时表单展开态：已配置时默认折叠成摘要行，点「编辑」才展开
+const scheduleEditing = ref(false)
+
+// 是否处于「已配置（或本次正在配置）」态：未配置时整卡只留一行入口
+const scheduleConfigured = computed(() => !!plan.value?.schedule_type || scheduleTouched.value)
+
+// 摘要文案反映本地值（编辑未保存也能实时预览）
+const scheduleSummaryText = computed(() => {
+  const base = scheduleType.value === 'interval' ? `每 ${scheduleMinutes.value} 分钟` : `每日 ${scheduleDaily.value}`
+  return plan.value?.schedule_type && !scheduleEnabled.value ? `已停用 · ${base}` : base
+})
+
+const switchTip = computed(() => !plan.value?.schedule_type
+  ? '尚未保存定时配置：先编辑并保存，之后可在此开关'
+  : scheduleEnabled.value
+    ? '停用后调度器跳过本轮（配置保留）· 保存后生效'
+    : '开启后由调度器接管定时执行 · 保存后生效')
 
 function onScheduleTouched() {
   scheduleTouched.value = true
+  dirty.value = true
+}
+
+function onStartScheduleConfig() {
+  scheduleTouched.value = true
+  scheduleEditing.value = true
   dirty.value = true
 }
 
@@ -311,6 +325,7 @@ async function load() {
     scheduleDaily.value = plan.value.schedule_daily_time || '08:00'
     scheduleEnabled.value = plan.value.schedule_enabled
     scheduleTouched.value = false
+    scheduleEditing.value = false
     // 成员行回填 + caseApi.get 补全 env/project 展示（并行，成员数通常个位数）
     items.value = await Promise.all(plan.value.items.map(async (it) => {
       const base: ItemRow = {
@@ -479,6 +494,7 @@ async function onClearSchedule() {
     scheduleDaily.value = '08:00'
     scheduleEnabled.value = plan.value.schedule_enabled
     scheduleTouched.value = false
+    scheduleEditing.value = false
     ElMessage.success('已清除定时')
   } catch (e: any) {
     ElMessage.error(e.message || '清除失败')
@@ -549,7 +565,6 @@ onUnmounted(destroySortable)
   flex-direction: column;
   gap: 12px;
 }
-.meta-card,
 .member-card,
 .schedule-card {
   background: var(--app-card);
@@ -558,15 +573,42 @@ onUnmounted(destroySortable)
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+.head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .member-count {
   font-size: 12px;
   color: var(--app-text-muted);
 }
-.field-tip {
-  margin-left: 8px;
+/* 模式/批量策略 + 描述：轻量条承载，说明收进 ? 提示 */
+.meta-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: var(--el-fill-color-light);
+  border-radius: var(--app-radius-sm);
+}
+.strip-label {
   font-size: 12px;
   color: var(--app-text-muted);
+  white-space: nowrap;
+}
+.strip-help {
+  color: var(--app-text-faint);
+  font-size: 14px;
+  cursor: help;
+  flex-shrink: 0;
+}
+.strip-desc {
+  flex: 1;
+  min-width: 180px;
 }
 /* chain 相邻定向传参（传下一棒） */
 .pass-vars-box {
@@ -594,6 +636,9 @@ onUnmounted(destroySortable)
   border-bottom: 1px solid var(--app-border);
   background: var(--el-bg-color);
 }
+.member-row:hover {
+  background: var(--app-hover);
+}
 .member-row:last-child {
   border-bottom: none;
 }
@@ -612,9 +657,13 @@ onUnmounted(destroySortable)
 }
 .member-order {
   width: 20px;
+  height: 20px;
+  line-height: 20px;
+  border-radius: 50%;
+  background: var(--el-fill-color);
   text-align: center;
-  font-size: 12px;
-  color: var(--app-text-faint);
+  font-size: 11px;
+  color: var(--app-text-muted);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -649,21 +698,25 @@ onUnmounted(destroySortable)
   margin-top: 14px;
   flex-wrap: wrap;
 }
-.add-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 1.5;
-}
-/* 定时卡 */
+/* 定时卡：未配置一行入口；已配置摘要行 + 按需展开的编辑行 */
 .schedule-head-right {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
-.schedule-tip {
+.schedule-summary {
+  font-size: 13px;
+  color: var(--app-text);
+}
+.schedule-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.schedule-empty {
   font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 1.5;
+  color: var(--app-text-faint);
 }
 </style>
