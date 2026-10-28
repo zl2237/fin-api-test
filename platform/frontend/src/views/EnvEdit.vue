@@ -12,65 +12,72 @@
       </div>
     </div>
 
-    <!-- 主体：分区卡片 -->
+    <!-- 主体：统一 4 列网格 + 顶部标签，说明文字全部收进标签旁 ? 提示 -->
     <div v-if="loadError" class="app-load-error">
       <el-icon><WarningFilled /></el-icon>
       <span>{{ loadError }}</span>
       <el-button size="small" @click="initialLoad">重试</el-button>
     </div>
     <div v-else class="edit-body" v-loading="loading" element-loading-text="加载环境配置中...">
-      <!-- 基础信息 -->
-      <div class="card-section">
-        <div class="section-title">基础信息</div>
-        <el-form ref="formRef" label-width="120px" :model="formData" :rules="formRules">
-          <div class="form-row">
+      <el-form ref="formRef" :model="formData" :rules="formRules" label-position="top" class="env-form" @submit.prevent>
+        <!-- 基础信息 -->
+        <div class="card-section">
+          <div class="section-head"><span class="title">基础信息</span></div>
+          <div class="form-grid">
             <el-form-item label="环境名称" prop="name">
               <el-input v-model="formData.name" placeholder="test / pre / prod" />
             </el-form-item>
-            <el-form-item label="Base URL" prop="base_url">
+            <el-form-item label="Base URL" prop="base_url" class="col-2">
               <el-input v-model="formData.base_url" placeholder="http://127.0.0.1:8080" />
             </el-form-item>
-          </div>
-          <div class="form-row">
-            <el-form-item label="业务成功码">
-              <el-input v-model="formData.success_codes" placeholder="200" />
-            </el-form-item>
-            <el-form-item label="超时时间">
-              <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" />
-            </el-form-item>
-            <el-form-item label="默认环境">
+            <el-form-item>
+              <template #label>
+                默认环境
+                <el-tooltip content="执行用例时自动选中" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
               <el-switch v-model="formData.is_default" />
             </el-form-item>
-          </div>
-          <div class="form-row">
-            <el-form-item label="失败重试次数">
+
+            <el-form-item>
+              <template #label>
+                业务成功码
+                <el-tooltip content="响应 code 命中任一即判成功，逗号分隔（ThinkPHP 系填 1 或 200,1）" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <el-input v-model="formData.success_codes" placeholder="200,1" />
+            </el-form-item>
+            <el-form-item label="超时（秒）">
+              <el-input-number v-model="formData.timeout" :min="1" :max="120" controls-position="right" />
+            </el-form-item>
+            <el-form-item>
+              <template #label>
+                失败重试次数
+                <el-tooltip content="请求层失败（状态码/业务码/超时）自动重发；0=不重试，断言失败不重试" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
               <el-input-number v-model="formData.node_retry_count" :min="0" :max="10" controls-position="right" />
             </el-form-item>
-            <el-form-item label="重试间隔">
+            <el-form-item>
+              <template #label>
+                重试间隔（秒）
+                <el-tooltip content="被测系统有分钟级异步同步时可调大（如 60）" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
               <el-input-number v-model="formData.node_retry_interval" :min="1" :max="600" controls-position="right" />
             </el-form-item>
           </div>
-          <div class="section-inline-hints">
-            成功码：响应 code 命中任一即判成功，逗号分隔（ThinkPHP 系填 1 或 200,1）·
-            超时：秒（1-120）· 失败重试：请求层失败（状态码/业务码/超时）自动重发，0=不重试，断言失败不重试 ·
-            重试间隔：秒，被测系统有分钟级异步同步时可调大（如 60）· 默认环境：执行用例时自动选中
-          </div>
-        </el-form>
-      </div>
-
-      <!-- 数据库配置 -->
-      <div class="card-section">
-        <div class="section-title">
-          数据库配置
-          <!-- 新建态以禁用态预告能力（原 v-if 凭空消失，用户不知保存后可测试） -->
-          <el-tooltip v-if="!isEdit" content="保存后可测试连接" placement="top">
-            <el-button size="small" disabled>测试连接</el-button>
-          </el-tooltip>
-          <el-button v-else size="small" :loading="testingDb" @click="onTestDb">测试连接</el-button>
         </div>
-        <el-form label-width="120px">
-          <div class="form-row">
-            <el-form-item label="Host">
+
+        <!-- 数据库配置 -->
+        <div class="card-section">
+          <div class="section-head">
+            <span class="title">数据库配置</span>
+            <span class="grow" />
+            <!-- 新建态以禁用态预告能力（原 v-if 凭空消失，用户不知保存后可测试） -->
+            <el-tooltip v-if="!isEdit" content="保存后可测试连接" placement="top">
+              <el-button size="small" disabled>测试连接</el-button>
+            </el-tooltip>
+            <el-button v-else size="small" :loading="testingDb" @click="onTestDb">测试连接</el-button>
+          </div>
+          <div class="form-grid">
+            <el-form-item label="Host" class="col-2">
               <el-input v-model="formData.db_config.host" placeholder="127.0.0.1" />
             </el-form-item>
             <el-form-item label="Port">
@@ -79,134 +86,128 @@
             <el-form-item label="用户名">
               <el-input v-model="formData.db_config.user" placeholder="root" />
             </el-form-item>
-            <el-form-item label="密码">
+            <el-form-item label="密码" class="col-2">
               <el-input v-model="formData.db_config.password" type="password" show-password placeholder="数据库密码" />
             </el-form-item>
+            <el-form-item class="col-2">
+              <template #label>
+                数据库名
+                <el-tooltip content="「查库」参数与 SQL 断言/提取的数据源" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <el-input v-model="formData.db_config.database" placeholder="fin_order" />
+            </el-form-item>
           </div>
-          <el-form-item label="数据库名">
-            <el-input v-model="formData.db_config.database" placeholder="fin_order" />
-            <span class="form-hint">「查库」参数与 SQL 断言/提取的数据源</span>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- 登录配置 -->
-      <div class="card-section">
-        <div class="section-title">
-          登录配置
-          <span class="section-hint">token 型登录后注入鉴权头；session 型登录后靠 Cookie 会话保持</span>
-          <el-tooltip v-if="!isEdit" content="保存后可测试登录" placement="top">
-            <el-button size="small" disabled>测试登录</el-button>
-          </el-tooltip>
-          <el-button v-else size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
         </div>
-        <el-form label-width="120px">
-          <el-form-item label="登录接口路径">
-            <el-input v-model="formData.login_config.login_path" placeholder="/api/home/login/userLogin" style="width: 380px" />
-          </el-form-item>
-          <div class="form-row">
-            <el-form-item label="登录方式">
+
+        <!-- 登录配置 -->
+        <div class="card-section">
+          <div class="section-head">
+            <span class="title">登录配置</span>
+            <span class="grow" />
+            <el-tooltip v-if="!isEdit" content="保存后可测试登录" placement="top">
+              <el-button size="small" disabled>测试登录</el-button>
+            </el-tooltip>
+            <el-button v-else size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
+          </div>
+          <div class="form-grid">
+            <el-form-item label="登录接口路径" class="col-2">
+              <el-input v-model="formData.login_config.login_path" placeholder="/api/home/login/userLogin" />
+            </el-form-item>
+            <el-form-item>
+              <template #label>
+                登录方式
+                <el-tooltip content="Token 型登录后注入鉴权头；Session 型登录后靠 Cookie 会话保持" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
               <el-radio-group v-model="formData.login_config.login_mode">
-                <el-radio value="token">Token 注入请求头</el-radio>
-                <el-radio value="session">Session Cookie</el-radio>
+                <el-radio-button value="token">Token 注入</el-radio-button>
+                <el-radio-button value="session">Session Cookie</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item label="提交格式">
               <el-radio-group v-model="formData.login_config.login_content_type">
-                <el-radio value="json">JSON</el-radio>
-                <el-radio value="form">表单 urlencoded</el-radio>
+                <el-radio-button value="json">JSON</el-radio-button>
+                <el-radio-button value="form">表单</el-radio-button>
               </el-radio-group>
             </el-form-item>
+            <el-form-item class="span-all">
+              <template #label>
+                登录请求体
+                <el-tooltip content="表单模式按 urlencoded 提交，键可含中括号（如 data[username]）" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <KeyValueTable
+                v-model="formData.login_config.login_body"
+                key-placeholder="字段名"
+                value-placeholder="字段值"
+                value-type="textarea"
+              />
+            </el-form-item>
           </div>
-          <el-form-item label="登录请求体">
-            <KeyValueTable
-              v-model="formData.login_config.login_body"
-              key-placeholder="字段名"
-              value-placeholder="字段值"
-              value-type="textarea"
-            />
-            <div v-if="formData.login_config.login_content_type === 'form'" class="form-hint">
-              表单模式下键值按 urlencoded 提交；键可含中括号，如 <code>data[username]</code>
-            </div>
-          </el-form-item>
 
           <div class="group-title">
             验证码自动识别
             <el-switch v-model="captchaEnabled" size="small" />
-            <span>{{ captchaEnabled ? '已开启 · 图片地址与字段名必填' : '登录带图形验证码时开启' }}</span>
+            <el-tooltip content="登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试；需后端安装 ddddocr" placement="top">
+              <el-icon class="lbl-help"><QuestionFilled /></el-icon>
+            </el-tooltip>
           </div>
-          <template v-if="captchaEnabled">
-            <div class="form-row">
-              <el-form-item label="图片地址" required>
-                <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
-              </el-form-item>
-              <el-form-item label="字段名" required>
-                <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
-              </el-form-item>
-              <el-form-item label="识别重试">
-                <el-input-number
-                  v-model="formData.login_config.captcha_retry"
-                  :min="1"
-                  :max="20"
-                  :step="1"
-                  step-strictly
-                />
-              </el-form-item>
-            </div>
-            <div class="group-hint">
-              登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试（默认 3，难识别可调大）。需后端安装 ddddocr
-            </div>
-          </template>
+          <div v-if="captchaEnabled" class="form-grid">
+            <el-form-item label="图片地址" required class="col-2">
+              <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
+            </el-form-item>
+            <el-form-item label="字段名" required>
+              <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
+            </el-form-item>
+            <el-form-item>
+              <template #label>
+                识别重试
+                <el-tooltip content="识别错误自动换图重试；难识别可调大" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <el-input-number v-model="formData.login_config.captcha_retry" :min="1" :max="20" :step="1" step-strictly controls-position="right" />
+            </el-form-item>
+          </div>
 
           <template v-if="formData.login_config.login_mode === 'token'">
-            <div class="group-title">Token 注入<span>Token 模式专属</span></div>
-            <div class="form-row">
+            <div class="group-title">Token 注入<span>Token 模式</span></div>
+            <div class="form-grid">
               <el-form-item label="Token JSONPath">
                 <el-input v-model="formData.login_config.token_jsonpath" placeholder="$.data.token" />
               </el-form-item>
               <el-form-item label="Header 名称">
                 <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
               </el-form-item>
-              <el-form-item label="鉴权头值模板">
+              <el-form-item class="col-2">
+                <template #label>
+                  鉴权头值模板
+                  <el-tooltip content="支持 ${token} 与 ${timestamp} 占位符，例：Bearer ${token}；留空等价于 ${token}" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                </template>
                 <el-input v-model="formData.login_config.auth_header_value_template" placeholder="${token}" />
               </el-form-item>
             </div>
-            <div class="group-hint">
-              支持 <code>${token}</code> 和 <code>${timestamp}</code> 占位符，例：<code>Bearer ${token}</code>；留空则等价于 <code>${token}</code>
-            </div>
           </template>
           <template v-else>
-            <div class="group-title">登录成功校验<span>Session 模式专属 · 选填</span></div>
-            <div class="form-row">
-              <el-form-item label="成功校验路径">
+            <div class="group-title">登录成功校验<span>Session 模式 · 选填</span></div>
+            <div class="form-grid">
+              <el-form-item class="col-2">
+                <template #label>
+                  成功校验路径
+                  <el-tooltip content="两项都填才生效：响应中该路径的值等于期望值才算登录成功；留空仅校验 HTTP 200。Cookie 自动保持到后续请求" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                </template>
                 <el-input v-model="formData.login_config.login_check_jsonpath" placeholder="$.code" />
               </el-form-item>
-              <el-form-item label="期望值">
+              <el-form-item label="期望值" class="col-2">
                 <el-input v-model="formData.login_config.login_check_value" placeholder="success" />
               </el-form-item>
             </div>
-            <div class="group-hint">
-              两项都填才生效：响应中该路径的值等于期望值才算登录成功，留空仅校验 HTTP 200。
-              登录成功后 Cookie 自动保持到该环境的后续请求
-            </div>
           </template>
-        </el-form>
-      </div>
-
-      <!-- 通知配置 -->
-      <div class="card-section">
-        <div class="section-title">
-          通知配置
-          <span class="section-hint">用于执行后给企业微信机器人推送结果</span>
         </div>
-        <el-form label-width="120px">
-          <el-form-item label="企微机器人">
-            <el-input
-              v-model="formData.notify_config.wecom_webhook"
-              placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
-            />
-          </el-form-item>
-          <div class="form-row">
+
+        <!-- 通知配置 -->
+        <div class="card-section">
+          <div class="section-head"><span class="title">通知配置</span></div>
+          <div class="form-grid">
+            <el-form-item label="企微机器人 Webhook" class="col-2">
+              <el-input v-model="formData.notify_config.wecom_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" />
+            </el-form-item>
             <el-form-item label="失败时通知">
               <el-switch v-model="formData.notify_config.enable_on_failure" />
             </el-form-item>
@@ -214,21 +215,21 @@
               <el-switch v-model="formData.notify_config.enable_on_success" />
             </el-form-item>
           </div>
-        </el-form>
-      </div>
-
-      <!-- 公共请求头 -->
-      <div class="card-section">
-        <div class="section-title">
-          公共请求头
-          <span class="section-hint">所有接口请求都会带上这些 header</span>
         </div>
-        <KeyValueTable
-          v-model="formData.common_headers"
-          key-placeholder="Content-Type"
-          value-placeholder="application/json"
-        />
-      </div>
+
+        <!-- 公共请求头 -->
+        <div class="card-section">
+          <div class="section-head">
+            <span class="title">公共请求头</span>
+            <span class="sub">所有接口请求自动携带</span>
+          </div>
+          <KeyValueTable
+            v-model="formData.common_headers"
+            key-placeholder="Content-Type"
+            value-placeholder="application/json"
+          />
+        </div>
+      </el-form>
     </div>
   </div>
 </template>
@@ -236,8 +237,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowLeft, WarningFilled } from '@element-plus/icons-vue'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ArrowLeft, QuestionFilled, WarningFilled } from '@element-plus/icons-vue'
 import { envApi, type Environment } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
@@ -430,7 +431,7 @@ async function onSave() {
     formData.name = formData.name.trim()
     formData.base_url = formData.base_url.trim()
     // 验证码开关开启时，地址与字段名为必填。
-    // 跨表单（登录配置卡）的条件校验，保留提交时指名 toast（字段级 rules 需重构第二张表单，性价比低）
+    // 跨卡片的条件校验，保留提交时指名 toast（字段级 rules 需跨卡片 prop 绑定，性价比低）
     if (captchaEnabled.value) {
       const lc = formData.login_config
       lc.captcha_url = lc.captcha_url.trim()
@@ -571,53 +572,62 @@ function onKeydown(e: KeyboardEvent) {
 .card-section {
   background: var(--app-card-solid);
   border-radius: var(--app-radius-lg);
-  padding: 20px 24px;
-  margin-bottom: 16px;
+  padding: 18px 22px;
+  margin-bottom: 14px;
   box-shadow: var(--app-shadow-sm);
 }
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text);
-  margin-bottom: 16px;
+/* 分区头：标题 + 右侧动作（测试连接/测试登录） */
+.section-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 14px;
 }
-.section-hint {
+.section-head .title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.section-head .sub {
   font-size: 12px;
-  font-weight: 400;
   color: var(--app-text-muted);
 }
-.help-link {
-  margin-left: auto;
-  padding: 2px 6px;
-  font-size: 12px;
-}
-.form-row {
-  display: flex;
-  gap: 16px;
-}
-.form-row .el-form-item {
+.section-head .grow {
   flex: 1;
 }
-.form-hint {
-  margin-left: 12px;
-  font-size: 12px;
-  color: var(--app-text-muted);
+/* 统一 4 列网格：输入框宽度只由列宽决定，行与行严格对齐 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 16px;
 }
-/* 合并提示块：同组多项说明收进一行（压缩页面高度） */
-.section-inline-hints {
-  margin: 2px 0 0 120px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--app-text-muted);
+.form-grid .el-form-item {
+  margin-bottom: 14px;
+  min-width: 0;
 }
+.form-grid .el-input-number {
+  width: 100%;
+}
+.col-2 {
+  grid-column: span 2;
+}
+.span-all {
+  grid-column: 1 / -1;
+}
+/* 标签旁 ? 提示（长说明全部收纳于此，不再铺文字段） */
+.lbl-help {
+  font-size: 12px;
+  color: var(--app-text-faint);
+  cursor: help;
+  margin-left: 2px;
+  vertical-align: -1px;
+}
+/* 卡内分组条 */
 .group-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 20px 0 14px;
+  margin: 18px 0 12px;
   font-size: 13px;
   font-weight: 600;
   color: var(--app-text);
@@ -634,10 +644,9 @@ function onKeydown(e: KeyboardEvent) {
   font-weight: 400;
   color: var(--app-text-muted);
 }
-.group-hint {
-  margin: -4px 0 4px 132px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--app-text-muted);
+@media (max-width: 1100px) {
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>
