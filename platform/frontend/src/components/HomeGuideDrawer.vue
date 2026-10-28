@@ -68,7 +68,7 @@ const guideSteps = [
 ]
 
 const guideCaps = [
-  { title: '测试套件', desc: '跨系统串联用例成链：逐成员绑环境，上游变量白名单自动注入下游', tab: null },
+  { title: '执行方案', desc: '跨系统串联用例成串行链：按序执行失败阻断，成员「传下一棒」定向传参；整链可叠轮数×并发批量策略', tab: null },
   { title: '数据集执行', desc: '数据集行承载各节点入参，改参数值即参数化；每个数据集一套数据，多场景切换执行', tab: 'dataset' as const },
   { title: '数据自动生成', desc: '随机单号、日期格式化、唯一 ID：参数来源选「函数」下拉挑选，无需手写表达式', tab: 'expression' as const },
   { title: '17 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验，支持失败重试', tab: 'assertion' as const },

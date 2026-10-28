@@ -110,7 +110,7 @@ export function useExecutionRunner() {
    * 方案一键执行完整反馈：execute → 批量轮询（execApi.list 按 plan_id 一页取回，
    * 不逐条轮询防成员多时定时器泛滥）→ 聚合提示 n/m 通过。
    * 本次运行按「基线 id」圈定：id ≥ execute 返回的最小 id——旧轮次 id 更小被排除，
-   * 套件成员行执行中陆续创建（id 恒大于基线）自动纳入。
+   * 串行链成员行执行中陆续创建（id 恒大于基线）自动纳入。
    * 返回本次全部记录终态（超时含 running）；execute 失败（预检 400）原样抛出。
    */
   async function runPlanWithFeedback(

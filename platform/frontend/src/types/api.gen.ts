@@ -32,7 +32,7 @@ export interface paths {
         put?: never;
         /**
          * Register
-         * @description 注册新用户。首个用户自动成为 admin，其余为 member。
+         * @description 注册新用户（受 REGISTER_ENABLED 开关控制，默认关闭）。首个用户自动成为 admin，其余为 member。
          */
         post: operations["register_api_auth_register_post"];
         delete?: never;
@@ -486,6 +486,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/apis/{api_id}/contract-impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contract Impact
+         * @description 接口契约变更影响面：所有引用该接口的数据集节点及参数出入（同步弹窗预览数据）。
+         */
+        get: operations["contract_impact_api_apis__api_id__contract_impact_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/apis/{api_id}/contract-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Contract Sync
+         * @description 按接口当前字段契约同步所有引用数据集（用户在预览弹窗许可后调用）。
+         *
+         *     红线：非 constant 来源（ref/func/sql）参数一律不动，仅计入跳过统计。
+         */
+        post: operations["contract_sync_api_apis__api_id__contract_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/apis/{api_id}/copy": {
         parameters: {
             query?: never;
@@ -820,31 +862,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/testcases/{case_id}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Members
-         * @description 套件成员列表（按执行顺序），带用例/项目/环境冗余名
-         */
-        get: operations["list_members_api_testcases__case_id__members_get"];
-        /**
-         * Replace Members
-         * @description 整体替换套件成员（编排保存语义）。校验：宿主是套件、成员存在且非套件（禁嵌套）、
-         *     环境存在、不得引用自身；sort_order 按提交顺序重排（0 起）。
-         */
-        put: operations["replace_members_api_testcases__case_id__members_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/testcases/{case_id}/scan-split": {
         parameters: {
             query?: never;
@@ -1016,6 +1033,90 @@ export interface paths {
          * @description 立即执行一次（不等调度到达）：走定时任务同一路径，记录 trigger_type=schedule
          */
         post: operations["run_now_api_schedules__schedule_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All
+         * @description 方案列表（新→旧）：item_count 数据库端聚合，next_run_at 由调度器回写
+         */
+        get: operations["list_all_api_plans_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_api_plans_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get One */
+        get: operations["get_one_api_plans__plan_id__get"];
+        /**
+         * Update
+         * @description 基础字段 + 内嵌定时局部更新（定时变化后同步调度器 job；清空用 schedule_off）
+         */
+        put: operations["update_api_plans__plan_id__put"];
+        post?: never;
+        /** Delete */
+        delete: operations["delete_api_plans__plan_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace Items
+         * @description 成员整体替换：先全量校验再删旧插新，sort_order 按提交序重排（chain 模式即执行顺序）
+         */
+        put: operations["replace_items_api_plans__plan_id__items_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute
+         * @description 一键执行方案：先全量预检（任一成员不可执行 → 400、零记录），再按模式发射
+         *     （combo 并行 concurrency=方案配置 / chain 串行链后台驱动），返回本次全部记录供轮询
+         */
+        post: operations["execute_api_plans__plan_id__execute_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1243,6 +1344,7 @@ export interface paths {
          * Execute
          * @description 触发用例执行（异步）：立即创建 running 状态的执行记录并返回，后台线程池执行。
          *     前端通过 GET /executions/{id} 轮询执行状态。
+         *     环境严格绑定：一律用用例绑定的环境（case.env_id），请求里的 env_id 兼容忽略。
          *     数据驱动：绑定数据集的用例用其单套数据执行（dataset_id 可临时换数据集）。
          */
         post: operations["execute_api_testcases__case_id__execute_post"];
@@ -1266,6 +1368,7 @@ export interface paths {
          * @description 批量执行多个用例：为每个用例创建 running 状态的执行记录并立即返回，
          *     后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
          *     缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
+         *     环境严格绑定：每个用例各自用绑定环境（case.env_id），批次可混环境。
          *     绑定数据集的用例按该数据集的单套值展开为一条执行记录，与其他条目一并平铺提交。
          *     执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。
          */
@@ -1285,7 +1388,7 @@ export interface paths {
         };
         /**
          * List Executions
-         * @description 筛选（状态/时间范围）与排序全部服务端处理，返回 {items, total} 信封：
+         * @description 筛选（状态/时间范围/执行方案）与排序全部服务端处理，返回 {items, total} 信封：
          *     分页组件翻页/整页排序口径才正确；total 与列表同口径过滤
          */
         get: operations["list_executions_api_executions_get"];
@@ -1307,6 +1410,7 @@ export interface paths {
         /**
          * Execution Stats
          * @description 近 N 天执行统计（工作台用）：全量聚合口径，不受列表 200 条截断影响。
+         *     聚合实现收敛在 crud.executions.aggregate_stats（与工作台 summary 共用口径）。
          *     需注册在 /executions/{exec_id} 之前。
          */
         get: operations["execution_stats_api_executions_stats_get"];
@@ -1349,15 +1453,8 @@ export interface paths {
         put?: never;
         /**
          * Replay Step
-         * @description 报告页节点重放：按步骤快照定位接口（path+method+项目），用原执行环境重发一次。
-         *
-         *     body_override（编辑后的请求体）优先，否则用原快照请求体；表达式求值与
-         *     调试/DAG 链路同口径（${timestamp()} 等生效）。
-         *     断点续跑配套（同口径验证）：
-         *     - ${} 求值上下文 = 报告虚拟上下文（该节点之前各成功步骤的提取值 + 当前数据集行值）
-         *     - 发送后同口径跑后置提取与断言（规则优先取当前节点配置，无配置回退步骤快照）
-         *     - 断言全过且请求成功 → 步骤打 replay_passed_at（「已重放通过」徽标），
-         *       供用户同步数据集后从此节点续跑；步骤内容不改动（报告只认真实执行）
+         * @description 报告页节点重放：按步骤快照定位接口，用原执行环境重发一次并同口径跑
+         *     提取与断言（编排与口径详见 services/replay_service.replay_step_once）
          */
         post: operations["replay_step_api_executions_steps__step_id__replay_post"];
         delete?: never;
@@ -1377,15 +1474,8 @@ export interface paths {
         put?: never;
         /**
          * Resume Execution
-         * @description 断点续跑：从首个未成功节点起，用当前配置 + 当前数据集重新真实执行。
-         *
-         *     调试闭环（重放验证 → 手动同步数据集 → 续跑）：
-         *     - 前置校验：仅 failed 报告可续；套件（主/成员）不支持；编排结构指纹一致
-         *       （指纹只锁节点/边/接口绑定，参数配置与数据集允许变——续跑用当前值，
-         *       正是「改完参数不用整个重跑」的核心场景）
-         *     - 上下文：前缀成功步骤提取值 + 当前数据集行值拼成虚拟上下文注入 ${} 池
-         *     - 时间线：首个非成功步骤起的旧记录删除，续跑段重新生成（报告只认真实执行）
-         *     - 完成不发企微通知（调试动作，避免打扰）
+         * @description 断点续跑：从首个未成功节点起，用当前配置 + 当前数据集重新真实执行
+         *     （校验与线程编排详见 services/replay_service.resume_execution_async）
          */
         post: operations["resume_execution_api_executions__exec_id__resume_post"];
         delete?: never;
@@ -1426,11 +1516,32 @@ export interface paths {
          *
          *     两类场景统一入口：
          *     - 僵尸记录：进程重启致后台线程丢失，记录永远停在 running——直接落 terminated
-         *     - 活动执行：runner 在节点间/套件成员间检查点感知本状态后提前退出，
-         *       剩余节点/成员并入未执行统计；套件主记录终止时级联标记其名下
-         *       running 的成员行记录（成员 DagExecutor 检查点只看自己的记录状态）
+         *     - 活动执行：runner 在节点间检查点感知本状态后提前退出，剩余节点并入未执行统计；
+         *       方案（combo 并行/chain 串行链）成员记录终止时连带终止同 plan_id 名下
+         *       running 的其他成员行（成员 DagExecutor 检查点只看自己的记录状态；
+         *       chain 驱动线程遇非 running 记录自动跳过，整链随之停摆）
          */
         post: operations["terminate_execution_api_executions__exec_id__terminate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/home/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Home Summary
+         * @description 首页聚合（一个接口替代 4 个重列表请求）。
+         */
+        get: operations["home_summary_api_home_summary_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1470,23 +1581,6 @@ export interface paths {
          *     导出逻辑在后端 services.report_export，CI/定时任务等非交互方可直接复用。
          */
         get: operations["export_report_api_reports_executions__exec_id__export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/reports/executions/{exec_id}/steps/{step_id}/assertions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Step Assertions */
-        get: operations["get_step_assertions_api_reports_executions__exec_id__steps__step_id__assertions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1955,6 +2049,11 @@ export interface components {
             /** Description */
             description?: string | null;
             /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+            /**
              * Request Template
              * @default {}
              */
@@ -2075,7 +2174,7 @@ export interface components {
             /** Case Ids */
             case_ids: number[];
             /** Env Id */
-            env_id: number;
+            env_id?: number | null;
             /** Counts */
             counts?: number[] | null;
             /**
@@ -2083,6 +2182,19 @@ export interface components {
              * @default 4
              */
             concurrency: number;
+        };
+        /**
+         * BatchImportResultOut
+         * @description 批量导入类端点：消息 + 导入条数
+         */
+        BatchImportResultOut: {
+            /** Message */
+            message: string;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
         };
         /** Body_preview_har_api_apis_import_har_preview_post */
         Body_preview_har_api_apis_import_har_preview_post: {
@@ -2197,6 +2309,21 @@ export interface components {
         ChangePasswordRequest: {
             /** New Password */
             new_password: string;
+        };
+        /**
+         * CleanupResultOut
+         * @description 清理类端点：消息 + 删除条数（+ 天数口径）
+         */
+        CleanupResultOut: {
+            /** Message */
+            message: string;
+            /**
+             * Deleted
+             * @default 0
+             */
+            deleted: number;
+            /** Days */
+            days?: number | null;
         };
         /**
          * CurlImportRequest
@@ -2550,7 +2677,7 @@ export interface components {
             /** Case Id */
             case_id: number;
             /** Env Id */
-            env_id: number;
+            env_id?: number | null;
             /** Dataset Id */
             dataset_id?: number | null;
             /**
@@ -2569,6 +2696,175 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** ExecutionPlanCreate */
+        ExecutionPlanCreate: {
+            /** Project Id */
+            project_id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Mode
+             * @default combo
+             * @enum {string}
+             */
+            mode: "combo" | "chain";
+            /**
+             * Rounds
+             * @default 1
+             */
+            rounds: number;
+            /**
+             * Concurrency
+             * @default 4
+             */
+            concurrency: number;
+        };
+        /** ExecutionPlanDetailOut */
+        ExecutionPlanDetailOut: {
+            /** Id */
+            id: number;
+            /** Project Id */
+            project_id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Mode
+             * @default combo
+             */
+            mode: string;
+            /**
+             * Rounds
+             * @default 1
+             */
+            rounds: number;
+            /** Concurrency */
+            concurrency: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Schedule Type */
+            schedule_type?: string | null;
+            /** Schedule Interval Minutes */
+            schedule_interval_minutes?: number | null;
+            /** Schedule Daily Time */
+            schedule_daily_time?: string | null;
+            /** Schedule Enabled */
+            schedule_enabled: boolean;
+            /** Last Run At */
+            last_run_at?: string | null;
+            /** Next Run At */
+            next_run_at?: string | null;
+            /**
+             * Item Count
+             * @default 0
+             */
+            item_count: number;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Created By */
+            created_by?: number | null;
+            /** Created By Name */
+            created_by_name?: string | null;
+            /** Updated By */
+            updated_by?: number | null;
+            /** Updated By Name */
+            updated_by_name?: string | null;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["PlanItemOut"][];
+        };
+        /** ExecutionPlanOut */
+        ExecutionPlanOut: {
+            /** Id */
+            id: number;
+            /** Project Id */
+            project_id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Mode
+             * @default combo
+             */
+            mode: string;
+            /**
+             * Rounds
+             * @default 1
+             */
+            rounds: number;
+            /** Concurrency */
+            concurrency: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Schedule Type */
+            schedule_type?: string | null;
+            /** Schedule Interval Minutes */
+            schedule_interval_minutes?: number | null;
+            /** Schedule Daily Time */
+            schedule_daily_time?: string | null;
+            /** Schedule Enabled */
+            schedule_enabled: boolean;
+            /** Last Run At */
+            last_run_at?: string | null;
+            /** Next Run At */
+            next_run_at?: string | null;
+            /**
+             * Item Count
+             * @default 0
+             */
+            item_count: number;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Created By */
+            created_by?: number | null;
+            /** Created By Name */
+            created_by_name?: string | null;
+            /** Updated By */
+            updated_by?: number | null;
+            /** Updated By Name */
+            updated_by_name?: string | null;
+        };
+        /**
+         * ExecutionPlanUpdate
+         * @description 局部更新；schedule_off=True 显式清除定时（schedule_type=None 表示「未提供」无法区分清除）
+         */
+        ExecutionPlanUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Mode */
+            mode?: ("combo" | "chain") | null;
+            /** Rounds */
+            rounds?: number | null;
+            /** Concurrency */
+            concurrency?: number | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Schedule Type */
+            schedule_type?: ("interval" | "daily") | null;
+            /** Schedule Interval Minutes */
+            schedule_interval_minutes?: number | null;
+            /** Schedule Daily Time */
+            schedule_daily_time?: string | null;
+            /** Schedule Enabled */
+            schedule_enabled?: boolean | null;
+            /**
+             * Schedule Off
+             * @default false
+             */
+            schedule_off: boolean;
+        };
         /** ExecutionRecordOut */
         ExecutionRecordOut: {
             /** Id */
@@ -2576,7 +2872,7 @@ export interface components {
             /** Case Id */
             case_id: number;
             /** Env Id */
-            env_id: number;
+            env_id?: number | null;
             /** Case Name */
             case_name?: string | null;
             /** Env Name */
@@ -2609,8 +2905,10 @@ export interface components {
             dataset_row?: {
                 [key: string]: unknown;
             } | null;
-            /** Suite Execution Id */
-            suite_execution_id?: number | null;
+            /** Plan Id */
+            plan_id?: number | null;
+            /** Plan Name */
+            plan_name?: string | null;
             /**
              * Steps
              * @default []
@@ -2620,6 +2918,20 @@ export interface components {
             created_by?: number | null;
             /** Created By Name */
             created_by_name?: string | null;
+        };
+        /**
+         * ExecutionStatsOut
+         * @description 近 N 天执行统计（工作台）：全量聚合口径，不受列表截断影响
+         */
+        ExecutionStatsOut: {
+            /** Count */
+            count: number;
+            /** Passed */
+            passed: number;
+            /** Rate */
+            rate?: number | null;
+            /** Days */
+            days: number;
         };
         /**
          * FieldDictItemIn
@@ -2725,6 +3037,19 @@ export interface components {
             /** Sort Order */
             sort_order?: number | null;
         };
+        /**
+         * FileDeleteResultOut
+         * @description 文件删除：消息 + 是否物理删除了磁盘文件
+         */
+        FileDeleteResultOut: {
+            /** Message */
+            message: string;
+            /**
+             * Physical Removed
+             * @default false
+             */
+            physical_removed: boolean;
+        };
         /** FileOut */
         FileOut: {
             /** Created At */
@@ -2798,6 +3123,61 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /**
+         * HomeRecentCaseOut
+         * @description 快速执行候选：最近执行过的用例（按最近一次执行倒序去重）
+         */
+        HomeRecentCaseOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /**
+         * HomeRecentExecOut
+         * @description 工作台最近执行条目（轻量：列表页只用的字段，不带请求快照等重列）
+         */
+        HomeRecentExecOut: {
+            /** Id */
+            id: number;
+            /** Case Id */
+            case_id: number;
+            /** Case Name */
+            case_name?: string | null;
+            /** Env Id */
+            env_id?: number | null;
+            /** Env Name */
+            env_name?: string | null;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary?: {
+                [key: string]: unknown;
+            } | null;
+            /** Started At */
+            started_at?: string | null;
+        };
+        /**
+         * HomeSummaryOut
+         * @description 工作台聚合（一次请求喂饱首页，替代 4 个重列表接口的全量拉取）
+         */
+        HomeSummaryOut: {
+            /** Api Count */
+            api_count: number;
+            /** Case Count */
+            case_count: number;
+            stats: components["schemas"]["ExecutionStatsOut"];
+            /**
+             * Recent Execs
+             * @default []
+             */
+            recent_execs: components["schemas"]["HomeRecentExecOut"][];
+            /**
+             * Recent Cases
+             * @default []
+             */
+            recent_cases: components["schemas"]["HomeRecentCaseOut"][];
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Username */
@@ -2810,6 +3190,14 @@ export interface components {
             /** Token */
             token: string;
             user: components["schemas"]["UserOut"];
+        };
+        /**
+         * MessageOut
+         * @description 通用消息响应：删除/重置/触发等只回一句话的端点
+         */
+        MessageOut: {
+            /** Message */
+            message: string;
         };
         /** NodeConfigIn */
         NodeConfigIn: {
@@ -2887,6 +3275,65 @@ export interface components {
             detail?: string | null;
             /** Created At */
             created_at?: string | null;
+        };
+        /**
+         * PlanItemIn
+         * @description 方案成员提交：dataset 换绑须属于该成员用例（服务层校验）；chain 模式 sort_order 即执行顺序，
+         *     pass_vars 为传给下一棒的输出变量名单（相邻定向传参，combo 模式忽略）
+         */
+        PlanItemIn: {
+            /** Case Id */
+            case_id: number;
+            /** Dataset Id */
+            dataset_id?: number | null;
+            /**
+             * Run Count
+             * @default 1
+             */
+            run_count: number;
+            /** Pass Vars */
+            pass_vars?: string[] | null;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+        };
+        /** PlanItemOut */
+        PlanItemOut: {
+            /** Id */
+            id: number;
+            /** Case Id */
+            case_id: number;
+            /** Dataset Id */
+            dataset_id?: number | null;
+            /** Run Count */
+            run_count: number;
+            /** Pass Vars */
+            pass_vars?: string[] | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Case Name */
+            case_name?: string | null;
+            /** Dataset Name */
+            dataset_name?: string | null;
+            /** Case Dataset Id */
+            case_dataset_id?: number | null;
+            /**
+             * Case Missing
+             * @default false
+             */
+            case_missing: boolean;
+            /**
+             * Dataset Missing
+             * @default false
+             */
+            dataset_missing: boolean;
+        };
+        /** PlanItemsReplaceIn */
+        PlanItemsReplaceIn: {
+            /** Items */
+            items: components["schemas"]["PlanItemIn"][];
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -2994,6 +3441,19 @@ export interface components {
             name?: string | null;
         };
         /**
+         * ReorderResultOut
+         * @description reorder / batch-move 家族：消息 + 实际更新条数
+         */
+        ReorderResultOut: {
+            /** Message */
+            message: string;
+            /**
+             * Updated
+             * @default 0
+             */
+            updated: number;
+        };
+        /**
          * SimpleUserOut
          * @description 筛选下拉用轻量用户：仅 id 与显示名
          */
@@ -3031,6 +3491,10 @@ export interface components {
             response_time_ms?: number | null;
             /** Retry Count */
             retry_count?: number | null;
+            /** Retry History */
+            retry_history?: {
+                [key: string]: unknown;
+            }[] | null;
             /**
              * Resumed
              * @default false
@@ -3070,53 +3534,6 @@ export interface components {
             /** Body Override */
             body_override?: unknown;
         };
-        /**
-         * SuiteMemberIn
-         * @description 套件成员写入项：成员用例（可跨项目）+ 执行环境 + 顺序
-         */
-        SuiteMemberIn: {
-            /** Member Case Id */
-            member_case_id: number;
-            /** Env Id */
-            env_id: number;
-            /**
-             * Sort Order
-             * @default 0
-             */
-            sort_order: number;
-        };
-        /** SuiteMemberOut */
-        SuiteMemberOut: {
-            /** Id */
-            id: number;
-            /** Member Case Id */
-            member_case_id: number;
-            /** Env Id */
-            env_id: number;
-            /** Sort Order */
-            sort_order: number;
-            /** Case Name */
-            case_name?: string | null;
-            /** Project Id */
-            project_id?: number | null;
-            /** Project Name */
-            project_name?: string | null;
-            /** Env Name */
-            env_name?: string | null;
-            /**
-             * Member Case Type
-             * @default normal
-             */
-            member_case_type: string;
-        };
-        /**
-         * SuiteMembersUpdate
-         * @description 整体替换套件成员列表（编排保存语义）
-         */
-        SuiteMembersUpdate: {
-            /** Members */
-            members: components["schemas"]["SuiteMemberIn"][];
-        };
         /** TestCaseCreate */
         TestCaseCreate: {
             /** Project Id */
@@ -3127,11 +3544,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
-            /**
-             * Case Type
-             * @default normal
-             */
-            case_type: string;
+            /** Env Id */
+            env_id?: number | null;
             /** Dag Config */
             dag_config: {
                 [key: string]: unknown;
@@ -3141,8 +3555,6 @@ export interface components {
              * @default []
              */
             node_configs: components["schemas"]["NodeConfigIn"][];
-            /** Shared Vars */
-            shared_vars?: string[] | null;
         };
         /** TestCaseOut */
         TestCaseOut: {
@@ -3156,11 +3568,15 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+            /** Env Id */
+            env_id?: number | null;
+            /** Env Name */
+            env_name?: string | null;
             /**
-             * Case Type
-             * @default normal
+             * Sort Order
+             * @default 0
              */
-            case_type: string;
+            sort_order: number;
             /** Dag Config */
             dag_config: {
                 [key: string]: unknown;
@@ -3172,8 +3588,10 @@ export interface components {
             node_configs: components["schemas"]["NodeConfigOut"][];
             /** Dataset Id */
             dataset_id?: number | null;
-            /** Shared Vars */
-            shared_vars?: string[] | null;
+            /** Last Exec At */
+            last_exec_at?: string | null;
+            /** Last Exec Status */
+            last_exec_status?: string | null;
             /** Created At */
             created_at?: string | null;
             /** Updated At */
@@ -3195,8 +3613,8 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
-            /** Case Type */
-            case_type?: string | null;
+            /** Env Id */
+            env_id?: number | null;
             /** Dag Config */
             dag_config?: {
                 [key: string]: unknown;
@@ -3205,17 +3623,18 @@ export interface components {
             node_configs?: components["schemas"]["NodeConfigIn"][] | null;
             /** Dataset Id */
             dataset_id?: number | null;
-            /** Shared Vars */
-            shared_vars?: string[] | null;
         };
         /** TestScheduleCreate */
         TestScheduleCreate: {
             /** Case Id */
             case_id: number;
             /** Env Id */
-            env_id: number;
-            /** Schedule Type */
-            schedule_type: string;
+            env_id?: number | null;
+            /**
+             * Schedule Type
+             * @enum {string}
+             */
+            schedule_type: "interval" | "daily";
             /** Interval Minutes */
             interval_minutes?: number | null;
             /** Daily Time */
@@ -3233,7 +3652,7 @@ export interface components {
             /** Case Id */
             case_id: number;
             /** Env Id */
-            env_id: number;
+            env_id?: number | null;
             /** Case Name */
             case_name?: string | null;
             /** Env Name */
@@ -3268,7 +3687,7 @@ export interface components {
             /** Env Id */
             env_id?: number | null;
             /** Schedule Type */
-            schedule_type?: string | null;
+            schedule_type?: ("interval" | "daily") | null;
             /** Interval Minutes */
             interval_minutes?: number | null;
             /** Daily Time */
@@ -3483,7 +3902,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -3516,7 +3935,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -3545,7 +3964,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
         };
@@ -3741,7 +4160,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -3776,7 +4195,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -3843,7 +4262,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CleanupResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -4005,7 +4424,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -4038,7 +4457,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReorderResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -4201,7 +4620,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -4234,7 +4653,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReorderResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -4525,6 +4944,68 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contract_impact_api_apis__api_id__contract_impact_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                api_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contract_sync_api_apis__api_id__contract_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                api_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": unknown;
                 };
             };
@@ -4589,7 +5070,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReorderResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -4622,7 +5103,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReorderResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -4987,7 +5468,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -5217,7 +5698,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -5249,72 +5730,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestCaseOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_members_api_testcases__case_id__members_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                case_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuiteMemberOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    replace_members_api_testcases__case_id__members_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                case_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SuiteMembersUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuiteMemberOut"][];
                 };
             };
             /** @description Validation Error */
@@ -5417,7 +5832,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReorderResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -5450,7 +5865,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReorderResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -5580,7 +5995,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -5711,7 +6126,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -5742,7 +6157,234 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_all_api_plans_get: {
+        parameters: {
+            query?: {
+                project_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionPlanOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_plans_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutionPlanCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionPlanDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_one_api_plans__plan_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionPlanDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_api_plans__plan_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutionPlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionPlanDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_api_plans__plan_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_items_api_plans__plan_id__items_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanItemsReplaceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionPlanDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_api_plans__plan_id__execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionRecordOut"][];
                 };
             };
             /** @description Validation Error */
@@ -5936,7 +6578,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -6162,7 +6804,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -6227,7 +6869,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -6321,6 +6963,7 @@ export interface operations {
                 status?: string | null;
                 start_time?: string | null;
                 end_time?: string | null;
+                plan_id?: number | null;
                 sort_by?: string;
                 order?: string;
             };
@@ -6368,7 +7011,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExecutionStatsOut"];
                 };
             };
             /** @description Validation Error */
@@ -6399,7 +7042,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CleanupResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -6541,6 +7184,38 @@ export interface operations {
             };
         };
     };
+    home_summary_api_home_summary_get: {
+        parameters: {
+            query: {
+                project_id: number;
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeSummaryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_report_api_reports_executions__exec_id__get: {
         parameters: {
             query?: never;
@@ -6592,38 +7267,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_step_assertions_api_reports_executions__exec_id__steps__step_id__assertions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                exec_id: number;
-                step_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssertionRecordOut"][];
                 };
             };
             /** @description Validation Error */
@@ -6752,7 +7395,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BatchImportResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -6818,7 +7461,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -6989,7 +7632,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["FileDeleteResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -7181,7 +7824,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */

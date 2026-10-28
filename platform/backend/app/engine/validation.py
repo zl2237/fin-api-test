@@ -13,14 +13,15 @@
 - 参数间依赖环（order_params）
 - ${} 残留扫描（旧语法已废止，防漏网）
 
-__suite__ 白名单运行期注入，保存期放行；__dataset__ 平铺键值已随入参收敛
-到数据集行而退役（2026-09-30 定案，跨节点共享值改引用上游产出）。
+__prev__ 上一棒快照运行期注入（串行链成员级 pass_vars 定向传递），保存期放行；
+__dataset__ 平铺键值已随入参收敛到数据集行而退役（2026-09-30 定案，跨节点共享值
+改引用上游产出）。
 """
 import re
 from typing import Any
 
 from .functions import FUNCTIONS
-from .variables import SUITE_NS, CycleError, extract_refs, iter_spec_refs, order_params
+from .variables import PREV_NS, CycleError, extract_refs, iter_spec_refs, order_params
 
 _LEGAL_SOURCES = {"constant", "func", "ref", "sql"}
 _OLD_SYNTAX_RE = re.compile(r"\$\{")
@@ -157,8 +158,8 @@ def validate_case_configs(dag: dict | None, node_configs: Any) -> list[str]:
                 errs.append(f"节点 {_disp(names, node_id)} {where}：自引用 {var_path!r} 未在本节点产出"
                             f"（本节点参数/提取；可选：{sorted(allowed_self) if allowed_self else '无'}）")
             return
-        if ref_node == SUITE_NS:
-            return  # 套件白名单运行期注入，保存期放行
+        if ref_node == PREV_NS:
+            return  # 串行链上一棒快照运行期注入，保存期放行
         if ref_node not in node_set:
             errs.append(f"节点 {_disp(names, node_id)} {where}：引用了不存在的节点 {ref_node!r}")
             return

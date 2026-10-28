@@ -180,7 +180,7 @@ export interface ParamSpec {
   value?: any          // constant：任意 JSON 值
   func?: string        // func：函数名（见 constants/funcRegistry）
   args?: FuncArgSpec[] // func：按关键字传参
-  node_id?: string     // ref：画布节点 / __dataset__ / __suite__ / 本节点（SQL 参数结果）
+  node_id?: string     // ref：画布节点 / __dataset__ / __prev__ / 本节点（SQL 参数结果）
   var_path?: string    // ref
   as_array?: boolean   // ref/func：单值包成单元素数组
   sql?: string         // sql：{{节点.变量}} 占位引用
@@ -240,8 +240,6 @@ export interface NodeConfig {
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
-  case_type?: string  // normal 普通用例 / suite 套件（成员为跨项目用例链）
-  shared_vars?: string[] | null  // 套件专用：共享变量白名单（上游产出→下游注入）
   env_id?: number | null  // 绑定的执行环境（严格绑定：执行一律用它）
   env_name?: string | null  // 绑定环境名（冗余展示）
   dag_config: { nodes: any[]; edges: any[] }
@@ -253,18 +251,6 @@ export interface TestCase {
   last_exec_status?: string | null  // 最近一次执行终态：success/failed/terminated
 }
 
-// 套件成员（跨项目用例引用，串行执行；环境跟随成员用例绑定）
-export interface SuiteMember {
-  id?: number
-  member_case_id: number
-  env_id?: number | null  // 成员用例绑定环境（实时值）
-  sort_order?: number
-  case_name?: string | null
-  project_id?: number | null
-  project_name?: string | null
-  env_name?: string | null
-  member_case_type?: string
-}
 export interface AssertionRecord {
   id: number; step_id: number; rule_type: string; rule_config?: any
   result?: boolean; actual_value?: string; expected_value?: string; message?: string
@@ -293,32 +279,17 @@ export interface StepRecord {
   extracted_vars?: Record<string, any> | null
   assertions: AssertionRecord[]
 }
-/** 套件成员执行摘要（suite_executor 逐成员产出；数据驱动成员的分行结果在 rows） */
-export interface SuiteMemberReport {
-  sort_order?: number
-  member_case_id?: number
-  case_id?: number
-  case_name?: string
-  status?: string       // success/failed/blocked
-  error?: string
-  rows?: { row_index?: number | null; execution_id?: number; status?: string; reason?: string }[]
-}
 /**
- * 执行摘要（按场景出现不同字段子集，2026-10-22 对齐后端三处产出）：
+ * 执行摘要（按场景出现不同字段子集，2026-10-22 对齐后端产出）：
  * - 普通用例 dag_executor：{total, passed, failed, leftover?, error?, contract_gaps?}
- * - 套件主记录 suite_executor：{suite:true, total, passed, failed, blocked, members, shared_vars, error?}
  * - 启动失败 runner：{error}（用例/环境缺失、登录失败等，无步骤产出）
  */
 export interface ExecutionSummary {
-  suite?: boolean       // 套件主记录标记（报告页分流）
   total?: number
   passed?: number
   failed?: number
-  blocked?: number      // 套件：上游失败被阻断的下游成员数
   leftover?: number     // DAG：上游失败未执行的节点数
   error?: string        // 执行级错误（登录失败/环境异常/兜底异常）
-  members?: SuiteMemberReport[]
-  shared_vars?: Record<string, any>  // 套件终态共享变量池
   contract_gaps?: Record<string, ContractGaps>  // node_id → 契约缺口（红线只标注不删）
 }
 export interface ExecutionRecord {
@@ -327,13 +298,12 @@ export interface ExecutionRecord {
   project_id?: number | null; project_name?: string | null
   status: string
   started_at?: string; ended_at?: string; summary: ExecutionSummary
-  suite_execution_id?: number | null  // 非空=套件链成员执行，指向套件主执行记录
   dataset_id?: number | null
   dataset_row?: { row_index: number; data: Record<string, any>; label: string } | null
   steps: StepRecord[]
   created_by?: number | null; created_by_name?: string | null
   trigger_type?: string
-  plan_id?: number | null       // 非空=执行方案触发（一键/定时，含方案内套件成员行）
+  plan_id?: number | null       // 非空=执行方案触发（一键/定时/串行链成员行）
   plan_name?: string | null     // 方案名（尽力回查；方案已删时 null，显示「方案 #id」）
 }
 
@@ -545,11 +515,6 @@ export const caseApi = {
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
   exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
-  // 套件成员：按执行顺序返回（带用例/项目/环境冗余名）；PUT 整体替换（编排保存语义）
-  getMembers: (caseId: number) =>
-    http.get<SuiteMember[]>(`/testcases/${caseId}/members`).then((r) => r.data),
-  updateMembers: (caseId: number, members: { member_case_id: number; sort_order?: number }[]) =>
-    http.put<SuiteMember[]>(`/testcases/${caseId}/members`, { members }).then((r) => r.data),
   // 多用例组合（拼接成新用例），caseIds 顺序即拼接顺序
   combine: (caseIds: number[], name: string, groupId?: number | null) =>
     http.post<TestCase>('/testcases/combine', { case_ids: caseIds, name, group_id: groupId ?? null }).then((r) => r.data),
@@ -588,17 +553,17 @@ export const scheduleApi = {
 }
 
 // ============ ExecutionPlan 执行方案 ============
-/** 方案成员（普通用例或套件均可；dataset 覆盖须属于该成员用例，套件成员禁配；
+/** 方案成员（dataset 覆盖须属于该成员用例；chain 模式按 sort_order 串行）
  *  单套语义：数据集即一套完整取值，无行选择 */
 export interface PlanItem {
   id?: number
   case_id: number
   dataset_id?: number | null      // NULL=沿用用例自身绑定
-  run_count?: number              // 1~9999
+  run_count?: number              // 1~9999（combo 生效；chain 整链轮数在方案级 rounds）
+  pass_vars?: string[] | null     // chain 专用：本成员成功后传给下一棒的输出变量名单（相邻定向）
   sort_order?: number
   // 展示回填（详情接口）
   case_name?: string | null
-  case_type?: string | null
   dataset_name?: string | null
   case_dataset_id?: number | null   // 用例自身绑定（dataset_id 空时实际生效）
   case_missing?: boolean
@@ -608,7 +573,9 @@ export interface PlanItem {
 export interface ExecutionPlan {
   id: number; project_id?: number | null
   name: string; description?: string | null
-  concurrency: number             // 1~16（提交线程池 max_workers）
+  mode: 'combo' | 'chain'          // combo 并行组合 / chain 串行链（链=组织依赖与传参；批量策略叠加其上）
+  rounds: number                   // chain 整链执行轮数（轮内串行、轮间并行）；combo 恒 1
+  concurrency: number             // 1~16：combo=成员并行上限；chain=轮间并行上限
   enabled: boolean                // 方案总开关：禁用时定时跳过本轮（手动一键不受限）
   schedule_type?: 'interval' | 'daily' | null  // NULL=未配置定时
   schedule_interval_minutes?: number | null
@@ -629,6 +596,8 @@ export interface ExecutionPlanDetail extends ExecutionPlan {
 export interface PlanUpdatePayload {
   name?: string
   description?: string | null
+  mode?: 'combo' | 'chain'
+  rounds?: number                  // chain 整链轮数（combo 恒 1）
   concurrency?: number
   enabled?: boolean
   schedule_type?: 'interval' | 'daily' | null
@@ -641,7 +610,7 @@ export interface PlanUpdatePayload {
 export const planApi = {
   list: (params?: { project_id?: number }) =>
     http.get<ExecutionPlan[]>('/plans', { params }).then((r) => r.data),
-  create: (data: { project_id?: number | null; name: string; description?: string; concurrency?: number }) =>
+  create: (data: { project_id?: number | null; name: string; description?: string; mode?: 'combo' | 'chain'; rounds?: number; concurrency?: number }) =>
     http.post<ExecutionPlanDetail>('/plans', data).then((r) => r.data),
   get: (id: number) => http.get<ExecutionPlanDetail>(`/plans/${id}`).then((r) => r.data),
   update: (id: number, data: PlanUpdatePayload) =>
@@ -649,7 +618,8 @@ export const planApi = {
   updateItems: (id: number, items: PlanItem[]) =>
     http.put<ExecutionPlanDetail>(`/plans/${id}/items`, { items }).then((r) => r.data),
   remove: (id: number) => http.delete(`/plans/${id}`),
-  // 一键执行：预检失败 400 零记录；返回本次全部记录（成员独立并行，轮询到终态）
+  // 一键执行：预检失败 400 零记录；返回本次全部记录
+  // （combo 成员并行独立轮询到终态 / chain 后台按轮驱动，轮内串行+相邻传参+失败阻断本轮下游）
   execute: (id: number) => http.post<ExecutionRecord[]>(`/plans/${id}/execute`).then((r) => r.data),
 }
 

@@ -7,8 +7,7 @@
 （定时触发，默认并发）。新触发来源只需调用这两个函数即可接入全部语义。
 
 环境严格绑定（2026-10-15 定案）：执行环境是用例属性（case.env_id），
-本模块不再接收环境参数——普通用例未绑定环境抛 ValueError，由调用方决定 4xx 或跳过；
-套件本体无执行环境（成员各自读自己用例的绑定环境）。
+本模块不再接收环境参数——未绑定环境抛 ValueError，由调用方决定 4xx 或跳过。
 """
 from dataclasses import dataclass, field
 
@@ -41,20 +40,15 @@ def build_launch_plan(db: Session, case, user_id: int, *,
 
     数据集不可执行（无数据/不存在）或用例未绑定环境抛 ValueError，由调用方决定 4xx 或跳过。
     单套语义：绑定数据集恒展开 1 条（该数据集唯一一套数据）；
-    run_count>1 时复用一次规划重复提交（run_count 次执行）。
-    套件：本体无变量池（成员各自绑定数据集与环境），单条直发不校验绑定。"""
-    is_suite = getattr(case, "case_type", "normal") == "suite"
-    if is_suite:
-        plan_items: list[dict] = [{"dataset_id": None, "row": None}]
-    else:
-        if not getattr(case, "env_id", None):
-            raise ValueError(f"用例「{case.name}」未绑定执行环境，请先在用例编辑中选择")
-        if not crud.get_environment(db, case.env_id):
-            raise ValueError(f"用例「{case.name}」绑定的环境已不存在（id={case.env_id}），请重新绑定")
-        plan_items = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
+    run_count>1 时复用一次规划重复提交（run_count 次执行）。"""
+    if not getattr(case, "env_id", None):
+        raise ValueError(f"用例「{case.name}」未绑定执行环境，请先在用例编辑中选择")
+    if not crud.get_environment(db, case.env_id):
+        raise ValueError(f"用例「{case.name}」绑定的环境已不存在（id={case.env_id}），请重新绑定")
+    plan_items: list[dict] = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
 
-    # 执行记录与 spec 的环境：普通用例=绑定环境；套件=空（run_suite 内对齐首成员环境）
-    launch_env_id = None if is_suite else case.env_id
+    # 执行记录与 spec 的环境：用例绑定环境（严格绑定）
+    launch_env_id = case.env_id
 
     launch = LaunchPlan()
     for _ in range(run_count):

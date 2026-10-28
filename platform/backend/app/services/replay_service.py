@@ -156,7 +156,7 @@ def resume_execution_async(db: Session, user: models.User, exec_id: int) -> mode
     """断点续跑：从首个未成功节点起，用当前配置 + 当前数据集重新真实执行。
 
     调试闭环（重放验证 → 手动同步数据集 → 续跑）：
-    - 前置校验：仅 failed 报告可续；套件（主/成员）不支持；编排结构指纹一致
+    - 前置校验：仅 failed 报告可续；编排结构指纹一致
       （指纹只锁节点/边/接口绑定，参数配置与数据集允许变——续跑用当前值，
       正是「改完参数不用整个重跑」的核心场景）
     - 上下文：前缀成功步骤提取值 + 当前数据集行值拼成虚拟上下文注入 ${} 池
@@ -168,15 +168,11 @@ def resume_execution_async(db: Session, user: models.User, exec_id: int) -> mode
         raise HTTPException(404, f"执行记录不存在: {exec_id}")
     if record.status != "failed":
         raise HTTPException(400, f"仅失败报告可续跑（当前状态: {record.status}），成功/执行中请直接执行")
-    if record.suite_execution_id:
-        raise HTTPException(400, "套件成员报告不支持续跑：请单独执行该用例后在新报告上调试")
     if not record.case_id:
         raise HTTPException(400, "记录缺少用例信息，无法续跑")
     case = crud.get_testcase(db, record.case_id)
     if not case:
         raise HTTPException(404, f"用例不存在: {record.case_id}")
-    if getattr(case, "case_type", "normal") == "suite":
-        raise HTTPException(400, "套件用例不支持续跑：请单独执行成员用例")
     if not record.env_id:
         raise HTTPException(400, "记录缺少环境信息，无法续跑")
     env = crud.get_environment(db, record.env_id)

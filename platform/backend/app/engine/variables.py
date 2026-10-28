@@ -8,7 +8,7 @@
   （旧引擎「未定义变量保留 ${} 占位符静默放行」的行为已废止）
 - 同名冲突（同名异值 / 同名异型 / 同名嵌套层级不一致）从根上消除：
   不同命名空间互不覆盖，引用永远显式携带命名空间
-- 伪节点：套件白名单注入 "__suite__"（沿用旧 suite_vars 链路语义）；
+- 伪节点：串行链方案上一棒按 pass_vars 名单快照注入 "__prev__"（链式相邻定向传参）；
   "__dataset__" 平铺键值注入已退役（入参收敛到数据集行 per-node 配置）
 
 SQL 占位语法（替代旧 ${xxx}）：{{node_id.var_path}}
@@ -19,8 +19,8 @@ SQL 占位语法（替代旧 ${xxx}）：{{node_id.var_path}}
 import re
 from typing import Any
 
-# 套件伪命名空间（非画布节点，注入型变量域）
-SUITE_NS = "__suite__"
+# 串行链方案伪命名空间（非画布节点，注入型变量域：上一棒成员的输出快照）
+PREV_NS = "__prev__"
 
 # SQL / 模板占位符：{{node_id.var.path}}（node_id 为画布节点 id 或伪命名空间）
 PLACEHOLDER_RE = re.compile(r"\{\{([\w.\-]+)\}\}")
@@ -35,7 +35,7 @@ class CycleError(Exception):
 
 
 def split_ref(text: str) -> tuple[str, str]:
-    """ '{{n_create.order_id}}' -> ('n_create', 'order_id')；'{{__suite__.bl_no}}' -> ('__suite__', 'bl_no')"""
+    """ '{{n_create.order_id}}' -> ('n_create', 'order_id')；'{{__prev__.bl_no}}' -> ('__prev__', 'bl_no')"""
     node_id, _, var_path = text.partition(".")
     return node_id, var_path
 
@@ -53,7 +53,7 @@ class VariableRegistry:
 
     # ---------- 写入 ----------
     def inject(self, ns: str, values: dict[str, Any] | None) -> None:
-        """批量注入（数据集行值 / 套件白名单 / 断点续跑 seed）。同名后写覆盖先写。"""
+        """批量注入（数据集行值 / 串行链上一棒快照 / 断点续跑 seed）。同名后写覆盖先写。"""
         if values:
             self._ns.setdefault(ns, {}).update(values)
 

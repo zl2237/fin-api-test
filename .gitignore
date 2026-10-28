@@ -83,3 +83,6 @@ trae-api-test-skills/
 
 # Architecture review reports (local archive, not tracked)
 architecture-reviews/
+
+# 数据修复脚本的库行备份（本地留存，不入库）
+platform/backend/scripts/backups/

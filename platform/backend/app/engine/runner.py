@@ -13,7 +13,7 @@ DEFAULT_CONCURRENCY = 4
 @dataclass
 class ExecutionSpec:
     """单条执行的提交规格：record 已建为 running，executor 按此执行。
-    env_id 为用例绑定环境（套件为 None，成员环境在 run_suite 内各自解析）。"""
+    env_id 为用例绑定环境。"""
 
     execution_id: int
     case_id: int
@@ -43,12 +43,6 @@ def run_execution_background(execution_id: int, case_id: int, env_id: int | None
         record = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == execution_id).first()
         if not record:
             return  # record 已被删除，放弃执行
-        if getattr(case, "case_type", "normal") == "suite":
-            # 套件用例：分流到套件执行器（串行驱动成员链）——
-            # 手动/批量/定时三入口共用本函数，套件能力由此天然全继承
-            from ..services.suite_executor import run_suite
-            run_suite(db, case, record)
-            return
         # 普通用例：按用例绑定环境执行（launcher 已校验；此处兜底拦截脏数据）
         env = crud.get_environment(db, env_id) if env_id else None
         if not env:

@@ -12,7 +12,7 @@
     @visible-change="(v: boolean) => v && onSearch('')"
   >
     <template v-if="!matched && modelValue?.node_id && modelValue?.var_path">
-      <!-- 当前值不在可选组（如 __suite__ 白名单运行期注入）：保留回显防止显示空白 -->
+      <!-- 当前值不在可选组（如 __prev__ 串行链上一棒快照运行期注入）：保留回显防止显示空白 -->
       <el-option :value="encoded" :label="rawLabel">
         <span class="dim">{{ rawLabel }}</span>
         <span class="dim-tag">（保存于配置，本页不可选）</span>
@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
 /** 四来源引用选择器（来源3）：分组下拉选「节点.变量」，
- *  禁止手输 —— 数据源由父级（CaseDesigner 上游产出/数据集/套件）组装。
+ *  禁止手输 —— 数据源由父级（CaseDesigner 上游产出/数据集）组装。
  *  变量可达数千（前序节点全部入参+提取），el-select 全量渲染 option 会卡——
  *  remote 搜索模式自管过滤 + 截断渲染，当前选中项被截断时单独置顶保回显。
  *  teleported=false：本组件宿主在参数编辑 popover 内，下拉 teleport 到 body 后

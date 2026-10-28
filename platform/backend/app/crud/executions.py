@@ -18,7 +18,7 @@ def create_execution(db: Session, case_id: int, env_id: int | None, user_id: int
     """创建 running 状态的执行记录（触发执行前先落库，前端立即可轮询）。
 
     dataset_id/dataset_row：数据驱动执行时的数据行快照（失败可溯源是哪行）。
-    plan_id：执行方案来源（一键/方案定时，含方案内套件成员），纯溯源无外键。
+    plan_id：执行方案来源（一键/方案定时/串行链成员），纯溯源无外键。
     """
     record = models.ExecutionRecord(
         case_id=case_id, env_id=env_id, status="running", created_by=user_id,
