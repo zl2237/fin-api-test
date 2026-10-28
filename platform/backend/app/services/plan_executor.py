@@ -117,6 +117,8 @@ def _launch_chain(db: Session, plan: models.ExecutionPlan, items: list,
     records: list[models.ExecutionRecord] = []
     for item in items:
         case = crud.get_testcase(db, item.case_id)
+        if not case:  # run_plan 预检已挡，此处窄化给 mypy（口径同上）
+            raise ValueError(f"成员用例已不存在（id={item.case_id}），请移除后重试")
         expansion = dataset_service.plan_case_expansion(db, case, dataset_id=item.dataset_id)
         members.append({
             "case_id": case.id,
@@ -170,19 +172,21 @@ def _submit_chain(plan: models.ExecutionPlan, rounds: int, members: list[dict]) 
     from ..database import SessionLocal
 
     plan_id = plan.id
+    # 显式类型局部变量：payload 字典值类型会被推断为 object，链驱动侧还要迭代它
+    members_payload: list[dict] = [{
+        "case_id": m["case_id"],
+        "env_id": m["env_id"],
+        "pass_vars": m["pass_vars"],
+        "rows": [(it["row"] or {}).get("data") for it in m["expansion"]],
+        "record_ids": m["record_ids"],
+    } for m in members]
     payload = {
         "plan_id": plan_id,
         "rounds": rounds,
         "concurrency": max(1, plan.concurrency or 1),
-        "members": [{
-            "case_id": m["case_id"],
-            "env_id": m["env_id"],
-            "pass_vars": m["pass_vars"],
-            "rows": [(it["row"] or {}).get("data") for it in m["expansion"]],
-            "record_ids": m["record_ids"],
-        } for m in members],
+        "members": members_payload,
     }
-    all_record_ids = [rid for m in payload["members"] for rid in m["record_ids"]]
+    all_record_ids = [rid for m in members_payload for rid in m["record_ids"]]
 
     def _bg():
         try:
