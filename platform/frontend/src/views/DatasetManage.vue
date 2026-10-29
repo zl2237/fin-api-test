@@ -109,9 +109,7 @@
 
             <div v-loading="viewLoading" class="params-area">
               <el-tabs v-if="view && view.nodes.length" v-model="activeNodeId" class="node-tabs"
-                       @tab-change="writeLast({})"
-                       @keydown.left="onNodeTabsKeydown($event, -1)"
-                       @keydown.right="onNodeTabsKeydown($event, 1)">
+                       @tab-change="onNodeTabChange">
                 <el-tab-pane
                   v-for="n in view.nodes"
                   :key="n.node_id"
@@ -357,24 +355,12 @@ function scrollActiveTabIntoView() {
   })
 }
 
-/** 节点 tab 键盘导航：焦点在标签栏时 ←/→ 切换相邻节点（tab-change 联动写记忆、居中） */
-function stepNode(dir: 1 | -1) {
-  const nodes = view.value?.nodes || []
-  if (nodes.length < 2) return
-  const i = nodes.findIndex((n) => n.node_id === activeNodeId.value)
-  const next = nodes[Math.min(nodes.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir))]
-  if (next && next.node_id !== activeNodeId.value) {
-    activeNodeId.value = next.node_id
-    scrollActiveTabIntoView()
-    setTimeout(() => document.querySelector<HTMLElement>('.node-tabs .el-tabs__item.is-active')?.focus(), 0)
-  }
-}
-
-function onNodeTabsKeydown(e: KeyboardEvent, dir: 1 | -1) {
-  // 只响应标签项上的按键，避免拦截参数表格输入框里的方向键
-  if (!(e.target as HTMLElement).closest('.el-tabs__item')) return
-  e.preventDefault()
-  stepNode(dir)
+/** tab 切换统一收口：写访问记忆 + 激活项居中。
+ *  键盘 ←/→ 由 Element Plus 内建标签导航处理（标签项上按键即聚焦+激活相邻项），
+ *  此处不再自挂 keydown——两个处理器叠加会一次跳两格（2026-10-29 修复）。 */
+function onNodeTabChange() {
+  writeLast({})
+  scrollActiveTabIntoView()
 }
 
 async function loadView(keepTab = false) {
@@ -590,23 +576,35 @@ function selectCaseById(id: number) {
   if (c) selectCase(c)
 }
 
-// ----- 上次访问记忆（按项目）：进入页面直接回到上次的数据集与节点 tab -----
+// ----- 上次访问记忆（按 用户|项目 分槽）：进入页面直接回到上次的数据集与节点 tab -----
+// 单槽时代（projectId 顶层字段）任何项目/用户不匹配都会回落列表首项并把坏值写回，
+// 互相踩毁记忆；分槽后各项目各自持有，切换项目/多用户共用浏览器互不影响（2026-10-29）。
 const LAST_KEY = 'fin_dataset_last'
+function lastSlotKey(): string {
+  return `${store.user?.username ?? ''}|${store.currentProjectId ?? ''}`
+}
 function readLast(): { caseId?: number; datasetId?: number; nodeId?: string } {
   try {
     const raw = JSON.parse(localStorage.getItem(LAST_KEY) || '{}')
-    return raw?.projectId === store.currentProjectId ? raw : {}
+    // 旧单槽结构迁移读取：仅当项目匹配时沿用
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.projectId !== undefined) {
+      return raw.projectId === store.currentProjectId ? raw : {}
+    }
+    const slot = raw?.slots?.[lastSlotKey()]
+    return slot && typeof slot === 'object' ? slot : {}
   } catch { return {} }
 }
 function writeLast(patch: Record<string, unknown>) {
   try {
-    localStorage.setItem(LAST_KEY, JSON.stringify({
-      projectId: store.currentProjectId,
+    const raw = JSON.parse(localStorage.getItem(LAST_KEY) || '{}')
+    const slots = raw?.slots && typeof raw.slots === 'object' ? raw.slots : {}
+    slots[lastSlotKey()] = {
       caseId: currentCase.value?.id,
       datasetId: current.value?.id,
       nodeId: activeNodeId.value,
       ...patch,
-    }))
+    }
+    localStorage.setItem(LAST_KEY, JSON.stringify({ slots }))
   } catch { /* 存储失败忽略 */ }
 }
 
