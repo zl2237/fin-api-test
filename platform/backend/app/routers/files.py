@@ -198,6 +198,46 @@ def delete_file(
     return {"message": "已删除", "physical_removed": deleted_physical}
 
 
+# ============ 批量删除（多条件组合：ID/时间/名称/类型/上传人/分类） ============
+@router.post("/batch-delete")
+def batch_delete_files(
+    data: schemas.FileBatchDeleteRequest,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """按条件批量删除（AND 组合）。dry_run=True 仅返回命中数与样例（预览）；
+    执行删除走与单删相同的引用计数语义（ref_count-1，归零才清物理文件）。
+    至少需要一个过滤条件，防止误清整个项目。"""
+    has_cond = any([data.ids, data.category_id is not None, data.name_contains,
+                    data.content_type_prefix, data.created_by is not None,
+                    data.created_after is not None, data.created_before is not None])
+    if not has_cond:
+        raise HTTPException(400, "至少需要一个过滤条件（ID/时间/名称/类型/上传人/分类）")
+
+    rows = crud.query_files_for_batch(db, data)
+    if data.dry_run:
+        return {
+            "dry_run": True,
+            "count": len(rows),
+            "sample": [{"id": r.id, "name": r.name, "content_type": r.content_type,
+                        "created_at": str(r.created_at or ""), "ref_count": r.ref_count}
+                       for r in rows[:10]],
+        }
+
+    result = crud.batch_delete_files(db, rows)
+    for storage_path in result["physical_paths"]:
+        physical = _resolve_physical_path(storage_path)
+        try:
+            if physical.exists():
+                physical.unlink()
+        except Exception as e:  # noqa: BLE001 物理清理失败不阻断批量流程
+            print(f"[文件清理] 删除物理文件失败（忽略）: {e}")
+    crud.log_operation(db, user, "delete", "file", 0,
+                       f"批量删除 {result['deleted']} 个文件（条件: {data.model_dump(exclude={'project_id'})}）")
+    return {"dry_run": False, "deleted": result["deleted"],
+            "physical_removed": len(result["physical_paths"])}
+
+
 # ============ 文件分类 CRUD ============
 category_router = APIRouter(prefix="/api/file-categories", tags=["文件中心"])
 

@@ -770,6 +770,21 @@ export const fileApi = {
   update: (id: number, data: { name?: string; category_id?: number | null }) =>
     http.put<TestFile>(`/files/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete<{ message: string; physical_removed: boolean }>(`/files/${id}`),
+  // 批量删除：多条件 AND 组合；dryRun=true 仅预览命中数与样例（与 UI 平台同款）
+  batchDelete: (data: {
+    project_id: number
+    ids?: number[] | null
+    category_id?: number | null
+    name_contains?: string | null
+    content_type_prefix?: string | null
+    created_by?: number | null
+    created_after?: string | null
+    created_before?: string | null
+    dry_run: boolean
+  }) =>
+    http.post<{ dry_run: boolean; count?: number; deleted?: number; physical_removed?: number;
+                sample?: { id: number; name: string; content_type: string; created_at: string; ref_count: number }[] }>(
+      '/files/batch-delete', data).then((r) => r.data),
   // 下载/预览：用 axios 获取 blob（带 token），转 object URL 供 img/iframe/a 使用
   fetchBlob: (id: number, preview = false) =>
     http.get<Blob>(`/files/${id}/${preview ? 'preview' : 'download'}`, { responseType: 'blob' }).then((r) => {

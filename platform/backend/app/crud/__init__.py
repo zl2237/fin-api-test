@@ -12,6 +12,10 @@ from .datasets import (  # noqa: F401  数据集域（数据驱动测试）
     list_datasets,
     list_rows,
 )
+from .files_center import (  # noqa: F401  文件中心域（批量删除，自 UI 平台同款移植）
+    batch_delete_files,
+    query_files_for_batch,
+)
 from .plans import (  # noqa: F401  方案域（执行方案）
     get_plan,
     list_plans,
