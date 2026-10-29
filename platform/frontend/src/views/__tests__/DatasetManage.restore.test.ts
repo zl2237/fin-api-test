@@ -14,6 +14,9 @@ const CASES = [
   { id: 5, project_id: 1, group_id: null, name: '我的用例', dag_config: { nodes: [], edges: [] } },
 ]
 const DS = [
+  // 数据集7 刻意排在 9 前面：用例 5 的「列表首项」是 7，记忆项是 9——
+  // 若记忆丢失回落首项会得到 7，与记忆项可区分（防「碰巧相等」测不出缺陷）
+  { id: 7, case_id: 5, name: '数据集7', rows: [{ data: { nodes: {} } }] },
   { id: 8, case_id: 10, name: '数据集8', rows: [{ data: { nodes: {} } }] },
   { id: 9, case_id: 5, name: '数据集9', rows: [{ data: { nodes: {} } }] },
 ]
@@ -154,5 +157,45 @@ describe('DatasetManage 上次访问记忆恢复', () => {
     // 关键断言：|1 槽未被项目 2 的写入覆盖/清除
     expect(vm.$.setupState.currentCase?.id).toBe(5)
     expect(vm.$.setupState.current?.id).toBe(9)
+  })
+
+  it('F) 切走再切回：各用例记忆各自数据集，互不覆盖（2026-10-29 线上缺陷回归）', async () => {
+    memStore.clear()
+    memStore.set('fin_dataset_last', JSON.stringify({
+      slots: { '|1': { caseId: 5, cases: {
+        '5': { datasetId: 9, nodeId: '' },   // 记忆项 ≠ 列表首项 7（缺陷判别用）
+        '10': { datasetId: 8, nodeId: '' },
+      } } },
+    }))
+    const { vm } = await mountView(1)
+    expect(vm.$.setupState.currentCase?.id).toBe(5)
+    expect(vm.$.setupState.current?.id).toBe(9)
+    // 切到用例 10：恢复它自己的 8（而非沿用 5 的 9 / 回落首项）
+    vm.$.setupState.selectCase(CASES[0])
+    await flushAsync()
+    expect(vm.$.setupState.currentCase?.id).toBe(10)
+    expect(vm.$.setupState.current?.id).toBe(8)
+    // 切回用例 5：必须恢复 9——缺陷版会回落列表首项 7
+    vm.$.setupState.selectCase(CASES[1])
+    await flushAsync()
+    expect(vm.$.setupState.currentCase?.id).toBe(5)
+    expect(vm.$.setupState.current?.id).toBe(9)
+  })
+
+  it('G) v2 扁平槽升级：切走再切回仍恢复原数据集（写回自动升 v3 嵌套）', async () => {
+    memStore.clear()
+    memStore.set('fin_dataset_last', JSON.stringify({ slots: { '|1': { caseId: 5, datasetId: 9, nodeId: '' } } }))
+    const { vm } = await mountView(1)
+    expect(vm.$.setupState.current?.id).toBe(9)
+    // 切到 10（无记忆→首项 8）→ 写回 v3；切回 5 仍能靠 v2 折叠出的记忆恢复 9
+    vm.$.setupState.selectCase(CASES[0])
+    await flushAsync()
+    vm.$.setupState.selectCase(CASES[1])
+    await flushAsync()
+    expect(vm.$.setupState.currentCase?.id).toBe(5)
+    expect(vm.$.setupState.current?.id).toBe(9)
+    const raw = JSON.parse(memStore.get('fin_dataset_last') || '{}')
+    expect(raw.slots['|1'].cases['5'].datasetId).toBe(9)
+    expect(raw.slots['|1'].cases['10'].datasetId).toBe(8)
   })
 })
