@@ -6,10 +6,10 @@
 ## 架构与拓扑
 
 ```
-浏览器 ── http://192.168.22.106:8088 (nginx)
-             ├── 静态：platform/frontend/dist
-             └── /api → systemd 服务 fin-api-test (uvicorn, venv python3.12)
-                              └── MySQL（.env 连接串）
+浏览器 ── http://192.168.22.106:8088 (nginx)          ← 对外入口
+             └── /api → systemd fin-api-test (uvicorn :8001, venv python3.12)
+                             ├── 同源托管前端 SPA（dist，直连 :8001 亦可访问）
+                             └── MySQL（.env 连接串）
 ```
 
 | 项 | 值 |
@@ -25,11 +25,14 @@
 ## 发布流程（GitLab CI，main 分支 push 触发）
 
 ```
-lint（ruff + mypy blocking + pytest 全量 blocking，带覆盖率）
+lint（backend-lint: ruff + mypy blocking + pytest 842 条 blocking，带覆盖率；
+      frontend-lint: vue-tsc + vitest 188 条，含组件挂载级测试）
   → build（vue-tsc + vite build，产物 dist 归档）
   → deploy（见下）
   → notify（企微群通知成功/失败，失败附日志摘要）
 ```
+
+> runner（22.106 上 docker 容器 gitlab-runner）**单并发**（max_builds=1）：两平台推送同时到达时排队串行，deploy「没触发」多半是在排队。
 
 **deploy 是原子设计**（2026-09-17 事故教训）：
 1. CI 侧先准备 .env 与前端产物并上传（失败无服务器副作用）

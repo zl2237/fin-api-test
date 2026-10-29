@@ -63,13 +63,21 @@ CRUD + `POST /reorder` 排序 + `POST /{id}/copy` 复制 + `POST /{id}/test-db` 
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| CRUD | /api/testcases | 用例（DAG 编排配置） |
+| CRUD | /api/testcases | 用例（DAG 编排配置、严格绑定执行环境 env_id） |
 | GET | /export | 导出 |
-| POST | /combine | 多用例合并为套件 |
-| GET/PUT | /{id}/members | 套件成员管理 |
+| POST | /combine | 多用例合并为组合用例 |
 | POST | /{id}/scan-split 、/{id}/split | 事务拆分扫描 / 执行拆分 |
 | POST | /batch-move 、/reorder | 批量移动 / 排序 |
 | CRUD | /api/case-groups | 用例分组（树形） |
+
+## 执行方案 /api/plans（2026-10-28 套件收口承接）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/POST | / | 方案列表 / 建方案（mode=combo并行组合 \| chain串行链） |
+| GET/PUT/DELETE | /{plan_id} | 详情 / 更新（含内嵌定时配置）/ 删除 |
+| PUT | /{plan_id}/items | 成员批量保存（排序、成员级数据集换绑 dataset_id、run_count、chain 相邻传参 pass_vars） |
+| POST | /{plan_id}/execute | 一键执行（combo=成员并行；chain=轮内串行+`__prev__` 相邻传参+失败阻断本轮下游，rounds×concurrency 正交） |
 
 ## 数据集 /api/datasets
 
@@ -86,7 +94,7 @@ CRUD + `POST /reorder` 排序 + `POST /{id}/copy` 复制 + `POST /{id}/test-db` 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | /api/testcases/{id}/execute | 执行用例（× 环境） |
-| POST | /api/testcases/batch-execute | 批量执行（套件展开） |
+| POST | /api/testcases/batch-execute | 批量执行（逐用例次数 counts × 可配并发；各用例严格用绑定环境，批次可混环境） |
 | GET | /api/executions | 执行记录列表（分页/筛选） |
 | GET | /api/executions/stats | 统计聚合 |
 | DELETE | /api/executions/cleanup | 按策略清理历史记录 |
@@ -118,6 +126,7 @@ CRUD + `GET /map`（key→中文映射，配置界面标签用）+ `POST /batch`
 | GET | / 、/{id} | 文件列表 / 元信息 |
 | GET | /{id}/download 、/{id}/preview | 下载 / 预览（匿名） |
 | PUT/DELETE | /{id} | 重命名 / 删除 |
+| POST | /batch-delete | 批量删除（条件组合 + 预览 + 引用计数安全：被数据集 file 字段引用的文件拒绝删除） |
 | CRUD | /api/file-categories | 分类管理 |
 
 ## 操作日志 /api/operation-logs

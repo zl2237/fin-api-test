@@ -10,6 +10,7 @@
 - **AggregateGroup**（聚合组）：一次数据集多行展开的失败聚合通知组——全部终态后只发一条汇总，组内每条抑制逐条通知。
 - **批次专用池**：每次批量执行新建 `ThreadPoolExecutor(max_workers=concurrency)`，提交完即回收；与内部后台任务池（聚合通知等零散提交）互不复用。
 - **replay_service**（`services/replay_service.py`）：报告页重放与断点续跑的编排层——`replay_step_once`（快照定位接口重发 + 同口径提取/断言 + replay_passed_at 打点）与 `resume_execution_async`（指纹校验 → 起点定位 → 后台线程续跑）。executions 路由只做参数解析与鉴权；两类动作共用「报告虚拟上下文 + 当前配置」口径。
+- **plan_executor**（`services/plan_executor.py`）：执行方案（2026-10-28 套件收口承接）的唯一执行编排——combo 并行组合（成员级 run_count × 方案级 concurrency）/ chain 串行链（方案级 rounds 轮数 × 轮间 concurrency 并行，轮内按 sort_order 串行 + 相邻成员 pass_vars 名单快照注入 `__prev__` + 失败阻断**本轮**下游）。执行记录按轮主序全量预建、plan_id 溯源。
 
 ## 请求组装（prepare_request）
 
@@ -26,12 +27,12 @@
 
 ## 数据集（dataset）
 
-- **dataset_service**（`services/dataset_service.py`）：数据集域服务——数据集行展开（plan_case_expansion，execution_launcher 与套件共用）、节点配置增删、行数据读写。
+- **dataset_service**（`services/dataset_service.py`）：数据集域服务——数据集行展开（plan_case_expansion，execution_launcher 与执行方案共用）、节点配置增删、行数据读写。
 - **行数据结构**：`{"nodes": {节点ID: {params: {body/headers: {参数路径: spec}}}}}`——各节点入参配置的唯一载体（2026-09-30「入参收敛到数据集行」定案）；DagExecutor._resolve_param_config 消费。旧「变量池」模型（sync_case_variable_pool 入池/驱逐、池一键一值一形约束）已随定案整体删除。
 
 ## crud 域拆分
 
-- **crud/versions**（`crud/versions.py`）：项目版本域——快照（snapshot）/对比（diff）/回滚（rollback）一文件自洽。回滚是高风险机制（删当前全部接口/用例/分组后按快照重建，执行记录分离再重关联）；对外经 crud 包显式 re-export（`crud.rollback_project_version` 等）。
+- **crud/versions**（`crud/versions.py`）：项目版本域——快照（snapshot）/对比（diff）/回滚（rollback）一文件自洽。回滚是高风险机制（删当前全部接口/用例/分组后按快照重建，执行记录分离再重关联）；**归属对齐一律按用例名 join**（回滚重建必换自增 id，按 id join 的历史实现曾致连环回滚 1451/1452 断根失败；元素库类仍按原 id 重建保步骤引用存活）；对外经 crud 包显式 re-export（`crud.rollback_project_version` 等）。
 
 ## 通知（notifier）
 

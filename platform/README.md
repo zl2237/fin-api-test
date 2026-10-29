@@ -10,7 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
-[![Tests](https://img.shields.io/badge/pytest-759_passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/pytest-842_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
@@ -19,11 +19,11 @@
 - **字段级接口配置** — 字段表维护请求体（字段路径、中文名、类型、示例值），告别手写 JSON
 - **多格式导入** — cURL / HAR / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段
 - **参数四来源模型** — 每个入参单选取值来源：常量（容器内嵌来源递归解析）/ 内置函数（12 个注册表函数，入参可引用上游变量）/ 上游引用（结构化 `node_id + var_path`）/ 参数级标量 SQL（`{{节点.变量}}` 占位）；保存时静态校验悬空引用并定位到参数，运行期引用失败即节点失败
-- **测试套件** — 跨系统用例链：`case_type='suite'` 串行执行多个成员用例（可跨项目、逐成员绑环境），共享变量白名单把上游产出按 `__suite__` 命名空间注入下游，逐行配对 / 上游失败下游阻断 / 套件级汇总通知与专属报告
-- **数据集行入参** — 数据集行承载各节点入参配置（`{"nodes": {...}}`），多行即多场景；支持粘贴 JSON / 表单串 / cURL 预览导入（引用型参数不覆盖）；复用靠复制数据集
+- **执行方案** — 跨系统用例编排：`combo` 并行组合（成员级重复次数 + 方案级并发）/ `chain` 串行链（整链轮数 × 轮间并行正交、相邻成员 `pass_vars` 名单定向传参注入 `__prev__` 命名空间、失败阻断本轮下游）、成员级数据集换绑、方案内嵌定时（interval/daily 双档，调度器双源 reload）、执行记录 plan_id 溯源（2026-10-28 套件收口承接）
+- **数据集行入参** — 数据集行承载各节点入参配置（`{"nodes": {...}}`），多行即多场景；支持粘贴 JSON / 表单串 / cURL 预览导入（引用型参数不覆盖）；复用靠复制数据集；访问记忆按「用户|项目」分槽、槽内按用例嵌套（切走再切回各恢复各的）
 - **17 种断言** — JSONPath / 状态码 / 耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试应对异步落库
 - **结构化报告** — 每步请求/响应/断言全量落库，响应体 JSON 可展开收起；支持编辑节点请求参数后按原环境重放（纯调试口径不写回报告）；后端导出 CSV（Excel 兼容）/ HTML（可打印 PDF）+ 耗时趋势图
-- **文件中心** — 分类树 + 标签 + multipart 上传，`file` 字段直接引用文件中心资源
+- **文件中心** — 分类树 + 标签 + multipart 上传，`file` 字段直接引用文件中心资源；批量删除按分类/类型/大小/时间组合筛选、先预览后删、引用计数保护（被数据集引用的文件拒绝删除）
 - **工程化** — JWT 鉴权 + admin/member 角色 + 操作审计 + Alembic 迁移 + 亮暗主题 + 标签页 + 命令面板（Ctrl+K）
 
 ## Quick Start
@@ -63,13 +63,13 @@ npm install && npm run dev
 ├─────────────────────────────────────────────────┤
 │       数据访问层 crud/（按域拆分，显式 re-export）   │
 │  users · auth · executions · datasets            │
-│  versions · legacy（兼容期）                      │
+│  plans · files_center · versions · legacy        │
 ├─────────────────────────────────────────────────┤
 │                 服务层 services/                   │
 │  execution_launcher · runtime · request_sender   │
 │  body_builder · dataset_service · scheduler      │
-│  suite_executor · spec_parser · report_export    │
-│  replay_service · notifier · files               │
+│  plan_executor · contract_sync · spec_parser     │
+│  report_export · replay_service · notifier       │
 └──────────────────────────┬──────────────────────┘
                            │ 线程池异步执行
 ┌──────────────────────────▼──────────────────────┐
@@ -110,9 +110,10 @@ npm install && npm run dev
 
 ```bash
 cd platform/backend
-python -m pytest tests/ -q          # 759 passed
-python -m ruff check --select F platform/backend   # 与 CI backend-lint 同口径
-cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口径
+python -m pytest tests/ -q          # 842 passed
+python -m ruff check --select F .   # 与 CI backend-lint 同口径
+cd ../frontend && npx vue-tsc --noEmit   # 与 CI frontend-lint 同口径
+cd ../frontend && npm run test            # vitest 188 passed
 ```
 
 测试布局（fake-db 单测，不依赖真实 MySQL）：
@@ -125,7 +126,7 @@ cd ../frontend && npx vue-tsc --noEmit             # 与 CI frontend-lint 同口
 | 请求发送 | `test_request_sender.py` | 分发/multipart/异常分类 + 防平行实现守卫 |
 | 通知 | `test_notifier.py` | 门控开关/单条与聚合通知/环境查无 |
 | 拓扑排序 | `test_dag_executor_topo.py` | Kahn 排序唯一实现（执行/数据集共用） |
-| 测试套件 | `test_suite_executor.py` | 白名单注入/逐行配对/行与整体阻断/嵌套与悬空（10 用例） |
+| 测试套件 → 执行方案 | `test_plans.py` | 方案 CRUD/成员保存校验/combo 并行提交/chain 轮次传参与失败阻断/内嵌定时 |
 | 参数解析 | `test_param_resolver.py` | 四来源取值（constant 容器/ref 跨节点/func 引用入参/SQL 列选取与注册）+ `{{}}` 占位渲染转义 |
 | 变量注册表 | `test_variables.py` | 命名空间隔离/引用取不到即失败/旧语法不匹配/order_params 参数拓扑与环检测 |
 | 保存校验 | `test_validation.py` | 悬空引用/未知节点与函数/依赖环/旧语法残留拒绝保存并定位参数 |
