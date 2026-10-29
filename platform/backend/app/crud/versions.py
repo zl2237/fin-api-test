@@ -5,6 +5,7 @@
 后本文件内自洽可读，可在此用假 Session 补测试。对外接口经 crud 包显式
 re-export，旧引用 `crud.rollback_project_version` 等继续可用。
 """
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -200,18 +201,26 @@ def rollback_project_version(
 
     # 2. 分离执行记录（不删除，回滚后重新关联到新用例）+ 删除其他数据
     # 执行记录含 steps/assertions 子表，直接删除会导致回滚后历史执行记录丢失，
-    # 改为：先分离（case_id 置空），重建用例后再按 old_case_id → new_case_id 重新关联
-    case_ids = [c.id for c in db.query(models.TestCase).filter(models.TestCase.project_id == project.id).all()]
-    exec_case_map: dict = {}  # exec_id → old_case_id
+    # 改为：先分离（case_id 置空），重建用例后再重新关联。
+    # 归属对齐一律按「用例名」：回滚重建用例会换 id（且可能已被上一轮回滚换过），
+    # id 在快照与当前状态之间没有稳定对应；名字是项目内稳定标识（2026-10-29 修复：
+    # 旧实现按 id join，首次回滚成功后当前 id 全部换新，二次回滚起数据集被丢弃→1452）
+    cur_cases = db.query(models.TestCase).filter(models.TestCase.project_id == project.id).all()
+    case_ids = [c.id for c in cur_cases]
+    # 键类型放宽到 int | None：execution_records.case_id 可空，.get(None) 返回 None 由下游跳过
+    case_name_by_id: dict[int | None, str] = {c.id: c.name for c in cur_cases}
+    exec_case_map: dict = {}  # exec_id → 当前归属用例名
     # 定时任务/数据集快照缓存（case_ids 为空的项目也需要初始化，供重建阶段引用）
     sched_rows: list[dict] = []
     ds_snap: list[dict] = []
     ds_rows_map: dict = {}
+    plan_item_rows: list[dict] = []
     if case_ids:
         # 定时任务/数据集同为 NOT NULL 外键引用用例：整行收集后删除，重建用例后
-        # 按 case_id_map 恢复（配置与数据资产不丢；数据集按原 id 重建，绑定无需转换）
+        # 按归属用例名恢复（配置与数据资产不丢；数据集按原 id 重建，绑定无需转换）
         sched_rows = [
-            {"case_id": s.case_id, "env_id": s.env_id, "schedule_type": s.schedule_type,
+            {"case_name": case_name_by_id.get(s.case_id), "env_id": s.env_id,
+             "schedule_type": s.schedule_type,
              "interval_minutes": s.interval_minutes, "daily_time": s.daily_time,
              "enabled": s.enabled, "created_by": s.created_by}
             for s in db.query(models.TestSchedule)
@@ -227,24 +236,47 @@ def rollback_project_version(
                 ds_rows_map.setdefault(r.dataset_id, []).append(
                     {"row_index": r.row_index, "data": r.data})
             ds_snap = [
-                {"id": d.id, "case_id": d.case_id, "name": d.name,
+                {"id": d.id, "case_name": case_name_by_id.get(d.case_id), "name": d.name,
                  "description": d.description,
                  "project_id": d.project_id}
                 for d in db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids)).all()
             ]
+            # 先解绑用例→数据集引用（test_cases.dataset_id 外键 RESTRICT，不解绑删数据集报 1451）。
+            # 用例本身随后整体删除并按快照重建，dataset_id 由 dataset_bind 二阶段回填，绑定不丢
+            db.query(models.TestCase).filter(models.TestCase.dataset_id.in_(ds_ids)).update(
+                {models.TestCase.dataset_id: None}, synchronize_session=False
+            )
             db.query(models.DataSetRow).filter(models.DataSetRow.dataset_id.in_(ds_ids))\
                 .delete(synchronize_session=False)
             db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids))\
                 .delete(synchronize_session=False)
         execs = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.case_id.in_(case_ids)).all()
         for e in execs:
-            exec_case_map[e.id] = e.case_id
+            exec_case_map[e.id] = case_name_by_id.get(e.case_id)
         # 分离执行记录，避免删除用例时外键约束冲突
         db.query(models.ExecutionRecord).filter(models.ExecutionRecord.case_id.in_(case_ids)).update(
             {models.ExecutionRecord.case_id: None}, synchronize_session=False
         )
         # CaseNodeConfig 属于用例配置，需随用例一起从快照重建
         db.query(models.CaseNodeConfig).filter(models.CaseNodeConfig.case_id.in_(case_ids)).delete(synchronize_session=False)
+        # 方案成员（execution_plan_items.case_id 外键指向用例，DB 为 CASCADE）：
+        # 整行收集后删除，重建用例后按归属用例名恢复——否则级联静默清空执行方案成员
+        plan_item_rows = [
+            {"plan_id": p.plan_id, "case_name": case_name_by_id.get(p.case_id),
+             "dataset_id": p.dataset_id,
+             "run_count": p.run_count, "pass_vars": p.pass_vars, "sort_order": p.sort_order}
+            for p in db.query(models.ExecutionPlanItem)
+            .filter(models.ExecutionPlanItem.case_id.in_(case_ids)).all()
+        ]
+        db.query(models.ExecutionPlanItem).filter(models.ExecutionPlanItem.case_id.in_(case_ids))\
+            .delete(synchronize_session=False)
+        # suite_members 遗留死表（旧「套件」功能残留，无 ORM 模型/无代码引用）：
+        # 两个外键均 RESTRICT 指向用例，不清行会挡住用例删除（1451）
+        db.execute(
+            text("DELETE FROM suite_members WHERE suite_case_id IN :ids OR member_case_id IN :ids")
+            .bindparams(bindparam("ids", expanding=True)),
+            {"ids": case_ids},
+        )
 
     api_ids = [a.id for a in db.query(models.ApiDefinition).filter(models.ApiDefinition.project_id == project.id).all()]
     if api_ids:
@@ -333,11 +365,11 @@ def rollback_project_version(
             ))
 
     # 5. 重建用例（转换 group_id，node_configs 的 api_id 用映射转换）
-    # 同时建立 old_case_id → new_case_id 映射，用于重新关联执行记录
-    case_id_map: dict = {}
+    # 同时建立 name → new_case_id 映射：数据集/定时/方案成员/执行记录的归属
+    # 都按用例名对齐（id 会被历次回滚换掉，名字稳定——见第 2 步注释）
+    case_name_map: dict = {}
     dataset_bind: list[tuple] = []   # (new_case, 快照 dataset_id) 二阶段回填（data_sets 重建前后再绑，避免 FK 循环）
     for c in snap.get("cases", []):
-        old_case_id = c.get("id")
         old_group_id = c.get("group_id")
         new_group_id = case_group_map.get(old_group_id) if old_group_id else None
         nc = models.TestCase(
@@ -352,8 +384,7 @@ def rollback_project_version(
         )
         db.add(nc)
         db.flush()
-        if old_case_id is not None:
-            case_id_map[old_case_id] = nc.id
+        case_name_map[c["name"]] = nc.id
         if c.get("dataset_id"):
             dataset_bind.append((nc, c["dataset_id"]))
         for cfg in c.get("node_configs", []):
@@ -369,26 +400,29 @@ def rollback_project_version(
             ))
 
     # 5.1 重建数据集（原 id 复用 → test_cases.dataset_id / data_set_rows.dataset_id
-    # 引用零转换）：归属 case_id 经 map 转换；用例不在快照中的数据集丢弃（回到快照时刻）
+    # 引用零转换）：归属按用例名对齐；归属用例不在快照中的数据集丢弃（回到快照时刻）。
+    # 快照绑定的数据集若已被删除（不在保留集合）则放弃该绑定——绑定悬空比回滚失败可恢复性强
+    kept_ds_ids: set = set()
     for d in ds_snap:
-        new_cid = case_id_map.get(d["case_id"])
+        new_cid = case_name_map.get(d["case_name"])
         if new_cid is None:
             continue
+        kept_ds_ids.add(d["id"])
         db.add(models.DataSet(
             id=d["id"], project_id=d.get("project_id") or project.id, case_id=new_cid,
             name=d["name"], description=d.get("description"),
-            columns=d.get("columns") or [],
         ))
         for r in ds_rows_map.get(d["id"], []):
             db.add(models.DataSetRow(dataset_id=d["id"], row_index=r["row_index"], data=r["data"]))
     db.flush()
     for case_obj, ds_id in dataset_bind:
-        case_obj.dataset_id = ds_id
+        if ds_id in kept_ds_ids:
+            case_obj.dataset_id = ds_id
     db.flush()
 
     # 5.3 重建定时任务（配置跟随新用例；用例不在快照中的任务丢弃）
     for s in sched_rows:
-        new_cid = case_id_map.get(s["case_id"])
+        new_cid = case_name_map.get(s["case_name"])
         if new_cid is None:
             continue
         db.add(models.TestSchedule(
@@ -397,10 +431,20 @@ def rollback_project_version(
             enabled=s["enabled"], created_by=s["created_by"],
         ))
 
-    # 6. 重新关联执行记录到新用例
+    # 5.4 重建方案成员（归属按用例名对齐；用例不在快照中的成员丢弃——同定时任务语义）
+    for p in plan_item_rows:
+        new_cid = case_name_map.get(p["case_name"])
+        if new_cid is None:
+            continue
+        db.add(models.ExecutionPlanItem(
+            plan_id=p["plan_id"], case_id=new_cid, dataset_id=p["dataset_id"],
+            run_count=p["run_count"], pass_vars=p["pass_vars"], sort_order=p["sort_order"],
+        ))
+
+    # 6. 重新关联执行记录到新用例（按用例名对齐）
     # 快照中存在的用例：更新 case_id 到新 ID；不在快照中的用例（快照后新建）：删除其执行记录及子表
-    for exec_id, old_cid in exec_case_map.items():
-        new_cid = case_id_map.get(old_cid)
+    for exec_id, case_name in exec_case_map.items():
+        new_cid = case_name_map.get(case_name)
         if new_cid is not None:
             db.query(models.ExecutionRecord).filter(models.ExecutionRecord.id == exec_id).update(
                 {models.ExecutionRecord.case_id: new_cid}, synchronize_session=False
