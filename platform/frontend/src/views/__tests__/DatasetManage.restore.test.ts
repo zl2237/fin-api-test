@@ -60,6 +60,16 @@ async function flushAsync() {
   for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0))
 }
 
+/** 轮询等待条件成立：全链路测试的渲染链路（App→MainLayout→loadProjects→watch→load）
+ *  在 CI 慢环境下多于固定次数的宏任务拍，固定拍会提前断言（流水线 2026-10-29 实证）。 */
+async function waitFor(cond: () => boolean, ms = 3000, step = 10) {
+  const t0 = Date.now()
+  while (!cond()) {
+    if (Date.now() - t0 > ms) throw new Error('waitFor 超时：条件未在时限内成立')
+    await new Promise((r) => setTimeout(r, step))
+  }
+}
+
 async function mountView(projectIdAtMount: number | null) {
   const { default: DatasetManage } = await import('../DatasetManage.vue')
   const ElementPlus = (await import('element-plus')).default
@@ -110,7 +120,8 @@ describe('DatasetManage 上次访问记忆恢复', () => {
     await app.mount(div) // App.mount 返回根实例；await 等初始导航完成
     await router.isReady()
     await router.push('/datasets')
-    await flushAsync()
+    // 侧栏节点选中类必定渲染（恢复记忆或回落列表首位），轮询到它出现再断言归属
+    await waitFor(() => !!div.querySelector('.side-node.on'))
     // 选中节点应是记忆的「我的用例」，而不是列表首位（最大ID）用例
     const on = div.querySelector('.side-node.on')
     expect(on?.textContent).toContain('我的用例')
