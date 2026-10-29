@@ -14,6 +14,7 @@
             {{ pendingUploads > 0 ? `上传中（${pendingUploads}）` : '上传文件' }}
           </el-button>
         </el-upload>
+        <el-button type="danger" plain @click="openBatchDelete">批量删除</el-button>
       </div>
       <div class="head-right">
         <el-input
@@ -207,11 +208,80 @@
         <el-button type="primary" :loading="categorySaving" @click="saveCategory">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量删除弹窗：多条件组合 → 预览命中 → 确认删除（引用计数安全，与 UI 平台同款） -->
+    <el-dialog v-model="batchDel.visible" title="批量删除" width="620px" align-center :close-on-click-modal="false">
+      <div class="batch-del-tip">
+        条件为「与」组合且至少一项；建议先「预览匹配」再删，仍有副本引用的文件不会物理删除
+      </div>
+      <el-form label-width="90px">
+        <el-form-item label="文件 ID">
+          <el-input v-model="batchDel.idsText" placeholder="多个用逗号或换行分隔，如 12, 35, 88" />
+        </el-form-item>
+        <el-form-item label="名称包含">
+          <el-input v-model="batchDel.name" placeholder="如 报告截图（文件名前缀/关键字）" clearable />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="batchDel.typePrefix" clearable placeholder="全部类型" style="width: 100%">
+            <el-option label="图片（image/*）" value="image/" />
+            <el-option label="PDF（application/pdf）" value="application/pdf" />
+            <el-option label="文本（text/）" value="text/" />
+            <el-option label="视频（video/）" value="video/" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-tree-select
+            v-model="batchDel.categoryId"
+            :data="categoryTreeForSelect"
+            :props="{ label: 'label', children: 'children', value: 'id' }"
+            check-strictly clearable placeholder="全部分类" style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="上传人">
+          <el-select v-model="batchDel.userId" clearable filterable placeholder="全部上传人" style="width: 100%">
+            <el-option v-for="u in batchDel.users" :key="u.id" :label="u.name" :value="u.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="上传时间">
+          <el-date-picker
+            v-model="batchDel.timeRange"
+            type="datetimerange"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+
+      <!-- 预览结果 -->
+      <div v-if="batchDel.preview !== null" class="batch-del-preview">
+        <template v-if="batchDel.preview.count > 0">
+          <div class="batch-del-count">匹配 <b>{{ batchDel.preview.count }}</b> 个文件，前 {{ batchDel.preview.sample.length }} 条：</div>
+          <ul class="batch-del-sample">
+            <li v-for="s in batchDel.preview.sample" :key="s.id">
+              <code>#{{ s.id }}</code> {{ s.name }} · {{ s.content_type }}<span v-if="s.ref_count > 1">（副本×{{ s.ref_count }}）</span>
+            </li>
+          </ul>
+        </template>
+        <div v-else class="batch-del-count">没有匹配的文件</div>
+      </div>
+
+      <template #footer>
+        <el-button @click="batchDel.visible = false">取消</el-button>
+        <el-button :loading="batchDel.loading" @click="previewBatchDelete">预览匹配</el-button>
+        <el-button type="danger" :disabled="!batchDel.preview || batchDel.preview.count === 0"
+                   :loading="batchDel.loading" @click="confirmBatchDelete">
+          确认删除{{ batchDel.preview ? `（${batchDel.preview.count} 个）` : '' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Plus, Edit, Delete, Files, FolderOpened, Search, Upload,
@@ -220,7 +290,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
-import { fileApi, fileCategoryApi, type TestFile, type FileCategory } from '@/api'
+import { fileApi, fileCategoryApi, userApi, type TestFile, type FileCategory, type SimpleUser } from '@/api'
 import { debounce } from '@/utils/ui'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useClientSort } from '@/composables/useClientSort'
@@ -539,6 +609,98 @@ async function confirmDeleteFile(file: TestFile) {
   }
 }
 
+// ===== 批量删除：多条件组合 → 预览命中 → 确认（与单删同一引用计数语义，与 UI 平台同款） =====
+const batchDel = reactive({
+  visible: false,
+  loading: false,
+  idsText: '',
+  name: '',
+  typePrefix: '',
+  categoryId: null as number | null,
+  userId: null as number | null,
+  timeRange: null as [string, string] | null,
+  users: [] as SimpleUser[],
+  preview: null as { count: number; sample: { id: number; name: string; content_type: string; created_at: string; ref_count: number }[] } | null,
+})
+
+async function openBatchDelete() {
+  if (!projectId.value) return ElMessage.warning('请先选择项目')
+  // 重置条件与预览结果（上次会话不带入）
+  Object.assign(batchDel, {
+    idsText: '', name: '', typePrefix: '', categoryId: null,
+    userId: null, timeRange: null, preview: null,
+  })
+  batchDel.visible = true
+  // 上传人下拉：懒加载一次，失败不阻断（仍可按其他条件删除）
+  if (!batchDel.users.length) {
+    try {
+      batchDel.users = await userApi.simple()
+    } catch { /* ignore */ }
+  }
+}
+
+/** 组装请求体：空值归一为 null；ID 列表支持逗号/中文逗号/换行分隔 */
+function buildBatchDeletePayload(dryRun: boolean) {
+  const ids = batchDel.idsText
+    .split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
+    .map(Number).filter(n => Number.isInteger(n) && n > 0)
+  return {
+    project_id: projectId.value!,
+    ids: ids.length ? ids : null,
+    category_id: batchDel.categoryId ?? null,
+    name_contains: batchDel.name.trim() || null,
+    content_type_prefix: batchDel.typePrefix || null,
+    created_by: batchDel.userId ?? null,
+    created_after: batchDel.timeRange?.[0] ?? null,
+    created_before: batchDel.timeRange?.[1] ?? null,
+    dry_run: dryRun,
+  }
+}
+
+/** 是否至少一个有效条件（与后端 400 校验对齐，前端先拦一道） */
+function hasBatchCondition(payload: ReturnType<typeof buildBatchDeletePayload>): boolean {
+  return Boolean(payload.ids || payload.category_id || payload.name_contains
+    || payload.content_type_prefix || payload.created_by
+    || payload.created_after || payload.created_before)
+}
+
+async function previewBatchDelete() {
+  const payload = buildBatchDeletePayload(true)
+  if (!hasBatchCondition(payload)) return ElMessage.warning('请至少填写一个删除条件')
+  batchDel.loading = true
+  try {
+    const res = await fileApi.batchDelete(payload)
+    batchDel.preview = { count: res.count ?? 0, sample: res.sample ?? [] }
+  } catch (e: any) {
+    ElMessage.error(e.message || '预览失败')
+  } finally {
+    batchDel.loading = false
+  }
+}
+
+async function confirmBatchDelete() {
+  const count = batchDel.preview?.count ?? 0
+  if (!count) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除匹配的 ${count} 个文件？内容仍有副本时物理文件保留，此操作不可恢复`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除' },
+    )
+  } catch { return }
+  batchDel.loading = true
+  try {
+    const res = await fileApi.batchDelete(buildBatchDeletePayload(false))
+    ElMessage.success(`已删除 ${res.deleted ?? 0} 个文件`)
+    batchDel.visible = false
+    await loadFiles()
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除失败')
+  } finally {
+    batchDel.loading = false
+  }
+}
+
 // ===== 工具函数 =====
 function formatSize(bytes: number): string {
   if (!bytes) return '0 B'
@@ -770,5 +932,38 @@ onMounted(() => {
   width: 100%;
   height: 70vh;
   border: none;
+}
+/* 批量删除弹窗：条件提示 + 预览结果 */
+.batch-del-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  background: var(--app-chip-bg);
+  border-radius: var(--app-radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+.batch-del-preview {
+  margin-top: 12px;
+  border-top: 1px solid var(--app-border);
+  padding-top: 10px;
+}
+.batch-del-count {
+  font-size: 13px;
+  color: var(--app-text);
+}
+.batch-del-count b {
+  color: var(--app-danger);
+}
+.batch-del-sample {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.9;
+}
+.batch-del-sample code {
+  color: var(--app-primary);
+  margin-right: 2px;
 }
 </style>

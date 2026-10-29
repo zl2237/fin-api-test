@@ -790,6 +790,20 @@ class FileOut(ORMBase, AuditMixin):
     updated_by_name: str | None = None
 
 
+# ============ 文件中心：批量删除 ============
+class FileBatchDeleteRequest(BaseModel):
+    """批量删除条件（AND 组合；至少传一个条件，dry_run=True 仅统计预览）"""
+    project_id: int
+    ids: list[int] | None = None
+    category_id: int | None = None
+    name_contains: str | None = None
+    content_type_prefix: str | None = None
+    created_by: int | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    dry_run: bool = True
+
+
 # ============ DataSet 数据集（行数据承载各节点入参配置，单套语义） ============
 class DataSetCreate(BaseModel):
     project_id: int
