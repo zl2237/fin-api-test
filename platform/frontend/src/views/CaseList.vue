@@ -468,8 +468,7 @@
     <!-- 绑定数据集 -->
     <el-dialog v-model="bindVisible" title="绑定数据集" width="480px">
       <div class="bind-tip">
-        绑定后执行时使用此数据集的全部节点入参取值；未绑定数据集的用例无法执行。
-        数据集按用例隔离，仅可选本用例名下的数据集；多场景建多个数据集切换执行
+        未绑定无法执行；数据集按用例隔离（仅本用例名下可选），多场景建多个切换
       </div>
       <el-select v-model="bindDatasetId" placeholder="选择数据集（空=不绑定）" clearable style="width: 100%">
         <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${Object.keys(d.rows?.[0]?.data?.nodes || {}).length} 个节点入参）`" :value="d.id" />
