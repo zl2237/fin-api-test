@@ -1,7 +1,7 @@
 # 系统设计文档
 
-> **文档版本**:v1.1
-> **更新日期**:2026-10-10
+> **文档版本**:v1.2
+> **更新日期**:2026-10-29
 > **适用代码**:fin-api-test
 > **维护说明**:本文档与代码实现同步,架构变更需同步更新本文档。差异以代码为准。
 
@@ -67,13 +67,13 @@ flowchart TB
         subgraph PlatformLayer["测试平台层(platform/)"]
             subgraph Frontend["前端 Vue3+TS"]
                 VIEWS[views 20 页面]
-                COMP[components 27 组件]
+                COMP[components 30 组件]
                 STORES[stores Pinia]
-                COMP2[composables 10]
+                COMP2[composables 11]
             end
             subgraph Backend["后端 FastAPI"]
-                ROUTERS[routers 14 路由]
-                SERVICES[services 15 服务]
+                ROUTERS[routers 16 路由]
+                SERVICES[services 16 服务]
                 CRUD[crud 数据访问]
                 ENGINE[engine 19 引擎]
                 MODELS[models 数据模型]
@@ -99,7 +99,7 @@ flowchart TB
 | 层 | 技术选型 |
 |---|---|
 | 后端框架 | FastAPI + Uvicorn |
-| ORM | SQLAlchemy + Alembic(19 个迁移版本) |
+| ORM | SQLAlchemy + Alembic(29 个迁移版本) |
 | 数据库 | MySQL(PyMySQL 驱动,charset=utf8mb4,连接池) |
 | 数据校验 | Pydantic |
 | 调度 | APScheduler(BackgroundScheduler) |
@@ -196,8 +196,8 @@ mysql:
 
 ```mermaid
 flowchart TB
-    ROUTERS[routers 路由层<br/>14 个路由模块] --> SERVICES[services 服务层<br/>15 个服务模块]
-    SERVICES --> CRUD[crud 数据访问层<br/>6 个模块]
+    ROUTERS[routers 路由层<br/>16 个路由模块] --> SERVICES[services 服务层<br/>16 个服务模块]
+    SERVICES --> CRUD[crud 数据访问层<br/>8 个模块]
     SERVICES --> ENGINE[engine 引擎层<br/>19 个模块]
     CRUD --> MODELS[(models.py<br/>数据模型)]
     ENGINE --> SERVICES
@@ -211,7 +211,7 @@ flowchart TB
 
 ### 4.2 路由层(routers/)
 
-14 个路由模块,统一在 [main.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/main.py) 注册:
+16 个路由模块,统一在 [main.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/main.py) 注册:
 
 | 模块 | 路径前缀 | 职责 |
 |---|---|---|
@@ -220,14 +220,16 @@ flowchart TB
 | `projects.py` | `/api/projects` | 项目 CRUD、项目切换 |
 | `environments.py` | `/api/environments` | 环境 CRUD、连接测试、token 缓存清理 |
 | `apis.py` | `/api/apis` | 接口定义 CRUD、分组、批量移动、复制、导出 |
-| `testcases.py` | `/api/testcases` | 用例 CRUD、套件、数据集绑定、定时任务清理 |
+| `testcases.py` | `/api/testcases` | 用例 CRUD、组合合并/事务拆分、数据集绑定、定时任务清理 |
+| `plans.py` | `/api/plans` | 执行方案 CRUD、成员排序/数据集换绑、一键执行(2026-10-28 套件收口承接) |
 | `datasets.py` | `/api/datasets` | 数据集 CRUD、行级管理、Excel/CSV 导入导出、合并预览 |
 | `executions.py` | `/api/executions` | 单用例执行、批量执行、执行详情查询 |
 | `schedules.py` | `/api/schedules` | 定时任务 CRUD、立即执行 |
+| `home.py` | `/api`(home) | 首页统计聚合 |
 | `reports.py` | `/api/reports` | 报告查询、CSV/HTML 导出 |
-| `versions.py` | `/api/versions` | 项目版本快照、回滚 |
+| `versions.py` | `/api/versions` | 项目版本快照、对比、回滚 |
 | `field_dictionaries.py` | `/api/field-dictionaries` | 字段字典管理 |
-| `files.py` | `/api/files` | 文件上传下载中心 |
+| `files.py` | `/api/files` | 文件上传下载中心、批量删除(引用计数保护) |
 | `operation_logs.py` | `/api/operation-logs` | 操作日志审计 |
 
 ### 4.3 引擎层(engine/)
@@ -237,13 +239,13 @@ flowchart TB
 | 模块 | 职责 |
 |---|---|
 | [dag_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/dag_executor.py) | DAG 执行主流程:拓扑排序、逐节点执行(节点/接口缓存预载防 N+1)、统计、写记录、通知 |
-| [runner.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/runner.py) | 用例执行入口:创建执行记录、加载 TestCase/Environment、套件分流、线程池提交 |
+| [runner.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/runner.py) | 用例执行入口:创建执行记录、加载 TestCase/Environment、线程池提交 |
 | [topo.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/topo.py) | DAG 拓扑排序:入度法,按节点 ID 字典序稳定执行 |
 | [prepare_request.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/prepare_request.py) | 请求组装唯一入口:四来源参数模型执行核(骨架→参数解析→通配展开→类型强转→file 剥离→headers) |
 | [param_resolver.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/param_resolver.py) | 四来源(constant/func/ref/sql)参数解析唯一定义点;`{{节点.变量}}` 占位渲染被 extractor/assertion_engine 复用 |
 | [variables.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/variables.py) | 节点命名空间变量注册表(VariableRegistry)与参数依赖拓扑排序(order_params) |
 | [functions.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/functions.py) | 内置函数注册表(参数来源2 执行核,函数集自旧表达式引擎迁出) |
-| [context.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/context.py) | 执行上下文:注册表 + 套件白名单注入(`__suite__` 伪命名空间)+ 续跑 seed |
+| [context.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/context.py) | 执行上下文:注册表 + 串行链相邻传参注入(`__prev__` 伪命名空间,成员级 pass_vars 名单快照)+ 续跑 seed |
 | [nested_path.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/nested_path.py) | 点号路径嵌套取/设值唯一实现(原名 preprocessor.py) |
 | [assertion_engine.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/assertion_engine.py) | 断言引擎:JSONPath、HTTP 状态码、响应时间、DB 查询、DB-vs-JSONPath(17 种) |
 | [extractor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/extractor.py) | 变量提取:响应 JSONPath、数据库 SQL,提取值写入本节点命名空间供下游引用 |
@@ -257,12 +259,13 @@ flowchart TB
 
 ### 4.4 服务层(services/)
 
-15 个服务模块,封装业务编排逻辑:
+16 个服务模块,封装业务编排逻辑:
 
 | 模块 | 职责 |
 |---|---|
 | [execution_launcher.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py) | 执行编排核心:数据集行展开、创建执行记录、组装 ExecutionSpec、批量提交线程池、通知聚合 |
-| [suite_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/suite_executor.py) | 套件执行:跨项目用例组合执行 |
+| [plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) | 执行方案执行:combo 并行组合 / chain 串行链(轮内按序串行 + 相邻成员 pass_vars 定向传参注入 `__prev__` + 失败阻断本轮下游,轮间按 concurrency 并行;2026-10-28 套件收口承接) |
+| [contract_sync.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/contract_sync.py) | 契约同步:接口字段与数据集参数出入比对与同步(见 6.12) |
 | [case_combine_service.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/case_combine_service.py) | 组合用例服务 |
 | [scheduler.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/scheduler.py) | APScheduler 调度:TestSchedule 转 job、重叠保护、错过不补跑、孤儿清理 |
 | [token_cache.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/token_cache.py) | 共享 token 缓存:线程安全 login_shared/refresh_shared/invalidate |
@@ -279,7 +282,7 @@ flowchart TB
 
 ### 4.5 数据访问层(crud/)
 
-6 个模块,只做单表 CRUD,不含业务规则:`auth.py`、`datasets.py`、`executions.py`、`users.py`、`versions.py`、`legacy.py`。
+8 个模块,只做单表 CRUD,不含业务规则:`auth.py`、`datasets.py`、`executions.py`、`files_center.py`、`plans.py`、`users.py`、`versions.py`、`legacy.py`。
 
 ---
 
@@ -292,8 +295,8 @@ flowchart TB
 ```
 platform/frontend/src/
 ├── api/            # axios 封装 + 拦截器
-├── components/     # 27 个通用组件
-├── composables/    # 10 个组合式函数
+├── components/     # 30 个通用组件
+├── composables/    # 11 个组合式函数
 ├── layouts/        # 布局
 ├── router/         # 路由 + 守卫
 ├── stores/         # Pinia(index + tabs)
@@ -315,7 +318,7 @@ platform/frontend/src/
 | 接口编辑 | `ApiEdit.vue` | 接口字段配置 |
 | 用例列表 | `CaseList.vue` | 用例 CRUD |
 | 用例编排 | `CaseDesigner.vue` | DAG 可视化编排 |
-| 套件编排 | `SuiteDesigner.vue` | 跨项目用例组合 |
+| 执行方案 | `PlanList.vue` / `PlanEdit.vue` | 方案列表 / 成员编排(combo 并行组合 · chain 串行链 + 轮次 + 内嵌定时) |
 | 数据集 | `DatasetManage.vue` | 数据集行级管理 |
 | 环境管理 | `EnvManage.vue` / `EnvEdit.vue` | 环境配置 |
 | 执行记录 | `Execution.vue` | 执行详情、步骤展开 |
@@ -447,7 +450,7 @@ flowchart TB
 
 - 变量全名 = `命名空间.变量路径`,存储结构 `{ns: {var_path: value}}`,不同命名空间互不覆盖——同名冲突从根上消除
 - 写入方仅三类:参数解析结果(节点.参数路径)/ 后置提取 / SQL 参数结果
-- 套件上游白名单注入 `__suite__` 伪命名空间(沿用旧 suite_vars 语义);`__dataset__` 平铺键值注入已随入参收敛退役
+- 串行链方案上一棒按成员级 `pass_vars` 名单快照注入 `__prev__` 伪命名空间,下一棒以 `{{__prev__.变量名}}` 引用(相邻定向传参,2026-10-28 取代旧套件 `__suite__` 全局白名单;空名单=空注入照常执行,上一棒失败则阻断本轮下游)
 - 断点续跑 seed(report_context 产出)按原节点命名空间还原前缀步骤产出,下游引用链保持完整
 
 ### 6.5 断言引擎
@@ -536,7 +539,25 @@ flowchart TB
 - **同步动作**:missing 补 constant(示例值拆解:object/array 按 JSON 结构拆叶子路径,标量还原原生类型;无示例值按空占位语义);extra 仅删 constant 来源
 - **触发点两处**(弹窗预览 + 用户许可后同步所有引用数据集):接口编辑保存后 / 数据集节点保存后;数据集页的手动「添加 body 参数」已封死(参数路径唯一契约源是接口字段,headers 不受约束)
 - **执行时只检测不阻断**:DagExecutor 逐节点比对契约,出入聚合进 `record.summary.contract_gaps`,报告页顶部黄条与导出 HTML 契约卡同构展示
-- **默认数据集初始化**(保存用例钩子 `ensure_case_dataset`):未绑定 → 自动建「默认数据集」(全部节点按接口示例值初始化)并绑定;已绑定 → 仅补画布新增节点的初始参数,已有节点参数一律不动;套件用例跳过;初始化失败不阻断保存
+- **默认数据集初始化**(保存用例钩子 `ensure_case_dataset`):未绑定 → 自动建「默认数据集」(全部节点按接口示例值初始化)并绑定;已绑定 → 仅补画布新增节点的初始参数,已有节点参数一律不动;初始化失败不阻断保存
+
+### 6.13 执行方案(2026-10-28 套件收口)
+
+参考 [plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) 与 [plans.py 路由](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/routers/plans.py)。旧「套件」(`case_type='suite'` + SuiteMember + suite_vars 全局白名单)已收口为执行方案(ExecutionPlan + ExecutionPlanItem),两档模式:
+
+- **combo 并行组合**:成员相互独立,成员级 `run_count` 重复次数 + 方案级 `concurrency` 并行提交上限——即原套件语义的平移
+- **chain 串行链**:链是依赖与传参的组织方式;方案级 `rounds` 整链轮数(1~9999),轮内按 `sort_order` 串行 + 相邻成员 `pass_vars` 名单定向传参(`__prev__` 命名空间,见 6.4)+ 成员失败/终止阻断**本轮**下游(其他轮不受影响),轮间按 `concurrency` 并行——与批量策略正交叠加
+- 成员可跨项目、可重复添加同一用例配不同数据集(成员级 `dataset_id` 换绑,悬空在执行预检报错);成员用例被删时级联清理并在执行预检报「成员已不存在」
+- **内嵌定时**:`schedule_type`(interval/daily)+ 启停 + `enabled` 总开关,调度器双源 reload(用例定时 + 方案定时共用装载链路);方案记录主序(rounds×成员)全量预建,plan_id 溯源
+- 执行记录按轮主序全量预建(rounds×成员,cap 9999),`record.plan_id` 溯源方案
+
+### 6.14 数据集访问记忆(v3,2026-10-29)
+
+数据集页的「上次访问」记忆为纯前端 localStorage(`fin_dataset_last`),三层键:`用户|项目` 槽 → 槽内 `caseId`(上次访问用例)→ `cases[caseId]`(各用例各自的数据集 + 节点 tab)。切换用例互不覆盖(2026-10-29 修复:v2 扁平槽整槽一个 datasetId,切用例即被覆盖,切回回落列表首个);v1/v2 旧形状经 `foldSlot` 兼容折叠,写回自动升级 v3;跨项目/跨用户天然隔离。回归测试见 `DatasetManage.restore.test.ts`(7 例)。
+
+### 6.15 版本回滚归属(按用例名)
+
+回滚重建用例必换自增 id,因此接口/用例/分组/方案成员的归属对齐一律按**名称** join(元素库/动作库类仍按原 id 重建,步骤内嵌引用需存活);`execution_plan_items.case_id` 级联清空后按名重建。连环回滚(用快照 A 回滚出的库再回滚快照 B)已验证幂等。
 
 ---
 
@@ -560,7 +581,8 @@ erDiagram
     TestCase ||--o{ CaseNodeConfig : has
     TestCase ||--o{ DataSet : binds
     TestCase ||--o{ ExecutionRecord : produces
-    TestCase }o--o{ TestCase : suite_via_SuiteMember
+    ExecutionPlan ||--o{ ExecutionPlanItem : has
+    ExecutionPlanItem }o--|| TestCase : references
 
     DataSet ||--o{ DataSetRow : has
     CaseNodeConfig }o--|| ApiDefinition : references
@@ -582,7 +604,8 @@ erDiagram
 | `Project` | L67-85 | 项目、一对多环境/接口/用例/版本 |
 | `Environment` | L87-108 | 环境配置 JSON、默认环境、排序 |
 | `ApiGroup` / `ApiDefinition` / `ApiField` | L110-167 | 接口分组、接口定义、请求字段 |
-| `CaseGroup` / `TestCase` / `SuiteMember` | L169-230 | 用例分组、用例(DAG 配置)、套件成员(跨项目) |
+| `CaseGroup` / `TestCase` | L169-230 | 用例分组、用例(DAG 配置、严格绑定执行环境 env_id) |
+| `ExecutionPlan` / `ExecutionPlanItem` | L456-530 | 执行方案(combo/chain 两档、rounds/concurrency、内嵌定时)、方案成员(数据集换绑、run_count、pass_vars) |
 | `DataSet` / `DataSetRow` / `CaseNodeConfig` | L233-286 | 数据集、数据行、节点配置快照(前置/后置/断言/等待) |
 | `ExecutionRecord` / `StepRecord` / `AssertionRecord` | L289-370 | 执行记录、步骤快照、断言结果 |
 | `ProjectVersion` | L370+ | 项目版本快照、回滚 |
@@ -765,6 +788,7 @@ flowchart TB
 | 数据库 | [platform/backend/app/database.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/database.py) |
 | DAG 执行 | [platform/backend/app/engine/dag_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/dag_executor.py) |
 | 执行编排 | [platform/backend/app/services/execution_launcher.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py) |
+| 执行方案 | [platform/backend/app/services/plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) |
 | 重放/续跑 | [platform/backend/app/services/replay_service.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/replay_service.py) |
 | 参数解析 | [platform/backend/app/engine/param_resolver.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/param_resolver.py) |
 | 调度 | [platform/backend/app/services/scheduler.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/scheduler.py) |
