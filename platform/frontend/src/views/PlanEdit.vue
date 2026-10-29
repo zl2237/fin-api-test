@@ -129,21 +129,20 @@
             <el-select v-model="addProjectId" style="width: 160px" placeholder="选择项目" filterable @change="onAddProjectChange">
               <el-option v-for="p in store.projects" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
-            <el-select
+            <!-- 用例树选择：分组为层级节点（仅展示不可选），同名用例靠分组路径区分 -->
+            <el-tree-select
               v-model="addCaseId"
-              style="width: 280px"
-              placeholder="选择用例"
+              :data="addCaseTree"
+              node-key="id"
+              :props="addTreeProps"
+              style="width: 340px"
+              placeholder="选择用例（可输入名称搜索）"
               filterable
+              check-strictly
+              default-expand-all
               :loading="addCasesLoading"
               :disabled="!addProjectId"
-            >
-              <el-option
-                v-for="c in addCases"
-                :key="c.id"
-                :label="`${c.name}（${c.dag_config?.nodes?.length || 0} 节点）`"
-                :value="c.id"
-              />
-            </el-select>
+            />
             <el-button type="primary" :disabled="!addCaseId" @click="addItem">添加成员</el-button>
           </div>
         </el-card>
@@ -205,7 +204,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import Sortable from 'sortablejs'
 import { ArrowLeft, QuestionFilled, Rank, WarningFilled } from '@element-plus/icons-vue'
-import { caseApi, datasetApi, planApi, type TestCase } from '@/api'
+import { caseApi, caseGroupApi, datasetApi, planApi, type CaseGroup, type TestCase } from '@/api'
+import { buildGroupTree } from '@/composables/useGroupTree'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
@@ -383,21 +383,50 @@ function destroySortable() {
   if (sortable) { sortable.destroy(); sortable = null }
 }
 
-// ===== 添加成员（项目 → 用例两级级联） =====
+// ===== 添加成员（项目 → 用例树两级级联；分组节点仅展示，用例叶子可选） =====
 const addProjectId = ref<number | null>(null)
 const addCaseId = ref<number | null>(null)
 const addCases = ref<TestCase[]>([])
+const addCaseGroups = ref<CaseGroup[]>([])
 const addCasesLoading = ref(false)
+const addTreeProps = { label: 'label', children: 'children', disabled: 'disabled' }
+
+/** 用例树：分组层级 + 组内用例叶子（id=用例 id；分组节点 id 加 g 前缀避免与用例 id 撞号） */
+const addCaseTree = computed(() => {
+  const caseLeaf = (c: TestCase) => ({
+    id: c.id,
+    label: `${c.name}（${c.dag_config?.nodes?.length || 0} 节点）`,
+  })
+  const casesOf = (gid: number | null) => addCases.value.filter((c) => (c.group_id ?? null) === gid)
+  type TreeItem = { id: number | string; label: string; disabled?: boolean; children?: TreeItem[] }
+  const build = (nodes: ReturnType<typeof buildGroupTree>): TreeItem[] => nodes.map((n) => ({
+    id: `g${n.id}`,
+    label: n.label,
+    disabled: true,
+    children: [...casesOf(n.id).map(caseLeaf), ...build(n.children)],
+  }))
+  const roots = build(buildGroupTree(addCaseGroups.value))
+  const ungrouped = casesOf(null).map(caseLeaf)
+  return ungrouped.length
+    ? [...roots, { id: 'g0', label: '未分组', disabled: true, children: ungrouped }]
+    : roots
+})
 
 async function onAddProjectChange(pid: number | null) {
   addCaseId.value = null
-  if (!pid) { addCases.value = []; return }
+  if (!pid) { addCases.value = []; addCaseGroups.value = []; return }
   addCasesLoading.value = true
   try {
-    addCases.value = await caseApi.list(pid)
+    const [cs, gs] = await Promise.all([
+      caseApi.list(pid),
+      caseGroupApi.list(pid).catch(() => [] as CaseGroup[]),
+    ])
+    addCases.value = cs
+    addCaseGroups.value = gs
   } catch (e: any) {
     ElMessage.error(e.message || '加载项目用例失败')
     addCases.value = []
+    addCaseGroups.value = []
   } finally {
     addCasesLoading.value = false
   }

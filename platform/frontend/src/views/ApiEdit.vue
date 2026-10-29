@@ -67,7 +67,7 @@
     <el-dialog v-model="showImportFieldsDialog" title="导入覆盖字段" width="min(900px, 92vw)" align-center :close-on-click-modal="false" @close="onImportFieldsClose">
       <div class="import-fields-body">
         <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
-          粘贴 cURL 命令、上传 HAR 或粘贴 Swagger/OpenAPI JSON，系统按当前接口的 method+path 定位，解析出最新字段列表后展示新旧对比，确认后覆盖当前字段（不会自动保存，需点顶部「保存」）。
+          按 method+path 解析字段，确认后覆盖（不自动保存，需点顶部「保存」）
         </el-alert>
         <div class="locate-row" style="margin-bottom: 12px;">
           <span class="locate-label">定位依据：</span>
@@ -210,9 +210,19 @@
             <el-input v-model="formData.code" placeholder="order_create" />
           </el-form-item>
           <el-form-item label="接口分组">
-            <el-select v-model="formData.group_id" placeholder="选择分组 / 输入搜索" clearable filterable style="width: 100%">
-              <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-            </el-select>
+            <!-- 树形分组选择：同名分组靠层级路径区分（平铺列表无法辨别） -->
+            <el-tree-select
+              v-model="formData.group_id"
+              :data="groupTreeData"
+              node-key="id"
+              :props="groupTreeProps"
+              placeholder="选择分组 / 输入搜索"
+              clearable
+              filterable
+              check-strictly
+              default-expand-all
+              style="width: 100%"
+            />
           </el-form-item>
           <el-form-item label="请求方法">
             <el-select v-model="formData.method" style="width: 100%">
@@ -262,6 +272,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import ContractSyncDialog from '@/components/ContractSyncDialog.vue'
 import FieldTable from '@/components/FieldTable.vue'
 import { useFieldDict } from '@/composables/useFieldDict'
+import { buildGroupTree } from '@/composables/useGroupTree'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { storeToRefs } from 'pinia'
@@ -301,6 +312,9 @@ async function initialLoad() {
   }
 }
 const groups = ref<ApiGroup[]>([])
+// 分组树（同名分组靠层级区分）；清空 = 未分组（与用例列表口径一致）
+const groupTreeProps = { label: 'label', children: 'children' }
+const groupTreeData = computed(() => buildGroupTree(groups.value))
 
 // ===== 调试 =====
 const debugVisible = ref(false)
