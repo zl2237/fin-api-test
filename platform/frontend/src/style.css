@@ -652,6 +652,67 @@ html.dark .el-dialog__header::after {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-primary-light) 50%, transparent) 30%, color-mix(in srgb, var(--app-primary) 50%, transparent) 70%, transparent);
 }
 
+/* ===== 微交互动效层（12 条提示词落地的全局部分）
+   全部包在 prefers-reduced-motion: no-preference 内：系统开启「减少动态效果」时
+   整节不生效，与 DagCanvas / RequestProgressBar / StepTrendChart 的既有约定一致。
+   JS 侧配套：utils/ripple.ts 涟漪、useCountUp 数字滚动、BurstFx 粒子迸发各自判 reduce。 */
+@media (prefers-reduced-motion: no-preference) {
+  /* --- 提示词 1 · 按压回弹：按下轻微缩放，松手弹性回弹（过冲曲线） ---
+     transition 用「all 短过渡 + transform 弹簧」逗号叠加：保留 EP 原有颜色过渡，
+     transform 由后项覆盖获得弹性；排除 text/link（无实体感）/disabled/loading */
+  .el-button:not(.is-text):not(.is-link):not(.is-disabled):not(.is-loading) {
+    transition: 0.1s, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .el-button:not(.is-text):not(.is-link):not(.is-disabled):not(.is-loading):active {
+    transform: scale(0.96);
+  }
+
+  /* --- 提示词 2 · 弹性开关：手柄拨动轻度过冲（拨过去回弹一下再停） ---
+     EP 2.9 以 left: 1px ⇄ calc(100% - 17px) 移动手柄、transition: all；
+     这里替换为：left 单独走弹性曲线，颜色类过渡沿用 EP 原时长 */
+  .el-switch__action {
+    transition: left 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+      color var(--el-transition-duration),
+      background-color var(--el-transition-duration);
+  }
+
+  /* --- 提示词 5 · 勾选画出来：对勾从根部「描边生长」（scaleY 0→1 过冲） ---
+     作用于 is-checked 类挂上/元素挂载瞬间（animation 随类应用触发，表格勾选列同结构自动继承） */
+  .el-checkbox__input.is-checked .el-checkbox__inner::after {
+    animation: app-check-draw 0.28s cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+
+  /* --- 提示词 8 · 骨架屏→内容淡入：骨架切换到表格/空态时避免生硬替换 ---
+     列表页骨架（el-skeleton）与表格（el-table）互斥渲染，v-else 切换即重新挂载，
+     animation 随挂载触发，纯 CSS 生效、无需改各页面 */
+  .card .el-table,
+  .card .el-empty,
+  .card .app-load-error {
+    animation: app-fade-in 0.25s ease;
+  }
+}
+
+@keyframes app-check-draw {
+  /* 结束帧与 EP 2.9 的对勾 transform 完全一致（含 translate 前缀），避免动画结束瞬移 */
+  from {
+    transform: translate(-45%, -60%) rotate(45deg) scaleY(0);
+  }
+  to {
+    transform: translate(-45%, -60%) rotate(45deg) scaleY(1);
+  }
+}
+
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ===== Vercel Web Interface Guidelines 修正（触控/滚动链/标题排版） ===== */
 /* 触控：可点元素消除 300ms 双击缩放延迟 */
 button,

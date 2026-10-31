@@ -1,7 +1,8 @@
 /**
  * 全局按钮点击涟漪效果
  *
- * 零侵入方案：监听 document click 事件，点击 .el-button 时从点击点扩散水波纹。
+ * 零侵入方案：监听 document click 事件，点击 .el-button / .el-menu-item（侧边菜单）/
+ * .stat（首页统计块）时从点击点扩散水波纹。
  * - 使用 currentColor 自适应按钮文字颜色（深色背景→白色涟漪，浅色背景→深色涟漪）
  * - 排除 disabled 按钮
  * - 动画结束后自动移除 DOM 元素
@@ -18,7 +19,7 @@ export function setupRipple() {
     const target = e.target as HTMLElement
     if (!target || target.nodeType !== 1) return
 
-    const button = target.closest('.el-button') as HTMLElement | null
+    const button = target.closest('.el-button, .el-menu-item, .stat') as HTMLElement | null
     if (!button) return
     // 排除禁用按钮
     if (button.classList.contains('is-disabled')) return

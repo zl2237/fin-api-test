@@ -33,6 +33,8 @@
     <el-card shadow="never" class="summary-card">
       <!-- 结论章：本页唯一 bold 处。票据审核章式 verdict（双线框 + 结论色 + 记录号） -->
       <div :class="['verdict-stamp', verdictClass]" aria-label="执行结论">
+        <!-- 全通过粒子迸发（微交互提示词 4，克制版）：以结论章为中心一次性庆祝 -->
+        <BurstFx :active="burstActive" />
         <span class="stamp-text">{{ stampText }}</span>
         <span class="stamp-id">#{{ record?.id ?? '-' }}</span>
       </div>
@@ -423,6 +425,7 @@ import ReplayDialog from '@/components/ReplayDialog.vue'
 import DiffValue from '@/components/DiffValue.vue'
 import EnvBadge from '@/components/EnvBadge.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
+import BurstFx from '@/components/BurstFx.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
 import { copyText } from '@/utils/clipboard'
@@ -680,6 +683,21 @@ const numClass = computed(() => {
   if (s === 'failed') return 'num-bad'
   return ''
 })
+
+// ===== 全通过庆祝迸发（微交互提示词 4，克制版）=====
+// 触发条件：success 且步骤总数 > 0 且全数通过；轮询每轮整体替换 record，watch 随之触发。
+// burstFiredForId 防重：同一记录只迸发一次（轮询刷新/重复到达终态不重放）。
+const burstActive = ref(false)
+let burstFiredForId: number | null = null
+watch(record, (r) => {
+  if (!r) return
+  const total = r.summary?.total ?? 0
+  const allPassed = r.status === 'success' && total > 0 && (r.summary?.passed ?? 0) === total
+  if (allPassed && burstFiredForId !== r.id) {
+    burstFiredForId = r.id
+    burstActive.value = true
+  }
+})
 /** 上下文 meta 单行：用例 / 环境 / 开始时间 / 耗时（空格分隔，title 提供全文） */
 const metaText = computed(() => {
   const r = record.value
@@ -876,6 +894,7 @@ onUnmounted(stopPolling)
 
 /* 结论章：票据审核章（双线框 = border 外线 + inset outline 内线），结论色经 currentColor 派生 */
 .verdict-stamp {
+  position: relative; /* 粒子迸发（BurstFx）绝对定位锚点 */
   flex-shrink: 0;
   width: 74px;
   display: flex;
