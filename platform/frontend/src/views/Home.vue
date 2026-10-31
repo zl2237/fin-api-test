@@ -34,21 +34,22 @@
       </section>
 
       <!-- ===== 统计行：当前项目概览（点击直达对应页面；语义化 <button> 保证键盘可达） ===== -->
+      <!-- 数字滚动（微交互提示词 7）：加载后从 0 计数到目标值，reduce motion 直接落定 -->
       <section class="stats">
         <button type="button" class="stat" @click="router.push('/apis')">
-          <b>{{ loading ? '…' : apiCount }}</b>
+          <b>{{ loading ? '…' : apiDisplay }}</b>
           <span>接口</span>
         </button>
         <button type="button" class="stat" @click="router.push('/cases')">
-          <b>{{ loading ? '…' : caseCount }}</b>
+          <b>{{ loading ? '…' : caseDisplay }}</b>
           <span>用例</span>
         </button>
         <button type="button" class="stat" @click="router.push('/executions')">
-          <b>{{ loading ? '…' : weekStats.count }}</b>
+          <b>{{ loading ? '…' : weekCountDisplay }}</b>
           <span>7 天执行</span>
         </button>
         <button type="button" class="stat" @click="router.push('/executions')">
-          <b :class="{ 'is-pass': (weekStats.rate ?? 0) >= 90 }">{{ loading ? '…' : (weekStats.rate === null ? '—' : weekStats.rate + '%') }}</b>
+          <b :class="{ 'is-pass': (weekStats.rate ?? 0) >= 90 }">{{ loading ? '…' : (weekRateDisplay === null ? '—' : weekRateDisplay + '%') }}</b>
           <span>7 天通过率</span>
         </button>
       </section>
@@ -78,7 +79,7 @@
             <el-button size="small" @click="loadHome">重试</el-button>
           </div>
 
-          <el-skeleton v-else-if="loading" :rows="6" animated class="skeleton-wrap" />
+          <el-skeleton v-else-if="loading" :rows="8" animated class="skeleton-wrap" />
 
           <EmptyState
             v-else-if="!recentExecs.length"
@@ -88,31 +89,74 @@
             <el-button type="primary" @click="router.push('/cases')">去执行用例</el-button>
           </EmptyState>
 
-          <div v-else class="exec-list">
-            <button
-              v-for="r in recentExecs"
-              :key="r.id"
-              type="button"
-              class="exec-row"
-              @click="router.push(`/reports/${r.id}`)"
-            >
-              <span :class="['exec-dot', `is-${r.status}`]">
-                <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
-              </span>
-              <el-tooltip :content="r.case_name || `#${r.case_id}`" placement="top" popper-class="app-tip">
-                <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
-              </el-tooltip>
-              <el-tooltip :content="r.env_name || `环境#${r.env_id}`" placement="top" popper-class="app-tip">
-                <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
-              </el-tooltip>
-              <span class="exec-summary" :class="`is-${r.status}`">
-                {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
-              </span>
-              <el-tooltip :content="formatTime(r.started_at)" placement="top" popper-class="app-tip">
-                <span class="exec-time">{{ formatRelativeTime(r.started_at) }}</span>
-              </el-tooltip>
-            </button>
+          <!-- 卡片堆叠（微交互提示词 11）：顶层完整卡片，第 2/3 层缩放下移露边；
+               点下层卡片翻到顶层（FLIP 平滑换位），点顶层进报告；更深层进入下方「更早」列表 -->
+          <div v-else class="exec-deck">
+            <TransitionGroup name="deck">
+              <button
+                v-for="(r, i) in deck"
+                :key="r.id"
+                v-show="i < 3"
+                type="button"
+                :class="['deck-card', `deck-depth-${Math.min(i, 2)}`, `is-${r.status}`, { 'deck-arrived': r.id === arrivedId }]"
+                :style="{ zIndex: 10 - i }"
+                :title="i === 0 ? '查看报告' : '点击翻到最前'"
+                @click="onDeckCard(r)"
+              >
+                <span :class="['exec-dot', `is-${r.status}`]">
+                  <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
+                </span>
+                <el-tooltip :content="r.case_name || `#${r.case_id}`" placement="top" popper-class="app-tip">
+                  <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
+                </el-tooltip>
+                <el-tooltip :content="r.env_name || `环境#${r.env_id}`" placement="top" popper-class="app-tip">
+                  <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
+                </el-tooltip>
+                <span class="exec-summary" :class="`is-${r.status}`">
+                  {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
+                </span>
+                <el-tooltip :content="formatTime(r.started_at)" placement="top" popper-class="app-tip">
+                  <span class="exec-time">{{ formatRelativeTime(r.started_at) }}</span>
+                </el-tooltip>
+                <!-- 执行编号：每条记录唯一。同名用例/同状态的数据（如批量跑「123」）
+                     翻牌后名字状态全同，编号是唯一必变的可辨识差异 -->
+                <span class="exec-id">#{{ r.id }}</span>
+              </button>
+            </TransitionGroup>
           </div>
+
+          <!-- 更早的执行：堆叠第 4 层起以紧凑行速览（点击直达报告）；
+               翻牌把某条翻到顶层后，被换下去的记录会回到这里 -->
+          <template v-if="!loading && !loadError && deck.length > 3">
+            <div class="earlier-head">更早</div>
+            <div class="earlier-list">
+              <button
+                v-for="r in deck.slice(3)"
+                :key="'row-' + r.id"
+                type="button"
+                class="exec-row"
+                title="查看报告"
+                @click="router.push(`/reports/${r.id}`)"
+              >
+                <span :class="['exec-dot', `is-${r.status}`]">
+                  <el-icon v-if="r.status === 'running'" class="is-loading"><Loading /></el-icon>
+                </span>
+                <el-tooltip :content="r.case_name || `#${r.case_id}`" placement="top" popper-class="app-tip">
+                  <span class="exec-name">{{ r.case_name || `#${r.case_id}` }}</span>
+                </el-tooltip>
+                <el-tooltip :content="r.env_name || `环境#${r.env_id}`" placement="top" popper-class="app-tip">
+                  <span class="exec-env">{{ r.env_name || `环境#${r.env_id}` }}</span>
+                </el-tooltip>
+                <span class="exec-summary" :class="`is-${r.status}`">
+                  {{ r.status === 'running' ? `${r.summary?.total ?? '?'} 步` : `${r.summary?.passed ?? 0}/${r.summary?.total ?? 0}` }}
+                </span>
+                <el-tooltip :content="formatTime(r.started_at)" placement="top" popper-class="app-tip">
+                  <span class="exec-time">{{ formatRelativeTime(r.started_at) }}</span>
+                </el-tooltip>
+                <span class="exec-id">#{{ r.id }}</span>
+              </button>
+            </div>
+          </template>
         </section>
 
         <!-- 右栏：快速执行 + 指南入口 -->
@@ -172,6 +216,7 @@ import { useAppStore } from '@/stores'
 import { caseApi, homeApi } from '@/api'
 import type { HomeRecentExec } from '@/api'
 import { formatTime, formatRelativeTime, execStatusText as statusText, execStatusType as statusTagType } from '@/utils/format'
+import { useCountUp } from '@/composables/useCountUp'
 import EmptyState from '@/components/EmptyState.vue'
 import HomeGuideDrawer from '@/components/HomeGuideDrawer.vue'
 
@@ -201,6 +246,36 @@ const greeting = computed(() => {
 
 // 7 天执行量与通过率：聚合接口内的数据库端 group_by（全量口径）
 const weekStats = ref<{ count: number; rate: number | null }>({ count: 0, rate: null })
+
+// ===== 统计数字滚动（微交互提示词 7）：源值变化时从当前值续滚到新值 =====
+// 通过率为 null（窗口内无执行）时不滚，模板显示「—」
+const { display: apiDisplay } = useCountUp(apiCount)
+const { display: caseDisplay } = useCountUp(caseCount)
+const { display: weekCountDisplay } = useCountUp(computed(() => weekStats.value.count))
+const { display: weekRateDisplay } = useCountUp(computed(() => weekStats.value.rate))
+
+// ===== 最近执行卡片堆叠（微交互提示词 11）=====
+// deck 是 recentExecs 的可重排视图：点下层卡片翻到最前（TransitionGroup FLIP）；
+// 欢迎条「上次执行」仍读 recentExecs[0]（真实最近，不随翻牌变化）
+const deck = ref<HomeRecentExec[]>([])
+watch(recentExecs, (v) => { deck.value = [...v] })
+
+// 翻到顶层后短暂高亮（arrivedId）：连续执行的记录内容常高度相似（同名用例/同状态），
+// 没有到达反馈时翻牌视觉上像「没反应」——高亮一下明确告知已置顶
+const arrivedId = ref<number | null>(null)
+let arrivedTimer: ReturnType<typeof setTimeout> | null = null
+
+function onDeckCard(r: HomeRecentExec) {
+  const idx = deck.value.findIndex(d => d.id === r.id)
+  if (idx > 0) {
+    deck.value = [r, ...deck.value.slice(0, idx), ...deck.value.slice(idx + 1)]
+    if (arrivedTimer) clearTimeout(arrivedTimer)
+    arrivedId.value = r.id
+    arrivedTimer = setTimeout(() => { arrivedId.value = null }, 900)
+  } else {
+    router.push(`/reports/${r.id}`)
+  }
+}
 
 async function loadHome() {
   if (!store.currentProjectId) return
@@ -325,7 +400,11 @@ function openGuide() {
   justify-content: center;
   gap: 2px;
   cursor: pointer;
-  transition: background 0.15s;
+  /* 按压回弹（微交互提示词 1）：按下轻缩放、松手弹性回位（reduce motion 由系统过渡关闭兜底） */
+  transition: background 0.15s, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.stat:active {
+  transform: scale(0.97);
 }
 /* 台账列分隔：发丝线，首列无 */
 .stat + .stat {
@@ -345,8 +424,9 @@ function openGuide() {
 }
 .stat b.is-pass { color: var(--app-success-text); }
 .stat span { font-size: 12px; color: var(--app-text-muted); }
-/* .stat / .exec-row 为语义化 <button>：清除浏览器默认按钮外观，保持台账条视觉 */
+/* .stat / .deck-card / .exec-row 为语义化 <button>：清除浏览器默认按钮外观，保持台账条视觉 */
 .stat,
+.deck-card,
 .exec-row {
   appearance: none;
   font: inherit;
@@ -362,17 +442,21 @@ function openGuide() {
 }
 /* 键盘焦点可见（规范：focus-visible 焦点环） */
 .stat:focus-visible,
+.deck-card:focus-visible,
 .exec-row:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: -2px;
 }
 
-/* ===== 主区两栏 ===== */
+/* ===== 主区两栏 =====
+   两栏等高（grid 默认 stretch，不再 align-items:start）：
+   左栏「最近执行」用堆叠卡+更早列表吃满高度，右栏指南面板吸掉余量，
+   避免 deck 改紧凑后左下角留白 */
 .workbench {
   display: grid;
   grid-template-columns: 1.65fr 1fr;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 .panel {
   background: var(--app-card-solid);
@@ -380,6 +464,8 @@ function openGuide() {
   border-radius: var(--app-radius);
   padding: 14px 16px;
   min-width: 0; /* grid item：防行内长内容（环境名等）把列宽撑破 */
+  display: flex;
+  flex-direction: column;
 }
 .panel-head {
   display: flex;
@@ -392,8 +478,97 @@ function openGuide() {
 .panel-tools { display: flex; align-items: center; gap: 2px; }
 .go-icon { margin-left: 2px; }
 
-/* 最近执行列表：固定行高，状态点 + 摘要 + 相对时间 */
-.exec-list { list-style: none; margin: 0; padding: 0; }
+/* ===== 最近执行：卡片堆叠（微交互提示词 11）=====
+   顶层完整卡片，第 2/3 层缩放下移露边（透明度递减）；
+   容器固定高度 = 42px 卡片 + 两层各 10px 露边 */
+.exec-deck {
+  position: relative;
+  height: 62px;
+  flex-shrink: 0;
+}
+.deck-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-card-solid);
+  box-shadow: var(--app-shadow-sm);
+  cursor: pointer;
+  font-size: 13px;
+}
+/* 卡面状态识别：左侧 4px 色条 + 状态色底（通过绿 / 失败红 / 执行中琥珀 / 终止灰）。
+   同名用例批量执行时（名字状态全同）翻牌也能一眼分辨；
+   底色浓度须 ≥10%（5% 掺白后 rgb≈249,252,250 肉眼即纯白，不可辨）；
+   色条用 ::before 而非 border/box-shadow，避免与 hover/arrived 的边框、阴影声明互相覆盖 */
+.deck-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: calc(var(--app-radius-sm) - 1px) 0 0 calc(var(--app-radius-sm) - 1px);
+  background: var(--app-border);
+}
+.deck-card.is-success {
+  border-color: color-mix(in srgb, var(--app-success) 45%, var(--app-border));
+  background: color-mix(in srgb, var(--app-success) 12%, var(--app-card-solid));
+}
+.deck-card.is-success::before { background: var(--app-success); }
+.deck-card.is-failed {
+  border-color: color-mix(in srgb, var(--app-danger) 45%, var(--app-border));
+  background: color-mix(in srgb, var(--app-danger) 12%, var(--app-card-solid));
+}
+.deck-card.is-failed::before { background: var(--app-danger); }
+.deck-card.is-running {
+  border-color: color-mix(in srgb, var(--app-warn-accent) 60%, var(--app-border));
+  background: color-mix(in srgb, var(--app-warn-accent) 16%, var(--app-card-solid));
+}
+.deck-card.is-running::before { background: var(--app-warn-accent); }
+.deck-card.is-terminated {
+  border-color: color-mix(in srgb, var(--app-text-faint) 45%, var(--app-border));
+  background: color-mix(in srgb, var(--app-text-faint) 8%, var(--app-card-solid));
+}
+.deck-card.is-terminated::before { background: var(--app-text-faint); }
+.deck-card:hover { border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border)); }
+.deck-depth-1 { transform: translateY(10px) scale(0.97); opacity: 0.8; }
+.deck-depth-2 { transform: translateY(20px) scale(0.94); opacity: 0.6; }
+/* TransitionGroup FLIP：点下层卡片换位时平滑滑到新层位（弹性收尾） */
+.deck-move {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+}
+/* 翻到顶层的到达高亮：主色描边先亮后淡（900ms），内容雷同也能看出置顶成功 */
+.deck-card.deck-arrived {
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-primary) 22%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-move { transition: none; }
+  .deck-card.deck-arrived { border-color: var(--app-primary); box-shadow: none; }
+}
+
+/* ===== 更早的执行：堆叠第 4 层起的紧凑行 ===== */
+.earlier-head {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--app-border);
+  font-size: 12px;
+  color: var(--app-text-faint);
+  flex-shrink: 0;
+}
+.earlier-list {
+  flex: 1; /* 吃满面板剩余高度；行少时余白留在面板内（有边框不显空） */
+  min-height: 0;
+  overflow: auto;
+  margin-top: 4px;
+}
 .exec-row {
   display: flex;
   align-items: center;
@@ -442,10 +617,15 @@ function openGuide() {
 .exec-summary.is-failed { color: var(--app-danger-text); }
 .exec-summary.is-success { color: var(--app-success-text); }
 .exec-time { flex-shrink: 0; min-width: 64px; text-align: right; font-size: 12px; color: var(--app-text-faint); }
+/* 执行编号：每条记录唯一，是同名用例数据里唯一必变的辨识位（行尾右对齐，等宽数字对齐） */
+.exec-id { flex-shrink: 0; min-width: 34px; text-align: right; font-size: 11.5px; color: var(--app-text-muted); font-variant-numeric: tabular-nums; }
 
-/* 右栏：min-width:0 斩断 grid min-content 传播（快速执行里的超长用例名 nowrap 不再撑爆列宽） */
+/* 右栏：min-width:0 斩断 grid min-content 传播（快速执行里的超长用例名 nowrap 不再撑爆列宽）；
+   指南面板吸掉与左栏的等高差量（快捷键区锚到底部，链接区在顶部） */
 .side-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .side-col .panel { width: 100%; }
+.side-col .guide-panel { flex: 1; }
+.guide-panel .guide-kbd { margin-top: auto; padding-top: 10px; }
 .quick-list { list-style: none; margin: 0; padding: 0; min-width: 0; }
 .quick-row {
   display: flex;

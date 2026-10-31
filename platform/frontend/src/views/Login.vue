@@ -92,13 +92,14 @@
 
     <!-- 右侧表单区 -->
     <main class="form-panel">
-      <div class="form-card">
-        <Transition name="head-swap" mode="out-in">
-          <div class="card-header" :key="activeTab">
+      <!-- 卡片翻面（微交互提示词 9）：登录/注册切换时整卡绕纵轴 3D 翻转
+           （out-in：旧面转到侧棱 → 新面从另一侧翻入）；注册关闭时无第二面，自然退化 -->
+      <Transition name="card-flip" mode="out-in">
+        <div class="form-card" :key="activeTab">
+          <div class="card-header">
             <h2 class="card-title">{{ activeTab === 'login' ? '欢迎回来' : '创建账号' }}</h2>
             <p class="card-sub">{{ activeTab === 'login' ? '登录以继续使用平台' : '注册后即可开始编排用例' }}</p>
           </div>
-        </Transition>
 
         <el-tabs v-model="activeTab" class="login-tabs" stretch>
           <el-tab-pane label="登录" name="login" />
@@ -150,6 +151,7 @@
           </p>
         </el-form>
       </div>
+      </Transition>
     </main>
   </div>
 </template>
@@ -361,11 +363,14 @@ async function onSubmit() {
   align-items: center;
   justify-content: center;
   padding: 40px;
+  /* 卡片翻面的 3D 透视（微交互提示词 9）：父级提供 perspective，子卡 rotateY 才有纵深 */
+  perspective: 1200px;
 }
 .form-card {
   width: 100%;
   max-width: 360px;
-  /* 实底面板 + 发丝线 + 单层低阴影（工程面板语言，无入场动画：登录是工具页） */
+  /* 实底面板 + 发丝线 + 单层低阴影（工程面板语言；页面加载无自动入场动画——登录是工具页，
+     旋转仅发生在登录/注册 tab 主动切换时） */
   padding: 32px 28px;
   background: var(--app-card-solid);
   border: 1px solid var(--app-border);
@@ -415,18 +420,19 @@ async function onSubmit() {
 .pwd-bad { color: var(--app-text-muted); margin-left: 6px; }
 
 /* ===== 登录/注册切换过渡 ===== */
-/* 标题/副标题淡切（out-in 模式：旧的先淡出、新的再淡入） */
-.head-swap-enter-active,
-.head-swap-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+/* 整卡翻面（微交互提示词 9，out-in）：旧面加速转到侧棱（-90°），
+   新面从另一侧（+90°）减速翻入——如同翻过一张卡片 */
+.card-flip-enter-active {
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-.head-swap-enter-from {
-  opacity: 0;
-  transform: translateY(6px);
+.card-flip-leave-active {
+  transition: transform 0.2s ease-in;
 }
-.head-swap-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
+.card-flip-enter-from {
+  transform: rotateY(90deg);
+}
+.card-flip-leave-to {
+  transform: rotateY(-90deg);
 }
 /* 条件字段高度展开/收起（max-height 近似，避免布局跳变） */
 .field-collapse-enter-active,
@@ -442,8 +448,8 @@ async function onSubmit() {
   max-height: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .head-swap-enter-active,
-  .head-swap-leave-active,
+  .card-flip-enter-active,
+  .card-flip-leave-active,
   .field-collapse-enter-active,
   .field-collapse-leave-active {
     transition: none;

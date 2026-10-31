@@ -153,7 +153,13 @@
         <div class="topbar-left">
           <el-tooltip :content="collapsed ? '展开侧边栏' : '收起侧边栏'" placement="top" popper-class="app-tip">
             <el-button text class="collapse-btn" :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
-              <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
+              <!-- 汉堡变叉（微交互提示词 10）：侧栏收起=三横线（可展开），展开=叉（可收起），
+                   形变由 collapsed 驱动，与侧栏滑动同步完成 -->
+              <span class="burger" :class="{ 'is-x': !collapsed }" aria-hidden="true">
+                <i class="burger-bar burger-top" />
+                <i class="burger-bar burger-mid" />
+                <i class="burger-bar burger-bot" />
+              </span>
             </el-button>
           </el-tooltip>
           <el-breadcrumb :separator-icon="ArrowRight" class="topbar-breadcrumb">
@@ -579,7 +585,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Expand, Fold, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled, Operation } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Grid, QuestionFilled, Operation } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -1289,6 +1295,38 @@ onMounted(async () => {
   padding: 6px 8px;
   font-size: 18px;
   color: var(--app-text);
+}
+/* 汉堡 ⇄ 叉 形变（微交互提示词 10）：三杆 transform 过渡，
+   is-x 时上/下杆旋到中线成叉、中杆淡出；reduce motion 时系统会关过渡 */
+.burger {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 16px;
+  height: 14px;
+}
+.burger-bar {
+  display: block;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+}
+.burger.is-x .burger-top {
+  transform: translateY(5px) rotate(45deg);
+}
+.burger.is-x .burger-mid {
+  opacity: 0;
+  transform: scaleX(0.3);
+}
+.burger.is-x .burger-bot {
+  transform: translateY(-5px) rotate(-45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .burger-bar {
+    transition: none;
+  }
 }
 .topbar-breadcrumb {
   font-size: 15px;
