@@ -115,6 +115,8 @@ class DagExecutor:
         # 契约出入收集（Q3 只标注不阻断）：节点 id → {missing/extra}，
         # 执行收尾聚合进 record.summary.contract_gaps 供报告黄条展示
         self._contract_gaps: dict[str, Any] = {}
+        # 契约模板缓存（节点绑定 → key 集，同模板只查一次；None=未绑定/查询失败）
+        self._template_cache: dict[int, set[str] | None] = {}
         # 节点 id → 画布中文名：错误消息可读性（node_xxx → 「审核」）
         dag = case.dag_config if isinstance(case.dag_config, dict) else {}
         self._node_labels: dict[str, str] = {
@@ -386,6 +388,26 @@ class DagExecutor:
             return None
         return SimpleNamespace(params=rc.get("params") or {})
 
+    def _template_keys(self, config: Any) -> set[str] | None:
+        """节点绑定的契约模板 key 集（契约出入检测口径）；未绑定 → None。
+
+        模板行按 id 缓存（同模板多节点只查一次）；查询失败（测试替身）
+        返回 None 退回隐式全量，不阻塞执行。
+        """
+        tpl_id = getattr(config, "contract_template_id", None)
+        if not tpl_id:
+            return None
+        if tpl_id not in self._template_cache:
+            try:
+                tpl = (self.db.query(models.ApiContractTemplate)
+                       .filter(models.ApiContractTemplate.id == tpl_id).first())
+                keys = {k for k in (tpl.field_keys or []) if isinstance(k, str)} if tpl else None
+                self._template_cache[tpl_id] = keys or None
+            except Exception as e:
+                print(f"[契约模板] 读取失败（退回全量字段口径）: {e}")
+                self._template_cache[tpl_id] = None
+        return self._template_cache[tpl_id]
+
     def _step_event(self, execution_id: int, node_id: str, api_name: str, api_path: str,
                     api_method: str, started_at: datetime, config,
                     **over: Any) -> StepResult:
@@ -443,11 +465,13 @@ class DagExecutor:
         if config and config.api_id:
             api = self._resolve_api(config.api_id)
 
-        # 契约出入检测（与接口字段比对；只标注不阻断，不改变任何取值行为）
+        # 契约出入检测（与接口字段比对；只标注不阻断，不改变任何取值行为）。
+        # 节点绑定契约模板时按模板 key 集判（check/submit 等同接口不同形态）
         if api is not None:
             gaps = node_contract_gaps(
                 getattr(api, "fields", None),
-                (param_cfg.params if param_cfg is not None else {}).get("body"))
+                (param_cfg.params if param_cfg is not None else {}).get("body"),
+                template_keys=self._template_keys(config))
             if gaps:
                 self._contract_gaps[node_id] = gaps
 

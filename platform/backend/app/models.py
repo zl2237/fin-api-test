@@ -170,6 +170,22 @@ class ApiField(Base):
     api: Mapped["ApiDefinition"] = relationship("ApiDefinition", back_populates="fields")
 
 
+class ApiContractTemplate(Base):
+    """接口契约模板：接口字段 key 清单的命名视图（2026-11-03 定案）。
+
+    api_fields 仍是唯一字段权威（类型/示例值/必填都在字段表）；模板只是
+    key 子集的命名收藏，供画布节点绑定（case_node_configs.contract_template_id）。
+    未绑定的节点 = 隐式全量字段契约（零迁移兼容存量数据）。
+    """
+    __tablename__ = "api_contract_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    api_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("api_definitions.id"), index=True, comment="所属接口ID")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="模板名：如 精简提交 / 全量")
+    field_keys: Mapped[Any] = mapped_column(JSON, default=list, comment="字段 key 清单（须存在于 api_fields）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+
+
 class CaseGroup(Base):
     """用例分组（冒烟组/订单组/付款组/核销组/对账组等），支持多级分组"""
     __tablename__ = "case_groups"
@@ -272,6 +288,9 @@ class CaseNodeConfig(Base):
     post_extract: Mapped[Any] = mapped_column(JSON, default=list, comment="后置提取规则列表：[{name, source, jsonpath, sql, field}]")
     assertions: Mapped[Any] = mapped_column(JSON, default=list, comment="断言规则列表：[{type, path, expected, sql, ...}]")
     wait_after_ms: Mapped[int] = mapped_column(Integer, default=0, comment="当前节点执行完后到下一节点请求前的等待毫秒数，默认0")
+    contract_template_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("api_contract_templates.id"), nullable=True,
+        comment="契约模板绑定：契约校验按模板 key 集判；NULL=隐式全量字段")
 
     case: Mapped["TestCase"] = relationship("TestCase", back_populates="node_configs")
     api: Mapped["ApiDefinition | None"] = relationship("ApiDefinition")

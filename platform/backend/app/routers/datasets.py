@@ -175,6 +175,9 @@ def params_view(dataset_id: int, db: Session = Depends(get_db), user: models.Use
     api_ids = {c.api_id for c in struct.values() if c.api_id}
     apis = {a.id: a for a in db.query(models.ApiDefinition)
             .filter(models.ApiDefinition.id.in_(api_ids)).all()} if api_ids else {}
+    tpl_ids = {c.contract_template_id for c in struct.values() if c.contract_template_id}
+    templates = {t.id: t.name for t in db.query(models.ApiContractTemplate)
+                 .filter(models.ApiContractTemplate.id.in_(tpl_ids)).all()} if tpl_ids else {}
     nodes_cfg = svc.node_configs(svc.row_data(ds))
 
     nodes_out: list[schemas.DatasetNodeView] = []
@@ -198,6 +201,9 @@ def params_view(dataset_id: int, db: Session = Depends(get_db), user: models.Use
             fields=api_fields,
             params=rc.get("params") or {},
             productions=sorted(prods),
+            contract_template_id=(c.contract_template_id if c else None),
+            contract_template_name=(templates.get(c.contract_template_id)
+                                    if c and c.contract_template_id else None),
         ))
 
     edges = [{"source": e.get("source"), "target": e.get("target")}

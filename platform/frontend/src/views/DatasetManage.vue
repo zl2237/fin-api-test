@@ -129,6 +129,26 @@
                     <div class="node-meta">
                       <span v-if="n.api_name" class="meta-api">{{ n.api_name }}</span>
                       <span v-else class="meta-api none">未绑定接口（在用例编排中绑定，未绑定节点不执行）</span>
+                      <!-- 契约模板快捷切换（Q2）：同接口多入参形态（check/submit）各节点绑不同校验口径；
+                           即时持久化，不经画布保存；null = 全量字段 -->
+                      <span v-if="n.api_id" class="meta-tpl">
+                        <span class="meta-tpl-label">契约模板</span>
+                        <el-select
+                          :model-value="n.contract_template_id ?? null"
+                          size="small"
+                          clearable
+                          placeholder="全量字段"
+                          class="meta-tpl-select"
+                          @change="bindNodeTemplate(n, $event)"
+                        >
+                          <el-option
+                            v-for="t in tplOptions[n.api_id] || []"
+                            :key="t.id"
+                            :label="`${t.name}（${t.field_keys.length} 字段）`"
+                            :value="t.id"
+                          />
+                        </el-select>
+                      </span>
                     </div>
 
                     <div class="node-actions">
@@ -199,7 +219,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretRight, Document, Grid, Plus, WarningFilled } from '@element-plus/icons-vue'
-import { datasetApi, caseApi, caseGroupApi, apiApi, type DataSet, type DatasetParamsView, type NodeParams, type ParamSpec, type TestCase, type CaseGroup } from '@/api'
+import { datasetApi, caseApi, caseGroupApi, apiApi, type DataSet, type DatasetParamsView, type DatasetNodeView, type ApiContractTemplate, type NodeParams, type ParamSpec, type TestCase, type CaseGroup } from '@/api'
 import { useGroupTree, expandStorageKey, type GroupTreeNode } from '@/composables/useGroupTree'
 import { buildRefGroups, type RefGraphCtx } from '@/composables/useRefGroups'
 import { useAppStore } from '@/stores'
@@ -361,6 +381,7 @@ function scrollActiveTabIntoView() {
 function onNodeTabChange() {
   writeLast()
   scrollActiveTabIntoView()
+  loadTplOptionsForActive()
 }
 
 async function loadView(keepTab = false) {
@@ -378,6 +399,7 @@ async function loadView(keepTab = false) {
       scrollActiveTabIntoView()
     }
     writeLast()
+    loadTplOptionsForActive()
   } catch (e: any) {
     ElMessage.error(e.message || '加载参数视图失败')
     view.value = null
@@ -413,6 +435,40 @@ async function saveNode(nid: string) {
 const syncDlgVisible = ref(false)
 const syncApiId = ref<number | null>(null)
 const syncApiName = ref('')
+
+// ----- 契约模板快捷切换（Q2 2026-11-03）：节点 tab 顶部即时改绑校验口径 -----
+// 模板选项按接口缓存；绑定走专用端点即时持久化（不经画布「保存用例」）
+const tplOptions = reactive<Record<number, ApiContractTemplate[]>>({})
+
+async function ensureTplOptions(apiId: number) {
+  if (tplOptions[apiId]) return
+  try {
+    tplOptions[apiId] = await apiApi.contractTemplates(apiId)
+  } catch {
+    tplOptions[apiId] = [] // 拉取失败留空缓存：下拉不可绑但不反复打请求；画布抽屉保存仍有兜底校验
+  }
+}
+
+function loadTplOptionsForActive() {
+  const n = view.value?.nodes.find((x) => x.node_id === activeNodeId.value)
+  if (n?.api_id) ensureTplOptions(n.api_id)
+}
+
+async function bindNodeTemplate(n: DatasetNodeView, v: number | null | undefined) {
+  if (!view.value) return
+  const prev = n.contract_template_id ?? null
+  try {
+    await caseApi.bindNodeTemplate(view.value.case_id, n.node_id, v ?? null)
+    n.contract_template_id = v ?? null
+    n.contract_template_name = (tplOptions[n.api_id!] || []).find((t) => t.id === v)?.name ?? null
+    ElMessage.success(`「${n.label || n.node_id}」契约校验口径已更新`)
+    // 绑定切换即重查影响面：模板口径下仍有出入时立即给同步入口（与保存节点后的行为一致）
+    if (n.api_id) await checkContractImpact(n.api_id, n.api_name || '')
+  } catch (e: any) {
+    n.contract_template_id = prev // 失败回滚选择
+    ElMessage.error(e.message || '契约模板绑定失败')
+  }
+}
 
 /** 查接口契约影响面：有出入才弹窗（无出入/查询失败都静默，不打扰保存主流程） */
 async function checkContractImpact(apiId: number, apiName: string) {
@@ -972,6 +1028,18 @@ watch(() => store.currentProjectId, () => {
 .meta-api.none {
   color: var(--el-color-warning);
   background: var(--el-color-warning-light-9, #fdf6ec);
+}
+.meta-tpl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.meta-tpl-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+.meta-tpl-select {
+  width: 220px;
 }
 .node-actions {
   display: flex;
