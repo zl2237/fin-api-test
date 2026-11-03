@@ -199,6 +199,42 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     return obj
 
 
+@router.put("/{case_id}/nodes/{node_id}/contract-template", response_model=schemas.MessageOut)
+def bind_node_contract_template(case_id: int, node_id: str, data: schemas.NodeTemplateBindIn,
+                                db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """节点级契约模板绑定（画布抽屉/数据集节点页共用；null = 解绑回全量口径）。
+
+    模板须属于该节点绑定的接口（防跨接口错绑）；仅改结构层一列，不触碰数据集参数。
+    """
+    obj = crud.get_testcase(db, case_id)
+    if not obj:
+        raise HTTPException(404, "用例不存在")
+    from ..crud.executions import ensure_case_not_running
+    try:
+        ensure_case_not_running(db, case_id, "绑定契约模板")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    cfg = (db.query(models.CaseNodeConfig)
+           .filter(models.CaseNodeConfig.case_id == case_id,
+                   models.CaseNodeConfig.node_id == node_id).first())
+    if not cfg:
+        raise HTTPException(404, f"节点 {node_id} 无配置行（先在编排中保存该节点）")
+    tpl_name = "（解绑）"
+    if data.template_id is not None:
+        tpl = (db.query(models.ApiContractTemplate)
+               .filter(models.ApiContractTemplate.id == data.template_id).first())
+        if not tpl:
+            raise HTTPException(404, "契约模板不存在")
+        if cfg.api_id is None or tpl.api_id != cfg.api_id:
+            raise HTTPException(400, f"模板「{tpl.name}」不属于该节点绑定的接口")
+        tpl_name = f"「{tpl.name}」"
+    cfg.contract_template_id = data.template_id
+    db.commit()
+    crud.log_operation(db, user, "update", "testcase", case_id,
+                       f"节点 {node_id} 契约模板绑定 → {tpl_name}")
+    return {"message": f"节点契约模板已更新为 {tpl_name}"}
+
+
 @router.delete("/{case_id}", response_model=schemas.MessageOut)
 def delete(case_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     obj = crud.get_testcase(db, case_id)

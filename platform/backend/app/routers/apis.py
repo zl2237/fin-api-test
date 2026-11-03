@@ -178,6 +178,7 @@ def contract_sync(api_id: int, db: Session = Depends(get_db), user: models.User 
     """按接口当前字段契约同步所有引用数据集（用户在预览弹窗许可后调用）。
 
     红线：非 constant 来源（ref/func/sql）参数一律不动，仅计入跳过统计。
+    节点绑定契约模板时只补模板内字段、只清模板外 extra。
     """
     obj = crud.get_api(db, api_id)
     if not obj:
@@ -186,6 +187,86 @@ def contract_sync(api_id: int, db: Session = Depends(get_db), user: models.User 
     crud.log_operation(db, user, "update", "api", obj.id,
                        f"{obj.name}：契约同步 {result['total']['nodes']} 个数据集节点")
     return result
+
+
+# ============ 契约模板（字段 key 清单的命名视图；api_fields 仍是唯一字段权威） ============
+def _validate_template(db: Session, api_id: int, name: str, field_keys: list[str],
+                       exclude_id: int | None = None):
+    """模板保存校验：名字非空且接口内唯一；key 清单非空且 ⊆ 接口现存字段。"""
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(400, "模板名不能为空")
+    if not field_keys:
+        raise HTTPException(400, "模板至少包含一个字段")
+    api = crud.get_api(db, api_id)
+    if not api:
+        raise HTTPException(404, "接口不存在")
+    known = {f.key for f in (api.fields or []) if getattr(f, "key", None)}
+    unknown = [k for k in field_keys if k not in known]
+    if unknown:
+        raise HTTPException(400, f"模板包含接口不存在的字段：{'、'.join(unknown[:10])}")
+    q = db.query(models.ApiContractTemplate).filter(
+        models.ApiContractTemplate.api_id == api_id,
+        models.ApiContractTemplate.name == name)
+    if exclude_id is not None:
+        q = q.filter(models.ApiContractTemplate.id != exclude_id)
+    if q.first() is not None:
+        raise HTTPException(400, f"模板名已存在：{name}")
+    return name
+
+
+@router.get("/{api_id}/contract-templates", response_model=list[schemas.ApiContractTemplateOut])
+def list_contract_templates(api_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """接口的契约模板清单（画布节点绑定下拉数据源）。"""
+    if not crud.get_api(db, api_id):
+        raise HTTPException(404, "接口不存在")
+    return (db.query(models.ApiContractTemplate)
+            .filter(models.ApiContractTemplate.api_id == api_id)
+            .order_by(models.ApiContractTemplate.id).all())
+
+
+@router.post("/{api_id}/contract-templates", response_model=schemas.ApiContractTemplateOut)
+def create_contract_template(api_id: int, data: schemas.ApiContractTemplateIn,
+                             db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    name = _validate_template(db, api_id, data.name, data.field_keys)
+    obj = models.ApiContractTemplate(api_id=api_id, name=name,
+                                     field_keys=list(dict.fromkeys(data.field_keys)))
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    crud.log_operation(db, user, "create", "api", api_id, f"新建契约模板「{name}」（{len(obj.field_keys)} 字段）")
+    return obj
+
+
+@router.put("/contract-templates/{tpl_id}", response_model=schemas.ApiContractTemplateOut)
+def update_contract_template(tpl_id: int, data: schemas.ApiContractTemplateIn,
+                             db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    obj = db.query(models.ApiContractTemplate).filter(models.ApiContractTemplate.id == tpl_id).first()
+    if not obj or obj.api_id is None:
+        raise HTTPException(404, "契约模板不存在")
+    name = _validate_template(db, obj.api_id, data.name, data.field_keys, exclude_id=tpl_id)
+    obj.name = name
+    obj.field_keys = list(dict.fromkeys(data.field_keys))
+    db.commit()
+    db.refresh(obj)
+    crud.log_operation(db, user, "update", "api", obj.api_id, f"更新契约模板「{name}」（{len(obj.field_keys)} 字段）")
+    return obj
+
+
+@router.delete("/contract-templates/{tpl_id}", response_model=schemas.MessageOut)
+def delete_contract_template(tpl_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    obj = db.query(models.ApiContractTemplate).filter(models.ApiContractTemplate.id == tpl_id).first()
+    if not obj:
+        raise HTTPException(404, "契约模板不存在")
+    # 先解绑引用该模板的节点（删除后节点退回隐式全量字段口径）
+    n = (db.query(models.CaseNodeConfig)
+         .filter(models.CaseNodeConfig.contract_template_id == tpl_id)
+         .update({models.CaseNodeConfig.contract_template_id: None}))
+    db.delete(obj)
+    db.commit()
+    crud.log_operation(db, user, "delete", "api", obj.api_id,
+                       f"删除契约模板「{obj.name}」（解绑 {n} 个节点）")
+    return {"message": f"已删除模板「{obj.name}」，{n} 个绑定节点退回全量字段口径"}
 
 
 @router.delete("/{api_id}", response_model=schemas.MessageOut)

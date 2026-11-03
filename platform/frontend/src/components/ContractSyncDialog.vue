@@ -20,6 +20,7 @@
             <li>缺少的字段 → 按接口示例值补为常量（object/array 按结构拆到叶子路径），可再改为函数/引用/SQL</li>
             <li>契约外参数（常量）→ 移除</li>
             <li class="csd-redline">契约外参数（引用/函数/SQL 动态来源）→ 一律保留不动</li>
+            <li v-if="hasTemplated">已绑定契约模板的节点按模板口径判定（标注模板名）：只补模板内字段、模板外参数算契约外；未绑定 = 全量字段</li>
           </ul>
         </div>
         <div class="csd-list">
@@ -28,6 +29,9 @@
               <span class="csd-ds">{{ it.dataset_name }}</span>
               <span class="csd-case">用例：{{ it.case_name }}</span>
               <span class="csd-node">节点：{{ it.node_label }}</span>
+              <el-tag v-if="it.template_name" size="small" type="info" effect="plain" round class="csd-tpl">
+                按模板「{{ it.template_name }}」判定
+              </el-tag>
             </div>
             <div class="csd-gaps">
               <div v-if="it.gaps.missing?.length" class="cg missing">
@@ -61,7 +65,7 @@
 两个触发点（2026-10-10 定案 Q4）：接口编辑保存后 / 数据集节点保存后；
 红线（Q8）：非 constant 来源（ref/func/sql）参数只标注保留，绝不删改。
 */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { apiApi, type ContractImpactItem, type ContractSyncResult } from '@/api'
 
@@ -79,6 +83,9 @@ const loading = ref(false)
 const syncing = ref(false)
 const items = ref<ContractImpactItem[]>([])
 const result = ref<ContractSyncResult | null>(null)
+
+// 存在按模板判定的节点时，规则区补一条模板口径说明（Q2）
+const hasTemplated = computed(() => items.value.some((it) => it.template_name))
 
 function sourceLabel(s: string): string {
   return { ref: '引用', func: '函数', sql: 'SQL' }[s] || s
@@ -173,6 +180,9 @@ function close() {
 .csd-node {
   font-size: 12px;
   color: var(--app-text-muted);
+}
+.csd-tpl {
+  flex-shrink: 0;
 }
 .csd-gaps {
   display: flex;

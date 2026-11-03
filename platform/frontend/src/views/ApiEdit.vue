@@ -254,8 +254,67 @@
           </el-button>
         </div>
         <FieldTable v-model="formData.fields" />
+
+        <!-- 契约模板（Q2 2026-11-03）：同接口字段 key 子集，
+             供编排节点/数据集节点绑定各自的契约校验口径（同接口多入参形态） -->
+        <template v-if="isEdit">
+          <el-divider content-position="left">契约模板</el-divider>
+          <div class="tpl-bar">
+            <span class="panel-hint">
+              同接口多入参形态（如 check/submit）可各建模板；绑定节点按模板口径校验（模板内全 must、模板外参数算契约外），未绑定=全量字段
+            </span>
+            <el-button size="small" type="primary" plain @click="openTplDialog()">新建模板</el-button>
+          </div>
+          <el-table :data="tplList" size="small" border empty-text="暂无模板；同接口入参形态唯一时无需维护">
+            <el-table-column label="模板名称" min-width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.name }}</template>
+            </el-table-column>
+            <el-table-column label="包含字段" min-width="320">
+              <template #default="{ row }">
+                <el-tag v-for="k in row.field_keys" :key="k" size="small" effect="plain" round class="tpl-key-tag">
+                  {{ k }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="130" align="center">
+              <template #default="{ row }">
+                <el-button size="small" text type="primary" @click="openTplDialog(row)">编辑</el-button>
+                <el-button size="small" text type="danger" @click="removeTpl(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
       </div>
     </div>
+
+    <!-- 契约模板新建/编辑：名称 + 从接口字段清单勾选 key（即时持久化，不走表单 dirty 语义） -->
+    <el-dialog
+      v-model="tplDlgVisible"
+      :title="tplEditing ? '编辑契约模板' : '新建契约模板'"
+      width="min(560px, 92vw)"
+      align-center
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="90px">
+        <el-form-item label="模板名称" required>
+          <el-input v-model="tplForm.name" placeholder="如：精简形态（check）" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="包含字段" required>
+          <el-checkbox-group v-model="tplForm.field_keys" class="tpl-keys-group">
+            <el-checkbox v-for="f in tplFieldOptions" :key="f.key" :value="f.key">
+              {{ colLabel(f.key) }}
+            </el-checkbox>
+          </el-checkbox-group>
+          <p class="tpl-keys-tip">
+            按接口字段清单勾选；模板字段全为必配，模板外参数按契约外判定。字段清单含未保存改动时，新勾的未保存字段需先保存接口。
+          </p>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tplDlgVisible = false">取消</el-button>
+        <el-button type="primary" :loading="tplSaving" @click="saveTpl">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 契约同步（保存后）：字段契约变更 ↔ 引用数据集参数出入预览，许可后全量同步 -->
     <ContractSyncDialog v-model:visible="contractDlgVisible" :api-id="formData.id ?? null" :api-name="formData.name" />
@@ -267,7 +326,7 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft, Upload, Search, QuestionFilled, WarningFilled } from '@element-plus/icons-vue'
-import { apiApi, apiGroupApi, type ApiDef, type ApiField, type ApiGroup } from '@/api'
+import { apiApi, apiGroupApi, type ApiContractTemplate, type ApiDef, type ApiField, type ApiGroup } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import ContractSyncDialog from '@/components/ContractSyncDialog.vue'
 import FieldTable from '@/components/FieldTable.vue'
@@ -305,10 +364,77 @@ async function initialLoad() {
   try {
     await loadGroups()
     await loadApi()
+    await loadTemplates()
   } catch (e: any) {
     loadError.value = e?.message || '加载接口配置失败'
   } finally {
     loading.value = false
+  }
+}
+
+// ===== 契约模板管理（Q2 2026-11-03）：即时持久化（独立端点），不参与表单 dirty 语义 =====
+const tplList = ref<ApiContractTemplate[]>([])
+const tplDlgVisible = ref(false)
+const tplEditing = ref<ApiContractTemplate | null>(null)
+const tplSaving = ref(false)
+const tplForm = reactive({ name: '', field_keys: [] as string[] })
+
+async function loadTemplates() {
+  if (!formData.id) return
+  try {
+    tplList.value = await apiApi.contractTemplates(formData.id)
+  } catch {
+    tplList.value = [] // 拉取失败留空（表格显示暂无），不阻塞页面
+  }
+}
+
+/** 字段勾选选项：跟随当前字段清单（含未保存改动；未保存 key 服务端保存时会兜底拒绝并提示） */
+const tplFieldOptions = computed(() => formData.fields.filter((f) => f.key))
+
+function openTplDialog(tpl?: ApiContractTemplate) {
+  tplEditing.value = tpl ?? null
+  tplForm.name = tpl?.name ?? ''
+  tplForm.field_keys = tpl ? [...tpl.field_keys] : []
+  tplDlgVisible.value = true
+}
+
+async function saveTpl() {
+  if (!formData.id) return
+  if (!tplForm.name.trim()) { ElMessage.warning('请输入模板名称'); return }
+  if (!tplForm.field_keys.length) { ElMessage.warning('请至少勾选一个字段'); return }
+  tplSaving.value = true
+  try {
+    const payload = { name: tplForm.name.trim(), field_keys: [...tplForm.field_keys] }
+    if (tplEditing.value) {
+      await apiApi.updateContractTemplate(tplEditing.value.id, payload)
+    } else {
+      await apiApi.createContractTemplate(formData.id, payload)
+    }
+    ElMessage.success('契约模板已保存')
+    tplDlgVisible.value = false
+    await loadTemplates()
+  } catch (e: any) {
+    // 服务端校验：名称接口内重复 / 勾选了未保存或已删除的字段 key（提示里带具体 key 清单）
+    ElMessage.error({ message: e.message || '契约模板保存失败', duration: 6000 })
+  } finally {
+    tplSaving.value = false
+  }
+}
+
+async function removeTpl(tpl: ApiContractTemplate) {
+  try {
+    await ElMessageBox.confirm(
+      `删除模板「${tpl.name}」后，已绑定它的节点将自动解绑并回到全量字段校验口径。`,
+      '删除契约模板',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch { return }
+  try {
+    await apiApi.removeContractTemplate(tpl.id)
+    ElMessage.success('契约模板已删除（引用节点已解绑）')
+    await loadTemplates()
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除失败')
   }
 }
 const groups = ref<ApiGroup[]>([])
@@ -805,6 +931,33 @@ function onKeydown(e: KeyboardEvent) {
   padding: 20px;
   box-shadow: var(--app-shadow-sm);
   min-width: 0;
+}
+.tpl-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.tpl-bar .panel-hint {
+  flex: 1;
+  min-width: 0;
+}
+.tpl-key-tag {
+  margin: 2px 4px 2px 0;
+  font-family: var(--app-font-mono, monospace);
+}
+.tpl-keys-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.tpl-keys-tip {
+  width: 100%;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
 }
 .panel-title {
   font-size: 14px;

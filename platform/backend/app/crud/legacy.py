@@ -686,6 +686,7 @@ def _sync_node_configs(db: Session, case_id: int, node_configs: list[dict]):
             post_extract=nc.get("post_extract", []),
             assertions=nc.get("assertions", []),
             wait_after_ms=nc.get("wait_after_ms", 0) or 0,
+            contract_template_id=nc.get("contract_template_id"),
         )
         db.add(obj)
     db.commit()

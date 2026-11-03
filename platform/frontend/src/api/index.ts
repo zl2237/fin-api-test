@@ -211,6 +211,14 @@ export interface ContractImpactItem {
   case_id: number; case_name: string
   node_id: string; node_label: string
   gaps: ContractGaps
+  template_name?: string  // 节点绑定的契约模板名（按模板 key 集判定的标注）
+}
+/** 契约模板：接口字段 key 清单的命名视图（api_fields 仍是唯一字段权威） */
+export interface ApiContractTemplate {
+  id: number; api_id: number | null
+  name: string
+  field_keys: string[]
+  created_at?: string
 }
 export interface ContractSyncResult {
   total: { nodes: number; added: number; removed: number; skipped_dynamic: number }
@@ -237,6 +245,7 @@ export interface NodeConfig {
   id?: number; case_id?: number; node_id: string; api_id?: number | null
   post_extract: PostExtractSpec[]; assertions: AssertionSpec[]
   wait_after_ms?: number
+  contract_template_id?: number | null  // 契约模板绑定；null=隐式全量字段
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
@@ -444,6 +453,15 @@ export const apiApi = {
     http.get<ContractImpactItem[]>(`/apis/${id}/contract-impact`).then((r) => r.data),
   contractSync: (id: number) =>
     http.post<ContractSyncResult>(`/apis/${id}/contract-sync`).then((r) => r.data),
+  // 契约模板（字段 key 清单的命名视图；节点绑定后契约校验按模板 key 集判）
+  contractTemplates: (apiId: number) =>
+    http.get<ApiContractTemplate[]>(`/apis/${apiId}/contract-templates`).then((r) => r.data),
+  createContractTemplate: (apiId: number, data: { name: string; field_keys: string[] }) =>
+    http.post<ApiContractTemplate>(`/apis/${apiId}/contract-templates`, data).then((r) => r.data),
+  updateContractTemplate: (tplId: number, data: { name: string; field_keys: string[] }) =>
+    http.put<ApiContractTemplate>(`/apis/contract-templates/${tplId}`, data).then((r) => r.data),
+  removeContractTemplate: (tplId: number) =>
+    http.delete<{ message: string }>(`/apis/contract-templates/${tplId}`).then((r) => r.data),
   batchMove: (apiIds: number[], groupId: number | null) =>
     http.post<{ message: string; updated: number }>('/apis/batch-move', { api_ids: apiIds, group_id: groupId }).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>
@@ -503,6 +521,10 @@ export const caseApi = {
   copy: (id: number) => http.post<TestCase>(`/testcases/${id}/copy`).then((r) => r.data),
   batchMove: (caseIds: number[], groupId: number | null) =>
     http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
+  // 节点契约模板绑定（画布抽屉/数据集节点页共用；null=解绑回全量字段口径）
+  bindNodeTemplate: (caseId: number, nodeId: string, templateId: number | null) =>
+    http.put<{ message: string }>(`/testcases/${caseId}/nodes/${encodeURIComponent(nodeId)}/contract-template`,
+      { template_id: templateId }).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>
     http.post<{ message: string; updated: number }>('/testcases/reorder', { items }).then((r) => r.data),
   // 环境严格绑定：执行环境=用例绑定环境（case.env_id），不再传 env_id
@@ -645,6 +667,8 @@ export interface DatasetNodeView {
   fields: Record<string, any>[]
   params: NodeParams
   productions: string[]
+  contract_template_id?: number | null      // 契约模板绑定（null=全量字段）
+  contract_template_name?: string | null
 }
 export interface DatasetParamsView {
   dataset_id: number

@@ -36,6 +36,26 @@
             <span class="wait-unit">ms</span>
             <p class="tip wait-tip">当前接口执行完成后、下一个接口请求前的等待间隔，给后端处理事务/数据落库留出时间。默认 0（不等待）。</p>
           </el-form-item>
+          <el-form-item label="契约模板">
+            <el-select
+              v-model="contractTemplateId"
+              placeholder="全量字段（未绑定）"
+              clearable
+              style="width: 100%"
+              :disabled="!draft.api_id"
+            >
+              <el-option
+                v-for="t in templates"
+                :key="t.id"
+                :label="`${t.name}（${t.field_keys.length} 字段）`"
+                :value="t.id"
+              />
+            </el-select>
+            <p class="tip wait-tip">
+              契约校验口径：绑定后只校验模板内字段（模板内全 must、模板外参数算契约外）；
+              同接口多入参形态（如 check/submit）各节点可绑不同模板。模板在接口编辑页维护。
+            </p>
+          </el-form-item>
         </el-form>
       </el-tab-pane>
 
@@ -70,7 +90,7 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 import PostExtractTable from './PostExtractTable.vue'
 import AssertionTable from './AssertionTable.vue'
 import { useAppStore } from '@/stores'
-import type { ApiDef, NodeConfig } from '@/api'
+import { apiApi, type ApiContractTemplate, type ApiDef, type NodeConfig } from '@/api'
 import type { RefVarGroup } from './VarRefSelect.vue'
 
 const store = useAppStore()
@@ -112,6 +132,34 @@ const waitAfterMs = computed<number>({
   get: () => draft.value?.wait_after_ms ?? 0,
   set: (v: number) => { if (draft.value) draft.value.wait_after_ms = v },
 })
+
+// 契约模板绑定（随用例保存持久化；换绑接口时旧模板不属于新接口 → 清空）
+const templates = ref<ApiContractTemplate[]>([])
+const contractTemplateId = computed<number | null>({
+  get: () => draft.value?.contract_template_id ?? null,
+  set: (v: number | null) => { if (draft.value) draft.value.contract_template_id = v ?? null },
+})
+async function loadTemplates(apiId: number | null | undefined) {
+  templates.value = []
+  if (!apiId) return
+  try {
+    templates.value = await apiApi.contractTemplates(apiId)
+  } catch {
+    // 模板列表拉取失败不阻塞抽屉：留空即不可绑（保存校验兜底）
+  }
+  // 接口已切换：现绑模板不属于新接口时清空（服务端保存也会兜底拒绝）
+  const cur = draft.value?.contract_template_id
+  if (cur && !templates.value.some((t) => t.id === cur)) {
+    draft.value!.contract_template_id = null
+  }
+}
+watch(
+  () => [props.visible, draft.value?.api_id] as const,
+  ([visible]) => {
+    if (visible && draft.value) loadTemplates(draft.value.api_id)
+  },
+  { immediate: true },
+)
 
 function onSave() {
   if (!draft.value) return

@@ -447,6 +447,7 @@ class NodeConfigIn(BaseModel):
     post_extract: list[dict[str, Any]] = []
     assertions: list[dict[str, Any]] = []
     wait_after_ms: int = 0
+    contract_template_id: int | None = None  # 契约模板绑定；null = 隐式全量字段
 
 
 class NodeConfigOut(ORMBase):
@@ -457,6 +458,29 @@ class NodeConfigOut(ORMBase):
     post_extract: list[dict[str, Any]] = []
     assertions: list[dict[str, Any]] = []
     wait_after_ms: int = 0
+    contract_template_id: int | None = None
+
+
+# ============ ApiContractTemplate ============
+# 接口契约模板：字段 key 清单的命名视图（api_fields 仍是唯一字段权威）。
+# 节点绑定后契约校验（missing/extra）按模板 key 集判，适配 check/submit
+# 等同接口不同入参形态的场景；未绑定节点不受影响（隐式全量）。
+class ApiContractTemplateIn(BaseModel):
+    name: str
+    field_keys: list[str]
+
+
+class NodeTemplateBindIn(BaseModel):
+    """节点契约模板绑定：template_id=null 解绑（退回隐式全量字段）。"""
+    template_id: int | None = None
+
+
+class ApiContractTemplateOut(ORMBase):
+    id: int
+    api_id: int | None = None
+    name: str
+    field_keys: list[str] = []
+    created_at: Any = None
 
 
 # ============ TestCase ============
@@ -841,6 +865,8 @@ class DatasetNodeView(BaseModel):
     fields: list[dict[str, Any]] = []
     params: dict[str, Any] = {}
     productions: list[str] = []
+    contract_template_id: int | None = None
+    contract_template_name: str | None = None
 
 
 class DatasetParamsViewOut(BaseModel):

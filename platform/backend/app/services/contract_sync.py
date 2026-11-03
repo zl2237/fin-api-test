@@ -123,8 +123,14 @@ def _covers_field(params: dict, field_key: str) -> bool:
                or field_key.startswith(p + ".") for p in params)
 
 
-def node_contract_gaps(api_fields: Any, params_body: dict | None) -> dict:
+def node_contract_gaps(api_fields: Any, params_body: dict | None,
+                       template_keys: set[str] | None = None) -> dict:
     """单节点契约出入（执行黄条与同步预览/套用共用口径）。
+
+    template_keys（节点绑定的契约模板 key 集）非空时按模板判：模板内字段
+    全 must（missing 只看模板内），extra 按模板 key 集判（模板外字段上的
+    参数也算契约外）。模板 key 与现存字段取交集——字段删除后模板残留 key
+    不再参与判定，防止陈旧模板遮蔽 extra。None = 隐式全量字段（存量行为）。
 
     返回 {} 表示一致；有出入时 {"missing": [字段key...],
     "extra": [{"path", "source", "dynamic"}...]}。
@@ -133,10 +139,12 @@ def node_contract_gaps(api_fields: Any, params_body: dict | None) -> dict:
     if not fields:
         return {}  # 无字段契约（模板接口）：参数对齐 request_template，不比对
     field_keys = {f.key for f in fields}
+    if template_keys is not None:
+        field_keys = field_keys & template_keys
     params = params_body or {}
     out: dict[str, Any] = {}
     missing = [f.key for f in fields
-               if not _covers_field(params, f.key)]
+               if f.key in field_keys and not _covers_field(params, f.key)]
     if missing:
         out["missing"] = missing
     extra = []
@@ -151,8 +159,12 @@ def node_contract_gaps(api_fields: Any, params_body: dict | None) -> dict:
     return out
 
 
-def apply_node_sync(params_body: dict | None, api_fields: Any) -> tuple[dict, dict]:
+def apply_node_sync(params_body: dict | None, api_fields: Any,
+                    template_keys: set[str] | None = None) -> tuple[dict, dict]:
     """按契约同步单节点 params.body，返回 (新 body, 统计)。
+
+    template_keys 语义同 node_contract_gaps：绑定模板时只补模板内字段、
+    只清模板外 extra；None = 全量字段（存量行为）。
 
     missing 字段补 field_param_specs（示例值/空占位）；extra 参数仅
     constant 来源删除，动态来源（ref/func/sql）保留并计入 skipped_dynamic
@@ -164,7 +176,11 @@ def apply_node_sync(params_body: dict | None, api_fields: Any) -> tuple[dict, di
     if not fields:
         return body, stats  # 无字段契约（模板接口）：参数不动
     field_keys = {f.key for f in fields}
+    if template_keys is not None:
+        field_keys = field_keys & template_keys
     for f in fields:
+        if f.key not in field_keys:
+            continue  # 模板外字段：绑定模板的节点不补
         if _covers_field(body, f.key):
             continue  # 已配置（字段粒度：部分叶子已配不重复补，元素补空由引擎兜底）
         for p, spec in field_param_specs(f).items():
@@ -235,32 +251,59 @@ def _api_bindings(db: Session, api_id: int):
             continue
         nodes = dataset_service.node_configs(dataset_service.row_data(ds))
         rc = nodes.get(b.node_id) or {}
-        yield api, case, ds, b.node_id, (rc.get("params") or {})
+        yield api, case, ds, b.node_id, (rc.get("params") or {}), b
+
+
+def _templates_of(db: Session, api_id: int) -> dict[int, models.ApiContractTemplate]:
+    """接口的全部契约模板（影响面/同步按节点绑定一次取齐，避免逐节点查询）。"""
+    return {t.id: t for t in db.query(models.ApiContractTemplate)
+            .filter(models.ApiContractTemplate.api_id == api_id).all()}
+
+
+def _template_keys(templates: dict[int, models.ApiContractTemplate],
+                   binding: Any) -> tuple[set[str] | None, str | None]:
+    """节点绑定 → (模板 key 集, 模板名)；未绑定/模板已删 → (None, None)。"""
+    tpl_id = getattr(binding, "contract_template_id", None)
+    if not tpl_id:
+        return None, None
+    tpl = templates.get(tpl_id)
+    if tpl is None:
+        return None, None  # 绑定的模板已被删除：退回隐式全量
+    keys = {k for k in (tpl.field_keys or []) if isinstance(k, str)}
+    return (keys or None), tpl.name
 
 
 def api_contract_impact(db: Session, api_id: int) -> list[dict]:
     """接口契约变更影响面：所有引用该接口的（数据集, 节点）及各自出入
-    （仅含有出入的引用点；无出入不列）。"""
+    （仅含有出入的引用点；无出入不列）。节点绑定契约模板时按模板 key 集判。"""
     out = []
-    for api, case, ds, node_id, params in _api_bindings(db, api_id):
-        gaps = node_contract_gaps(api.fields, params.get("body"))
+    templates = _templates_of(db, api_id)
+    for api, case, ds, node_id, params, binding in _api_bindings(db, api_id):
+        tpl_keys, tpl_name = _template_keys(templates, binding)
+        gaps = node_contract_gaps(api.fields, params.get("body"), template_keys=tpl_keys)
         if not gaps:
             continue
-        out.append({
+        item = {
             "dataset_id": ds.id, "dataset_name": ds.name,
             "case_id": case.id, "case_name": case.name,
             "node_id": node_id, "node_label": _node_label(case.dag_config, node_id),
             "gaps": gaps,
-        })
+        }
+        if tpl_name:
+            item["template_name"] = tpl_name
+        out.append(item)
     return out
 
 
 def sync_api_contract(db: Session, api_id: int, user_id: int | None = None) -> dict:
-    """同步接口契约到所有引用数据集（逐节点 apply + 落库，幂等可重跑）。"""
+    """同步接口契约到所有引用数据集（逐节点 apply + 落库，幂等可重跑）。
+    节点绑定契约模板时只补模板内字段、只清模板外 extra。"""
     total = {"nodes": 0, "added": 0, "removed": 0, "skipped_dynamic": 0}
     details = []
-    for api, case, ds, node_id, params in _api_bindings(db, api_id):
-        new_body, stats = apply_node_sync(params.get("body"), api.fields)
+    templates = _templates_of(db, api_id)
+    for api, case, ds, node_id, params, binding in _api_bindings(db, api_id):
+        tpl_keys, _name = _template_keys(templates, binding)
+        new_body, stats = apply_node_sync(params.get("body"), api.fields, template_keys=tpl_keys)
         if new_body == dict(params.get("body") or {}):
             continue  # 实际无变化（如出入全是动态参数跳过）不落库不计数
         dataset_service.save_node_config(
