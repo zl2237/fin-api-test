@@ -27,6 +27,26 @@ class TestTimestampOffset:
         assert FUNCTIONS["timestamp"]["params"] == ["offset"]
 
 
+class TestConcat:
+    def test_suffix_join(self):
+        # Q1 场景：上游 id + 业务后缀
+        assert call_function("concat", {"a": "375820537252807680", "b": "_CustomerFinance"}) \
+            == "375820537252807680_CustomerFinance"
+
+    def test_sep(self):
+        assert call_function("concat", {"a": "x", "b": "y", "sep": "-"}) == "x-y"
+
+    def test_numeric_coerced(self):
+        # ref 到数值型变量时按字符串拼接
+        assert call_function("concat", {"a": 123, "b": "_T"}) == "123_T"
+
+    def test_missing_part_treated_empty(self):
+        assert call_function("concat", {"a": "x"}) == "x"
+
+    def test_params_metadata_registered(self):
+        assert FUNCTIONS["concat"]["params"] == ["a", "b", "sep"]
+
+
 class TestCallFunctionGuard:
     def test_unknown_function_raises(self):
         with pytest.raises(ValueError, match="未知的内置函数"):

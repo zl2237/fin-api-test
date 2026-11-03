@@ -31,6 +31,11 @@ export const FUNC_REGISTRY: FuncMeta[] = [
   { name: 'upper', label: '转大写', params: [{ name: 's', label: '字符串', placeholder: 'abc' }] },
   { name: 'lower', label: '转小写', params: [{ name: 's', label: '字符串', placeholder: 'ABC' }] },
   { name: 'md5', label: 'MD5 哈希', params: [{ name: 's', label: '字符串', placeholder: '123456' }] },
+  { name: 'concat', label: '拼接字符串', params: [
+    { name: 'a', label: '前段', placeholder: '常量或引用上游变量（如 customer_finance_id）' },
+    { name: 'b', label: '后段', placeholder: "常量或引用，如 '_CustomerFinance'" },
+    { name: 'sep', label: '分隔符', placeholder: '默认空' },
+  ] },
 ]
 
 export function funcMeta(name: string): FuncMeta | undefined {

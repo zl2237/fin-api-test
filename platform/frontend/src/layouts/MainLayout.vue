@@ -650,6 +650,7 @@ const expressionData = {
     { syntax: 'upper(s)', desc: '转大写（s 可为常量或引用）', example: "upper(s='hello')", result: 'HELLO' },
     { syntax: 'lower(s)', desc: '转小写（s 可为常量或引用）', example: "lower(s='WORLD')", result: 'world' },
     { syntax: 'md5(s)', desc: 'MD5 哈希（s 可为常量或引用）', example: "md5(s='123456')", result: 'e10adc3949ba59abbe56e057f20f883e' },
+    { syntax: 'concat(a, b, sep?)', desc: '两段拼接（a 可引用上游 id，b 拼业务后缀）', example: "concat(a=引用 customer_finance_id, b='_CustomerFinance')", result: '375820537252807680_CustomerFinance' },
   ],
   business: [
     { syntax: 'generate_bl_no(prefix?)', desc: '生成提单号（默认前缀 SMOK）', example: "generate_bl_no(prefix='TEST')", result: 'TEST20260810143052' },
