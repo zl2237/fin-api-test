@@ -35,6 +35,11 @@ FUNCTIONS: dict[str, dict[str, Any]] = {
     "lower": {"fn": lambda **kw: str(kw.get("s", "")).lower(), "params": ["s"]},
     "md5": {"fn": lambda **kw: hashlib.md5(str(kw.get("s", "")).encode("utf-8")).hexdigest(),
             "params": ["s"]},
+    # 两段拼接（a + sep + b）：常量容器内嵌后可把上游 id 拼业务后缀，
+    # 如 concat(a=引用 customer_finance_id, b='_CustomerFinance')
+    "concat": {"fn": lambda **kw: kw.get("sep", "").join(
+                   "" if kw.get(k) is None else str(kw.get(k)) for k in ("a", "b")),
+               "params": ["a", "b", "sep"]},
     "date_add": {"fn": lambda **kw: (
         # base 缺省当前时间；可传上游日期（如 ref 引用应收汇日期）做偏移基准
         (datetime.fromisoformat(str(kw["base"])) if kw.get("base") else datetime.now())

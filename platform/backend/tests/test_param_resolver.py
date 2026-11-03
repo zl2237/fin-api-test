@@ -34,6 +34,18 @@ class TestConstant:
         assert resolve_param("a", {"source": "constant", "value": 1}, registry=reg, self_node="n1", db_client=None) == 1
         assert resolve_param("b", {"source": "constant", "value": {"x": [1, 2]}}, registry=reg, self_node="n1", db_client=None) == {"x": [1, 2]}
 
+    def test_container_embeds_concat_func(self, reg):
+        """constant 容器内嵌 func(ref+const) 拼 id 数组（orderNotice submit 注入定式）。"""
+        v = resolve_param("finance_ids", {"source": "constant", "value": [
+            {"source": "func", "func": "concat", "args": [
+                {"name": "a", "kind": "ref", "node_id": "n_create", "var_path": "bl_no"},
+                {"name": "b", "kind": "const", "value": "_X"}]},
+            {"source": "func", "func": "concat", "args": [
+                {"name": "a", "kind": "const", "value": "16"},
+                {"name": "b", "kind": "const", "value": "_MainBank"}]},
+        ]}, registry=reg, self_node="n2", db_client=None)
+        assert v == ["SMOKE-1_X", "16_MainBank"]
+
 
 class TestRef:
     def test_cross_node(self, reg):
