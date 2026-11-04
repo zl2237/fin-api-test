@@ -289,7 +289,7 @@ import {
   EditPen, View, Download,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
-import { buildGroupTree, collectDescendantIds } from '@/composables/useGroupTree'
+import { buildGroupTree, collectDescendantIds, type GroupTreeNode } from '@/composables/useGroupTree'
 import { fileApi, fileCategoryApi, userApi, type TestFile, type FileCategory, type SimpleUser } from '@/api'
 import { debounce } from '@/utils/ui'
 import { formatTime, formatRelativeTime } from '@/utils/format'
@@ -382,7 +382,7 @@ function setCategoryFilter(categoryId: number | undefined) {
   loadFiles()
 }
 
-const categoryDialog = ref<{ visible: boolean; editing: FileCategory | null; name: string; parent_id: number | null }>({
+const categoryDialog = ref<{ visible: boolean; editing: GroupTreeNode | null; name: string; parent_id: number | null }>({
   visible: false, editing: null, name: '', parent_id: null,
 })
 // 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
@@ -394,7 +394,7 @@ const nameRules: FormRules = {
 const renameSaving = ref(false)
 const categorySaving = ref(false)
 
-function openCategoryDialog(cat: FileCategory | null) {
+function openCategoryDialog(cat: GroupTreeNode | null) {
   categoryDialog.value.editing = cat
   categoryDialog.value.name = cat?.name || ''
   categoryDialog.value.parent_id = cat?.parent_id ?? null
@@ -432,7 +432,7 @@ async function saveCategory() {
   })
 }
 
-async function confirmDeleteCategory(cat: FileCategory) {
+async function confirmDeleteCategory(cat: GroupTreeNode) {
   try {
     await ElMessageBox.confirm(
       `确认删除分类「${cat.name}」？子分类和文件会一并删除，此操作不可恢复`,

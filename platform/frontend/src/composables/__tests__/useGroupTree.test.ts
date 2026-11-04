@@ -32,6 +32,12 @@ describe('buildGroupTree', () => {
     const tree = buildGroupTree([G(9, null, 'x'), G(2, null, 'y')])
     expect(tree.map((n) => n.id)).toEqual([2, 9])
   })
+
+  it('节点保留源分组字段（name/parent_id/sort_order）—— 分类树节点回传弹窗依赖', () => {
+    const tree = buildGroupTree([G(1, null, '根', 2), G(2, 1, '子', 1)])
+    expect(tree[0]).toMatchObject({ id: 1, name: '根', parent_id: null, sort_order: 2, label: '根' })
+    expect(tree[0]!.children[0]).toMatchObject({ id: 2, name: '子', parent_id: 1, sort_order: 1, label: '子' })
+  })
 })
 
 describe('flattenTreeVisible / collectNodeIds / collectDescendantIds', () => {
