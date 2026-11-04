@@ -114,8 +114,8 @@ describe('useGroupedTable', () => {
 
 describe('collectTreeUpdates', () => {
   it('深度优先展开 parent_id/sort_order，根父为 null', () => {
-    const G1 = { id: 1, label: 'a', children: [{ id: 2, label: 'b', children: [] }] }
-    const G3 = { id: 3, label: 'c', children: [] }
+    const G1 = { id: 1, name: 'a', parent_id: null, sort_order: 0, label: 'a', children: [{ id: 2, name: 'b', parent_id: 1, sort_order: 0, label: 'b', children: [] }] }
+    const G3 = { id: 3, name: 'c', parent_id: null, sort_order: 0, label: 'c', children: [] }
     expect(collectTreeUpdates([G1, G3])).toEqual([
       { id: 1, parent_id: null, sort_order: 0 },
       { id: 2, parent_id: 1, sort_order: 0 },

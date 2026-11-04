@@ -11,8 +11,9 @@ import { computed, ref, watch, type Ref } from 'vue'
  * - 选择器用 el-tree-select（check-strictly 仅选叶子或任意单节点）。
  */
 
-export interface GroupTreeNode {
-  id: number
+/** 树节点 = 源分组全部字段（name/parent_id/sort_order…，构建时展开保留）+ label/children。
+ *  视图把节点回传给按分组取值的弹窗（如 FileCenter 编辑/删除分类）时不再丢 name/parent_id。 */
+export interface GroupTreeNode extends FlatGroup {
   label: string
   children: GroupTreeNode[]
 }
@@ -40,7 +41,7 @@ export function buildGroupTree(groups: FlatGroup[]): GroupTreeNode[] {
   const sorted = [...groups].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id,
   )
-  sorted.forEach((g) => map.set(g.id, { id: g.id, label: g.name, children: [] }))
+  sorted.forEach((g) => map.set(g.id, { ...g, label: g.name, children: [] }))
   const roots: GroupTreeNode[] = []
   for (const g of sorted) {
     const node = map.get(g.id)!
@@ -171,7 +172,7 @@ export function useGroupTree(
 
   /** 含「未分组」虚拟节点的树（id=0），用于批量移动选择器 */
   const treeSelectWithUngrouped = computed<GroupTreeNode[]>(() => [
-    { id: 0, label: '未分组', children: [] },
+    { id: 0, name: '未分组', parent_id: null, sort_order: 0, label: '未分组', children: [] },
     ...tree.value,
   ])
 
