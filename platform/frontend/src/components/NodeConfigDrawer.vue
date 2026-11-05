@@ -10,7 +10,7 @@
   >
     <el-tabs v-if="draft" v-model="activeTab" class="node-config-tabs">
       <el-tab-pane label="基础配置" name="basic">
-        <el-form label-width="90px">
+        <el-form label-width="100px">
           <el-form-item label="节点ID">
             <el-input :model-value="draft.node_id" disabled />
           </el-form-item>
@@ -34,9 +34,10 @@
               style="width: 180px"
             />
             <span class="wait-unit">ms</span>
-            <p class="tip wait-tip">当前接口执行完成后、下一个接口请求前的等待间隔，给后端处理事务/数据落库留出时间。默认 0（不等待）。</p>
           </el-form-item>
-          <el-form-item label="契约模板">
+          <!-- 契约模板问号保留：绑定后校验口径翻转（模板外=契约外），删了会误用 -->
+          <el-form-item>
+            <template #label>契约模板<HintTip content="契约校验口径：绑定后只校验模板内字段（模板内全 must、模板外参数算契约外）；同接口多入参形态（如 check/submit）各节点可绑不同模板。模板在接口编辑页维护" /></template>
             <el-select
               v-model="contractTemplateId"
               placeholder="全量字段（未绑定）"
@@ -51,23 +52,17 @@
                 :value="t.id"
               />
             </el-select>
-            <p class="tip wait-tip">
-              契约校验口径：绑定后只校验模板内字段（模板内全 must、模板外参数算契约外）；
-              同接口多入参形态（如 check/submit）各节点可绑不同模板。模板在接口编辑页维护。
-            </p>
           </el-form-item>
         </el-form>
       </el-tab-pane>
 
       <el-tab-pane label="后置提取" name="extract">
         <PostExtractTable v-model="draft.post_extract" :ref-groups="refGroups" />
-        <p class="tip">提取的变量存入本节点命名空间，供后续节点按 <code>{{ SQL_BRACE }}</code>（SQL 内）或引用来源（参数取值）引用。</p>
       </el-tab-pane>
 
       <el-tab-pane label="断言规则" name="assert">
         <AssertionTable v-model="draft.assertions" :ref-groups="refGroups" />
         <div class="tip-with-help">
-          <p class="tip">DB 断言 SQL 可用 <code>{{ SQL_BRACE }}</code> 引用已提取变量；期望值支持四来源。</p>
           <el-button text size="small" class="help-link" @click="store.openCoreCapability('assertion')">
             <el-icon><QuestionFilled /></el-icon> 查看断言规则
           </el-button>
@@ -88,6 +83,7 @@ import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import PostExtractTable from './PostExtractTable.vue'
+import HintTip from './HintTip.vue'
 import AssertionTable from './AssertionTable.vue'
 import { useAppStore } from '@/stores'
 import { apiApi, type ApiContractTemplate, type ApiDef, type NodeConfig } from '@/api'
@@ -106,8 +102,7 @@ const emit = defineEmits<{
   (e: 'save', config: NodeConfig): void
 }>()
 
-// SQL 占位语法字面量（含 }}，不能内嵌进模板插值表达式，经此常量输出）
-const SQL_BRACE = '{{节点.变量}}'
+// 2026-11-05 干爽行动：提取/断言 tab 说明收进 tab 问号浮层，SQL_BRACE 常量随之无消费，删除
 
 const activeTab = ref('basic')
 
@@ -174,6 +169,10 @@ function onSave() {
 </script>
 
 <style scoped>
+/* label 单行强制：4 字标签 + 问号图标（契约模板）不许折行 */
+:deep(.el-form-item__label) {
+  white-space: nowrap;
+}
 .tip {
   margin-top: 12px;
   font-size: 12px;

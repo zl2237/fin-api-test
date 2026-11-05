@@ -17,7 +17,7 @@
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="onSubmit">
           <el-form-item label="新密码" prop="new_password">
-            <el-input v-model="form.new_password" type="password" show-password placeholder="请输入新密码" :prefix-icon="Lock" size="large" @keyup.enter="onSubmit" />
+            <el-input v-model="form.new_password" type="password" show-password placeholder="至少 8 位，含字母和数字" :prefix-icon="Lock" size="large" @keyup.enter="onSubmit" />
           </el-form-item>
           <el-form-item label="确认新密码" prop="confirm_password">
             <el-input v-model="form.confirm_password" type="password" show-password placeholder="请再次输入新密码" :prefix-icon="Lock" size="large" @keyup.enter="onSubmit" />
@@ -29,9 +29,6 @@
 
         <div v-if="!store.user?.must_change_password" class="back-hint">
           <el-button text @click="router.back()">← 返回</el-button>
-        </div>
-        <div class="hint">
-          密码要求：至少 8 位，必须同时包含字母和数字，不能与当前密码相同
         </div>
       </div>
     </main>
@@ -167,13 +164,6 @@ async function onSubmit() {
 .back-hint {
   text-align: center;
   margin-top: 8px;
-}
-.hint {
-  margin-top: 16px;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  text-align: center;
-  line-height: 1.6;
 }
 
 @media (max-width: 600px) {
