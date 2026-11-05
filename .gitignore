@@ -86,3 +86,8 @@ architecture-reviews/
 
 # 数据修复脚本的库行备份（本地留存，不入库）
 platform/backend/scripts/backups/
+
+# 会话临时产物（调试脚本/缓存），2026-11-05 大清扫后防再生
+Temp/
+.ruff_cache/
+.coverage
