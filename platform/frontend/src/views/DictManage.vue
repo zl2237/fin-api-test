@@ -111,21 +111,10 @@
     </el-dialog>
 
     <!-- 批量导入弹窗（宽度归档：420 / 560 / 720 三档） -->
-    <el-dialog v-model="batchVisible" title="批量导入字典" width="min(560px, 92vw)" align-center :close-on-click-modal="false">
-      <el-alert type="info" :closable="false" style="margin-bottom: 12px">
-        <div class="batch-guide">
-          <div class="guide-title">导入格式说明</div>
-          <div class="guide-line">每行一条，格式：<code>字段名=中文名</code>（支持 <code>=</code>、Tab、逗号分隔）</div>
-          <div class="guide-line">同名字段将更新中文含义，新字段会新增</div>
-          <div class="guide-line">仅作用于当前项目，不影响其他项目</div>
-          <div class="guide-example">
-            <div>order_id=订单ID</div>
-            <div>bl_no=提单号</div>
-            <div>container_no=集装箱号</div>
-            <div>put_amount=投放金额</div>
-          </div>
-        </div>
-      </el-alert>
+    <el-dialog v-model="batchVisible" width="min(560px, 92vw)" align-center :close-on-click-modal="false">
+      <template #header>
+        <span>批量导入字典<HintTip content="每行一条：字段名=中文名（支持 =、Tab、逗号分隔）；同名字段更新中文含义，新字段新增；仅作用于当前项目" /></span>
+      </template>
       <el-input
         v-model="batchText"
         type="textarea"
@@ -153,6 +142,7 @@ import { debounce } from '@/utils/ui'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
+import HintTip from '@/components/HintTip.vue'
 
 const store = useAppStore()
 const list = ref<FieldDictionary[]>([])
@@ -379,23 +369,5 @@ watch(() => store.currentProjectId, (n, old) => {
   display: flex;
   justify-content: flex-end;
 }
-.batch-guide .guide-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.batch-guide .guide-line {
-  line-height: 1.8;
-  font-size: 13px;
-}
-.batch-guide .guide-example {
-  margin-top: 6px;
-  padding: 8px 10px;
-  /* 用已定义的主题 token（原 --app-bg-muted/--app-text-secondary 未定义，暗色下永久浅色） */
-  background: var(--app-hover);
-  border-radius: 4px;
-  font-family: 'SFMono-Regular', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--app-text-muted);
-}
+
 </style>
