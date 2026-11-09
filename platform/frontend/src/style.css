@@ -15,7 +15,7 @@
   --app-radius-md: 3px;
   --app-radius-lg: 4px;
 
-  /* 顶栏高度（MainLayout .topbar 与全局抽屉偏移共用，单一事实源） */
+  /* 顶栏高度（MainLayout .topbar 使用，单一事实源） */
   --app-topbar-h: 52px;
 
   /* 表面与背景：实底（去毛玻璃），冷灰图纸底 */
@@ -235,14 +235,11 @@ kbd {
   background-position: -1px -1px;
 }
 
-/* ===== 抽屉（全站 4 个 el-drawer 统一）：顶栏之下展开 + 头身紧凑 =====
-   修复两个问题：
-   1. EP 默认 header margin-bottom 32px → 标题与内容间大段死区
-   2. 抽屉满视口高（盖住顶栏区域）→ 视觉上"比侧边栏还高且顶部空一截" */
-.el-overlay .el-drawer {
-  top: var(--app-topbar-h);
-  height: calc(100% - var(--app-topbar-h));
-}
+/* ===== 抽屉（全站 el-drawer 统一）：满高贴顶 + 头身紧凑 =====
+   2026-11-09：撤销 9-06 的「顶栏之下展开」偏移——下移后顶栏区域被遮罩压暗，
+   抽屉顶部看起来和系统顶部隔了一截。恢复 EP 默认满视口高（top:0/height:100%，
+   无需显式声明）：抽屉自窗口顶端滑出，打开时盖住顶栏右侧区域。
+   保留 9-06 修复的另一项：EP 默认 header margin-bottom 32px → 标题与内容间大段死区 */
 .el-drawer__header {
   margin-bottom: 0;
   padding: 13px 20px;
