@@ -1272,7 +1272,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--app-topbar-h); /* 工具密度：顶栏收紧（EP 默认 60px）；令牌与全局抽屉偏移共用 */
+  height: var(--app-topbar-h); /* 工具密度：顶栏收紧（EP 默认 60px） */
   background: var(--app-card);
   border-bottom: 1px solid var(--app-border);
 }
