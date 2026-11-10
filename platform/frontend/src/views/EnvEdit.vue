@@ -568,10 +568,11 @@ function onKeydown(e: KeyboardEvent) {
   color: var(--app-warn-accent);
   font-size: 13px;
 }
-/* 保存按钮成功对勾：成功色不随按钮 loading/禁用态变灰 */
+/* 保存按钮成功对勾：墨绿主按钮底上成功绿无对比度，随按钮文字色（白）走；
+   loading/禁用态文字色变化也一并继承，始终可读 */
 .save-check {
   margin-left: 4px;
-  color: var(--app-success-text);
+  color: inherit;
 }
 .edit-body {
   flex: 1;

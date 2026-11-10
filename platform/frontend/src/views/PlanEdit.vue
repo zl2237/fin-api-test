@@ -589,10 +589,11 @@ onUnmounted(destroySortable)
   height: 100%;
   background: var(--app-bg);
 }
-/* 保存按钮成功对勾：保存后按钮随 dirty=false 禁用，成功色不随之变灰 */
+/* 保存按钮成功对勾：墨绿主按钮底上成功绿无对比度，随按钮文字色（白）走；
+   保存后按钮随 dirty=false 禁用，文字色变化一并继承，始终可读 */
 .save-check {
   margin-left: 4px;
-  color: var(--app-success-text);
+  color: inherit;
 }
 .edit-body {
   flex: 1;
