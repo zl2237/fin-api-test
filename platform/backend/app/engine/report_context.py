@@ -41,15 +41,25 @@ def iter_body_paths(obj: Any, prefix: str = "", *, top: bool = True) -> Iterator
 def iter_replay_paths(body: Any, extracted: dict[str, Any] | None = None) -> Iterator[tuple[str, Any]]:
     """入参回放路径：完整路径 + 末段别名（a.b.c 附带 c），供注册表/seed 写入。
 
+    别名补位规则（exec 1571 错单根因修复）：**精确路径优先，别名不覆盖精确键**，
+    多个同名别名先到先得。请求体快照里的嵌套同尾字段（如 order_sub.0.order_id
+    的录制残留字面值、supplier.1.order_id 的空串）不得顶掉顶层同名人参——
+    正常执行期 prepare_request._register 只注册参数键本身，嵌套值从不产生
+    别名，回放口径与其对齐而不是「后写覆盖」。
     extracted 非空时同名路径跳过——后置提取名优先于同名入参快照。
     消费方：build_report_context（seed 拼装）与续跑重放的入参回放注册。
     """
-    for path, val in iter_body_paths(body):
-        if extracted is None or path not in extracted:
-            yield path, val
-            tail = path.rsplit(".", 1)[-1]
-            if tail != path and (extracted is None or tail not in extracted):
-                yield tail, val
+    paths = [(p, v) for p, v in iter_body_paths(body)
+             if extracted is None or p not in extracted]
+    # 精确键全量先出（消费方盲写覆盖时，精确键成为最终值）；
+    # blocked = 精确键名 + 提取名 —— 别名只能填补真空位
+    blocked: set[str] = {p for p, _ in paths} | set(extracted or [])
+    yield from paths
+    for path, val in paths:
+        tail = path.rsplit(".", 1)[-1]
+        if tail != path and tail not in blocked:
+            blocked.add(tail)
+            yield tail, val
 
 
 def build_report_context(steps: list[Any], before_node: str | None = None) -> dict[str, dict[str, Any]]:

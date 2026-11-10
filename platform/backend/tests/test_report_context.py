@@ -10,7 +10,7 @@
 """
 from types import SimpleNamespace
 
-from app.engine.report_context import build_report_context
+from app.engine.report_context import build_report_context, iter_replay_paths
 
 
 def _step(node_id, status, extracted=None, sid=0, body=None):
@@ -110,3 +110,32 @@ class TestBuildReportContext:
         steps = [_step("n1", "success", body='{"bl_no": "BL9"}', sid=1)]
         ctx = build_report_context(steps)
         assert ctx["n1"]["bl_no"] == "BL9"
+
+    def test_nested_tail_literal_does_not_clobber_exact_key(self):
+        """exec 1571 回归：嵌套同尾字段（录制残留字面值/空串）不得顶掉顶层同名人参。
+
+        事故链：追加服务项目 body 的 order_sub.0.order_id 携带录制时代的
+        老订单字面值、supplier.1.order_id 为空串，旧「后写覆盖」别名把它们
+        依次盖到顶层 order_id 上，下游 {{node.order_id}} 全部引用错单。
+        """
+        body = {
+            "bl_no": "BL001",
+            "order_id": "378385244119630848",           # 本次运行真实值（顶层实参）
+            "supplier": [{"order_id": "378385244119630848"}, {"order_id": ""}],
+            "order_sub": [{"order_id": "348342035100467200"}],  # 录制残留
+        }
+        # 生成器层：精确键先出、别名被精确键屏蔽
+        writes = dict(iter_replay_paths(body))
+        assert writes["order_id"] == "378385244119630848"
+        assert writes["order_sub.0.order_id"] == "348342035100467200"  # 嵌套精确路径保留
+        # seed 层（消费方盲写覆盖口径）最终值不受别名污染
+        steps = [_step("n_edit", "success", body=body, sid=1)]
+        ctx = build_report_context(steps)
+        assert ctx["n_edit"]["order_id"] == "378385244119630848"
+
+    def test_alias_fills_vacancy_first_wins(self):
+        """无同名精确键时别名照常补位（legacy {{节点.末段}} 引用可用）；多别名先到先得"""
+        body = {"a": {"user_id": 5}, "b": {"user_id": 7}}
+        writes = dict(iter_replay_paths(body))
+        assert writes["user_id"] == 5
+        assert writes["b.user_id"] == 7
