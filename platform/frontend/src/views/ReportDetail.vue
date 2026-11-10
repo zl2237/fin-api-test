@@ -245,8 +245,7 @@
               <div class="section">
                 <div class="section-title">
                   请求头
-                  <el-button v-if="currentStep.request_headers" text size="small" class="json-expand-btn"
-                    @click="copyJson(currentStep.request_headers)">复制</el-button>
+                  <CopyBtn v-if="currentStep.request_headers" :value="currentStep.request_headers" class="section-copy" />
                 </div>
                 <VueJsonPretty v-if="currentStep.request_headers" :data="currentStep.request_headers" />
                 <EmptyState v-else description="无请求头" :image-size="40" />
@@ -255,8 +254,7 @@
                 <div class="section-title">
                   请求体
                   <el-button text size="small" class="json-expand-btn" @click="openReplay">编辑并重放…</el-button>
-                  <el-button v-if="currentStep.request_body" text size="small" class="json-expand-btn"
-                    @click="copyJson(currentStep.request_body)">复制</el-button>
+                  <CopyBtn v-if="currentStep.request_body" :value="currentStep.request_body" />
                 </div>
                 <VueJsonPretty v-if="currentStep.request_body" :data="currentStep.request_body" :deep="jsonDeep" />
                 <EmptyState v-else description="无请求体" :image-size="40" />
@@ -291,8 +289,7 @@
                     class="json-expand-btn"
                     @click="jsonDeep = jsonDeep === 2 ? Number.POSITIVE_INFINITY : 2"
                   >{{ jsonDeep === 2 ? '展开全部' : '收起' }}</el-button>
-                  <el-button v-if="currentStep.response_body != null" text size="small" class="json-expand-btn"
-                    @click="copyJson(currentStep.response_body)">复制</el-button>
+                  <CopyBtn v-if="currentStep.response_body != null" :value="currentStep.response_body" />
                 </div>
                 <VueJsonPretty v-if="currentStep.response_body != null" :data="currentStep.response_body" :deep="jsonDeep" />
                 <EmptyState v-else description="无响应体" :image-size="40" />
@@ -304,7 +301,10 @@
                 <el-table :data="currentStep.post_extract" size="small" border>
                   <el-table-column label="变量名" min-width="110">
                     <template #default="{ row }">
-                      <span class="mono">{{ row.name || '—' }}</span>
+                      <div class="cell-copy-row">
+                        <span class="mono">{{ row.name || '—' }}</span>
+                        <CopyBtn v-if="row.name" :value="row.name" />
+                      </div>
                     </template>
                   </el-table-column>
                   <el-table-column label="来源" width="80">
@@ -318,10 +318,14 @@
                   <el-table-column label="提取结果" min-width="180" show-overflow-tooltip>
                     <template #default="{ row }">
                       <span v-if="extractErrorOf(row.name)" class="extract-fail">未提取到：{{ extractErrorOf(row.name) }}</span>
-                      <span v-else-if="extractActual(row.name) !== undefined" class="mono pre-val cell-expand"
-                        :title="'点击查看/复制'" @click="openValue(`提取 ${row.name}`, extractActual(row.name))">
-                        {{ preValueText(extractActual(row.name)) }}
-                      </span>
+                      <!-- 提取值复制一步到位（原「点击弹窗再复制」偏重）：值点击仍可看完整长值，icon 点击即复制 -->
+                      <div v-else-if="extractActual(row.name) !== undefined" class="cell-copy-row">
+                        <span class="mono pre-val cell-expand"
+                          title="点击查看完整值" @click="openValue(`提取 ${row.name}`, extractActual(row.name))">
+                          {{ preValueText(extractActual(row.name)) }}
+                        </span>
+                        <CopyBtn :value="extractActual(row.name)" />
+                      </div>
                       <span v-else class="muted">未提取到</span>
                     </template>
                   </el-table-column>
@@ -350,26 +354,32 @@
                 </el-table-column>
                 <el-table-column label="实际值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <!-- 失败行 + 短标量：行内 diff，新增片段绿底——失败原因一眼可见，无需逐字对比 -->
-                    <span v-if="canInlineDiff(row)" class="mono actual-bad cell-expand"
-                      @click="openValue('断言实际值', row.actual_value, row.expected_value)">
-                      <DiffValue :expected="row.expected_value" :actual="row.actual_value" side="actual" />
-                    </span>
-                    <!-- 失败行（长值/JSON）：实际值升结论红 + 加重；点击弹窗查看对照 diff -->
-                    <span class="mono actual-bad cell-expand" v-else-if="!row.result"
-                      @click="openValue('断言实际值', row.actual_value, row.expected_value)">{{ row.actual_value ?? '—' }}</span>
-                    <span v-else class="mono cell-expand"
-                      @click="openValue('断言实际值', row.actual_value)">{{ row.actual_value ?? '—' }}</span>
+                    <div class="cell-copy-row">
+                      <!-- 失败行 + 短标量：行内 diff，新增片段绿底——失败原因一眼可见，无需逐字对比 -->
+                      <span v-if="canInlineDiff(row)" class="mono actual-bad cell-expand"
+                        @click="openValue('断言实际值', row.actual_value, row.expected_value)">
+                        <DiffValue :expected="row.expected_value" :actual="row.actual_value" side="actual" />
+                      </span>
+                      <!-- 失败行（长值/JSON）：实际值升结论红 + 加重；点击弹窗查看对照 diff -->
+                      <span class="mono actual-bad cell-expand" v-else-if="!row.result"
+                        @click="openValue('断言实际值', row.actual_value, row.expected_value)">{{ row.actual_value ?? '—' }}</span>
+                      <span v-else class="mono cell-expand"
+                        @click="openValue('断言实际值', row.actual_value)">{{ row.actual_value ?? '—' }}</span>
+                      <CopyBtn v-if="row.actual_value != null && row.actual_value !== ''" :value="row.actual_value" />
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="期望值" min-width="130" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <!-- 期望侧与实际侧共用同一次 diff 计算：被删片段红底划线 -->
-                    <span v-if="canInlineDiff(row)" class="mono cell-expand"
-                      @click="openValue('断言期望值', row.expected_value)">
-                      <DiffValue :expected="row.expected_value" :actual="row.actual_value" side="expected" />
-                    </span>
-                    <span v-else class="mono cell-expand" @click="openValue('断言期望值', row.expected_value)">{{ row.expected_value ?? '—' }}</span>
+                    <div class="cell-copy-row">
+                      <!-- 期望侧与实际侧共用同一次 diff 计算：被删片段红底划线 -->
+                      <span v-if="canInlineDiff(row)" class="mono cell-expand"
+                        @click="openValue('断言期望值', row.expected_value)">
+                        <DiffValue :expected="row.expected_value" :actual="row.actual_value" side="expected" />
+                      </span>
+                      <span v-else class="mono cell-expand" @click="openValue('断言期望值', row.expected_value)">{{ row.expected_value ?? '—' }}</span>
+                      <CopyBtn v-if="row.expected_value != null && row.expected_value !== ''" :value="row.expected_value" />
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="消息" min-width="160" show-overflow-tooltip>
@@ -421,6 +431,7 @@ import { Loading, Search, CircleCloseFilled, WarningFilled } from '@element-plus
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 import EmptyState from '@/components/EmptyState.vue'
+import CopyBtn from '@/components/CopyBtn.vue'
 import ReplayDialog from '@/components/ReplayDialog.vue'
 import DiffValue from '@/components/DiffValue.vue'
 import EnvBadge from '@/components/EnvBadge.vue'
@@ -626,13 +637,6 @@ const prettyValue = computed(() => {
 
 async function copyValue() {
   await copyText(prettyValue.value)
-}
-
-/** 一键复制任意 JSON 值（请求头/请求体/响应体）：树形组件跨行框选会被 DOM 打散，
- *  Ctrl+C 复制不出合法 JSON，直接按完整序列化文本写入剪贴板 */
-async function copyJson(v: any) {
-  const text = typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : String(v ?? '')
-  await copyText(text, '已复制完整 JSON')
 }
 
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
@@ -1281,6 +1285,22 @@ onUnmounted(stopPolling)
 .json-expand-btn {
   margin-left: auto;
   padding: 0 4px;
+}
+/* 区块标题右侧的复制 icon（无其他右置按钮时由它推到行尾） */
+.section-copy {
+  margin-left: auto;
+}
+
+/* 单元格「值 + 复制」行：值可截断省略，复制 icon 不被挤压换行 */
+.cell-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cell-copy-row .mono {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /* 提取值/规则原文展示（后置提取区复用） */
