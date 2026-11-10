@@ -406,10 +406,12 @@
         :expected="valueDialog.diffExpected"
         :actual="valueDialog.diffActual"
       />
-      <pre class="value-pre">{{ prettyValue }}</pre>
+      <div class="value-pre-wrap">
+        <CopyBtn :value="prettyValue" title="复制完整值" class="pre-copy" />
+        <pre class="value-pre">{{ prettyValue }}</pre>
+      </div>
       <template #footer>
         <el-button @click="valueDialog.visible = false">关闭</el-button>
-        <el-button type="primary" @click="copyValue">复制</el-button>
       </template>
     </el-dialog>
 
@@ -439,7 +441,6 @@ import StepTrendChart from '@/components/StepTrendChart.vue'
 import BurstFx from '@/components/BurstFx.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
 import { generateReportFilename } from '@/utils/reportFilename'
-import { copyText } from '@/utils/clipboard'
 import { execStatusType as stepType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
 
@@ -634,10 +635,7 @@ const prettyValue = computed(() => {
   }
   return String(v)
 })
-
-async function copyValue() {
-  await copyText(prettyValue.value)
-}
+// 值弹窗与各区块复制均由 CopyBtn icon 承担（点击即复制 + 对勾反馈，复制内容=展示内容）
 
 const passedCount = computed(() => steps.value.filter((s) => s.status === 'success').length)
 const totalCount = computed(() => steps.value.length)
@@ -1341,6 +1339,18 @@ onUnmounted(stopPolling)
 /* 弹窗内对照 diff：置顶展示，与完整值之间留呼吸 */
 .value-diff {
   margin-bottom: 12px;
+}
+/* 完整值展示区：复制 icon 悬停右上角，点击即复制所见内容 */
+.value-pre-wrap {
+  position: relative;
+}
+.value-pre-wrap .pre-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  background: var(--app-bg);
+  border-radius: var(--app-radius-xs, 4px);
 }
 .value-pre {
   font-family: var(--app-font-mono);

@@ -11,7 +11,7 @@
         <el-tag v-if="plan" type="primary" effect="plain">方案 #{{ planId }}</el-tag>
       </div>
       <div class="head-right">
-        <el-button :disabled="!dirty" :loading="saving" @click="onSave()">保存 (Ctrl+S)</el-button>
+        <el-button :disabled="!dirty" :loading="saving" @click="onSave()">保存 (Ctrl+S)<DrawCheck v-if="justSaved" :size="13" class="save-check" /></el-button>
         <el-button type="success" :loading="running" @click="onExecute">一键执行</el-button>
       </div>
     </div>
@@ -209,6 +209,8 @@ import { buildGroupTree } from '@/composables/useGroupTree'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
+import { useTransientFlag } from '@/composables/useTransientFlag'
+import DrawCheck from '@/components/DrawCheck.vue'
 import { formatTime } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -224,6 +226,8 @@ const loading = ref(false)
 const loadError = ref('')
 const dirty = ref(false)
 const saving = ref(false)
+/** 保存成功就地反馈：按钮内对勾按笔画绘制 1.5s（仅手动保存；silent 自动保存不打扰） */
+const { active: justSaved, trigger: pulseSaved } = useTransientFlag(1500)
 const running = ref(false)
 
 const name = ref('')
@@ -504,7 +508,7 @@ async function onSave(silent = false) {
       sort_order: i,
     })))
     dirty.value = false
-    if (!silent) ElMessage.success('已保存')
+    if (!silent) pulseSaved()
   } catch (e: any) {
     ElMessage.error(e.message || '保存失败')
     throw e
@@ -584,6 +588,11 @@ onUnmounted(destroySortable)
   flex-direction: column;
   height: 100%;
   background: var(--app-bg);
+}
+/* 保存按钮成功对勾：保存后按钮随 dirty=false 禁用，成功色不随之变灰 */
+.save-check {
+  margin-left: 4px;
+  color: var(--app-success-text);
 }
 .edit-body {
   flex: 1;
