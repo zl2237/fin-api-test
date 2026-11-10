@@ -293,16 +293,20 @@ class DagExecutor:
     def _prune_stale_steps(self, execution_id: int) -> int:
         """断点续跑前清理旧记录：首个非成功步骤起的所有步骤（含其断言）删除。
 
-        失败即停语义下通常只有一条失败记录；多次续跑场景同样适用（上一次
-        续跑段的失败记录也被本次重跑覆盖）。ORM 逐条 delete 走 cascade
-        清掉关联 AssertionRecord，避免批量 delete 绕过级联留孤儿。
+        失败即停语义下通常只有一条失败记录；多次续跑/人工标记失败场景下，
+        首个非成功之后可能残留上次续跑段的 success 步骤（exec 1571：僵尸
+        步骤与新重跑步骤并存致报告重复）——它们将被本次重跑覆盖，一并删除。
+        ORM 逐条 delete 走 cascade 清掉关联 AssertionRecord，避免批量 delete
+        绕过级联留孤儿。
         """
         steps = (self.db.query(models.StepRecord)
                  .filter(models.StepRecord.execution_id == execution_id)
                  .order_by(models.StepRecord.id).all())
         removed = 0
+        stale = False
         for s in steps:
-            if s.status != "success":
+            stale = stale or s.status != "success"
+            if stale:
                 self.db.delete(s)
                 removed += 1
         if removed:

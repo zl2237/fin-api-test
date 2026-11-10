@@ -159,7 +159,7 @@ class TestResumeExecutor:
         assert all(s.resumed for s in sink.steps)
 
     def test_stale_failed_steps_pruned(self):
-        """续跑前清理旧失败记录：成功步骤保留，非成功步骤删除"""
+        """续跑前清理旧失败记录：首个非成功前缀保留，其后（含僵尸）删除"""
         stale_ok = StepRecord(execution_id=1, node_id="n1", status="success")
         stale_fail = StepRecord(execution_id=1, node_id="n2", status="failed")
         ex, record, sink, db = _resume_executor("n2", steps=[stale_ok, stale_fail])
@@ -167,6 +167,19 @@ class TestResumeExecutor:
         ex.execute()
 
         assert db.deleted == [stale_fail]
+
+    def test_stale_success_zombies_after_failure_pruned(self):
+        """exec 1571 回归：首个非成功之后的僵尸 success（上次续跑段残留）一并
+        删除——只删非成功会让它们躲过清理，与新重跑步骤并存致报告重复"""
+        ok = StepRecord(execution_id=1, node_id="n1", status="success")
+        fail = StepRecord(execution_id=1, node_id="n2", status="failed")
+        zombie1 = StepRecord(execution_id=1, node_id="n3", status="success")
+        zombie2 = StepRecord(execution_id=1, node_id="n4", status="success")
+        ex, record, sink, db = _resume_executor("n2", steps=[ok, fail, zombie1, zombie2])
+
+        ex.execute()
+
+        assert db.deleted == [fail, zombie1, zombie2]
 
     def test_fingerprint_written_on_execute(self):
         """执行时写入结构指纹（空绑定也有确定值）"""
