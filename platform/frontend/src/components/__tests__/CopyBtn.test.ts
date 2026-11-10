@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
 /**
- * CopyBtn：报告页一键复制（icon 点击即复制 + 对勾短暂反馈）。
+ * CopyBtn：报告页一键复制（icon 点击即复制 + 对勾笔画绘制反馈）。
  * 重点：序列化口径（对象 2 空格 JSON / 标量 String）、空值静默、
- * 成功后 is-ok 1.2s 回落、失败提示不打断。
+ * 成功后对勾 SVG（圆环+勾两笔描边）挂载并在 1.5s 回落、失败提示不打断。
  */
 
 vi.mock('@/utils/clipboard', () => ({
@@ -49,15 +49,17 @@ describe('CopyBtn 一键复制', () => {
     document.body.innerHTML = ''
   })
 
-  it('对象按 2 空格 JSON 序列化写入剪贴板，成功后 icon 切对勾并在 1.2s 回落', async () => {
+  it('对象按 2 空格 JSON 序列化写入剪贴板，成功后对勾按笔画绘制并在 1.5s 回落', async () => {
     const { host } = await mountBtn({ value: { a: 1 } })
     clickBtn(host)
     await vi.advanceTimersByTimeAsync(0)
     expect(writeClipboard).toHaveBeenCalledWith('{\n  "a": 1\n}')
-    // 对勾态：class 标记 + title 切换
+    // 对勾态：class 标记 + title 切换 + 描边动画 SVG（圆环 + 勾两笔）挂载
     expect(host.querySelector('.copy-btn')!.classList.contains('is-ok')).toBe(true)
     expect((host.querySelector('.copy-btn') as HTMLButtonElement).title).toBe('已复制')
-    await vi.advanceTimersByTimeAsync(1200)
+    expect(host.querySelector('.check-draw .ck-circle')).toBeTruthy()
+    expect(host.querySelector('.check-draw .ck-check')).toBeTruthy()
+    await vi.advanceTimersByTimeAsync(1500)
     expect(host.querySelector('.copy-btn')!.classList.contains('is-ok')).toBe(false)
   })
 
