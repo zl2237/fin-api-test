@@ -7,13 +7,8 @@
     :aria-label="title"
     @click.stop="onCopy"
   >
-    <!-- 复制 icon → 对勾按笔画顺序绘制（圆环先落笔、勾随后收笔）：成功反馈就地呈现，不再弹 toast/弹窗 -->
-    <span v-if="copied" class="check-draw" :style="{ width: `${size}px`, height: `${size}px` }">
-      <svg viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <circle class="ck-circle" cx="7" cy="7" r="5.75" pathLength="100" />
-        <path class="ck-check" d="M4.1 7.3 L6.2 9.3 L9.9 5.2" pathLength="100" />
-      </svg>
-    </span>
+    <!-- 复制 icon → 对勾按笔画顺序绘制（DrawCheck）：成功反馈就地呈现，不再弹 toast/弹窗 -->
+    <DrawCheck v-if="copied" :size="size" />
     <el-icon v-else :size="size">
       <CopyDocument />
     </el-icon>
@@ -21,10 +16,11 @@
 </template>
 
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CopyDocument } from '@element-plus/icons-vue'
 import { writeClipboard } from '@/utils/clipboard'
+import DrawCheck from './DrawCheck.vue'
+import { useTransientFlag } from '@/composables/useTransientFlag'
 
 const props = withDefaults(
   defineProps<{
@@ -39,9 +35,7 @@ const props = withDefaults(
 )
 
 /** 对勾总停留时长：笔画绘制 ~0.46s + 完整对勾停留 ~1s，看清反馈又不打断连续复制 */
-const CHECK_MS = 1500
-const copied = ref(false)
-let timer: ReturnType<typeof setTimeout> | null = null
+const { active: copied, trigger: markCopied } = useTransientFlag(1500)
 
 async function onCopy() {
   const v = props.value
@@ -51,17 +45,8 @@ async function onCopy() {
     ElMessage.error('复制失败，请手动选择复制')
     return
   }
-  copied.value = true
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(() => {
-    copied.value = false
-    timer = null
-  }, CHECK_MS)
+  markCopied()
 }
-
-onUnmounted(() => {
-  if (timer) clearTimeout(timer)
-})
 </script>
 
 <style scoped>
@@ -85,46 +70,5 @@ onUnmounted(() => {
 /* 成功反馈期：对勾着成功色，指针事件保留（连续点击无害） */
 .copy-btn.is-ok {
   color: var(--app-success-text);
-}
-
-/* 对勾描边绘制：pathLength=100 归一化长度，dash 从满偏移收到 0 即「沿笔画写出」 */
-.check-draw {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.check-draw svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.ck-circle,
-.ck-check {
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 100;
-  stroke-dashoffset: 100;
-}
-/* 笔画顺序：圆环先画完，对勾再落笔（短重叠衔接自然） */
-.ck-circle {
-  animation: ck-stroke 0.28s ease-out forwards;
-}
-.ck-check {
-  animation: ck-stroke 0.22s ease-out 0.24s forwards;
-}
-@keyframes ck-stroke {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-/* 减弱动效偏好：跳过绘制过程直接呈现完整对勾 */
-@media (prefers-reduced-motion: reduce) {
-  .ck-circle,
-  .ck-check {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
 }
 </style>

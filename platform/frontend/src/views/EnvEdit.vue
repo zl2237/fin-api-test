@@ -8,7 +8,7 @@
       <span class="edit-title">{{ isEdit ? '编辑环境' : '新建环境' }}</span>
       <div class="header-right">
         <span v-if="dirty" class="dirty-tip">有未保存改动</span>
-        <el-button type="primary" :loading="saving" @click="onSave">保存 (Ctrl+S)</el-button>
+        <el-button type="primary" :loading="saving" @click="onSave">保存 (Ctrl+S)<DrawCheck v-if="justSaved" :size="13" class="save-check" /></el-button>
       </div>
     </div>
 
@@ -244,6 +244,8 @@ import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { storeToRefs } from 'pinia'
 import KeyValueTable from '@/components/KeyValueTable.vue'
+import DrawCheck from '@/components/DrawCheck.vue'
+import { useTransientFlag } from '@/composables/useTransientFlag'
 
 const route = useRoute()
 const router = useRouter()
@@ -254,6 +256,8 @@ const { currentProjectId } = storeToRefs(store)
 const isEdit = computed(() => !!route.params.id)
 const saving = ref(false)
 const dirty = ref(false)
+/** 保存成功就地反馈：按钮内对勾按笔画绘制 1.5s（编辑态）；新建态保存后即跳转，仍走 toast */
+const { active: justSaved, trigger: pulseSaved } = useTransientFlag(1500)
 const loading = ref(false)
 // 页面级加载失败（编辑模式拉环境配置失败）：内联错误块 + 重试，不让页面静默空壳
 const loadError = ref('')
@@ -459,7 +463,7 @@ async function onSave() {
       }
       if (isEdit.value) {
         await envApi.update(formData.id!, payload)
-        ElMessage.success('已保存')
+        pulseSaved()
       } else {
         await envApi.create(payload)
         ElMessage.success('已创建')
@@ -563,6 +567,11 @@ function onKeydown(e: KeyboardEvent) {
 .dirty-tip {
   color: var(--app-warn-accent);
   font-size: 13px;
+}
+/* 保存按钮成功对勾：成功色不随按钮 loading/禁用态变灰 */
+.save-check {
+  margin-left: 4px;
+  color: var(--app-success-text);
 }
 .edit-body {
   flex: 1;

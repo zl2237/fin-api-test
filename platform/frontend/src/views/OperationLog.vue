@@ -108,9 +108,13 @@
         <span>{{ detailRow.username || '未知' }}</span>
         <span class="detail-time">{{ formatTime(detailRow.created_at) }}</span>
       </div>
-      <pre class="detail-text">{{ detailRow?.detail }}</pre>
+      <!-- 复制 icon 悬停右上角：原 footer 按钮直用 navigator.clipboard，
+           线上 http 非安全上下文该 API 不可用必报错——收敛到 CopyBtn（含降级方案 + 对勾反馈） -->
+      <div class="detail-pre-wrap">
+        <CopyBtn :value="detailRow?.detail" title="复制详情" class="pre-copy" />
+        <pre class="detail-text">{{ detailRow?.detail }}</pre>
+      </div>
       <template #footer>
-        <el-button @click="copyDetail">复制</el-button>
         <el-button type="primary" @click="detailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -142,6 +146,7 @@ import { logApi, userApi, type OperationLog, type SimpleUser } from '@/api'
 import { formatTime, formatRelativeTime } from '@/utils/format'
 import { useClientSort } from '@/composables/useClientSort'
 import EmptyState from '@/components/EmptyState.vue'
+import CopyBtn from '@/components/CopyBtn.vue'
 
 const logs = ref<OperationLog[]>([])
 const loading = ref(false)
@@ -169,15 +174,6 @@ const detailRow = ref<OperationLog | null>(null)
 function openDetail(row: OperationLog) {
   detailRow.value = row
   detailVisible.value = true
-}
-async function copyDetail() {
-  if (!detailRow.value?.detail) return
-  try {
-    await navigator.clipboard.writeText(detailRow.value.detail)
-    ElMessage.success('已复制')
-  } catch {
-    ElMessage.error('复制失败')
-  }
 }
 
 async function load() {
@@ -312,6 +308,18 @@ onMounted(() => {
 .detail-time {
   color: var(--app-text-muted);
   font-size: 12px;
+}
+/* 详情文本区：复制 icon 悬停右上角，点击即复制所见内容 */
+.detail-pre-wrap {
+  position: relative;
+}
+.detail-pre-wrap .pre-copy {
+  position: absolute;
+  top: 18px;
+  right: 14px;
+  z-index: 1;
+  background: var(--el-fill-color-light);
+  border-radius: var(--app-radius-xs, 4px);
 }
 .detail-text {
   margin: 0;
