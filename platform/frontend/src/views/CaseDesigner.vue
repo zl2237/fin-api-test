@@ -6,11 +6,22 @@
       <el-button size="small" @click="initialLoad">重试</el-button>
     </div>
     <template v-else>
-    <!-- 左侧接口列表（按分组树折叠，继承接口管理的分组与排序；返回入口统一收口到画布工具栏） -->
+    <!-- 左侧接口列表（按分组树折叠，继承接口管理的分组与排序；返回入口统一收口到画布工具栏）。
+         跨系统编排：各项目接口一视同仁——项目切换器默认本项目，可切到任意项目浏览其接口树 -->
     <div class="api-panel">
       <div class="panel-title">
         <span class="title-text">接口列表</span>
       </div>
+      <!-- 项目切换：默认本项目（跟随全局项目上下文），切换即载入该项目的分组树 -->
+      <el-select
+        v-model="selectedApiProject"
+        size="small"
+        filterable
+        placeholder="选择项目"
+        class="panel-project"
+      >
+        <el-option v-for="p in panelProjectOptions" :key="p.id" :label="p.label" :value="p.id" />
+      </el-select>
       <!-- 接口搜索：接口上百时免逐级展开找目标（与节点配置抽屉的 filterable 对等） -->
       <el-input
         v-model="apiKeyword"
@@ -45,7 +56,8 @@
             <span class="group-name">{{ row.name }}</span>
             <span class="group-count">{{ row.isUngrouped ? apisOf(null, apiKeyword || undefined).length : countApisWithDescendants(row.groupId!) }}</span>
           </button>
-          <!-- 分组下的直接接口（仅展开时显示；点击添加为画布节点，语义化 button） -->
+          <!-- 分组下的直接接口（仅展开时显示；点击添加为画布节点，语义化 button）。
+               非本项目接口带项目徽标：一眼可辨节点来自哪个系统 -->
           <div
             v-if="row.isUngrouped || isGroupExpanded(row.groupId!)"
             :style="{ paddingLeft: 10 + row.depth * 14 + 'px' }"
@@ -58,46 +70,13 @@
               :title="`${a.method} ${a.path}`"
               @click="onAddNode(a)"
             >
-              <span class="api-item-name">{{ a.name }}</span>
+              <span class="api-item-name">{{ a.name }}<el-tag v-if="selectedApiProject !== caseData.project_id" size="small" effect="plain" class="cross-badge">{{ panelProjectName(selectedApiProject) }}</el-tag></span>
               <span class="api-item-path">{{ a.method }} {{ a.path }}</span>
             </button>
           </div>
         </div>
-        <EmptyState v-if="apiList.length && apiKeyword && !filteredApiCount && !filteredCrossCount" description="无匹配接口" :image-size="60" />
-        <EmptyState v-if="!apiList.length" description="暂无接口，请先到接口管理新增" :image-size="60" />
-        <!-- 跨项目接口（跨系统编排）：默认收起，按项目分组；搜索时自动展开并入过滤，命中项带项目徽标 -->
-        <div v-if="crossApiList.length" class="cross-section">
-          <button
-            type="button"
-            class="group-header cross-header"
-            :class="{ 'is-open': crossEffectiveOpen }"
-            :aria-expanded="crossEffectiveOpen"
-            @click="crossOpen = !crossOpen"
-          >
-            <el-icon class="expand-icon" :class="{ expanded: crossEffectiveOpen }"><CaretRight /></el-icon>
-            <span class="group-name">跨项目接口</span>
-            <span class="group-count">{{ crossApiList.length }}</span>
-          </button>
-          <div v-if="crossEffectiveOpen">
-            <div v-for="g in crossProjectGroups" :key="g.projectId" class="cross-project">
-              <div class="cross-project-title">
-                <span class="cross-project-name">{{ g.name }}</span>
-                <span class="group-count">{{ crossApisOf(g.projectId).length }}</span>
-              </div>
-              <button
-                v-for="a in crossApisOf(g.projectId)"
-                :key="a.id"
-                type="button"
-                class="api-item cross-api-item"
-                :title="`${a.method} ${a.path}（${g.name}）`"
-                @click="onAddNode(a)"
-              >
-                <span class="api-item-name">{{ a.name }}<el-tag size="small" effect="plain" class="cross-badge">{{ g.name }}</el-tag></span>
-                <span class="api-item-path">{{ a.method }} {{ a.path }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <EmptyState v-if="apiList.length && apiKeyword && !filteredApiCount" description="无匹配接口" :image-size="60" />
+        <EmptyState v-if="!apiList.length" description="该项目暂无接口，请先到接口管理新增" :image-size="60" />
       </div>
     </div>
 
@@ -263,56 +242,45 @@ const tabStore = useTabStore()
 // 执行轮询统一走 useExecutionRunner（定时器注册/卸载清理/超时策略单点管理）
 const runner = useExecutionRunner()
 
-const apiList = ref<ApiDef[]>([])
-const apiGroups = ref<ApiGroup[]>([])
-
-// ===== 跨项目接口（跨系统编排，2026-11-12）=====
-// 本项目树照旧置顶；跨项目接口收进底部「跨项目接口」折叠区（按项目分组、默认收起）。
-// /apis 不带 project_id 即返回全项目接口；envsByProject 供节点抽屉「执行环境」
-// 下拉与 onAddNode 跨项目节点自动绑默认环境用
-const crossApiList = ref<ApiDef[]>([])
-const crossOpen = ref(false)
+// ===== 左栏接口面板：项目切换（跨系统编排，2026-11-12）=====
+// 各项目接口一视同仁：默认展示本项目接口树，可切换到任意项目（分组树同构）。
+// 点非本项目接口加节点时 onAddNode 自动绑其项目默认环境。
+const selectedApiProject = ref<number | null>(store.currentProjectId)
+// 全项目接口（一次拉取；抽屉下拉 option-group / 换绑同步名称 / 左栏按选中项目过滤共用）
+const allApiDefs = ref<ApiDef[]>([])
+// 各项目分组缓存（切换即取，未访问过的项目现拉）+ 各项目环境（节点级绑定数据源）
+const apiGroupsByProject = ref<Record<number, ApiGroup[]>>({})
 const envsByProject = ref<Record<number, Environment[]>>({})
-const allApis = computed<ApiDef[]>(() => [...apiList.value, ...crossApiList.value])
+const allApis = allApiDefs
+// 面板树数据 = 选中项目的接口（apiList 保持原名：下游 apisOf/计数/空态全部沿用）
+const apiList = computed<ApiDef[]>(() =>
+  allApiDefs.value.filter((a) => a.project_id === selectedApiProject.value))
 
-const crossEffectiveOpen = computed(() => crossOpen.value || !!apiKeyword.value.trim())
-
-/** 跨项目折叠区：项目分组（项目名来自全局 store；未知项目兜底 #id） */
-const crossProjectGroups = computed(() => {
-  const ids = [...new Set(crossApiList.value.map((a) => a.project_id))]
-  return ids.map((pid) => ({
-    projectId: pid,
-    name: store.projects.find((p) => p.id === pid)?.name || `项目#${pid}`,
+/** 项目切换器选项：本项目置顶带标注，其余项目按 store 顺序 */
+const panelProjectOptions = computed(() => {
+  const cur = store.currentProjectId
+  const projects = store.projects.map((p) => ({
+    id: p.id,
+    label: p.id === cur ? `${p.name}（本项目）` : p.name,
   }))
+  return projects.sort((a, b) => (a.id === cur ? -1 : b.id === cur ? 1 : 0))
 })
 
-/** 项目下的跨项目接口（带关键词过滤，与本项目树口径一致） */
-function crossApisOf(projectId: number): ApiDef[] {
-  let list = crossApiList.value.filter((a) => a.project_id === projectId)
-  const kw = apiKeyword.value.trim().toLowerCase()
-  if (kw) list = list.filter((a) => a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw))
-  return list
+function panelProjectName(pid: number | null): string {
+  return store.projects.find((p) => p.id === pid)?.name || `项目#${pid ?? '?'}`
 }
 
-const filteredCrossCount = computed(() => {
-  if (!apiKeyword.value) return 0
-  const kw = apiKeyword.value.toLowerCase()
-  return crossApiList.value.filter(
-    (a) => a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw),
-  ).length
-})
-
-// ===== 多级分组树（继承接口管理的分组层级与排序） =====
+// ===== 多级分组树（继承接口管理的分组层级与排序；展开记忆按面板项目隔离） =====
 const flatGroups = computed<FlatGroup[]>(() =>
-  apiGroups.value.map((g) => ({ id: g.id, parent_id: g.parent_id, name: g.name, sort_order: g.sort_order })),
+  (apiGroupsByProject.value[selectedApiProject.value ?? -1] || []).map(
+    (g) => ({ id: g.id, parent_id: g.parent_id, name: g.name, sort_order: g.sort_order })),
 )
 const {
   tree,
   isExpanded: isGroupExpanded,
   toggleExpand: toggleGroupExpand,
-  applyDefaultExpand,
   computeVisibleRows,
-} = useGroupTree(flatGroups, toRef(store, 'currentProjectId'), 'caseDesigner')
+} = useGroupTree(flatGroups, computed(() => selectedApiProject.value), 'caseDesigner')
 
 /** 主列表可见行：树扁平化 + 祖先展开可见性 + 未分组行（叶子分组有数据也可展开） */
 const visibleGroupRows = computed(() => computeVisibleRows(apiList.value.some((a) => !a.group_id), (id) => apisOf(id).length))
@@ -385,7 +353,6 @@ async function initialLoad() {
   loadError.value = ''
   try {
     await loadApis()
-    await loadApiGroups()
     if (id) await loadCase(id)
   } catch (e: any) {
     loadError.value = e?.message || '加载用例编排数据失败'
@@ -431,39 +398,32 @@ const currentConfig = computed<NodeConfig>(() => {
 
 async function loadApis() {
   if (!store.currentProjectId) return
-  apiList.value = await apiApi.list(store.currentProjectId)
-  await loadCrossData()
+  // 全项目接口一次拉取：左栏按选中项目过滤，抽屉下拉/换绑名称同步用全量
+  allApiDefs.value = await apiApi.list()
+  await loadPanelData(selectedApiProject.value)
 }
 
-/** 跨项目接口 + 各涉及项目环境（节点级环境绑定数据源）。失败不阻断编排（折叠区留空） */
-async function loadCrossData() {
-  const pid = store.currentProjectId
+/** 面板项目数据：分组树缓存按项目隔离；环境表为节点级绑定数据源（抽屉/自动绑默认） */
+async function loadPanelData(pid: number | null) {
   if (!pid) return
-  try {
-    const all = await apiApi.list()
-    crossApiList.value = all.filter((a) => a.project_id !== pid)
-  } catch {
-    crossApiList.value = []
-    return
-  }
-  // 涉及项目 = 本项目 ∪ 跨项目接口所在项目（本项目环境也入表：节点可改绑本项目其它环境）
-  const involved = [...new Set([pid, ...crossApiList.value.map((a) => a.project_id)])]
-  const entries = await Promise.all(involved.map(async (p) => {
+  if (!apiGroupsByProject.value[pid]) {
     try {
-      return [p, await envApi.list(p)] as const
+      apiGroupsByProject.value[pid] = await apiGroupApi.list(pid)
     } catch {
-      return [p, []] as const
+      apiGroupsByProject.value[pid] = []
     }
-  }))
-  envsByProject.value = Object.fromEntries(entries)
+  }
+  if (!envsByProject.value[pid]) {
+    try {
+      envsByProject.value[pid] = await envApi.list(pid)
+    } catch {
+      envsByProject.value[pid] = []
+    }
+  }
 }
 
-async function loadApiGroups() {
-  if (!store.currentProjectId) return
-  apiGroups.value = await apiGroupApi.list(store.currentProjectId)
-  // 无记忆时默认全部展开
-  applyDefaultExpand()
-}
+// 切换面板项目：现拉该项目分组与环境（接口已在全量表里，纯前端过滤零请求）
+watch(selectedApiProject, (pid) => { loadPanelData(pid) })
 
 async function loadCase(id: number) {
   const c = await caseApi.get(id)
@@ -810,9 +770,10 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-watch(() => store.currentProjectId, async () => {
+// 全局项目切换（顶栏）：面板跟随回本项目并重拉全量接口
+watch(() => store.currentProjectId, async (pid) => {
+  selectedApiProject.value = pid
   await loadApis()
-  await loadApiGroups()
 })
 </script>
 
@@ -848,6 +809,11 @@ watch(() => store.currentProjectId, async () => {
 }
 .title-text {
   flex: 1;
+}
+/* 项目切换器与搜索框同宽成对出现 */
+.panel-project {
+  margin: 8px 10px 0;
+  width: calc(100% - 20px);
 }
 .panel-search {
   margin: 8px 10px 0;
@@ -959,37 +925,10 @@ watch(() => store.currentProjectId, async () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* ===== 跨项目接口折叠区 ===== */
-.cross-section {
-  margin-top: 10px;
-  border-top: 1px dashed var(--app-border);
-  padding-top: 4px;
-}
-/* 与上方本项目树视觉区隔：头部加浅底色条 */
-.cross-header {
-  background: var(--app-hover);
-}
-.cross-project {
-  margin: 2px 0 6px;
-}
-.cross-project-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  font-size: 12px;
-}
-.cross-project-name {
-  color: var(--app-text-muted);
-  font-weight: 600;
-}
+/* 非本项目接口的项目徽标（api-item-name 内） */
 .cross-badge {
   margin-left: 6px;
   transform: translateY(-1px);
-}
-/* 跨项目条目轻微缩进：与本项目条目在搜索展开时仍可区分 */
-.cross-api-item {
-  padding-left: 18px;
 }
 .canvas-wrap {
   flex: 1;
