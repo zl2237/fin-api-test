@@ -18,8 +18,6 @@ router = APIRouter(prefix="/api/plans", tags=["执行方案"])
 
 # 与 executions 路由的并发上限一致（批次线程池 max_workers 封顶）
 MAX_CONCURRENCY = 16
-# chain 整链轮数上限（与批量执行 MAX_RUN_COUNT 同量级；实际记录数上限在执行预检兜底）
-MAX_ROUNDS = 9999
 
 
 def _get_or_404(db: Session, plan_id: int) -> models.ExecutionPlan:
@@ -32,26 +30,28 @@ def _get_or_404(db: Session, plan_id: int) -> models.ExecutionPlan:
 def _fill_item(db: Session, item: models.ExecutionPlanItem) -> schemas.PlanItemOut:
     """成员展示回填：case/数据集实时值 + 悬空标记（不炸、标红交前端）。
 
-    dataset_id 为空 = 沿用用例自身绑定：回传 case_dataset_id（而非名称快照，
+    dataset_ids 为空 = 沿用用例自身绑定：回传 case_dataset_ids（而非名称快照，
     绑定随时可改，名称由前端按 id 在数据集列表里实时取）。
     """
     case = crud.get_testcase(db, item.case_id)
-    dataset_name = None
+    dataset_names: list[str] | None = None
     dataset_missing = False
-    if item.dataset_id is not None:
-        ds = crud.get_dataset(db, item.dataset_id)
-        if ds:
-            dataset_name = ds.name
-        else:
-            dataset_missing = True
+    if item.dataset_ids:
+        dataset_names = []
+        for ds_id in item.dataset_ids:
+            ds = crud.get_dataset(db, ds_id)
+            if ds:
+                dataset_names.append(ds.name)
+            else:
+                dataset_names.append(f"# {ds_id}")
+                dataset_missing = True
     return schemas.PlanItemOut(
         id=item.id, case_id=item.case_id,
-        dataset_id=item.dataset_id,
-        run_count=item.run_count,
-        pass_vars=item.pass_vars, sort_order=item.sort_order,
+        dataset_ids=item.dataset_ids,
+        run_count=item.run_count, sort_order=item.sort_order,
         case_name=case.name if case else f"# {item.case_id}",
-        dataset_name=dataset_name,
-        case_dataset_id=getattr(case, "dataset_id", None) if case else None,
+        dataset_names=dataset_names,
+        case_dataset_ids=[d.id for d in crud.list_bound_datasets(db, item.case_id)] if case else [],
         case_missing=case is None, dataset_missing=dataset_missing)
 
 
@@ -79,8 +79,6 @@ def create(data: schemas.ExecutionPlanCreate, db: Session = Depends(get_db),
            user: models.User = Depends(get_current_user)):
     if not 1 <= data.concurrency <= MAX_CONCURRENCY:
         raise HTTPException(400, f"并发数须在 1~{MAX_CONCURRENCY} 之间")
-    if not 1 <= data.rounds <= MAX_ROUNDS:
-        raise HTTPException(400, f"整链轮数须在 1~{MAX_ROUNDS} 之间")
     if data.project_id is not None and not crud.get_project(db, data.project_id):
         raise HTTPException(404, "项目不存在")
     if not data.name.strip():
@@ -88,7 +86,6 @@ def create(data: schemas.ExecutionPlanCreate, db: Session = Depends(get_db),
 
     obj = models.ExecutionPlan(
         project_id=data.project_id, name=data.name.strip(), description=data.description,
-        mode=data.mode, rounds=data.rounds,
         concurrency=data.concurrency, created_by=user.id, updated_by=user.id)
     db.add(obj)
     db.commit()
@@ -114,12 +111,6 @@ def update(plan_id: int, data: schemas.ExecutionPlanUpdate, db: Session = Depend
         obj.name = data.name.strip()
     if data.description is not None:
         obj.description = data.description
-    if data.mode is not None:
-        obj.mode = data.mode
-    if data.rounds is not None:
-        if not 1 <= data.rounds <= MAX_ROUNDS:
-            raise HTTPException(400, f"整链轮数须在 1~{MAX_ROUNDS} 之间")
-        obj.rounds = data.rounds
     if data.concurrency is not None:
         if not 1 <= data.concurrency <= MAX_CONCURRENCY:
             raise HTTPException(400, f"并发数须在 1~{MAX_CONCURRENCY} 之间")
@@ -170,7 +161,7 @@ def update(plan_id: int, data: schemas.ExecutionPlanUpdate, db: Session = Depend
 def replace_items(plan_id: int, data: schemas.PlanItemsReplaceIn,
                   db: Session = Depends(get_db),
                   user: models.User = Depends(get_current_user)):
-    """成员整体替换：先全量校验再删旧插新，sort_order 按提交序重排（chain 模式即执行顺序）"""
+    """成员整体替换：先全量校验再删旧插新，sort_order 按提交序重排（记录生成序）"""
     obj = _get_or_404(db, plan_id)
     try:
         plan_executor.validate_plan_items(db, data.items)
@@ -181,9 +172,9 @@ def replace_items(plan_id: int, data: schemas.PlanItemsReplaceIn,
         models.ExecutionPlanItem.plan_id == obj.id).delete(synchronize_session=False)
     for i, it in enumerate(data.items):
         db.add(models.ExecutionPlanItem(
-            plan_id=obj.id, case_id=it.case_id, dataset_id=it.dataset_id,
+            plan_id=obj.id, case_id=it.case_id,
+            dataset_ids=(list(dict.fromkeys(it.dataset_ids)) if it.dataset_ids else None),
             run_count=it.run_count,
-            pass_vars=([v.strip() for v in it.pass_vars if v.strip()] or None) if it.pass_vars else None,
             sort_order=i))
     obj.updated_by = user.id
     db.commit()
@@ -195,8 +186,8 @@ def replace_items(plan_id: int, data: schemas.PlanItemsReplaceIn,
 @router.post("/{plan_id}/execute", response_model=list[schemas.ExecutionRecordOut])
 def execute(plan_id: int, db: Session = Depends(get_db),
             user: models.User = Depends(get_current_user)):
-    """一键执行方案：先全量预检（任一成员不可执行 → 400、零记录），再按模式发射
-    （combo 并行 concurrency=方案配置 / chain 串行链后台驱动），返回本次全部记录供轮询"""
+    """一键执行方案：先全量预检（任一成员不可执行 → 400、零记录），再并行发射
+    （concurrency=方案配置统一并发池；记录数 = Σ(成员数据集数 × run_count)），返回本次全部记录供轮询"""
     obj = _get_or_404(db, plan_id)
     try:
         records = plan_executor.run_plan(db, obj, user.id, trigger_type="plan")

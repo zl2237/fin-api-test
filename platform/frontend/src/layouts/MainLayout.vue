@@ -393,7 +393,7 @@
       <el-tab-pane label="参数来源" name="expression">
         <div class="corecap-intro">
           节点入参与断言期望值从四种来源<b>单选</b>：<code>常量 / 函数 / 引用 / SQL</code>。
-          引用按「节点 · 变量」选取（上游产出 / 本节点 SQL 参数 / 串行链注入）；SQL 内用 <code>{{ SQL_BRACE }}</code> 占位引用已产出值。入参在<b>数据集页的节点 tab</b> 配置。
+          引用按「节点 · 变量」选取（上游产出 / 本节点 SQL 参数）；SQL 内用 <code>{{ SQL_BRACE }}</code> 占位引用已产出值。入参在<b>数据集页的节点 tab</b> 配置。
         </div>
         <div class="corecap-group">
           <div class="corecap-group-title">四种取值来源</div>
@@ -537,10 +537,10 @@
             </div>
             <div class="corecap-card">
               <div class="corecap-card-head">
-                <code class="corecap-syntax">串行链传参</code>
-                <span class="corecap-desc">串行链成员配置「传下一棒」名单，执行成功后按名单把输出传给下一棒；下一棒入参经「引用 → __prev__」取值（相邻定向）</span>
+                <code class="corecap-syntax">跨系统传值</code>
+                <span class="corecap-desc">跨系统链路编排成融合用例（跨项目接口 + 节点级环境绑定），下游节点直接「引用 → 上游节点 · 变量」取值</span>
               </div>
-              <div class="corecap-example">棒1 提取 bl_no 并传下一棒 → 棒2 引用：__prev__ · bl_no（整链可再叠轮数×轮间并发的批量策略）</div>
+              <div class="corecap-example">推送资产节点提取 asset_id → 融资放款节点引用：n_push_asset · asset_id</div>
             </div>
           </div>
         </div>
@@ -639,7 +639,7 @@ const expressionData = {
   sources: [
     { syntax: 'constant 常量', desc: '手动录入固定值；数字/布尔/合法 JSON 自动转类型，对象/数组以 JSON 文本编辑（数组元素可内嵌引用 spec）', example: "「60」 / [{\"user_id\":\"60\"}]", result: '原样发送' },
     { syntax: 'func 函数', desc: '内置函数下拉单选；入参可填常量或引用上游变量（如 upper(引用 order_id)）', example: 'generate_bl_no(prefix=TEST)', result: 'TEST20260810143052' },
-    { syntax: 'ref 引用', desc: '按「节点 · 变量」选取：上游节点产出 / 本节点 SQL 参数 / 串行链上一棒注入(__prev__)；as_array 可包成单元素数组', example: '引用：n_create · bl_no', result: 'SMOK20260810143052' },
+    { syntax: 'ref 引用', desc: '按「节点 · 变量」选取：上游节点产出 / 本节点 SQL 参数；as_array 可包成单元素数组', example: '引用：n_create · bl_no', result: 'SMOK20260810143052' },
     { syntax: 'sql 参数级 SQL', desc: '前 3 类参数解析完后执行，取首行首列（或指定 column）为标量值；结果注册为 本节点.参数路径 供下游引用', example: 'SELECT id FROM sys_order WHERE bl_no={{n_create.bl_no}}', result: '10293' },
   ],
   timeRandom: [

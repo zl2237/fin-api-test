@@ -245,7 +245,7 @@ flowchart TB
 | [param_resolver.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/param_resolver.py) | 四来源(constant/func/ref/sql)参数解析唯一定义点;`{{节点.变量}}` 占位渲染被 extractor/assertion_engine 复用 |
 | [variables.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/variables.py) | 节点命名空间变量注册表(VariableRegistry)与参数依赖拓扑排序(order_params) |
 | [functions.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/functions.py) | 内置函数注册表(参数来源2 执行核,函数集自旧表达式引擎迁出) |
-| [context.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/context.py) | 执行上下文:注册表 + 串行链相邻传参注入(`__prev__` 伪命名空间,成员级 pass_vars 名单快照)+ 续跑 seed |
+| [context.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/context.py) | 执行上下文:注册表 + 续跑 seed(串行链 `__prev__` 注入已随 2026-11-12 B3 删链废止) |
 | [nested_path.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/nested_path.py) | 点号路径嵌套取/设值唯一实现(原名 preprocessor.py) |
 | [assertion_engine.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/assertion_engine.py) | 断言引擎:JSONPath、HTTP 状态码、响应时间、DB 查询、DB-vs-JSONPath(17 种) |
 | [extractor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/engine/extractor.py) | 变量提取:响应 JSONPath、数据库 SQL,提取值写入本节点命名空间供下游引用 |
@@ -264,7 +264,7 @@ flowchart TB
 | 模块 | 职责 |
 |---|---|
 | [execution_launcher.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/execution_launcher.py) | 执行编排核心:数据集行展开、创建执行记录、组装 ExecutionSpec、批量提交线程池、通知聚合 |
-| [plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) | 执行方案执行:combo 并行组合 / chain 串行链(轮内按序串行 + 相邻成员 pass_vars 定向传参注入 `__prev__` + 失败阻断本轮下游,轮间按 concurrency 并行;2026-10-28 套件收口承接) |
+| [plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) | 执行方案执行:并行组合(成员「选中数据集 × run_count」条记录按方案级 concurrency 并行;串行链/轮次/相邻传参已随 2026-11-12 B3 删链废止) |
 | [contract_sync.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/contract_sync.py) | 契约同步:接口字段与数据集参数出入比对与同步(见 6.12) |
 | [case_combine_service.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/case_combine_service.py) | 组合用例服务 |
 | [scheduler.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/scheduler.py) | APScheduler 调度:TestSchedule 转 job、重叠保护、错过不补跑、孤儿清理 |
@@ -318,7 +318,7 @@ platform/frontend/src/
 | 接口编辑 | `ApiEdit.vue` | 接口字段配置 |
 | 用例列表 | `CaseList.vue` | 用例 CRUD |
 | 用例编排 | `CaseDesigner.vue` | DAG 可视化编排 |
-| 执行方案 | `PlanList.vue` / `PlanEdit.vue` | 方案列表 / 成员编排(combo 并行组合 · chain 串行链 + 轮次 + 内嵌定时) |
+| 执行方案 | `PlanList.vue` / `PlanEdit.vue` | 方案列表 / 成员编排(成员并行 · 多选数据集 × 执行次数 + 内嵌定时) |
 | 数据集 | `DatasetManage.vue` | 数据集行级管理 |
 | 环境管理 | `EnvManage.vue` / `EnvEdit.vue` | 环境配置 |
 | 执行记录 | `Execution.vue` | 执行详情、步骤展开 |
@@ -450,7 +450,7 @@ flowchart TB
 
 - 变量全名 = `命名空间.变量路径`,存储结构 `{ns: {var_path: value}}`,不同命名空间互不覆盖——同名冲突从根上消除
 - 写入方仅三类:参数解析结果(节点.参数路径)/ 后置提取 / SQL 参数结果
-- 串行链方案上一棒按成员级 `pass_vars` 名单快照注入 `__prev__` 伪命名空间,下一棒以 `{{__prev__.变量名}}` 引用(相邻定向传参,2026-10-28 取代旧套件 `__suite__` 全局白名单;空名单=空注入照常执行,上一棒失败则阻断本轮下游)
+- 跨用例传值由**跨系统融合用例**承接:多系统接口编排进同一条用例,下游以 `{{节点.变量}}` 引用上游产出(2026-11-12 B3 删链废止串行链 `__prev__` 相邻传参;配置残留按「引用了不存在的节点」校验拦下)
 - 断点续跑 seed(report_context 产出)按原节点命名空间还原前缀步骤产出,下游引用链保持完整
 
 ### 6.5 断言引擎
@@ -541,15 +541,14 @@ flowchart TB
 - **执行时只检测不阻断**:DagExecutor 逐节点比对契约,出入聚合进 `record.summary.contract_gaps`,报告页顶部黄条与导出 HTML 契约卡同构展示
 - **默认数据集初始化**(保存用例钩子 `ensure_case_dataset`):未绑定 → 自动建「默认数据集」(全部节点按接口示例值初始化)并绑定;已绑定 → 仅补画布新增节点的初始参数,已有节点参数一律不动;初始化失败不阻断保存
 
-### 6.13 执行方案(2026-10-28 套件收口)
+### 6.13 执行方案(2026-10-28 套件收口;2026-11-12 B3 删链)
 
-参考 [plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) 与 [plans.py 路由](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/routers/plans.py)。旧「套件」(`case_type='suite'` + SuiteMember + suite_vars 全局白名单)已收口为执行方案(ExecutionPlan + ExecutionPlanItem),两档模式:
+参考 [plan_executor.py](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/services/plan_executor.py) 与 [plans.py 路由](file:///d:/CODE/PyCharm/pythonProject/fin-api-test/platform/backend/app/routers/plans.py)。旧「套件」(`case_type='suite'` + SuiteMember + suite_vars 全局白名单)已收口为执行方案(ExecutionPlan + ExecutionPlanItem);串行链/轮次/相邻传参(`__prev__`)已随 B3 删链废止,跨用例依赖改跨系统融合用例:
 
-- **combo 并行组合**:成员相互独立,成员级 `run_count` 重复次数 + 方案级 `concurrency` 并行提交上限——即原套件语义的平移
-- **chain 串行链**:链是依赖与传参的组织方式;方案级 `rounds` 整链轮数(1~9999),轮内按 `sort_order` 串行 + 相邻成员 `pass_vars` 名单定向传参(`__prev__` 命名空间,见 6.4)+ 成员失败/终止阻断**本轮**下游(其他轮不受影响),轮间按 `concurrency` 并行——与批量策略正交叠加
-- 成员可跨项目、可重复添加同一用例配不同数据集(成员级 `dataset_id` 换绑,悬空在执行预检报错);成员用例被删时级联清理并在执行预检报「成员已不存在」
-- **内嵌定时**:`schedule_type`(interval/daily)+ 启停 + `enabled` 总开关,调度器双源 reload(用例定时 + 方案定时共用装载链路);方案记录主序(rounds×成员)全量预建,plan_id 溯源
-- 执行记录按轮主序全量预建(rounds×成员,cap 9999),`record.plan_id` 溯源方案
+- **并行组合**:成员相互独立并行,失败互不影响;每成员「选中数据集 × `run_count` 执行次数」条记录,方案级 `concurrency` 并行提交上限
+- 成员可跨项目、可重复添加同一用例配不同数据集(成员级 `dataset_ids` 多选整组覆盖,空 = 用例自身 bound 绑定集合;悬空在执行预检报错);成员用例被删时级联清理并在执行预检报「成员已不存在」
+- **内嵌定时**:`schedule_type`(interval/daily)+ 启停 + `enabled` 总开关,调度器双源 reload(用例定时 + 方案定时共用装载链路)
+- 执行记录全量预建(cap 9999),`record.plan_id` 溯源方案
 
 ### 6.14 数据集访问记忆(v3,2026-10-29)
 
@@ -605,7 +604,7 @@ erDiagram
 | `Environment` | L87-108 | 环境配置 JSON、默认环境、排序 |
 | `ApiGroup` / `ApiDefinition` / `ApiField` | L110-167 | 接口分组、接口定义、请求字段 |
 | `CaseGroup` / `TestCase` | L169-230 | 用例分组、用例(DAG 配置、严格绑定执行环境 env_id) |
-| `ExecutionPlan` / `ExecutionPlanItem` | L456-530 | 执行方案(combo/chain 两档、rounds/concurrency、内嵌定时)、方案成员(数据集换绑、run_count、pass_vars) |
+| `ExecutionPlan` / `ExecutionPlanItem` | L456-530 | 执行方案(并行组合、concurrency、内嵌定时)、方案成员(数据集多选 dataset_ids、run_count) |
 | `DataSet` / `DataSetRow` / `CaseNodeConfig` | L233-286 | 数据集、数据行、节点配置快照(前置/后置/断言/等待) |
 | `ExecutionRecord` / `StepRecord` / `AssertionRecord` | L289-370 | 执行记录、步骤快照、断言结果 |
 | `ProjectVersion` | L370+ | 项目版本快照、回滚 |

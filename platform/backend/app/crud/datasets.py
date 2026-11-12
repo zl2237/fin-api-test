@@ -31,8 +31,9 @@ def list_rows(db: Session, dataset_id: int) -> list[models.DataSetRow]:
             .all())
 
 
-def count_cases_bound_to_dataset(db: Session, dataset_id: int) -> int:
-    """绑定该数据集的用例数（删除数据集前的引用校验）"""
-    return (db.query(models.TestCase)
-            .filter(models.TestCase.dataset_id == dataset_id)
-            .count())
+def list_bound_datasets(db: Session, case_id: int) -> list[models.DataSet]:
+    """用例绑定的数据集（bound=True，按 id 稳定序；绑定多选，2026-11-12 B3 定案）"""
+    return (db.query(models.DataSet)
+            .filter(models.DataSet.case_id == case_id, models.DataSet.bound.is_(True))
+            .order_by(models.DataSet.id)
+            .all())

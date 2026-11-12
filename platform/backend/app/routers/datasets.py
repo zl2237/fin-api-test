@@ -21,9 +21,8 @@ router = APIRouter(prefix="/api/datasets", tags=["数据集"])
 
 
 def _fill_extra(db: Session, obj: models.DataSet) -> models.DataSet:
-    """补齐列表/详情展示字段：审计名 + 被引用用例数"""
+    """补齐列表/详情展示字段：审计名（bound 标志为数据集自身列，直接随 ORM 返回）"""
     crud.fill_audit_names(db, obj)
-    setattr(obj, "case_bound_count", crud.count_cases_bound_to_dataset(db, obj.id))
     return obj
 
 

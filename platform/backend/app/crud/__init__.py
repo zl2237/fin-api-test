@@ -6,9 +6,9 @@
 - 新代码一律写域模块，不往 legacy.py 加内容。
 """
 from .datasets import (  # noqa: F401  数据集域（数据驱动测试）
-    count_cases_bound_to_dataset,
     get_dataset,
     get_row,
+    list_bound_datasets,
     list_datasets,
     list_rows,
 )

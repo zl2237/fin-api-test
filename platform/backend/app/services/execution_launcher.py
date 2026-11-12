@@ -33,19 +33,19 @@ class LaunchPlan:
 
 def build_launch_plan(db: Session, case, user_id: int, *,
                       trigger_type: str = "manual",
-                      dataset_id: int | None = None,
+                      dataset_ids: list[int] | None = None,
                       run_count: int = 1,
                       plan_id: int | None = None) -> LaunchPlan:
     """规划一个用例的一次发射：展开 → 建记录 → 组装 specs。
 
     数据集不可执行（无数据/不存在）或用例未绑定环境抛 ValueError，由调用方决定 4xx 或跳过。
-    单套语义：绑定数据集恒展开 1 条（该数据集唯一一套数据）；
-    run_count>1 时复用一次规划重复提交（run_count 次执行）。"""
+    dataset_ids 缺省 = 用例全部 bound 数据集（各一套）；run_count>1 时整组重复
+    （记录数 = 数据集数 × run_count，批量造数口径）。"""
     if not getattr(case, "env_id", None):
         raise ValueError(f"用例「{case.name}」未绑定执行环境，请先在用例编辑中选择")
     if not crud.get_environment(db, case.env_id):
         raise ValueError(f"用例「{case.name}」绑定的环境已不存在（id={case.env_id}），请重新绑定")
-    plan_items: list[dict] = dataset_service.plan_case_expansion(db, case, dataset_id=dataset_id)
+    plan_items: list[dict] = dataset_service.plan_case_expansion(db, case, dataset_ids=dataset_ids)
 
     # 执行记录与 spec 的环境：用例绑定环境（严格绑定）
     launch_env_id = case.env_id

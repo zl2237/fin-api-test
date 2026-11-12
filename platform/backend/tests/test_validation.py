@@ -22,12 +22,12 @@ class TestPass:
         ])
         assert errs == []
 
-    def test_suite_ref_allowed(self):
-        """__prev__ 白名单运行期注入，保存期放行（__dataset__ 平铺键已退役）"""
+    def test_prev_ns_ref_rejected(self):
+        """__prev__ 已随 B3 删链退役：残留引用按「引用了不存在的节点」报错拦下"""
         errs = validate_case_configs(DAG, [
             n1_config(params={"body": {"pol": {"source": "ref", "node_id": "__prev__", "var_path": "pol"}}}),
         ])
-        assert errs == []
+        assert errs and "__prev__" in errs[0]
 
     def test_constant_null_value_allowed(self):
         """constant 显式 null（value=None）保存期放行：发 JSON null 的合法语义

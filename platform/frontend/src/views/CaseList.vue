@@ -206,8 +206,8 @@
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" :icon="VideoPlay" aria-label="执行本行用例" @click="runCase(row)" />
                 </el-tooltip>
-                <el-tooltip :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
-                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" aria-label="数据集绑定" @click="openBind(row)" />
+                <el-tooltip :content="(row.bound_dataset_ids || []).length ? '已绑定数据集（可多选），点击调整' : '绑定数据集启用数据集执行'" placement="top">
+                  <el-button link :type="(row.bound_dataset_ids || []).length ? 'warning' : 'primary'" size="small" :icon="Grid" aria-label="数据集绑定" @click="openBind(row)" />
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
                 <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
@@ -345,8 +345,8 @@
                 <el-tooltip content="执行本行用例；勾选多行后按 Ctrl+Enter 从第一个勾选项开始执行" placement="top">
                   <el-button link type="success" size="small" :icon="VideoPlay" aria-label="执行本行用例" @click="runCase(row)" />
                 </el-tooltip>
-                <el-tooltip :content="row.dataset_id ? '已绑定数据集，点击更换/解绑' : '绑定数据集启用数据集执行'" placement="top">
-                  <el-button link :type="row.dataset_id ? 'warning' : 'primary'" size="small" :icon="Grid" aria-label="数据集绑定" @click="openBind(row)" />
+                <el-tooltip :content="(row.bound_dataset_ids || []).length ? '已绑定数据集（可多选），点击调整' : '绑定数据集启用数据集执行'" placement="top">
+                  <el-button link :type="(row.bound_dataset_ids || []).length ? 'warning' : 'primary'" size="small" :icon="Grid" aria-label="数据集绑定" @click="openBind(row)" />
                 </el-tooltip>
                 <!-- 低频操作收纳：报告/定时/复制/删除；tooltip 须在 dropdown 外层，嵌进默认插槽会破坏 click 触发器 -->
                 <el-tooltip content="更多操作（报告/定时/复制/删除）" placement="top">
@@ -493,12 +493,12 @@
       @changed="loadSchedules"
     />
 
-    <!-- 绑定数据集 -->
+    <!-- 绑定数据集（多选：bound 集合整体替换，执行 = 勾选项各展开一次） -->
     <el-dialog v-model="bindVisible" title="绑定数据集" width="480px">
       <div class="bind-tip">
-        未绑定无法执行；数据集按用例隔离（仅本用例名下可选），多场景建多个切换
+        未勾选任何项无法数据集执行；数据集按用例隔离（仅本用例名下可选），多场景勾多个
       </div>
-      <el-select v-model="bindDatasetId" placeholder="选择数据集（空=不绑定）" clearable style="width: 100%">
+      <el-select v-model="bindDatasetIds" multiple collapse-tags collapse-tags-tooltip placeholder="勾选数据集（可多选）" style="width: 100%">
         <el-option v-for="d in projectDatasets" :key="d.id" :label="`${d.name}（${Object.keys(d.rows?.[0]?.data?.nodes || {}).length} 个节点入参）`" :value="d.id" />
       </el-select>
       <div v-if="!projectDatasets.length" class="bind-empty">
@@ -890,13 +890,14 @@ async function runCase(row: TestCase) {
   if (!row.env_id) {
     return ElMessage.warning(`用例「${row.name}」未绑定执行环境，请先在列表「执行环境」列选择`)
   }
-  // 绑定数据集的用例：名下仅一个数据集→直接执行（零多余点击）；
-  // 多个数据集（多场景）→弹确认面板勾选（可多选各执行一次，临时换不改绑定）
-  if (row.dataset_id) {
+  // 绑定数据集的用例：绑定单套→直接执行（零多余点击）；
+  // 绑定多套（多场景）→弹确认面板勾选（默认全选绑定集，临时换不改绑定）
+  const boundIds = row.bound_dataset_ids || []
+  if (boundIds.length) {
     await loadDatasets(row.id)
     ddCase.value = row
-    if (projectDatasets.value.length <= 1) {
-      await confirmDataDrivenRun({ datasetIds: [row.dataset_id] })
+    if (boundIds.length <= 1) {
+      await confirmDataDrivenRun({ datasetIds: boundIds })
     } else {
       ddVisible.value = true
     }
@@ -1070,7 +1071,7 @@ const projectDatasets = ref<DataSet[]>([])
 const bindVisible = ref(false)
 const bindSaving = ref(false)
 const bindCase = ref<TestCase | null>(null)
-const bindDatasetId = ref<number | null>(null)
+const bindDatasetIds = ref<number[]>([])
 
 async function loadDatasets(caseId: number) {
   if (!store.currentProjectId) return
@@ -1085,7 +1086,7 @@ async function loadDatasets(caseId: number) {
 
 async function openBind(row: TestCase) {
   bindCase.value = row
-  bindDatasetId.value = row.dataset_id ?? null
+  bindDatasetIds.value = row.bound_dataset_ids ? [...row.bound_dataset_ids] : []
   await loadDatasets(row.id)
   bindVisible.value = true
 }
@@ -1094,9 +1095,9 @@ async function saveBind() {
   if (!bindCase.value) return
   bindSaving.value = true
   try {
-    await caseApi.update(bindCase.value.id, { dataset_id: bindDatasetId.value ?? null })
-    bindCase.value.dataset_id = bindDatasetId.value ?? null
-    ElMessage.success(bindDatasetId.value ? '已绑定数据集' : '已解绑')
+    const updated = await caseApi.setDatasetBinding(bindCase.value.id, bindDatasetIds.value)
+    bindCase.value.bound_dataset_ids = updated.bound_dataset_ids ?? [...bindDatasetIds.value]
+    ElMessage.success(bindDatasetIds.value.length ? `已绑定 ${bindDatasetIds.value.length} 个数据集` : '已全部解绑')
     bindVisible.value = false
   } catch (e: any) {
     ElMessage.error(e.message || '保存失败')

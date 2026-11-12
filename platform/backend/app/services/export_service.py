@@ -240,18 +240,12 @@ def export_cases_json(cases: list, group_names: dict[int, str], project_name: st
     """
     datasets_by_case = datasets_by_case or {}
     env_names: dict[int, str] = {}
-    bound_dataset_names: dict[int, str] = {}
     if db:
         env_ids = {c.env_id for c in cases if getattr(c, "env_id", None)}
         if env_ids:
             for ev in (db.query(models.Environment)
                        .filter(models.Environment.id.in_(env_ids)).all()):
                 env_names[ev.id] = ev.name
-        ds_ids = {c.dataset_id for c in cases if getattr(c, "dataset_id", None)}
-        if ds_ids:
-            for d in (db.query(models.DataSet)
-                      .filter(models.DataSet.id.in_(ds_ids)).all()):
-                bound_dataset_names[d.id] = d.name
 
     items = []
     for c in cases:
@@ -278,11 +272,11 @@ def export_cases_json(cases: list, group_names: dict[int, str], project_name: st
             "group": group_names.get(c.group_id) if c.group_id else None,
             "description": c.description,
             "env": env_names.get(c.env_id) if getattr(c, "env_id", None) else None,
-            "dataset_name": (bound_dataset_names.get(c.dataset_id)
-                             if getattr(c, "dataset_id", None) else None),
+            # 绑定数据集名列表（多选绑定，B3；按 id 稳定序）
+            "bound_dataset_names": [d.name for d in datasets_by_case.get(c.id, []) if d.bound],
             "edges": (c.dag_config or {}).get("edges", []),
             "nodes": nodes_out,
-            # 数据集入参配置（绑定数据集优先；多数据集场景全量导出）
+            # 数据集入参配置（该用例全部数据集全量导出，绑定看 bound_dataset_names）
             "datasets": [
                 {"name": d.name,
                  "description": getattr(d, "description", None),

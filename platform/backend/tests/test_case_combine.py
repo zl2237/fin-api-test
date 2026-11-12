@@ -28,11 +28,11 @@ def _nc(node_id, api_id=1, extract=None, asserts=None, wait=0):
     )
 
 
-def _case(cid, pid=1, nodes=None, edges=None, configs=None, name=None, dataset_id=None):
+def _case(cid, pid=1, nodes=None, edges=None, configs=None, name=None):
     return SimpleNamespace(
         id=cid, project_id=pid, name=name or f"用例{cid}", group_id=None,
         dag_config={"nodes": nodes or [], "edges": edges or []},
-        node_configs=configs or [], dataset_id=dataset_id,
+        node_configs=configs or [],
     )
 
 
@@ -67,6 +67,7 @@ class TestCombineCases:
             return SimpleNamespace(id=999, **payload)
 
         with patch.object(svc.crud, "get_testcase", side_effect=fake_get_testcase), \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]), \
              patch.object(svc.crud, "create_testcase", side_effect=fake_create), \
              patch.object(svc.crud, "fill_audit_names"):
             obj = svc.combine_cases(_fake_db(), case_ids or [c.id for c in cases], "组合", None, 1)
@@ -89,7 +90,8 @@ class TestCombineCases:
         c1 = _case(1, pid=1, nodes=[_node("a")])
         c2 = _case(2, pid=2, nodes=[_node("b")])
         cases = {1: c1, 2: c2}
-        with patch.object(svc.crud, "get_testcase", side_effect=lambda db, cid: cases.get(cid)):
+        with patch.object(svc.crud, "get_testcase", side_effect=lambda db, cid: cases.get(cid)), \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]):
             with pytest.raises(ValueError, match="不属于同一项目"):
                 svc.combine_cases(_fake_db(), [1, 2], "x", None, 1)
 
@@ -169,7 +171,7 @@ class TestScanSplitBoundary:
     def _run(self, case, node_ids, ds=None):
         with patch.object(svc.crud, "get_testcase", return_value=case):
             if ds is not None:
-                with patch.object(svc.crud, "get_dataset", return_value=ds):
+                with patch.object(svc.crud, "list_bound_datasets", return_value=[ds]):
                     return svc.scan_split_boundary(_fake_db(), case.id, node_ids)
             return svc.scan_split_boundary(_fake_db(), case.id, node_ids)
 
@@ -188,7 +190,6 @@ class TestScanSplitBoundary:
             1,
             nodes=[_node("m1"), _node("s1")],
             configs=[move_nc, stay_nc],
-            dataset_id=33,
         )
         ds = self._ds({
             "m1": {"params": {"body": {"x": {"source": "ref", "node_id": "s1", "var_path": "token"}}}},
@@ -203,7 +204,7 @@ class TestScanSplitBoundary:
         nc1 = _nc("m1", extract=[{"name": "x"}])
         nc2 = _nc("s1", extract=[{"name": "y"}])
         case = _case(1, nodes=[_node("m1"), _node("s1")],
-                     configs=[nc1, nc2], dataset_id=33)
+                     configs=[nc1, nc2])
         ds = self._ds({
             "m1": {"params": {"body": {"a": {"source": "ref", "node_id": "m1", "var_path": "x"}}}},
             "s1": {"params": {"body": {"b": {"source": "ref", "node_id": "s1", "var_path": "y"}}}},
@@ -238,6 +239,7 @@ class TestSplitCase:
         db = SimpleNamespace(query=lambda *a, **k: FakeQuery(), commit=lambda: None)
 
         with patch.object(svc.crud, "get_testcase", return_value=case), \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]), \
              patch.object(svc.crud, "create_testcase", side_effect=fake_create), \
              patch.object(svc.crud, "update_testcase", side_effect=fake_update), \
              patch.object(svc.crud, "fill_audit_names"):

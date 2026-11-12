@@ -24,7 +24,7 @@
       </div>
 
       <template v-else-if="plan">
-        <!-- 成员编排：模式与批量策略收进卡片头部（轻量条），正文只留成员与添加 -->
+        <!-- 成员编排：并发与描述收进轻量条，正文只留成员与添加 -->
         <el-card shadow="never" class="member-card">
           <template #header>
             <div class="card-head">
@@ -32,35 +32,23 @@
                 <span>方案成员</span>
                 <span class="member-count">{{ items.length }} 个</span>
               </div>
-              <el-radio-group v-model="mode" size="small" @change="onModeChange">
-                <el-radio-button value="combo">并行组合</el-radio-button>
-                <el-radio-button value="chain">串行链</el-radio-button>
-              </el-radio-group>
             </div>
           </template>
 
-          <!-- 批量策略 + 描述：一行轻量条，说明文字全部收进 ? 提示 -->
+          <!-- 并发 + 描述：一行轻量条，说明文字全部收进 ? 提示 -->
           <div class="meta-strip">
-            <template v-if="mode === 'chain'">
-              <span class="strip-label">整链轮数</span>
-              <el-input-number v-model="rounds" :min="1" :max="9999" size="small" controls-position="right" style="width: 100px" @change="dirty = true" />
-              <span class="strip-label">轮间并发</span>
-              <el-input-number v-model="concurrency" :min="1" :max="16" size="small" controls-position="right" style="width: 92px" @change="dirty = true" />
-            </template>
-            <template v-else>
-              <span class="strip-label">并发上限</span>
-              <el-input-number v-model="concurrency" :min="1" :max="16" size="small" controls-position="right" style="width: 92px" @change="dirty = true" />
-            </template>
-            <el-tooltip :content="mode === 'chain' ? chainTip : comboTip" placement="top" popper-class="app-tip">
+            <span class="strip-label">并发上限</span>
+            <el-input-number v-model="concurrency" :min="1" :max="16" size="small" controls-position="right" style="width: 92px" @change="dirty = true" />
+            <el-tooltip :content="comboTip" placement="top" popper-class="app-tip">
               <el-icon class="strip-help"><QuestionFilled /></el-icon>
             </el-tooltip>
             <el-input v-model="description" class="strip-desc" placeholder="方案描述（可选）" maxlength="500" @input="dirty = true" />
           </div>
 
-          <!-- 成员编辑：combo 拖拽仅影响记录生成序；chain 顺序即轮内执行顺序 -->
+          <!-- 成员编辑：拖拽仅影响记录生成序 -->
           <div v-if="items.length" ref="listRef" class="member-list">
             <div v-for="(m, i) in items" :key="m.case_id + '-' + i" class="member-row">
-              <el-tooltip :content="mode === 'chain' ? '拖拽排序（上游 → 下游）' : '拖拽排序'" placement="top" popper-class="app-tip">
+              <el-tooltip content="拖拽排序" placement="top" popper-class="app-tip">
                 <el-icon class="drag-handle"><Rank /></el-icon>
               </el-tooltip>
               <span class="member-order">{{ i + 1 }}</span>
@@ -70,18 +58,18 @@
               <el-tag v-else-if="!m.env_id" size="small" type="danger">环境未绑定</el-tag>
 
               <div class="member-right">
-                <!-- 数据集单选（换套执行）：选项懒加载（按用例隔离归属） -->
+                <!-- 数据集多选（不选 = 用例默认绑定集合；选中则整组覆盖）：选项懒加载（按用例隔离归属） -->
                 <el-select
                   v-if="!m.case_missing"
-                  :model-value="m.dataset_id ?? ''"
-                  style="width: 240px"
+                  :model-value="m.dataset_ids ?? []"
+                  multiple collapse-tags collapse-tags-tooltip
+                  style="width: 260px"
                   size="small"
                   :loading="!dsOptions[m.case_id]"
-                  :placeholder="m.dataset_id == null ? '用例默认绑定' : '数据集'"
+                  placeholder="用例默认绑定"
                   @visible-change="(v: boolean) => v && loadDsOptions(m)"
-                  @change="(v: any) => onPickDataset(m, v)"
+                  @change="(v: any) => onPickDatasets(m, v)"
                 >
-                  <el-option value="" label="用例默认绑定" />
                   <el-option
                     v-for="o in dsOptions[m.case_id] || []"
                     :key="o.id"
@@ -90,32 +78,11 @@
                     :disabled="o.disabled"
                   />
                 </el-select>
-                <el-tooltip v-if="m.dataset_missing" :content="`覆盖数据集 #${m.dataset_id} 已删除，保存前请重选`" placement="top">
+                <el-tooltip v-if="m.dataset_missing" content="选中的部分数据集已删除，保存前请重选" placement="top">
                   <el-tag size="small" type="danger">数据集悬空</el-tag>
                 </el-tooltip>
 
-                <!-- chain：本成员成功后按名单把输出变量传给下一棒（末棒无下游，不配置） -->
-                <el-tooltip
-                  v-if="mode === 'chain' && i < items.length - 1"
-                  content="成功后按名单快照输出变量传给下一棒（下一棒以 __prev__.变量名 引用）"
-                  placement="top" popper-class="app-tip"
-                >
-                  <div class="pass-vars-box">
-                    <span class="pass-vars-label">传下一棒</span>
-                    <el-select
-                      v-model="m.pass_vars"
-                      multiple filterable allow-create default-first-option
-                      :reserve-keyword="false"
-                      placeholder="变量名，回车添加"
-                      size="small"
-                      style="width: 180px"
-                      @change="dirty = true"
-                    />
-                  </div>
-                </el-tooltip>
-                <el-tag v-else-if="mode === 'chain'" size="small" effect="plain" type="info">末棒</el-tag>
-
-                <span v-if="mode === 'combo'" class="run-count-box">
+                <span class="run-count-box">
                   <span class="run-count-label">×N</span>
                   <el-input-number v-model="m.run_count" :min="1" :max="9999" size="small" style="width: 96px" controls-position="right" @change="dirty = true" />
                 </span>
@@ -232,19 +199,10 @@ const running = ref(false)
 
 const name = ref('')
 const description = ref('')
-// 方案模式：combo 并行组合 / chain 串行链（轮内按序+相邻定向传参+失败阻断；批量策略叠加）
-const mode = ref<'combo' | 'chain'>('combo')
-// chain 专用：整链轮数（轮内串行、轮间按 concurrency 并行）；combo 恒 1
-const rounds = ref(1)
 const concurrency = ref(4)
 
-// 模式说明（tooltip 文案集中在此，界面不再铺文字）
-const chainTip = '轮内按序串行＋相邻定向传参＋失败阻断本轮下游；第 r 轮取各成员数据集第 r 套值（不足沿用末套）'
+// 执行说明（tooltip 文案集中在此，界面不再铺文字）
 const comboTip = '成员独立并行执行，失败互不影响；并发为提交上限（1=串行）'
-
-function onModeChange() {
-  dirty.value = true
-}
 
 // 内嵌定时本地态（保存时随基础字段一并提交；清除走 schedule_off）
 const scheduleType = ref<'interval' | 'daily'>('interval')
@@ -294,10 +252,9 @@ interface ItemRow {
   case_name: string
   project_id: number | null
   env_id: number | null
-  dataset_id: number | null
-  case_dataset_id: number | null  // 用例自身绑定（dataset_id 空时实际生效）
+  dataset_ids: number[] | null  // 选中数据集（null = 用例默认绑定集合，整组覆盖语义）
+  case_dataset_ids: number[]    // 用例自身绑定集合（dataset_ids 空时实际生效）
   run_count: number
-  pass_vars: string[]             // chain：传给下一棒的输出变量名单（末棒空）
   case_missing: boolean
   dataset_missing: boolean
 }
@@ -323,8 +280,6 @@ async function load() {
     plan.value = await planApi.get(planId)
     name.value = plan.value.name
     description.value = plan.value.description || ''
-    mode.value = plan.value.mode || 'combo'
-    rounds.value = plan.value.rounds || 1
     concurrency.value = plan.value.concurrency
     scheduleType.value = plan.value.schedule_type || 'interval'
     scheduleMinutes.value = plan.value.schedule_interval_minutes || 30
@@ -337,10 +292,9 @@ async function load() {
       const base: ItemRow = {
         case_id: it.case_id, case_name: it.case_name || '',
         project_id: null, env_id: null,
-        dataset_id: it.dataset_id ?? null,
-        case_dataset_id: it.case_dataset_id ?? null,
+        dataset_ids: it.dataset_ids ?? null,
+        case_dataset_ids: it.case_dataset_ids ?? [],
         run_count: it.run_count || 1,
-        pass_vars: it.pass_vars || [],
         case_missing: !!it.case_missing, dataset_missing: !!it.dataset_missing,
       }
       if (base.case_missing) return base
@@ -349,16 +303,17 @@ async function load() {
         base.case_name = c.name
         base.project_id = c.project_id
         base.env_id = c.env_id ?? null
-        base.case_dataset_id = c.dataset_id ?? null
+        base.case_dataset_ids = c.bound_dataset_ids ?? []
       } catch { /* 用例详情取失败不阻塞编辑（执行预检兜底） */ }
-      // 覆盖数据集选项 label 立即用详情回填：选项是懒加载（下拉打开才拉全量），
+      // 选中数据集选项 label 立即用详情回填：选项是懒加载（下拉打开才拉全量），
       // 未回填时 el-select 值无匹配 option 会直接显示裸 dataset_id（如「103」）
-      if (base.dataset_id != null && !base.dataset_missing && it.dataset_name
+      if (base.dataset_ids?.length && !base.dataset_missing
           && !dsOptions.value[base.case_id]?.length) {
-        dsOptions.value[base.case_id] = [{
-          id: base.dataset_id,
-          label: it.dataset_name + (base.dataset_id === base.case_dataset_id ? '（用例绑定）' : ''),
-        }]
+        const names = it.dataset_names || []
+        dsOptions.value[base.case_id] = base.dataset_ids.map((id, j) => ({
+          id,
+          label: (names[j] || `数据集#${id}`) + (base.case_dataset_ids.includes(id) ? '（用例绑定）' : ''),
+        }))
       }
       return base
     }))
@@ -453,8 +408,7 @@ function addItem() {
   items.value.push({
     case_id: c.id, case_name: c.name,
     project_id: addProjectId.value, env_id: c.env_id ?? null,
-    dataset_id: null, case_dataset_id: c.dataset_id ?? null, run_count: 1,
-    pass_vars: [],
+    dataset_ids: null, case_dataset_ids: c.bound_dataset_ids ?? [], run_count: 1,
     case_missing: false, dataset_missing: false,
   })
   dirty.value = true
@@ -475,7 +429,7 @@ async function loadDsOptions(m: ItemRow) {
     dsOptions.value[m.case_id] = list.map(ds => ({
       id: ds.id,
       label: ds.rows.length
-        ? ds.name + (ds.id === m.case_dataset_id ? '（用例绑定）' : '')
+        ? ds.name + (m.case_dataset_ids.includes(ds.id) ? '（用例绑定）' : '')
         : `${ds.name}（无数据）`,
       disabled: !ds.rows.length,
     }))
@@ -489,8 +443,9 @@ async function loadDsOptions(m: ItemRow) {
   }
 }
 
-function onPickDataset(m: ItemRow, v: number | string) {
-  m.dataset_id = v === '' ? null : Number(v)
+function onPickDatasets(m: ItemRow, v: number[]) {
+  // 多选整组覆盖：清空 = 回归用例默认绑定集合
+  m.dataset_ids = v.length ? v : null
   m.dataset_missing = false
   dirty.value = true
 }
@@ -503,8 +458,6 @@ async function onSave(silent = false) {
     plan.value = await planApi.update(planId, {
       name: name.value.trim(),
       description: description.value,
-      mode: mode.value,
-      rounds: mode.value === 'chain' ? rounds.value : 1,
       concurrency: concurrency.value,
       // 已配置或本次动过定时才提交四件套：未配置不得隐式配上默认定时，清除后不得随保存复活
       ...(plan.value?.schedule_type || scheduleTouched.value
@@ -518,9 +471,8 @@ async function onSave(silent = false) {
     })
     plan.value = await planApi.updateItems(planId, items.value.map((m, i) => ({
       case_id: m.case_id,
-      dataset_id: m.dataset_id,
+      dataset_ids: m.dataset_ids,
       run_count: m.run_count,
-      pass_vars: m.pass_vars,
       sort_order: i,
     })))
     dirty.value = false
@@ -664,17 +616,6 @@ onUnmounted(destroySortable)
 .strip-desc {
   flex: 1;
   min-width: 180px;
-}
-/* chain 相邻定向传参（传下一棒） */
-.pass-vars-box {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.pass-vars-label {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  white-space: nowrap;
 }
 /* 成员列表 */
 .member-list {

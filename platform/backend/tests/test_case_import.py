@@ -84,15 +84,12 @@ def _case(db, project_id, env, api, group_id=None, contract_template_id=None):
     db.add(models.CaseNodeConfig(
         case_id=case.id, node_id="n2", api_id=api.id,
         post_extract=[], assertions=[], wait_after_ms=0))
-    ds = models.DataSet(project_id=project_id, case_id=case.id, name="默认数据集")
+    ds = models.DataSet(project_id=project_id, case_id=case.id, name="默认数据集", bound=True)
     db.add(ds)
     db.commit()
     db.add(models.DataSetRow(dataset_id=ds.id, row_index=1,
                              data={"nodes": {"n1": {"params": {"body": {"order_no": "A1"}}}}}))
     db.commit()
-    case.dataset_id = ds.id
-    db.commit()
-    db.refresh(case)
     return case
 
 
@@ -202,7 +199,7 @@ class TestImport:
         rows = db.query(models.DataSetRow).filter(models.DataSetRow.dataset_id == dss[0].id).all()
         assert len(rows) == 1
         assert rows[0].data["nodes"]["n1"]["params"]["body"]["order_no"] == "A1"
-        assert new_case.dataset_id == dss[0].id
+        assert dss[0].bound is True  # 绑定回放：bound 标志随导入重建
 
     def test_api_snapshot_rebuild_with_fields_and_code(self, db):
         """目标项目无同 path 接口：用快照重建（字段全量、code 自动生成）"""
@@ -229,7 +226,7 @@ class TestImport:
 
         a, b = payload["items"][0], payload2["items"][0]
         assert b["name"] == a["name"] and b["description"] == a["description"]
-        assert b["env"] == a["env"] and b["dataset_name"] == a["dataset_name"]
+        assert b["env"] == a["env"] and b["bound_dataset_names"] == a["bound_dataset_names"]
         assert b["edges"] == a["edges"]
         assert [n["id"] for n in b["nodes"]] == [n["id"] for n in a["nodes"]]
         assert b["nodes"][0]["api_snapshot"]["fields"] == a["nodes"][0]["api_snapshot"]["fields"]

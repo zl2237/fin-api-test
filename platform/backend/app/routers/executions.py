@@ -28,16 +28,28 @@ def execute(case_id: int, data: schemas.ExecutionCreate, db: Session = Depends(g
     """触发用例执行（异步）：立即创建 running 状态的执行记录并返回，后台线程池执行。
     前端通过 GET /executions/{id} 轮询执行状态。
     环境严格绑定：一律用用例绑定的环境（case.env_id），请求里的 env_id 兼容忽略。
-    数据驱动：绑定数据集的用例用其单套数据执行（dataset_id 可临时换数据集）。"""
+    数据集（绑定多选语义）：dataset_id 显式指定 → 该套；缺省 → 用例唯一 bound 数据集；
+    绑定多套且未指定 → 400（请用执行确认面板/批量执行/方案）。"""
     if data.case_id != case_id:
         raise HTTPException(400, "case_id 不一致")
     case = crud.get_testcase(db, case_id)
     if not case:
         raise HTTPException(404, f"用例不存在: {case_id}")
 
+    dataset_ids: list[int] | None
+    if data.dataset_id is not None:
+        dataset_ids = [data.dataset_id]
+    else:
+        bounds = crud.list_bound_datasets(db, case.id)
+        if not bounds:
+            raise HTTPException(400, "用例未绑定数据集：请先在用例列表「绑定数据集」勾选")
+        if len(bounds) > 1:
+            raise HTTPException(400, f"用例绑定了 {len(bounds)} 个数据集，单次执行请显式指定 dataset_id"
+                                     "（或用批量执行/方案多套并行）")
+        dataset_ids = [bounds[0].id]
     try:
         plan = build_launch_plan(db, case, user.id,
-                                 dataset_id=data.dataset_id)
+                                 dataset_ids=dataset_ids)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _validate_concurrency(data.concurrency)
@@ -51,8 +63,10 @@ def batch_execute(data: schemas.BatchExecutionCreate, db: Session = Depends(get_
     后台线程池执行，并发数可配（concurrency=1 逐个串行，一个结束再下一个；
     缺省 4 并行，同环境共享登录 token 防互踢）。前端可轮询各 record 状态。
     环境严格绑定：每个用例各自用绑定环境（case.env_id），批次可混环境。
-    绑定数据集的用例按该数据集的单套值展开为一条执行记录，与其他条目一并平铺提交。
-    执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2 共 6 轮。"""
+    数据集（绑定多选语义）：每个用例按其全部 bound 数据集各展开一条记录，
+    与其他条目一并平铺提交。
+    执行次数：counts 与 case_ids 一一对应（缺省全 1），如 A×3、B×1、C×2，
+    记录数 = Σ(各用例 bound 数据集数 × 次数)。"""
     if not data.case_ids:
         raise HTTPException(400, "请至少选择一个用例")
     _validate_concurrency(data.concurrency)
@@ -163,9 +177,8 @@ def terminate_execution(exec_id: int, db: Session = Depends(get_db), user: model
     两类场景统一入口：
     - 僵尸记录：进程重启致后台线程丢失，记录永远停在 running——直接落 terminated
     - 活动执行：runner 在节点间检查点感知本状态后提前退出，剩余节点并入未执行统计；
-      方案（combo 并行/chain 串行链）成员记录终止时连带终止同 plan_id 名下
-      running 的其他成员行（成员 DagExecutor 检查点只看自己的记录状态；
-      chain 驱动线程遇非 running 记录自动跳过，整链随之停摆）
+      方案成员记录终止时连带终止同 plan_id 名下 running 的其他成员行
+      （成员 DagExecutor 检查点只看自己的记录状态）
     """
     obj = crud.get_execution(db, exec_id)
     if not obj:

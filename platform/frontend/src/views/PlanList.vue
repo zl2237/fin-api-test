@@ -40,7 +40,6 @@
             <el-link type="primary" :underline="false" @click="router.push(`/plans/edit/${row.id}`)">
               {{ row.name }}
             </el-link>
-            <el-tag v-if="row.mode === 'chain'" size="small" effect="plain" type="warning" class="mode-mark">串行链</el-tag>
             <span v-if="row.description" class="plan-desc" :title="row.description">· {{ row.description }}</span>
           </template>
         </el-table-column>
@@ -54,13 +53,11 @@
             <span class="app-data">{{ row.item_count }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="批量策略" width="90" align="center">
+        <el-table-column label="并发" width="90" align="center">
           <template #default="{ row }">
-            <!-- combo：成员并行上限；chain：整链轮数×轮间并发（轮内恒串行） -->
-            <el-tooltip v-if="row.mode === 'chain'" :content="`整链 ${row.rounds} 轮（轮内按序串行+相邻传参+失败阻断），轮间最多 ${row.concurrency} 轮并行`" placement="top" popper-class="app-tip">
-              <span class="app-data">{{ row.rounds }}轮×{{ row.concurrency }}</span>
+            <el-tooltip :content="`记录统一并发池上限（记录数 = Σ(成员数据集数 × 执行次数)）`" placement="top" popper-class="app-tip">
+              <span class="app-data">并发{{ row.concurrency }}</span>
             </el-tooltip>
-            <span v-else class="app-data">并发{{ row.concurrency }}</span>
           </template>
         </el-table-column>
         <el-table-column label="定时" min-width="150">
@@ -97,7 +94,7 @@
         </el-table-column>
         <el-table-column label="操作" width="170" fixed="right" align="center">
           <template #default="{ row }">
-            <el-tooltip :content="row.mode === 'chain' ? '一键执行（整链按轮驱动，轮内串行+传参）' : '一键执行（成员独立并行）'" placement="top">
+            <el-tooltip content="一键执行（成员记录独立并行）" placement="top">
               <el-button link type="success" size="small" :icon="VideoPlay" aria-label="一键执行方案" :loading="runningId === row.id" @click="onRun(row)" />
             </el-tooltip>
             <el-tooltip content="查看执行记录" placement="top">
@@ -197,9 +194,7 @@ async function onToggleEnabled(row: ExecutionPlan) {
 async function onRun(row: ExecutionPlan) {
   if (!row.item_count) return ElMessage.warning('方案未配置成员，请先编辑添加用例')
   try {
-    const detail = row.mode === 'chain'
-      ? `串行链共 ${row.item_count} 个成员，整链 ${row.rounds} 轮（轮内按序串行+相邻传参+失败阻断本轮下游，轮间最多 ${row.concurrency} 轮并行）`
-      : `共 ${row.item_count} 个成员，按并发 ${row.concurrency} 独立并行执行（成员失败互不影响）`
+    const detail = `共 ${row.item_count} 个成员，各成员「选中数据集 × 执行次数」条记录按并发 ${row.concurrency} 独立并行执行（成员失败互不影响）`
     await ElMessageBox.confirm(`方案「${row.name}」${detail}，确认开始？`, '一键执行', {
       type: 'info',
       confirmButtonText: '开始执行',
@@ -309,10 +304,6 @@ watch(currentProjectId, (newId) => {
   margin-left: 6px;
   font-size: 12px;
   color: var(--app-text-muted);
-}
-/* 串行链模式徽标（方案名称列） */
-.mode-mark {
-  margin-left: 6px;
 }
 .next-run {
   margin-left: 6px;

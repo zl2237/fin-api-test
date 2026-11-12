@@ -527,8 +527,8 @@ class TestAllTerminal:
 
 
 class TestSendPlanNotify:
-    def _plan(self, name="冒烟方案", mode="chain"):
-        return SimpleNamespace(name=name, mode=mode)
+    def _plan(self, name="冒烟方案"):
+        return SimpleNamespace(name=name)
 
     def test_all_success_sends_one_summary(self):
         env = _env(notify_config=WEBHOOK_CFG)
@@ -545,7 +545,6 @@ class TestSendPlanNotify:
             title, content = mock.send_markdown.call_args[0]
             assert title == "方案执行通知"
             assert "冒烟方案" in content
-            assert "串行链" in content
             assert "✅ 全部通过" in content
             assert "2/0/0" in content  # 成功/失败/终止
             assert "方案定时" not in content
@@ -559,7 +558,7 @@ class TestSendPlanNotify:
                          summary={"error": "断言失败：金额应为 0.90 实际 6.3"}),
             _plan_record(23, case_id=3, status="failed"),
         ]
-        db = _PlanDb(recs, plan=self._plan(name="回归链", mode="combo"),
+        db = _PlanDb(recs, plan=self._plan(name="回归方案"),
                      env_by_id={1: env})
         with patch("utils.wecom_util.WeComRobot") as MockRobot:
             send_plan_notify(db, 5, [21, 22, 23])
@@ -568,7 +567,6 @@ class TestSendPlanNotify:
             assert "用例2（#22）" in content and "断言失败" in content
             assert "用例3（#23）" in content
             assert "方案定时" in content  # trigger_type=plan_schedule 覆盖
-            assert "并行组合" in content
 
     def test_dispatch_per_distinct_env(self):
         env1 = _env(name="环境A", notify_config=WEBHOOK_CFG)

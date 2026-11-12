@@ -234,24 +234,23 @@ def _api_bindings(db: Session, api_id: int):
             if isinstance(n, dict) and n.get("id"):
                 ids.add(str(n["id"]))
         dag_node_ids[c.id] = ids
-    ds_ids = {c.dataset_id for c in cases.values() if getattr(c, "dataset_id", None)}
-    dss = {}
-    if ds_ids:
-        for d in db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids)).all():
-            dss[d.id] = d
+    # 绑定多选：节点绑定出现在归属用例的每个 bound 数据集里（各场景各同步一次）
+    from .. import crud as _crud
+    case_bound: dict[int, list] = {
+        cid: _crud.list_bound_datasets(db, cid)
+        for cid in case_ids if cid is not None}
     for b in binds:
         if b.case_id is None:
             continue
         if b.node_id not in dag_node_ids.get(b.case_id, set()):
             continue  # 画布已删节点的残留结构配置：不参与影响面/同步
         case = cases.get(b.case_id)
-        ds_id = case.dataset_id if case else None
-        ds = dss.get(ds_id) if ds_id else None
-        if ds is None:
+        if case is None:
             continue
-        nodes = dataset_service.node_configs(dataset_service.row_data(ds))
-        rc = nodes.get(b.node_id) or {}
-        yield api, case, ds, b.node_id, (rc.get("params") or {}), b
+        for ds in case_bound.get(b.case_id, []):
+            nodes = dataset_service.node_configs(dataset_service.row_data(ds))
+            rc = nodes.get(b.node_id) or {}
+            yield api, case, ds, b.node_id, (rc.get("params") or {}), b
 
 
 def _templates_of(db: Session, api_id: int) -> dict[int, models.ApiContractTemplate]:

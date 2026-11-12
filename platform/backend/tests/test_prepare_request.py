@@ -36,8 +36,8 @@ def _config(body=None, headers=None):
     return SimpleNamespace(params={"body": body or {}, "headers": headers or {}})
 
 
-def _ctx(prev_vars=None, seed=None):
-    return ExecutionContext(prev_vars=prev_vars, resume_seed=seed)
+def _ctx(seed=None, dataset_vars=None):
+    return ExecutionContext(dataset_vars=dataset_vars, resume_seed=seed)
 
 
 def _const(v):
@@ -60,22 +60,21 @@ def _run(api, config=None, ctx=None, headers=None, self_node=SELF):
 class TestPriority:
     """取值模型：constant 显式值生效 / 未配置不按名解析 / 空占位规则"""
 
-    def test_constant_beats_suite_and_upstream(self):
-        """constant 显式配置即取值：注册表里同名套件/上游变量不参与（旧「手动覆盖优先」的等价迁移）"""
+    def test_constant_beats_upstream(self):
+        """constant 显式配置即取值：注册表里同名上游变量不参与（旧「手动覆盖优先」的等价迁移）"""
         api = _api([_field("bl_no")])
         config = _config(body={"bl_no": _const("MANUAL")})
 
-        parts = _run(api, config, _ctx(prev_vars={"bl_no": "SUITE"},
-                                       seed={"n_up": {"bl_no": "UP"}}))
+        parts = _run(api, config, _ctx(seed={"n_up": {"bl_no": "UP"}}))
 
         assert parts.body == {"bl_no": "MANUAL"}
 
-    def test_suite_ns_ref_resolves(self):
-        """ref __prev__：套件白名单注入（上游成员快照）直接可引用"""
+    def test_seeded_ns_ref_resolves(self):
+        """ref 引用断点续跑 seed 注入的上游命名空间（报告虚拟上下文）直接可引用"""
         api = _api([_field("bl_no")])
 
-        parts = _run(api, _config(body={"bl_no": _ref("__prev__", "bl_no")}),
-                     _ctx(prev_vars={"bl_no": "SUITE"}))
+        parts = _run(api, _config(body={"bl_no": _ref("n_up", "bl_no")}),
+                     _ctx(seed={"n_up": {"bl_no": "SUITE"}}))
 
         assert parts.body == {"bl_no": "SUITE"}
 
@@ -222,8 +221,8 @@ class TestTemplateBody:
         """模板顶层键即事实参数声明，可配 ref 引用（旧模板键参与按名解析的等价迁移）"""
         api = _api([], template={"bl_no": "OLD"})
 
-        parts = _run(api, _config(body={"bl_no": _ref("__prev__", "bl_no")}),
-                     _ctx(prev_vars={"bl_no": "SUITE"}))
+        parts = _run(api, _config(body={"bl_no": _ref("n_up", "bl_no")}),
+                     _ctx(seed={"n_up": {"bl_no": "SUITE"}}))
 
         assert parts.body == {"bl_no": "SUITE"}
 
@@ -430,8 +429,8 @@ class TestFileAndHeaders:
         """params.headers 逐头解析（ref 引用）：覆盖/追加到环境公共头之上"""
         api = _api([_field("bl_no")])
 
-        parts = _run(api, _config(headers={"Authorization": _ref("__prev__", "token")}),
-                     _ctx(prev_vars={"token": "T1"}),
+        parts = _run(api, _config(headers={"Authorization": _ref("n_login", "token")}),
+                     _ctx(seed={"n_login": {"token": "T1"}}),
                      headers={"X-Plain": "v"})
 
         assert parts.headers == {"Authorization": "T1", "X-Plain": "v"}

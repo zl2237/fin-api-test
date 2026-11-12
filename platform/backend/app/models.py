@@ -215,8 +215,6 @@ class TestCase(Base):
                        comment="套件概念已移除，收口到执行方案；列保留仅历史兼容，恒为 normal")
     dag_config: Mapped[Any] = mapped_column(JSON, nullable=False, comment="DAG 配置：{nodes: [...], edges: [...]}")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
-    dataset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("data_sets.id"), nullable=True,
-                        comment="绑定的数据集ID，NULL=普通用例；绑定时执行按数据行展开（数据驱动）")
     env_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("environments.id"), nullable=True, index=True,
                    comment="绑定的执行环境ID（严格绑定：所有触发入口一律用此环境）")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
@@ -252,6 +250,8 @@ class DataSet(Base):
                      comment="归属用例ID（1:N，用例间隔离）")
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="数据集名称")
     description: Mapped[str | None] = mapped_column(Text, comment="描述")
+    bound: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0",
+              comment="绑定标志：被归属用例选中执行（多选；用例执行 = 全部 bound 数据集各展开一次；2026-11-12 B3 定案，case.dataset_id 退役）")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
@@ -259,9 +259,6 @@ class DataSet(Base):
 
     rows: Mapped[list["DataSetRow"]] = relationship("DataSetRow", back_populates="dataset", cascade="all, delete-orphan",
                         order_by="DataSetRow.row_index")
-
-    # 运行时填充的被引用用例数（非数据库列）
-    case_bound_count: ClassVar[int] = 0
 
 
 class DataSetRow(Base):
@@ -317,7 +314,7 @@ class ExecutionRecord(Base):
     dataset_row: Mapped[Any] = mapped_column(JSON, nullable=True,
                          comment="该次执行对应的数据行快照：{row_index, data, label}，不回写不更新")
     plan_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True,
-                          comment="执行方案来源：非空表示由方案（一键/方案定时/串行链成员）触发，"
+                          comment="执行方案来源：非空表示由方案（一键/方案定时/方案成员）触发，"
                                   "指向 execution_plans.id；纯溯源编号无外键，方案可删、执行历史存活")
     orchestration_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True,
                                 comment="编排结构指纹（执行时快照：节点/边/接口绑定，不含参数配置）；"
@@ -478,23 +475,17 @@ class TestFile(Base):
 
 
 class ExecutionPlan(Base):
-    """执行方案：一组执行配置的组合（选用例 + 每成员数据集换绑/次数 + 并发 + 内嵌定时）。
-    两档模式（2026-10-28 套件收口 + 链式定向传参/批量策略正交）：
-    combo 并行组合（成员独立，成员级 run_count + concurrency 并行提交）/
-    chain 串行链（链 = 依赖与传参的组织方式；整链 rounds 轮、轮内按序串行 +
-    相邻成员 pass_vars 定向传参 + 失败阻断本轮下游，轮间按 concurrency 并行）。"""
+    """执行方案：一组执行配置的组合（选用例 + 每成员多选数据集/次数 + 并发 + 内嵌定时）。
+    并行组合（2026-11-12 B3 删链定案）：成员相互独立并行，无依赖/传参/阻断；
+    跨系统链路改用融合用例（跨项目接口 + 节点级环境绑定）编排。"""
     __tablename__ = "execution_plans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
     project_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("projects.id"), comment="所属项目ID")
     name: Mapped[str] = mapped_column(String(200), nullable=False, comment="方案名称")
     description: Mapped[str | None] = mapped_column(Text, comment="方案描述")
-    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="combo", server_default="combo",
-                comment="方案模式：combo 并行组合（默认）/ chain 串行链（按序+相邻传参+失败阻断）")
-    rounds: Mapped[int] = mapped_column(Integer, default=1, server_default="1",
-                comment="chain 专用：整链执行轮数（1~9999，轮内串行、轮间并行）；combo 恒 1")
     concurrency: Mapped[int] = mapped_column(Integer, default=4, server_default="4",
-                    comment="执行并发数（1~16）：combo=成员并行提交上限；chain=轮间并行上限（轮内恒串行）")
+                    comment="执行并发数（1~16）：成员记录并行提交上限（统一并发池）")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1",
                   comment="方案总开关：禁用时定时触发跳过本轮（手动一键不受限）")
     # —— 内嵌定时（schedule_type 为 NULL = 未配置定时；两档与用例定时一致，不暴露原生 cron）——
@@ -518,21 +509,19 @@ class ExecutionPlan(Base):
 
 class ExecutionPlanItem(Base):
     """方案成员：方案 → 用例的独立引用（可跨项目、可重复添加同一用例配不同数据）。
-    combo 模式成员相互独立并行（run_count 各自重复）；chain 模式按 sort_order 串行，
-    pass_vars = 本成员成功后快照传给下一棒的输出变量名单（相邻定向，下一棒以
-    __prev__.变量名 引用；首棒无注入、末棒名单不生效）。"""
+    成员相互独立并行：记录数 = 选中数据集数 × run_count，平铺进方案统一并发池。
+    dataset_ids 为空 = 用例自身绑定的数据集（bound 标志）；批量造数 = 多选数据集。"""
     __tablename__ = "execution_plan_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
     plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("execution_plans.id"), nullable=False, index=True, comment="所属方案ID")
     case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False,
                   comment="成员用例ID（可跨项目引用，删除成员用例时级联清理本行）")
-    dataset_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
-                       comment="成员级数据集换绑（须属于该成员用例；NULL=用例自身绑定；纯引用无外键，悬空在执行预检报错）")
-    run_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1", comment="该成员执行次数（1~9999；chain 模式忽略，整链轮数在方案级 rounds）")
-    pass_vars: Mapped[list | None] = mapped_column(JSON, nullable=True,
-                   comment="chain 专用：传给下一棒的输出变量名单 [\"bl_no\", ...]（相邻定向传参；combo 忽略）")
-    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="成员顺序（combo=记录生成序 / chain=执行顺序）")
+    dataset_ids: Mapped[list | None] = mapped_column(JSON, nullable=True,
+                       comment="成员级多选数据集（须属于该成员用例；NULL/空=用例自身绑定；纯引用无外键，悬空在执行预检报错）")
+    run_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1",
+                comment="该成员执行次数（1~9999；记录数 = 选中数据集数 × 此值）")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="成员顺序（记录生成序）")
 
     plan: Mapped["ExecutionPlan"] = relationship("ExecutionPlan", back_populates="items")
     case: Mapped["TestCase"] = relationship("TestCase")

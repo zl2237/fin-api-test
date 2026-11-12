@@ -12,7 +12,7 @@
     @visible-change="(v: boolean) => v && onSearch('')"
   >
     <template v-if="!matched && modelValue?.node_id && modelValue?.var_path">
-      <!-- 当前值不在可选组（如 __prev__ 串行链上一棒快照运行期注入）：保留回显防止显示空白 -->
+      <!-- 当前值不在可选组（历史配置残留等运行期注入命名空间）：保留回显防止显示空白 -->
       <el-option :value="encoded" :label="rawLabel">
         <span class="dim">{{ rawLabel }}</span>
         <span class="dim-tag">（保存于配置，本页不可选）</span>

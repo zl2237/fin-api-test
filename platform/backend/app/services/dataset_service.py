@@ -99,11 +99,10 @@ def update_dataset(db: Session, dataset_id: int, name: str | None = None,
 
 
 def delete_dataset(db: Session, dataset_id: int) -> None:
-    """删除数据集：被用例绑定时拒绝；成功级联删行。"""
+    """删除数据集：被用例绑定（bound）时拒绝；成功级联删行。"""
     obj = get_dataset(db, dataset_id)
-    n = crud.count_cases_bound_to_dataset(db, dataset_id)
-    if n:
-        raise ValueError(f"数据集被 {n} 个用例绑定，请先在用例中解绑后再删除")
+    if obj.bound:
+        raise ValueError("数据集已被用例绑定（bound），请先在用例「绑定数据集」中取消勾选再删除")
     db.query(models.DataSetRow).filter(models.DataSetRow.dataset_id == dataset_id).delete()
     db.delete(obj)
     db.commit()
@@ -156,37 +155,44 @@ def remove_node_config(db: Session, dataset_id: int, node_id: str,
 
 # ============ 执行展开（单套语义：每个数据集 = 一套入参配置） ============
 
-def plan_case_expansion(db: Session, case, dataset_id=None) -> list:
-    """按用例绑定生成执行展开计划。
+def plan_case_expansion(db: Session, case, dataset_ids=None) -> list:
+    """按用例绑定生成执行展开计划（绑定多选，2026-11-12 B3 定案）。
 
-    - 未绑定（且未临时指定）→ ValueError：执行强绑定（2026-09-30 定案，
-      「未绑数据集执行放行」的旧语义废止）
-    - 绑定数据集 → 单条：行数据（各节点入参配置）注入执行上下文
-    - dataset_id 传入时临时覆盖用例绑定（执行面板换数据集，不改绑定本身）
+    - dataset_ids 传入时临时覆盖用例绑定（执行面板换数据集，不改绑定本身）
+    - 缺省 = 用例全部 bound 数据集，各展开一条（每套 = 全部节点的一套入参）
+    - 无生效数据集 → ValueError：执行强绑定（2026-09-30 定案沿用）
     """
-    effective = dataset_id if dataset_id is not None else getattr(case, "dataset_id", None)
+    if dataset_ids:
+        effective = []
+        for ds_id in dataset_ids:
+            ds = crud.get_dataset(db, ds_id)
+            if not ds:
+                raise ValueError(f"数据集不存在: {ds_id}")
+            if ds.case_id != case.id:
+                raise ValueError("数据集不属于该用例（数据集按用例隔离，请在用例自己的数据集中选择）")
+            effective.append(ds)
+    else:
+        effective = crud.list_bound_datasets(db, case.id)
     if not effective:
-        raise ValueError("用例未绑定数据集：请先在用例管理绑定，并在数据集页完成入参配置")
-    ds = crud.get_dataset(db, effective)
-    if not ds:
-        raise ValueError(f"用例绑定的数据集不存在: {effective}")
-    if ds.case_id != case.id:
-        raise ValueError("数据集不属于该用例（数据集按用例隔离，请在用例自己的数据集中选择）")
-    rows = crud.list_rows(db, effective)
-    if not rows:
-        raise ValueError("数据集无数据行，请先在数据集页完成入参配置")
-    r = rows[0]
-    return [{
-        "dataset_id": effective,
-        "row": {
-            "row_index": r.row_index,
-            "data": dict(r.data or {}),
-            "label": ds.name,
-        },
-    }]
+        raise ValueError("用例未绑定数据集：请先在用例列表「绑定数据集」勾选，并在数据集页完成入参配置")
+    out = []
+    for ds in effective:
+        rows = crud.list_rows(db, ds.id)
+        if not rows:
+            raise ValueError(f"数据集「{ds.name}」无数据行，请先在数据集页完成入参配置")
+        r = rows[0]
+        out.append({
+            "dataset_id": ds.id,
+            "row": {
+                "row_index": r.row_index,
+                "data": dict(r.data or {}),
+                "label": ds.name,
+            },
+        })
+    return out
 
 
-# ============ 绑定校验（执行面板换绑 / 用例保存显式传 dataset_id） ============
+# ============ 绑定校验（执行面板换绑 / 方案成员多选数据集） ============
 
 def validate_binding(db: Session, case, dataset_id: int | None) -> None:
     if dataset_id is None:
@@ -196,6 +202,25 @@ def validate_binding(db: Session, case, dataset_id: int | None) -> None:
         raise ValueError(f"数据集不存在: {dataset_id}")
     if ds.case_id != case.id:
         raise ValueError("数据集不属于该用例（数据集按用例隔离）")
+
+
+def set_case_binding(db: Session, case, dataset_ids: list[int]) -> list[models.DataSet]:
+    """用例绑定数据集（多选整体替换）：列表内的置 bound=True，其余本用例数据集置 False。
+
+    空列表 = 全部解绑（用例将不可执行，执行强绑定口径）；数据集须全部属于该用例。
+    返回该用例当前的 bound 数据集列表（按 id 稳定序）。
+    """
+    mine = db.query(models.DataSet).filter(models.DataSet.case_id == case.id).all()
+    by_id = {d.id: d for d in mine}
+    wanted: set[int] = set()
+    for ds_id in dataset_ids:
+        if ds_id not in by_id:
+            raise ValueError(f"数据集不属于该用例（id={ds_id}，数据集按用例隔离）")
+        wanted.add(ds_id)
+    for d in mine:
+        d.bound = d.id in wanted
+    db.commit()
+    return [by_id[i] for i in sorted(wanted)]
 
 
 # ============ 保存用例钩子：默认数据集初始化 + 画布节点增量（Q7，2026-10-10 定案） ============
@@ -230,15 +255,16 @@ def _node_initial_params(db: Session, case) -> dict[str, dict]:
 
 def ensure_case_dataset(db: Session, case, user_id: int | None = None,
                         *, allow_create: bool = True) -> None:
-    """保存用例钩子：未绑定 → 自动建「默认数据集」（示例值初始化全部节点）并绑定；
-    已绑定 → 行内缺失的画布节点（新加节点）按接口字段补初始参数。
+    """保存用例钩子：无 bound 数据集 → 自动建「默认数据集」（示例值初始化全部节点）
+    并置 bound；已有 bound → 各 bound 数据集行内缺失的画布节点（新加节点）补初始参数。
 
     - 已有节点的参数一律不动（契约出入走接口保存/数据集保存的同步弹窗许可）
-    - allow_create=False 用于用户显式解绑数据集的保存：不重建绑定，仅增量
+    - allow_create=False 用于用户显式清空绑定的保存：不重建绑定，仅增量
     - 初始化失败不阻断保存（打印日志，数据集页可见未配置状态）
     """
     try:
-        if not getattr(case, "dataset_id", None):
+        bounds = crud.list_bound_datasets(db, case.id)
+        if not bounds:
             if not allow_create:
                 return
             rows_data = None
@@ -247,24 +273,26 @@ def ensure_case_dataset(db: Session, case, user_id: int | None = None,
                 rows_data = [{"nodes": nodes}]
             ds = create_dataset(db, project_id=case.project_id, name="默认数据集",
                                 user_id=user_id, case_id=case.id, rows_data=rows_data)
-            case.dataset_id = ds.id
+            ds.bound = True
             db.commit()
             return
-        bound = crud.get_dataset(db, case.dataset_id)
-        if not bound:
-            return
-        row = _ensure_row(db, bound)
-        data = dict(row.data or {})
-        raw_nodes = data.get("nodes")
-        nodes = dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
-        fresh = False
-        for nid, cfg in _node_initial_params(db, case).items():
-            if nid not in nodes:
-                nodes[nid] = cfg
-                fresh = True
-        if fresh:
-            data["nodes"] = nodes
-            row.data = data
+        fresh_any = False
+        initial = _node_initial_params(db, case)
+        for bound in bounds:
+            row = _ensure_row(db, bound)
+            data = dict(row.data or {})
+            raw_nodes = data.get("nodes")
+            nodes = dict(raw_nodes) if isinstance(raw_nodes, dict) else {}
+            fresh = False
+            for nid, cfg in initial.items():
+                if nid not in nodes:
+                    nodes[nid] = cfg
+                    fresh = True
+            if fresh:
+                data["nodes"] = nodes
+                row.data = data
+                fresh_any = True
+        if fresh_any:
             db.commit()
     except Exception as e:
         print(f"[数据集初始化] 跳过（失败不阻断保存）: {e}")

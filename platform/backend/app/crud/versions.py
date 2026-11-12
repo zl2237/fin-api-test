@@ -62,7 +62,6 @@ def _snapshot_cases(db: Session, project_id: int) -> list[dict]:
             "group_id": c.group_id,
             "name": c.name,
             "description": c.description,
-            "dataset_id": c.dataset_id,  # 数据集 id 回滚后不变（按原 id 重建），绑定可直接沿用
             "dag_config": c.dag_config or {"nodes": [], "edges": []},
             "sort_order": c.sort_order,
             "node_configs": [
@@ -237,15 +236,12 @@ def rollback_project_version(
                     {"row_index": r.row_index, "data": r.data})
             ds_snap = [
                 {"id": d.id, "case_name": case_name_by_id.get(d.case_id), "name": d.name,
-                 "description": d.description,
+                 "description": d.description, "bound": bool(d.bound),
                  "project_id": d.project_id}
                 for d in db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids)).all()
             ]
-            # 先解绑用例→数据集引用（test_cases.dataset_id 外键 RESTRICT，不解绑删数据集报 1451）。
-            # 用例本身随后整体删除并按快照重建，dataset_id 由 dataset_bind 二阶段回填，绑定不丢
-            db.query(models.TestCase).filter(models.TestCase.dataset_id.in_(ds_ids)).update(
-                {models.TestCase.dataset_id: None}, synchronize_session=False
-            )
+            # 绑定是数据集自身 bound 标志（2026-11-12 B3 定案），随数据集行快照走，
+            # 无 test_cases.dataset_id 外键引用需要先行解绑
             db.query(models.DataSetRow).filter(models.DataSetRow.dataset_id.in_(ds_ids))\
                 .delete(synchronize_session=False)
             db.query(models.DataSet).filter(models.DataSet.id.in_(ds_ids))\
@@ -263,8 +259,8 @@ def rollback_project_version(
         # 整行收集后删除，重建用例后按归属用例名恢复——否则级联静默清空执行方案成员
         plan_item_rows = [
             {"plan_id": p.plan_id, "case_name": case_name_by_id.get(p.case_id),
-             "dataset_id": p.dataset_id,
-             "run_count": p.run_count, "pass_vars": p.pass_vars, "sort_order": p.sort_order}
+             "dataset_ids": p.dataset_ids,
+             "run_count": p.run_count, "sort_order": p.sort_order}
             for p in db.query(models.ExecutionPlanItem)
             .filter(models.ExecutionPlanItem.case_id.in_(case_ids)).all()
         ]
@@ -368,7 +364,6 @@ def rollback_project_version(
     # 同时建立 name → new_case_id 映射：数据集/定时/方案成员/执行记录的归属
     # 都按用例名对齐（id 会被历次回滚换掉，名字稳定——见第 2 步注释）
     case_name_map: dict = {}
-    dataset_bind: list[tuple] = []   # (new_case, 快照 dataset_id) 二阶段回填（data_sets 重建前后再绑，避免 FK 循环）
     for c in snap.get("cases", []):
         old_group_id = c.get("group_id")
         new_group_id = case_group_map.get(old_group_id) if old_group_id else None
@@ -385,8 +380,6 @@ def rollback_project_version(
         db.add(nc)
         db.flush()
         case_name_map[c["name"]] = nc.id
-        if c.get("dataset_id"):
-            dataset_bind.append((nc, c["dataset_id"]))
         for cfg in c.get("node_configs", []):
             old_api_id = cfg.get("api_id")
             new_api_id = api_id_map.get(old_api_id) if old_api_id else None
@@ -399,25 +392,20 @@ def rollback_project_version(
                 wait_after_ms=cfg.get("wait_after_ms", 0) or 0,
             ))
 
-    # 5.1 重建数据集（原 id 复用 → test_cases.dataset_id / data_set_rows.dataset_id
-    # 引用零转换）：归属按用例名对齐；归属用例不在快照中的数据集丢弃（回到快照时刻）。
-    # 快照绑定的数据集若已被删除（不在保留集合）则放弃该绑定——绑定悬空比回滚失败可恢复性强
-    kept_ds_ids: set = set()
+    # 5.1 重建数据集（原 id 复用 → data_set_rows.dataset_id 引用零转换）：
+    # 归属按用例名对齐；归属用例不在快照中的数据集丢弃（回到快照时刻）。
+    # 绑定 = 数据集自身 bound 标志，随行快照原样恢复
     for d in ds_snap:
         new_cid = case_name_map.get(d["case_name"])
         if new_cid is None:
             continue
-        kept_ds_ids.add(d["id"])
         db.add(models.DataSet(
             id=d["id"], project_id=d.get("project_id") or project.id, case_id=new_cid,
             name=d["name"], description=d.get("description"),
+            bound=bool(d.get("bound")),
         ))
         for r in ds_rows_map.get(d["id"], []):
             db.add(models.DataSetRow(dataset_id=d["id"], row_index=r["row_index"], data=r["data"]))
-    db.flush()
-    for case_obj, ds_id in dataset_bind:
-        if ds_id in kept_ds_ids:
-            case_obj.dataset_id = ds_id
     db.flush()
 
     # 5.3 重建定时任务（配置跟随新用例；用例不在快照中的任务丢弃）
@@ -437,8 +425,8 @@ def rollback_project_version(
         if new_cid is None:
             continue
         db.add(models.ExecutionPlanItem(
-            plan_id=p["plan_id"], case_id=new_cid, dataset_id=p["dataset_id"],
-            run_count=p["run_count"], pass_vars=p["pass_vars"], sort_order=p["sort_order"],
+            plan_id=p["plan_id"], case_id=new_cid, dataset_ids=p.get("dataset_ids"),
+            run_count=p["run_count"], sort_order=p["sort_order"],
         ))
 
     # 6. 重新关联执行记录到新用例（按用例名对齐）

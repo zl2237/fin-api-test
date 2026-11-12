@@ -223,6 +223,9 @@ class _Q:
     def filter(self, *a, **kw):
         return self
 
+    def order_by(self, *a, **kw):
+        return self
+
     def all(self):
         return self._items
 

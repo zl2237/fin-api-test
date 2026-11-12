@@ -77,7 +77,7 @@
             >
               <el-icon class="ds-icon"><Grid /></el-icon>
               <span class="ds-name">{{ d.name }}</span>
-              <span v-if="currentCase.dataset_id === d.id" class="ds-bound">使用中</span>
+              <span v-if="d.bound" class="ds-bound">使用中</span>
               <span class="ds-cnt">{{ nodeCount(d) }} 节点</span>
             </div>
             <el-button size="small" class="ds-add" :icon="Plus" @click="openCreate">新建数据集</el-button>
@@ -799,11 +799,11 @@ async function save() {
 async function remove(d: DataSet) {
   try {
     await ElMessageBox.confirm(
-      d.case_bound_count
-        ? `数据集已被所属用例绑定，请先在用例管理解绑后再删除`
+      d.bound
+        ? `数据集已被用例勾选绑定（bound），请先在用例列表「绑定数据集」取消勾选后再删除`
         : `确认删除数据集「${d.name}」及其全部节点入参配置？`,
       '删除数据集',
-      { type: 'warning', showCancelButton: !d.case_bound_count, confirmButtonText: d.case_bound_count ? '知道了' : '删除' },
+      { type: 'warning', showCancelButton: !d.bound, confirmButtonText: d.bound ? '知道了' : '删除' },
     )
   } catch {
     return

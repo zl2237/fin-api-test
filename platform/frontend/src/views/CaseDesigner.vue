@@ -467,20 +467,27 @@ function nodeLabel(id: string): string {
 }
 
 // ===== 引用选择器数据源（上游产出 / 本节点 SQL 参数）：产出 = 提取名 ∪ 数据集行内静态产出 =====
-// 入参已收敛到数据集行：绑定数据集的参数视图提供行内产出与 SQL 参数（未绑定则仅提取名）
+// 入参已收敛到数据集行：各 bound 数据集的参数视图合并提供行内产出与 SQL 参数（未绑定则仅提取名）
 const dsProductions = ref<Record<string, string[]>>({})
 const dsSelfParams = ref<Record<string, any>>({})
 watch(
-  () => caseData.value.dataset_id,
-  async (dsId) => {
+  () => (caseData.value.bound_dataset_ids || []).join(','),
+  async (joined) => {
     dsProductions.value = {}
     dsSelfParams.value = {}
-    if (!dsId) return
-    try {
-      const pv = await datasetApi.paramsView(dsId)
-      dsProductions.value = Object.fromEntries(pv.nodes.map((n) => [n.node_id, n.productions]))
-      dsSelfParams.value = Object.fromEntries(pv.nodes.map((n) => [n.node_id, n.params || {}]))
-    } catch { /* 引用选择器降级为仅提取名 */ }
+    const ids = joined ? joined.split(',').map(Number) : []
+    // 多场景合并：各 bound 数据集的产出/参数取并集（宁可多给可选项）
+    for (const id of ids) {
+      try {
+        const pv = await datasetApi.paramsView(id)
+        for (const n of pv.nodes) {
+          dsProductions.value[n.node_id] = Array.from(
+            new Set([...(dsProductions.value[n.node_id] || []), ...n.productions]))
+          const prev = dsSelfParams.value[n.node_id] || {}
+          dsSelfParams.value[n.node_id] = { ...prev, ...n.params }
+        }
+      } catch { /* 单个数据集失败降级：继续其余场景 */ }
+    }
   },
   { immediate: true },
 )

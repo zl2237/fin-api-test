@@ -10,7 +10,7 @@
 - **AggregateGroup**（聚合组）：一次数据集多行展开的失败聚合通知组——全部终态后只发一条汇总，组内每条抑制逐条通知。
 - **批次专用池**：每次批量执行新建 `ThreadPoolExecutor(max_workers=concurrency)`，提交完即回收；与内部后台任务池（聚合通知等零散提交）互不复用。
 - **replay_service**（`services/replay_service.py`）：报告页重放与断点续跑的编排层——`replay_step_once`（快照定位接口重发 + 同口径提取/断言 + replay_passed_at 打点）与 `resume_execution_async`（指纹校验 → 起点定位 → 后台线程续跑）。executions 路由只做参数解析与鉴权；两类动作共用「报告虚拟上下文 + 当前配置」口径。
-- **plan_executor**（`services/plan_executor.py`）：执行方案（2026-10-28 套件收口承接）的唯一执行编排——combo 并行组合（成员级 run_count × 方案级 concurrency）/ chain 串行链（方案级 rounds 轮数 × 轮间 concurrency 并行，轮内按 sort_order 串行 + 相邻成员 pass_vars 名单快照注入 `__prev__` + 失败阻断**本轮**下游）。执行记录按轮主序全量预建、plan_id 溯源。
+- **plan_executor**（`services/plan_executor.py`）：执行方案（2026-10-28 套件收口承接）的唯一执行编排——并行组合（成员「选中数据集 × run_count」条记录 × 方案级 concurrency 并行；串行链/轮次/相邻传参已随 2026-11-12 B3 删链废止，跨系统链路改融合用例）。执行记录全量预建、plan_id 溯源。
 
 ## 请求组装（prepare_request）
 

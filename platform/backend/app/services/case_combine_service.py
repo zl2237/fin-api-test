@@ -86,8 +86,9 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
     new_edges: list[dict] = []
     # node_configs 载荷：[{node_id, api_id, post_extract, assertions, wait_after_ms}]
     config_payloads: list[dict] = []
-    # 各源绑定数据集行的 per-node 入参配置（按 id_map 重映射后的键）
-    remapped_nodes: list[dict] = []
+    # 合并场景集：scenes[j] = 各源第 j 个 bound 数据集（按 id 稳定序）的
+    # per-node 入参配置合并（键已按 id_map 重映射）；场景数 = 源中最多的 bound 数
+    scenes: list[dict] = []
     prev_exits: set[str] | None = None
     x_offset = 0  # 段间距：每段右移 420px，视觉分段
     project_id: int | None = None
@@ -130,16 +131,16 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
                     "wait_after_ms": nc.wait_after_ms or 0,
                 })
 
-        # 源绑定数据集行的 per-node 入参配置：节点 ID 重映射（段间引用可跨段成立）
-        if case.dataset_id:
-            from . import dataset_service
-            src_ds = crud.get_dataset(db, case.dataset_id)
-            if src_ds:
-                src_nodes = dataset_service.node_configs(dataset_service.row_data(src_ds))
-                remapped = {id_map[k]: deepcopy(v) for k, v in src_nodes.items() if k in id_map}
-                # 段内引用的节点 ID 同步重映射（spec ref / func arg / sql 占位）
-                remapped = _remap_node_refs(remapped, id_map)
-                remapped_nodes.append(remapped)
+        # 源各 bound 数据集行的 per-node 入参配置：节点 ID 重映射（段间引用可跨段成立）
+        from . import dataset_service
+        for j, src_ds in enumerate(crud.list_bound_datasets(db, case.id)):
+            src_nodes = dataset_service.node_configs(dataset_service.row_data(src_ds))
+            remapped = {id_map[k]: deepcopy(v) for k, v in src_nodes.items() if k in id_map}
+            # 段内引用的节点 ID 同步重映射（spec ref / func arg / sql 占位）
+            remapped = _remap_node_refs(remapped, id_map)
+            while len(scenes) <= j:
+                scenes.append({})
+            scenes[j].update(remapped)
 
         # 段间串接：上一段所有出口 → 本段所有入口
         if prev_exits is not None:
@@ -162,17 +163,17 @@ def combine_cases(db: Session, case_ids: list[int], name: str, group_id: int | N
         "node_configs": config_payloads,
     }
     obj = crud.create_testcase(db, crud.schemas.TestCaseCreate(**data), user_id)
-    # 数据集合并：各源绑定数据集行的 per-node 入参配置（已重映射）合入新用例数据集
-    # 并绑定（执行强绑定）；段前缀保证节点 ID 不冲突
-    if remapped_nodes:
-        from .dataset_service import create_dataset
-        merged_nodes: dict = {}
-        for seg in remapped_nodes:
-            merged_nodes.update(seg)
+    # 数据集合并：同场景序号的各段配置合入新用例第 j 个数据集并置 bound
+    # （执行强绑定）；段前缀保证节点 ID 不冲突
+    from .dataset_service import create_dataset
+    for j, merged in enumerate(scenes):
+        if not merged:
+            continue
         ds = create_dataset(db, project_id=project_id, case_id=obj.id,
-                            name=f"{name}-数据", user_id=user_id,
-                            rows_data=[{"nodes": merged_nodes}])
-        obj.dataset_id = ds.id
+                            name=(f"{name}-数据" if j == 0 else f"{name}-数据{j + 1}"),
+                            user_id=user_id, rows_data=[{"nodes": merged}])
+        ds.bound = True
+    if scenes:
         db.commit()
         db.refresh(obj)
     crud.fill_audit_names(db, obj)
@@ -228,13 +229,13 @@ def scan_split_boundary(db: Session, case_id: int, node_ids: list[str]) -> dict:
     all_ids = {n["id"] for n in (case.dag_config or {}).get("nodes", [])}
     stay_set = all_ids - move_set
 
-    # 数据集行内 per-node 入参配置（引用与产出都算）
+    # 数据集行内 per-node 入参配置（引用与产出都算；各 bound 数据集合并口径——
+    # 场景间的引用差异也算跨界关系，宁可多报不漏报）
     from . import dataset_service
     ds_nodes: dict[str, dict] = {}
-    if case.dataset_id:
-        ds = crud.get_dataset(db, case.dataset_id)
-        if ds:
-            ds_nodes = dataset_service.node_configs(dataset_service.row_data(ds))
+    for ds in crud.list_bound_datasets(db, case.id):
+        for nid, cfg in dataset_service.node_configs(dataset_service.row_data(ds)).items():
+            ds_nodes.setdefault(nid, {}).update(cfg)
 
     def _productions_of(nid: str) -> set[str]:
         out = _extracted_vars(cfg_map[nid]) if nid in cfg_map else set()
@@ -352,23 +353,26 @@ def split_case(
 
     crud.fill_audit_names(db, new_case)
     crud.fill_audit_names(db, updated)
-    # 数据资产分流：绑定数据集行内 per-node 入参配置按节点归属拆开——
-    # 新用例克隆数据集（只留抽离节点配置）并绑定；原用例数据集删抽离节点配置。
+    # 数据资产分流：各 bound 数据集行的 per-node 入参配置按节点归属拆开——
+    # 新用例按场景克隆数据集（只留抽离节点配置、保持原名）并置 bound；
+    # 原用例各 bound 数据集删抽离节点配置（场景对应关系按 id 稳定序保持）。
     # 跨界引用两边都会保留原样，断裂的由用户事后在数据集页补（扫描已提示）。
-    if case.dataset_id:
-        from . import dataset_service
-        src_ds = crud.get_dataset(db, case.dataset_id)
-        if src_ds:
-            src_nodes = dataset_service.node_configs(dataset_service.row_data(src_ds))
-            move_cfg = {nid: deepcopy(cfg) for nid, cfg in src_nodes.items() if nid in move_set}
-            if move_cfg:
-                new_case.dataset_id = dataset_service.create_dataset(
-                    db, project_id=case.project_id, case_id=new_case.id,
-                    name=new_name, user_id=user_id,
-                    rows_data=[{"nodes": move_cfg}]).id
-                db.commit()
-                db.refresh(new_case)
-            for nid in move_set:
-                if nid in src_nodes:
-                    dataset_service.remove_node_config(db, case.dataset_id, nid, user_id=user_id)
+    from . import dataset_service
+    created_any = False
+    for src_ds in crud.list_bound_datasets(db, case.id):
+        src_nodes = dataset_service.node_configs(dataset_service.row_data(src_ds))
+        move_cfg = {nid: deepcopy(cfg) for nid, cfg in src_nodes.items() if nid in move_set}
+        if move_cfg:
+            nds = dataset_service.create_dataset(
+                db, project_id=case.project_id, case_id=new_case.id,
+                name=src_ds.name, user_id=user_id,
+                rows_data=[{"nodes": move_cfg}])
+            nds.bound = True
+            created_any = True
+        for nid in move_set:
+            if nid in src_nodes:
+                dataset_service.remove_node_config(db, src_ds.id, nid, user_id=user_id)
+    if created_any:
+        db.commit()
+        db.refresh(new_case)
     return new_case, updated

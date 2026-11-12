@@ -37,8 +37,8 @@ const datasetIds = ref<number[]>([])
 
 watch(() => props.modelValue, (open) => {
   if (open) {
-    const bound = props.caseItem?.dataset_id
-    datasetIds.value = bound ? [bound] : (props.datasets[0] ? [props.datasets[0].id] : [])
+    const bound = props.caseItem?.bound_dataset_ids || []
+    datasetIds.value = bound.length ? [...bound] : (props.datasets[0] ? [props.datasets[0].id] : [])
   }
 })
 

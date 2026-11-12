@@ -503,7 +503,11 @@ class TestCaseUpdate(BaseModel):
     env_id: int | None = None  # 绑定的执行环境；显式传 null 解绑
     dag_config: dict[str, Any] | None = None
     node_configs: list[NodeConfigIn] | None = None
-    dataset_id: int | None = None  # 绑定数据集（数据驱动）；显式传 null 解绑
+
+
+class DatasetBindingIn(BaseModel):
+    """用例绑定数据集（多选整体替换；空列表 = 全部解绑，2026-11-12 B3 定案）"""
+    dataset_ids: list[int] = []
 
 
 class TestCaseOut(ORMBase):
@@ -517,7 +521,7 @@ class TestCaseOut(ORMBase):
     sort_order: int = 0  # 组内排序（拖拽手序）
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
-    dataset_id: int | None = None  # 绑定的数据集（数据驱动），NULL=普通用例
+    bound_dataset_ids: list[int] = []  # 绑定的数据集（多选 bound 标志；执行 = 全部各展开一次）
     involved_project_ids: list[int] = []  # 派生归属：原生项目 ∪ 节点引用接口的项目（跨系统用例>1）
     last_exec_at: datetime | None = None  # 最近一次执行开始时间（终结回写；NULL=从未执行）
     last_exec_status: str | None = None   # 最近一次执行终态：success/failed/terminated
@@ -661,7 +665,7 @@ class ExecutionRecordOut(ORMBase):
     summary: dict[str, Any] = {}
     dataset_id: int | None = None
     dataset_row: dict[str, Any] | None = None  # 数据驱动行快照 {row_index, data, label}
-    plan_id: int | None = None  # 方案来源：非空=方案（一键/定时/串行链成员）触发；方案可删，plan_name 尽力回查
+    plan_id: int | None = None  # 方案来源：非空=方案（一键/定时/方案成员）触发；方案可删，plan_name 尽力回查
     plan_name: str | None = None
     steps: list[StepRecordOut] = []
     created_by: int | None = None
@@ -895,8 +899,8 @@ class DataSetOut(ORMBase, AuditMixin):
     case_id: int
     name: str
     description: str | None = None
+    bound: bool = False  # 绑定标志：被归属用例选中执行（多选）
     rows: list[DataSetRowOut] = []  # 单套语义：存储上恒为一行（数据值集）
-    case_bound_count: int = 0  # 被引用用例数（列表展示）
     updated_at: datetime | None = None
     updated_by: int | None = None
     updated_by_name: str | None = None
@@ -915,14 +919,13 @@ class AvatarOut(BaseModel):
     name: str
 
 
-# ============ ExecutionPlan 执行方案（与 fin-ui-test 同构，单套语义无行选择） ============
+# ============ ExecutionPlan 执行方案（并行组合；成员多选数据集 × run_count） ============
 class PlanItemIn(BaseModel):
-    """方案成员提交：dataset 换绑须属于该成员用例（服务层校验）；chain 模式 sort_order 即执行顺序，
-    pass_vars 为传给下一棒的输出变量名单（相邻定向传参，combo 模式忽略）"""
+    """方案成员提交：dataset_ids 须属于该成员用例（服务层校验）；
+    空 = 用例自身绑定（bound 数据集）；记录数 = 数据集数 × run_count"""
     case_id: int
-    dataset_id: int | None = None
+    dataset_ids: list[int] | None = None
     run_count: int = 1
-    pass_vars: list[str] | None = None
     sort_order: int = 0
 
 
@@ -933,14 +936,13 @@ class PlanItemsReplaceIn(BaseModel):
 class PlanItemOut(BaseModel):
     id: int
     case_id: int
-    dataset_id: int | None = None
+    dataset_ids: list[int] | None = None
     run_count: int
-    pass_vars: list[str] | None = None
     sort_order: int
     # 展示回填（详情接口填充）
     case_name: str | None = None
-    dataset_name: str | None = None
-    case_dataset_id: int | None = None  # 用例自身绑定（dataset_id 空时实际生效者，前端标记用）
+    dataset_names: list[str] | None = None  # 与 dataset_ids 对位（悬空位为 None）
+    case_dataset_ids: list[int] = []  # 用例自身绑定（dataset_ids 空时实际生效者，前端标记用）
     case_missing: bool = False      # 防御标记（DB 级联删除正常时不出现）
     dataset_missing: bool = False   # 换绑数据集已删：标红交前端，执行预检会精确报错
 
@@ -949,8 +951,6 @@ class ExecutionPlanCreate(BaseModel):
     project_id: int | None = None
     name: str
     description: str | None = None
-    mode: Literal["combo", "chain"] = "combo"
-    rounds: int = 1  # chain 整链轮数（combo 恒 1）
     concurrency: int = 4
 
 
@@ -958,8 +958,6 @@ class ExecutionPlanUpdate(BaseModel):
     """局部更新；schedule_off=True 显式清除定时（schedule_type=None 表示「未提供」无法区分清除）"""
     name: str | None = None
     description: str | None = None
-    mode: Literal["combo", "chain"] | None = None
-    rounds: int | None = None  # chain 整链轮数（combo 恒 1）
     concurrency: int | None = None
     enabled: bool | None = None
     schedule_type: Literal["interval", "daily"] | None = None
@@ -974,8 +972,6 @@ class ExecutionPlanOut(ORMBase):
     project_id: int | None = None
     name: str
     description: str | None = None
-    mode: str = "combo"
-    rounds: int = 1
     concurrency: int
     enabled: bool
     schedule_type: str | None = None

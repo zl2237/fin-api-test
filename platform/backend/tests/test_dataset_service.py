@@ -54,19 +54,18 @@ class TestDatasetCrud:
             with pytest.raises(ValueError, match="名称不能为空"):
                 svc.update_dataset(_fake_db(), 1, name="  ")
 
-    def test_delete_rejects_when_referenced_by_case(self):
-        """数据集被用例绑定 → 删除拒绝"""
-        with patch.object(svc.crud, "get_dataset", return_value=SimpleNamespace(id=1)), \
-             patch.object(svc.crud, "count_cases_bound_to_dataset", return_value=2):
-            with pytest.raises(ValueError, match="被 2 个用例绑定|先解绑"):
+    def test_delete_rejects_when_bound(self):
+        """数据集被用例绑定（bound）→ 删除拒绝"""
+        with patch.object(svc.crud, "get_dataset",
+                          return_value=SimpleNamespace(id=1, bound=True)):
+            with pytest.raises(ValueError, match="bound|取消勾选"):
                 svc.delete_dataset(_fake_db(), 1)
 
     def test_delete_cascades_rows(self):
         """删除数据集级联删行"""
         deleted = {}
         with patch.object(svc.crud, "get_dataset",
-                          return_value=SimpleNamespace(id=1, case_id=5)), \
-             patch.object(svc.crud, "count_cases_bound_to_dataset", return_value=0):
+                          return_value=SimpleNamespace(id=1, case_id=5, bound=False)):
             db = SimpleNamespace(
                 query=lambda *a, **k: SimpleNamespace(
                     filter=lambda *a, **k: SimpleNamespace(
@@ -117,20 +116,21 @@ class TestDeleteCascade:
         return db, calls
 
     def test_delete_testcase_clears_its_datasets_first(self):
-        """删用例：先解绑 → 删行 → 删数据集 → 删用例本体（外键安全顺序）"""
+        """删用例：先删行 → 删数据集 → 删用例本体（外键安全顺序；
+        bound 标志随数据集行消失，test_cases 侧无引用需解绑）"""
         from app.crud import legacy
         db, calls = self._db_spy(ds_ids=[7, 8])
         legacy.delete_testcase(db, SimpleNamespace(id=11))
-        assert calls[:3] == ["unbind:TestCase", "del:DataSetRow", "del:DataSet"]
-        assert len(calls) == 5 and calls[3].startswith("del_host:") and calls[4] == "commit"
+        assert calls[:2] == ["del:DataSetRow", "del:DataSet"]
+        assert len(calls) == 4 and calls[2].startswith("del_host:") and calls[3] == "commit"
 
     def test_delete_project_clears_project_datasets_first(self):
-        """删项目：先清项目名下数据集（解绑+行+集），再删项目（走既有 ORM 级联）"""
+        """删项目：先清项目名下数据集（行+集），再删项目（走既有 ORM 级联）"""
         from app.crud import legacy
         db, calls = self._db_spy(ds_ids=[7])
         legacy.delete_project(db, SimpleNamespace(id=3))
-        assert calls[:3] == ["unbind:TestCase", "del:DataSetRow", "del:DataSet"]
-        assert calls[3].startswith("del_host:") and calls[-1] == "commit"
+        assert calls[:2] == ["del:DataSetRow", "del:DataSet"]
+        assert calls[2].startswith("del_host:") and calls[-1] == "commit"
 
     def test_delete_testcase_without_datasets_skips_cleanup(self):
         """用例名下无数据集：不动 DataSet 表，直接删用例"""
@@ -289,65 +289,68 @@ def _api10():
 
 class TestEnsureCaseDataset:
     def test_unbound_creates_default_dataset_with_example_params(self):
-        """未绑定：自动建「默认数据集」（示例值初始化节点参数）并绑定用例"""
-        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+        """无 bound 数据集：自动建「默认数据集」（示例值初始化节点参数）并置 bound"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal",
                                dag_config={"nodes": [{"id": "n1"}], "edges": []})
         created = {}
 
         def fake_create(db, **kw):
             created.update(kw)
-            return SimpleNamespace(id=77)
+            return SimpleNamespace(id=77, bound=False)
 
-        with patch.object(svc, "create_dataset", side_effect=fake_create):
+        with patch.object(svc, "create_dataset", side_effect=fake_create), \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]):
             svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case, user_id=1)
-        assert case.dataset_id == 77
         assert created["name"] == "默认数据集" and created["case_id"] == 5
         assert created["rows_data"] == [{"nodes": {"n1": {"params": {
             "body": {"bl_no": {"source": "constant", "value": "BL1"}}}}}}]
 
     def test_unbound_api_node_not_initialized(self):
         """未绑定接口的画布节点不初始化（无字段契约，执行时也无请求）"""
-        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal",
                                dag_config={"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": []})
         created = {}
 
         def fake_create(db, **kw):
             created.update(kw)
-            return SimpleNamespace(id=77)
+            return SimpleNamespace(id=77, bound=False)
 
-        with patch.object(svc, "create_dataset", side_effect=fake_create):
+        with patch.object(svc, "create_dataset", side_effect=fake_create), \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]):
             svc.ensure_case_dataset(_hook_db([_cfg("n1", api_id=None), _cfg("n2")], [_api10()]), case)
         assert created["rows_data"] == [{"nodes": {"n2": {"params": {
             "body": {"bl_no": {"source": "constant", "value": "BL1"}}}}}}]
 
     def test_bound_appends_new_nodes_only(self):
-        """已绑定：仅补画布新增节点的初始参数；已有节点参数（含用户改的动态来源）原样不动"""
+        """已有 bound：仅补画布新增节点的初始参数（各 bound 数据集都补）；
+        已有节点参数（含用户改的动态来源）原样不动"""
         old_params = {"params": {"body": {"bl_no": {
             "source": "ref", "node_id": "n0", "var_path": "bl"}}}}
         row = SimpleNamespace(row_index=1, data={"nodes": {"n1": old_params}})
         ds = SimpleNamespace(id=77, rows=[row])
-        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=77,
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal",
                                dag_config={"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": []})
         db = _hook_db([_cfg("n1"), _cfg("n2")], [_api10()], rows=[row])
-        with patch.object(svc.crud, "get_dataset", return_value=ds):
+        with patch.object(svc.crud, "list_bound_datasets", return_value=[ds]):
             svc.ensure_case_dataset(db, case, user_id=1)
         assert row.data["nodes"]["n1"] is old_params  # 原对象不动（增量红线）
         assert row.data["nodes"]["n2"] == {"params": {
             "body": {"bl_no": {"source": "constant", "value": "BL1"}}}}
 
     def test_explicit_unbind_does_not_recreate(self):
-        """用户显式解绑（allow_create=False）：不重建绑定"""
-        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+        """用户显式清空绑定保存（allow_create=False）：不重建绑定"""
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal",
                                dag_config={"nodes": [{"id": "n1"}], "edges": []})
-        with patch.object(svc, "create_dataset") as mk:
+        with patch.object(svc, "create_dataset") as mk, \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]):
             svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case,
                                     allow_create=False)
         mk.assert_not_called()
-        assert case.dataset_id is None
 
     def test_failure_does_not_raise(self):
         """初始化失败不阻断保存（吞异常回滚）"""
-        case = SimpleNamespace(id=5, project_id=1, case_type="normal", dataset_id=None,
+        case = SimpleNamespace(id=5, project_id=1, case_type="normal",
                                dag_config={"nodes": [{"id": "n1"}], "edges": []})
-        with patch.object(svc, "create_dataset", side_effect=RuntimeError("db down")):
+        with patch.object(svc, "create_dataset", side_effect=RuntimeError("db down")), \
+             patch.object(svc.crud, "list_bound_datasets", return_value=[]):
             svc.ensure_case_dataset(_hook_db([_cfg("n1")], [_api10()]), case)  # 不抛即通过

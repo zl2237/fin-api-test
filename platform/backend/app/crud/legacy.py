@@ -166,9 +166,8 @@ def update_project(db: Session, project: models.Project, data: schemas.ProjectUp
 
 def _clear_datasets(db: Session, project_id: int | None = None, case_id: int | None = None):
     """删除指定范围的数据集及行（外键安全顺序）：
-    1) 解除用例 dataset_id 绑定（test_cases.dataset_id → data_sets）
-    2) 删行（data_set_rows.dataset_id → data_sets）
-    3) 删数据集本体"""
+    1) 删行（data_set_rows.dataset_id → data_sets）
+    2) 删数据集本体（绑定标志 bound 随行消失，无 test_cases 侧引用需解绑）"""
     q = db.query(models.DataSet)
     if project_id is not None:
         q = q.filter(models.DataSet.project_id == project_id)
@@ -177,9 +176,6 @@ def _clear_datasets(db: Session, project_id: int | None = None, case_id: int | N
     ds_ids = [i for (i,) in q.with_entities(models.DataSet.id).all()]
     if not ds_ids:
         return
-    db.query(models.TestCase).filter(
-        models.TestCase.dataset_id.in_(ds_ids)).update(
-        {models.TestCase.dataset_id: None}, synchronize_session=False)
     db.query(models.DataSetRow).filter(
         models.DataSetRow.dataset_id.in_(ds_ids)).delete(synchronize_session=False)
     db.query(models.DataSet).filter(
@@ -332,6 +328,26 @@ def fill_involved_projects(db: Session, cases: list) -> None:
         ids = {c.project_id} if c.project_id else set()
         ids |= by_case.get(c.id, set())
         c.involved_project_ids = sorted(ids)
+
+
+def fill_bound_datasets(db: Session, cases: list) -> None:
+    """批量回填 TestCaseOut.bound_dataset_ids（绑定多选，2026-11-12 B3 定案）。
+
+    绑定 = data_sets.bound 标志（用例私有 1:N，多选）；一次查询回填，
+    用例无 bound 数据集时为空列表（执行强绑定由展开层报错）。
+    """
+    if not cases:
+        return
+    case_ids = [c.id for c in cases]
+    rows = (db.query(models.DataSet.case_id, models.DataSet.id)
+            .filter(models.DataSet.case_id.in_(case_ids),
+                    models.DataSet.bound.is_(True))
+            .order_by(models.DataSet.id).all())
+    by_case: dict[int, list[int]] = {}
+    for case_id, ds_id in rows:
+        by_case.setdefault(case_id, []).append(ds_id)
+    for c in cases:
+        c.bound_dataset_ids = by_case.get(c.id, [])
 
 
 # ============ ApiGroup ============
@@ -690,16 +706,20 @@ def copy_testcase(db: Session, case: models.TestCase) -> models.TestCase:
         db.add(nnc)
     db.commit()
     db.refresh(obj)
-    # 数据集资产随迁：名下全部池深拷贝（保持原名），绑定关系照搬
+    # 数据集资产随迁：名下全部池深拷贝（保持原名），绑定标志照搬
     # （静态值已收口进池，不同步则新用例执行 400「未绑定数据集」）
     from ..services.dataset_service import clone_dataset_to_case
     ds_map: dict[int, int] = {}
     for ds in (db.query(models.DataSet)
                .filter(models.DataSet.case_id == case.id)
                .order_by(models.DataSet.id).all()):
-        ds_map[ds.id] = clone_dataset_to_case(db, ds, obj.id).id
-    if case.dataset_id and case.dataset_id in ds_map:
-        obj.dataset_id = ds_map[case.dataset_id]
+        new_id = clone_dataset_to_case(db, ds, obj.id).id
+        ds_map[ds.id] = new_id
+        if ds.bound:
+            nd = db.query(models.DataSet).get(new_id)
+            if nd:
+                nd.bound = True
+    if ds_map:
         db.commit()
         db.refresh(obj)
     return obj

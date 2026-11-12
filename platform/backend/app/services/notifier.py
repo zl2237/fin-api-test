@@ -294,12 +294,9 @@ def send_plan_notify(db, plan_id: int | None, record_ids: list) -> None:
         duration = ""
         if starts and ends:
             duration = f"（耗时 {(max(ends) - min(starts)).total_seconds():.1f}s）"
-        mode_label = {"chain": "串行链", "combo": "并行组合"}.get(
-            (plan.mode if plan else None) or "combo", "并行组合")
-
         lines = [
             "**方案执行通知**",
-            f"> 方案：{plan_name}（{mode_label}）",
+            f"> 方案：{plan_name}",
             f"> 结果：{'✅ 全部通过' if is_success else '❌ 存在失败/终止'}{duration}",
             f"> 成功/失败/终止：{n_success}/{n_failed}/{n_terminated}"
             + (f"/未结束 {n_running}" if n_running else "")

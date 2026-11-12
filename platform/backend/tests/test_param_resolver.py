@@ -7,7 +7,7 @@ from app.engine.param_resolver import (
     render_placeholders,
     resolve_param,
 )
-from app.engine.variables import PREV_NS, ReferenceError, VariableRegistry
+from app.engine.variables import ReferenceError, VariableRegistry
 
 
 class _FakeDB:
@@ -24,7 +24,7 @@ class _FakeDB:
 @pytest.fixture()
 def reg():
     r = VariableRegistry()
-    r.inject(PREV_NS, {"main_id": "3"})
+    r.inject("suite_upstream", {"main_id": "3"})
     r.write("n_create", "bl_no", "SMOKE-1")
     return r
 
@@ -53,9 +53,9 @@ class TestRef:
                           registry=reg, self_node="n2", db_client=None)
         assert v == "SMOKE-1"
 
-    def test_suite_pseudo_ns(self, reg):
-        """__prev__ 伪命名空间（上游白名单注入）可被 ref 直接引用（__dataset__ 平铺键已退役）。"""
-        v = resolve_param("p", {"source": "ref", "node_id": PREV_NS, "var_path": "main_id"},
+    def test_injected_ns(self, reg):
+        """运行期注入的命名空间（如套件上游白名单）可被 ref 直接引用（__prev__ 已随 B3 删链退役）。"""
+        v = resolve_param("p", {"source": "ref", "node_id": "suite_upstream", "var_path": "main_id"},
                           registry=reg, self_node="n2", db_client=None)
         assert v == "3"
 

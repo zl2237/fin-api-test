@@ -101,7 +101,7 @@
           <pre class="mono">curl -X POST "{{ baseApiUrl }}/testcases/{case_id}/execute" \
   -H "X-API-Key: {{ createdKey?.api_key }}" \
   -H "Content-Type: application/json" \
-  -d '{"case_id": 123, "dataset_id": null, "dataset_row_index": null}'</pre>
+  -d '{"case_id": 123}'</pre>
         </div>
       </template>
       <template #footer>

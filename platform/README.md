@@ -10,7 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org/)
 [![Element Plus](https://img.shields.io/badge/Element_Plus-2.9-409EFF.svg)](https://element-plus.org/)
 [![Vue Flow](https://img.shields.io/badge/Vue_Flow-DAG-ff6b6b.svg)](https://vueflow.dev/)
-[![Tests](https://img.shields.io/badge/pytest-842_passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/pytest-936_passed-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](../LICENSE)
 
 ## Features
@@ -19,7 +19,7 @@
 - **字段级接口配置** — 字段表维护请求体（字段路径、中文名、类型、示例值），告别手写 JSON
 - **多格式导入** — cURL / HAR / Swagger 2.0 / OpenAPI 3.0 一键导入接口与字段
 - **参数四来源模型** — 每个入参单选取值来源：常量（容器内嵌来源递归解析）/ 内置函数（12 个注册表函数，入参可引用上游变量）/ 上游引用（结构化 `node_id + var_path`）/ 参数级标量 SQL（`{{节点.变量}}` 占位）；保存时静态校验悬空引用并定位到参数，运行期引用失败即节点失败
-- **执行方案** — 跨系统用例编排：`combo` 并行组合（成员级重复次数 + 方案级并发）/ `chain` 串行链（整链轮数 × 轮间并行正交、相邻成员 `pass_vars` 名单定向传参注入 `__prev__` 命名空间、失败阻断本轮下游）、成员级数据集换绑、方案内嵌定时（interval/daily 双档，调度器双源 reload）、执行记录 plan_id 溯源（2026-10-28 套件收口承接）
+- **执行方案** — 跨系统用例编排：成员并行组合（各成员「多选数据集 × 执行次数」条记录独立并行，方案级并发上限）、成员级数据集整组覆盖、方案内嵌定时（interval/daily 双档，调度器双源 reload）、执行记录 plan_id 溯源（串行链/`__prev__` 相邻传参已随 2026-11-12 B3 删链废止，跨用例依赖改跨系统融合用例）
 - **数据集行入参** — 数据集行承载各节点入参配置（`{"nodes": {...}}`），多行即多场景；支持粘贴 JSON / 表单串 / cURL 预览导入（引用型参数不覆盖）；复用靠复制数据集；访问记忆按「用户|项目」分槽、槽内按用例嵌套（切走再切回各恢复各的）
 - **17 种断言** — JSONPath / 状态码 / 耗时 / DB 查询 / DB 与响应交叉校验，DB 断言支持重试应对异步落库
 - **结构化报告** — 每步请求/响应/断言全量落库，响应体 JSON 可展开收起；支持编辑节点请求参数后按原环境重放（纯调试口径不写回报告）；后端导出 CSV（Excel 兼容）/ HTML（可打印 PDF）+ 耗时趋势图

@@ -70,14 +70,14 @@ CRUD + `POST /reorder` 排序 + `POST /{id}/copy` 复制 + `POST /{id}/test-db` 
 | POST | /batch-move 、/reorder | 批量移动 / 排序 |
 | CRUD | /api/case-groups | 用例分组（树形） |
 
-## 执行方案 /api/plans（2026-10-28 套件收口承接）
+## 执行方案 /api/plans（2026-10-28 套件收口承接；2026-11-12 B3 删链仅存并行组合）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | / | 方案列表 / 建方案（mode=combo并行组合 \| chain串行链） |
+| GET/POST | / | 方案列表 / 建方案 |
 | GET/PUT/DELETE | /{plan_id} | 详情 / 更新（含内嵌定时配置）/ 删除 |
-| PUT | /{plan_id}/items | 成员批量保存（排序、成员级数据集换绑 dataset_id、run_count、chain 相邻传参 pass_vars） |
-| POST | /{plan_id}/execute | 一键执行（combo=成员并行；chain=轮内串行+`__prev__` 相邻传参+失败阻断本轮下游，rounds×concurrency 正交） |
+| PUT | /{plan_id}/items | 成员批量保存（排序、成员级数据集多选 dataset_ids、run_count） |
+| POST | /{plan_id}/execute | 一键执行（成员「选中数据集 × run_count」条记录按方案级并发独立并行） |
 
 ## 数据集 /api/datasets
 
