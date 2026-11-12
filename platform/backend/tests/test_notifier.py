@@ -1,16 +1,20 @@
-"""notifier 模块单测：执行通知服务（单条 + 批量聚合，企微通知）。
+"""notifier 模块单测：执行通知服务（单条 + 方案聚合，企微/邮件双渠道）。
 
-用 mock 替换 WeComRobot，验证通知内容拼装、取数（执行人/项目名、环境/数据集）
-与门控（webhook + enable_on_success/enable_on_failure 单点）逻辑，不触真实网络。
+用 mock 替换 WeComRobot 与 smtplib.SMTP_SSL，验证通知内容拼装、取数（执行人/
+项目名、环境/数据集）与门控（webhook/email + enable_on_success/enable_on_failure
+单点）逻辑，不触真实网络。
 """
+import smtplib
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 import utils.wecom_util  # noqa: F401  显式绑定子模块：utils 为命名空间包，不导入则 patch("utils.wecom_util.WeComRobot") 解析目标失败
 
-from app import models
-from app.services.notifier import send_notify
+from app import crud, models
+from app.services.notifier import all_terminal, send_notify, send_plan_notify
 
 
 def _env(name="测试环境", notify_config=None):
@@ -349,3 +353,269 @@ class TestSendNotify:
             send_notify(DB, _env(notify_config=WEBHOOK_CFG), _case(), record)
             content = MockRobot.return_value.send_markdown.call_args[0][1]
             assert "失败原因" not in content
+
+
+# ===== 邮件渠道（_send_email：SMTP 打桩，不触网络） =====
+
+EMAIL_CFG = {
+    "smtp_host": "smtp.test.com",
+    "smtp_port": 465,
+    "use_ssl": True,
+    "from_addr": "bot@test.com",
+    "auth_code": "authcode123",
+    "recipients": ["leader@corp.com", "qa@corp.com"],
+    "enable_on_failure": True,
+    "enable_on_success": True,
+}
+
+
+def _mime_body(payload: str) -> str:
+    """MIMEText as_string 载荷 → 解码后的 HTML 正文（base64 CTE）。"""
+    from email import message_from_string
+    msg = message_from_string(payload)
+    return msg.get_payload(decode=True).decode("utf-8")
+
+
+class _FakeSMTP:
+    """smtplib.SMTP_SSL 替身：记录构造/login/sendmail 参数"""
+    instances = []
+
+    def __init__(self, host, port, timeout=None):
+        self.host, self.port, self.timeout = host, port, timeout
+        self.login_args = None
+        self.sent = []
+        _FakeSMTP.instances.append(self)
+
+    def login(self, user, pwd):
+        self.login_args = (user, pwd)
+
+    def sendmail(self, from_addr, to, payload):
+        self.sent.append((from_addr, list(to), payload))
+
+    def quit(self):
+        pass
+
+
+class TestEmailChannel:
+    def test_success_sent_via_ssl_with_login(self, monkeypatch):
+        monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
+        _FakeSMTP.instances.clear()
+        cfg = dict(WEBHOOK_CFG)
+        cfg["email"] = EMAIL_CFG
+        record = _record(status="success", summary={"passed": 2, "total": 2, "failed": 0})
+        started = datetime(2026, 1, 15, 10, 0, 0)
+        record.started_at, record.ended_at = started, datetime(2026, 1, 15, 10, 0, 3)
+
+        send_notify(DB, _env(notify_config=cfg), _case(name="邮件用例"), record)
+        assert len(_FakeSMTP.instances) == 1
+        inst = _FakeSMTP.instances[0]
+        assert inst.host == "smtp.test.com" and inst.port == 465
+        assert inst.login_args == ("bot@test.com", "authcode123")
+        assert len(inst.sent) == 1
+        from_addr, to, payload = inst.sent[0]
+        assert from_addr == "bot@test.com"
+        assert to == ["leader@corp.com", "qa@corp.com"]
+        body = _mime_body(payload)
+        assert "邮件用例" in body  # HTML 正文含用例名（base64 解码后）
+
+    def test_skipped_when_config_incomplete(self, monkeypatch):
+        monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
+        _FakeSMTP.instances.clear()
+        cfg = dict(WEBHOOK_CFG)
+        cfg["email"] = {"smtp_host": "", "from_addr": "bot@test.com",
+                        "recipients": ["a@b.com"]}  # 缺 host → 未配置
+        send_notify(DB, _env(notify_config=cfg), _case(), _record())
+        assert _FakeSMTP.instances == []
+
+    def test_success_skipped_when_not_enabled(self, monkeypatch):
+        monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
+        _FakeSMTP.instances.clear()
+        cfg = dict(WEBHOOK_CFG)
+        cfg["email"] = {**EMAIL_CFG, "enable_on_success": False}
+        send_notify(DB, _env(notify_config=cfg), _case(), _record(status="success"))
+        assert _FakeSMTP.instances == []
+
+    def test_failure_sent_by_default(self, monkeypatch):
+        monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
+        _FakeSMTP.instances.clear()
+        cfg = {"email": {k: v for k, v in EMAIL_CFG.items()
+                         if k not in ("enable_on_failure", "enable_on_success")}}
+        send_notify(DB, _env(notify_config=cfg), _case(), _record(status="failed"))
+        assert len(_FakeSMTP.instances) == 1  # 失败默认开
+
+    def test_smtp_exception_swallowed(self, monkeypatch):
+        class _Boom(_FakeSMTP):
+            def login(self, user, pwd):
+                raise RuntimeError("SMTP 认证失败")
+
+        monkeypatch.setattr(smtplib, "SMTP_SSL", _Boom)
+        cfg = dict(WEBHOOK_CFG)
+        cfg["email"] = EMAIL_CFG
+        # 不应抛出（_dispatch_channels 各渠道独立兜底）
+        send_notify(DB, _env(notify_config=cfg), _case(), _record())
+
+    def test_plain_smtp_when_ssl_off(self, monkeypatch):
+        monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+        _FakeSMTP.instances.clear()
+        cfg = {"email": {**EMAIL_CFG, "use_ssl": False,
+                         "enable_on_success": True}}
+        send_notify(DB, _env(notify_config=cfg), _case(), _record())
+        assert len(_FakeSMTP.instances) == 1  # 走 SMTP（非 SSL）分支
+
+
+# ===== 方案聚合通知（send_plan_notify / all_terminal） =====
+
+def _plan_record(rid, case_id=1, env_id=1, status="success", trigger_type="plan",
+                 summary=None, started=None, ended=None):
+    return SimpleNamespace(
+        id=rid, case_id=case_id, env_id=env_id, status=status,
+        trigger_type=trigger_type, summary=summary or {},
+        started_at=started, ended_at=ended, case_name=f"用例{case_id}",
+    )
+
+
+class _PlanDb:
+    """方案聚合取数替身：records .filter().all()；plan/env 走 .get(id)。"""
+
+    def __init__(self, records, plan=None, env_by_id=None):
+        self._records = records
+        self._plan = plan
+        self._env_by_id = env_by_id or {}
+
+    def query(self, model):
+        parent = self
+        kind = {models.ExecutionRecord: "rec", models.ExecutionPlan: "plan",
+                models.Environment: "env"}.get(model)
+
+        class _Q:
+            def filter(self, *a, **kw):
+                return self
+
+            def all(self):
+                return list(parent._records) if kind == "rec" else []
+
+            def get(self, pk):
+                if kind == "plan":
+                    return parent._plan
+                if kind == "env":
+                    return parent._env_by_id.get(pk)
+                return None
+        return _Q()
+
+
+@pytest.fixture(autouse=True)
+def _no_fill_exec_names(monkeypatch):
+    """send_plan_notify 内部延迟导入 crud.fill_exec_names——打桩为 no-op
+    （测试记录已带 case_name，真实回填需 ORM 联表，不在单测范围）。"""
+    monkeypatch.setattr(crud, "fill_exec_names", lambda db, objs: None)
+
+
+class TestAllTerminal:
+    def test_empty_is_not_terminal(self):
+        assert all_terminal([]) is False
+
+    def test_running_blocks(self):
+        recs = [_plan_record(1, status="success"), _plan_record(2, status="running")]
+        assert all_terminal(recs) is False
+
+    def test_all_success(self):
+        recs = [_plan_record(1), _plan_record(2)]
+        assert all_terminal(recs) is True
+
+    def test_terminated_is_terminal(self):
+        assert all_terminal([_plan_record(1, status="terminated")]) is True
+
+
+class TestSendPlanNotify:
+    def _plan(self, name="冒烟方案", mode="chain"):
+        return SimpleNamespace(name=name, mode=mode)
+
+    def test_all_success_sends_one_summary(self):
+        env = _env(notify_config=WEBHOOK_CFG)
+        recs = [
+            _plan_record(11, case_id=1, started=datetime(2026, 1, 15, 10, 0, 0),
+                         ended=datetime(2026, 1, 15, 10, 0, 10)),
+            _plan_record(12, case_id=2, ended=datetime(2026, 1, 15, 10, 0, 8)),
+        ]
+        db = _PlanDb(recs, plan=self._plan(), env_by_id={1: env})
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_plan_notify(db, 5, [11, 12])
+            mock = MockRobot.return_value
+            mock.send_markdown.assert_called_once()
+            title, content = mock.send_markdown.call_args[0]
+            assert title == "方案执行通知"
+            assert "冒烟方案" in content
+            assert "串行链" in content
+            assert "✅ 全部通过" in content
+            assert "2/0/0" in content  # 成功/失败/终止
+            assert "方案定时" not in content
+            assert "10.0s" in content  # 最早 start → 最晚 end
+
+    def test_failures_listed_with_exec_id(self):
+        env = _env(notify_config=WEBHOOK_CFG)
+        recs = [
+            _plan_record(21, case_id=1, trigger_type="plan_schedule"),
+            _plan_record(22, case_id=2, status="failed",
+                         summary={"error": "断言失败：金额应为 0.90 实际 6.3"}),
+            _plan_record(23, case_id=3, status="failed"),
+        ]
+        db = _PlanDb(recs, plan=self._plan(name="回归链", mode="combo"),
+                     env_by_id={1: env})
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_plan_notify(db, 5, [21, 22, 23])
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "❌ 存在失败" in content
+            assert "用例2（#22）" in content and "断言失败" in content
+            assert "用例3（#23）" in content
+            assert "方案定时" in content  # trigger_type=plan_schedule 覆盖
+            assert "并行组合" in content
+
+    def test_dispatch_per_distinct_env(self):
+        env1 = _env(name="环境A", notify_config=WEBHOOK_CFG)
+        env2 = _env(name="环境B", notify_config=WEBHOOK_CFG)
+        recs = [_plan_record(31, case_id=1, env_id=1),
+                _plan_record(32, case_id=2, env_id=2)]
+        db = _PlanDb(recs, plan=self._plan(), env_by_id={1: env1, 2: env2})
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_plan_notify(db, 5, [31, 32])
+            # 两个环境各发一条（同一 webhook 构造两次）
+            assert MockRobot.call_count == 2
+            assert MockRobot.return_value.send_markdown.call_count == 2
+
+    def test_deleted_plan_falls_back_to_id(self):
+        env = _env(notify_config=WEBHOOK_CFG)
+        recs = [_plan_record(41)]
+        db = _PlanDb(recs, plan=None, env_by_id={1: env})
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_plan_notify(db, 77, [41])
+            content = MockRobot.return_value.send_markdown.call_args[0][1]
+            assert "已删除方案 #77" in content
+
+    def test_no_channels_no_env_silent(self):
+        recs = [_plan_record(51)]  # 环境已删（env_by_id 空）
+        db = _PlanDb(recs, plan=self._plan(), env_by_id={})
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_plan_notify(db, 5, [51])  # 不抛异常、不发企微
+            MockRobot.return_value.send_markdown.assert_not_called()
+
+    def test_terminated_counts_as_failure_event(self):
+        env = _env(notify_config={**WEBHOOK_CFG, "enable_on_success": True,
+                                  "enable_on_failure": False})
+        recs = [_plan_record(61), _plan_record(62, status="terminated")]
+        db = _PlanDb(recs, plan=self._plan(), env_by_id={1: env})
+        with patch("utils.wecom_util.WeComRobot") as MockRobot:
+            send_plan_notify(db, 5, [61, 62])
+            # 终止 ⇒ 失败事件；该环境失败通知已关 ⇒ 不发
+            MockRobot.return_value.send_markdown.assert_not_called()
+
+    def test_plan_notify_email_channel(self, monkeypatch):
+        monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
+        _FakeSMTP.instances.clear()
+        env = _env(notify_config={"email": EMAIL_CFG})
+        recs = [_plan_record(71), _plan_record(72, case_id=2, status="failed")]
+        db = _PlanDb(recs, plan=self._plan(name="邮件冒烟"), env_by_id={1: env})
+        send_plan_notify(db, 5, [71, 72])
+        assert len(_FakeSMTP.instances) == 1
+        _, _, payload = _FakeSMTP.instances[0].sent[0]
+        body = _mime_body(payload)
+        assert "邮件冒烟" in body and "用例2" in body

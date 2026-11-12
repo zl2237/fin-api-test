@@ -11,6 +11,9 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+from sqlalchemy.orm import Session
+
+from .. import models
 
 
 def _style_header(ws, ncols: int) -> None:
@@ -203,10 +206,53 @@ def export_cases_excel(cases: list, group_names: dict[int, str]) -> bytes:
     return buf.getvalue()
 
 
+# ===== 用例导出 v2：跨项目迁移包（节点接口快照） =====
+# v1（无 version 字段）缺环境绑定、绑定数据集名与接口定义快照——同库迁移会丢绑定。
+# v2 补齐为自包含迁移包，导入端（case_import_service）按 (method,path) 匹配复用
+# 目标项目已有接口，未命中用快照重建（含字段表）。契约模板绑定不随迁移（见导入端警告）。
+
+def _api_snapshot(db: Session | None, api_id: int | None) -> dict | None:
+    """节点引用接口的定义快照：字段表全量（导入按 method+path 匹配，未命中重建）。"""
+    if not db or not api_id:
+        return None
+    a = db.query(models.ApiDefinition).get(api_id)
+    if not a:
+        return None
+    return {
+        "name": a.name, "method": (a.method or "POST").upper(), "path": a.path,
+        "description": a.description,
+        "fields": [
+            {"key": f.key, "label": f.label, "field_type": f.field_type,
+             "required": f.required, "default_value": f.default_value,
+             "remark": f.remark, "sort_order": f.sort_order}
+            for f in (a.fields or [])
+        ],
+    }
+
+
 def export_cases_json(cases: list, group_names: dict[int, str], project_name: str,
-                      datasets_by_case: dict[int, list] | None = None) -> bytes:
-    """用例全量 JSON：含 DAG 结构、节点结构配置（提取/断言）与数据集入参配置，用于备份/迁移。"""
+                      datasets_by_case: dict[int, list] | None = None, *,
+                      db: Session | None = None) -> bytes:
+    """用例全量 JSON（v2 迁移包）：DAG + 节点配置 + 数据集行 + 接口定义快照，供导入端无损重建。
+
+    db 传入时（路由层实际路径）补齐 env 名、绑定数据集名与接口快照；
+    缺省 None 供纯函数测试（SimpleNamespace 替身无库可查）。
+    """
     datasets_by_case = datasets_by_case or {}
+    env_names: dict[int, str] = {}
+    bound_dataset_names: dict[int, str] = {}
+    if db:
+        env_ids = {c.env_id for c in cases if getattr(c, "env_id", None)}
+        if env_ids:
+            for ev in (db.query(models.Environment)
+                       .filter(models.Environment.id.in_(env_ids)).all()):
+                env_names[ev.id] = ev.name
+        ds_ids = {c.dataset_id for c in cases if getattr(c, "dataset_id", None)}
+        if ds_ids:
+            for d in (db.query(models.DataSet)
+                      .filter(models.DataSet.id.in_(ds_ids)).all()):
+                bound_dataset_names[d.id] = d.name
+
     items = []
     for c in cases:
         cfg_map = {nc.node_id: nc for nc in (c.node_configs or [])}
@@ -218,21 +264,28 @@ def export_cases_json(cases: list, group_names: dict[int, str], project_name: st
                 "label": (n.get("data") or {}).get("label"),
                 "api_id": nc.api_id if nc else None,
                 "position": n.get("position"),
+                "api_snapshot": _api_snapshot(db, nc.api_id if nc else None),
                 "config": {
-                    "post_extract": (nc.post_extract or []) if nc else [],
-                    "assertions": (nc.assertions or []) if nc else [],
-                    "wait_after_ms": (nc.wait_after_ms or 0) if nc else 0,
+                    "post_extract": (getattr(nc, "post_extract", None) or []) if nc else [],
+                    "assertions": (getattr(nc, "assertions", None) or []) if nc else [],
+                    "wait_after_ms": (getattr(nc, "wait_after_ms", None) or 0) if nc else 0,
+                    # 契约模板绑定不随迁移（模板属项目级资产）：导出留档，导入端提示重绑
+                    "contract_template_id": (getattr(nc, "contract_template_id", None)) if nc else None,
                 } if nc else None,
             })
         items.append({
             "id": c.id, "name": c.name,
             "group": group_names.get(c.group_id) if c.group_id else None,
             "description": c.description,
+            "env": env_names.get(c.env_id) if getattr(c, "env_id", None) else None,
+            "dataset_name": (bound_dataset_names.get(c.dataset_id)
+                             if getattr(c, "dataset_id", None) else None),
             "edges": (c.dag_config or {}).get("edges", []),
             "nodes": nodes_out,
             # 数据集入参配置（绑定数据集优先；多数据集场景全量导出）
             "datasets": [
                 {"name": d.name,
+                 "description": getattr(d, "description", None),
                  "rows": [{"row_index": r.row_index, "data": r.data or {}} for r in (d.rows or [])]}
                 for d in datasets_by_case.get(c.id, [])
             ],
@@ -241,6 +294,7 @@ def export_cases_json(cases: list, group_names: dict[int, str], project_name: st
     data = {
         "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "type": "cases",
+        "version": 2,
         "project": project_name,
         "count": len(items),
         "items": items,

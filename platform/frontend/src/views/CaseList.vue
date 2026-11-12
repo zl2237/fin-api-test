@@ -15,6 +15,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-button style="margin-left: 12px" @click="importVisible = true">导入</el-button>
       </div>
       <div class="head-right">
         <el-select
@@ -420,6 +421,15 @@
     <!-- 批量执行配置弹窗：逐用例设置执行次数 + 并发数（配置 UI 收敛在组件，执行编排在父视图） -->
     <BatchRunDialog v-model="batchRunVisible" :items="batchRunItems" @confirm="confirmBatchRun" />
 
+    <!-- 用例导入弹窗：上传/粘贴导出 JSON → 预演 → 确认（接口按 method+path 复用，缺则补建） -->
+    <CaseImportDialog
+      v-model="importVisible"
+      :project-id="store.currentProjectId!"
+      :tree-data="treeSelectWithUngrouped"
+      :envs="store.environments"
+      @imported="onImported"
+    />
+
     <!-- 组合弹窗：拖拽调整拼接顺序，复制式生成新用例 -->
     <el-dialog v-model="combineVisible" title="组合用例" width="540px" align-center :close-on-click-modal="false">
       <div class="combine-tip">拖拽调整拼接顺序（自上而下依次执行）；组合将复制生成新用例，不影响原用例。前段提取的变量后段可直接引用。</div>
@@ -506,6 +516,7 @@ import { useGroupedTable, setGroupSwitchNotifier } from '@/composables/useGroupe
 import { useGroupMasterDetail } from '@/composables/useGroupMasterDetail'
 import GroupManageDialog from '@/components/GroupManageDialog.vue'
 import BatchMoveDialog from '@/components/BatchMoveDialog.vue'
+import CaseImportDialog from '@/components/CaseImportDialog.vue'
 import ScheduleDialog from '@/components/ScheduleDialog.vue'
 import DataDrivenRunDialog from '@/components/DataDrivenRunDialog.vue'
 import BatchRunDialog from '@/components/BatchRunDialog.vue'
@@ -619,6 +630,8 @@ const batchMoveVisible = ref(false)
 // 批量执行配置弹窗状态（次数/并发配置在 BatchRunDialog 内；视图只持开合态与展示行快照）
 const batchRunning = ref(false)
 const batchRunVisible = ref(false)
+// 用例导入弹窗开合态（预演/确认流程收敛在 CaseImportDialog 内）
+const importVisible = ref(false)
 // 弹窗内所选用例的展示行（打开时按勾选快照生成，避免执行中列表刷新干扰）
 const batchRunItems = ref<{ id: number; name: string }[]>([])
 const form = ref<{ name: string; group_id: number | null; description: string; env_id: number | null }>({ name: '', group_id: null, description: '', env_id: null })
@@ -753,20 +766,30 @@ function downloadBlob(blob: Blob, filename: string) {
 async function onExport(format: 'excel' | 'json') {
   if (!store.currentProjectId) return
   if (!filteredList.value.length) return ElMessage.warning('当前没有可导出的用例')
+  // 勾选了用例只导勾选的（数量精确可报）；未勾选按筛选范围导全量（keyword 是前端本地
+  // 过滤、不参与后端导出，全量导出不报具体数量，避免与文件实际条数不符）
+  const sel = selectedCaseIds.value
   try {
     const blob = await caseApi.exportList({
       project_id: store.currentProjectId,
       format,
+      case_ids: sel.length ? sel.join(',') : undefined,
       created_by: filterCreator.value ?? undefined,
       updated_by: filterUpdater.value ?? undefined,
     })
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
     downloadBlob(blob, `cases_${stamp}.${format === 'excel' ? 'xlsx' : 'json'}`)
-    // 不报具体数量：keyword 是前端本地过滤、不参与后端导出，报数会与文件实际条数不符
-    ElMessage.success(format === 'excel' ? '已导出 Excel 简表' : '已导出 JSON 全量')
+    ElMessage.success(sel.length
+      ? `已导出选中的 ${sel.length} 个用例（${format === 'excel' ? 'Excel 简表' : 'JSON 全量'}）`
+      : (format === 'excel' ? '已导出 Excel 简表' : '已导出 JSON 全量'))
   } catch (e: any) {
     ElMessage.error(e.message || '导出失败')
   }
+}
+
+// 导入完成：刷新列表（新建资产在弹窗成功消息里汇总展示）
+async function onImported() {
+  await load()
 }
 
 // 分组过滤/计数/可见行/组内分页等样板已收敛至 useGroupedTable（见顶部解构）

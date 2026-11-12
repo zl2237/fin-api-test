@@ -11,8 +11,9 @@ import json
 import os
 import secrets
 import time
+from datetime import datetime
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -110,12 +111,64 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
+# ============ API Key（外部触发用） ============
+# 明文格式：fin_ + 43 位 urlsafe 随机串；库中只存 sha256，明文仅创建时返回一次
+_API_KEY_PREFIX = "fin_"
+
+
+def generate_api_key() -> str:
+    """生成 API 密钥明文（仅此一处产生，调用方负责一次性展示）。"""
+    return _API_KEY_PREFIX + secrets.token_urlsafe(32)
+
+
+def hash_api_key(raw: str) -> str:
+    """密钥明文 → sha256 十六进制（64 位），入库与比对都用哈希。"""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def resolve_api_key_user(db: Session, raw_key: str) -> tuple[models.User, models.ApiKey] | None:
+    """按明文解析密钥 → (密钥身份用户, 密钥记录)。无效/不存在返回 None。
+
+    命中即回写 last_used_at（失败静默，不影响认证主流程）。
+    """
+    raw = (raw_key or "").strip()
+    if not raw.startswith(_API_KEY_PREFIX):
+        return None
+    key = db.query(models.ApiKey).filter(models.ApiKey.key_hash == hash_api_key(raw)).first()
+    if key is None:
+        return None
+    user = db.query(models.User).filter(models.User.id == key.created_by).first()
+    if user is None:
+        return None
+    try:
+        key.last_used_at = datetime.now()
+        db.commit()
+    except Exception:  # noqa: BLE001  last_used_at 回写失败不阻断认证
+        db.rollback()
+    return user, key
+
+
 # ============ FastAPI 依赖 ============
 def get_current_user(
     cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
     db: Session = Depends(get_db),
 ) -> models.User:
-    """解析 Bearer token，返回当前用户。未登录或 token 失效抛 401。"""
+    """鉴权双通道：API 密钥（Bearer fin_* 或 X-API-Key 头）→ JWT。
+
+    密钥认证即创建人身份（member 密钥只有 member 权限）；
+    非密钥凭据走原 JWT 路径，行为不变。
+    """
+    raw_key: str | None = None
+    if x_api_key:
+        raw_key = x_api_key
+    elif cred is not None and (cred.credentials or "").startswith(_API_KEY_PREFIX):
+        raw_key = cred.credentials
+    if raw_key:
+        resolved = resolve_api_key_user(db, raw_key)
+        if resolved is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API 密钥无效或已吊销")
+        return resolved[0]
     if cred is None or not cred.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录或登录已过期")
     payload = decode_token(cred.credentials)
