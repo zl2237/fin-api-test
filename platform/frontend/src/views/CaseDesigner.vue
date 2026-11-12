@@ -63,8 +63,41 @@
             </button>
           </div>
         </div>
-        <EmptyState v-if="apiList.length && apiKeyword && !filteredApiCount" description="无匹配接口" :image-size="60" />
+        <EmptyState v-if="apiList.length && apiKeyword && !filteredApiCount && !filteredCrossCount" description="无匹配接口" :image-size="60" />
         <EmptyState v-if="!apiList.length" description="暂无接口，请先到接口管理新增" :image-size="60" />
+        <!-- 跨项目接口（跨系统编排）：默认收起，按项目分组；搜索时自动展开并入过滤，命中项带项目徽标 -->
+        <div v-if="crossApiList.length" class="cross-section">
+          <button
+            type="button"
+            class="group-header cross-header"
+            :class="{ 'is-open': crossEffectiveOpen }"
+            :aria-expanded="crossEffectiveOpen"
+            @click="crossOpen = !crossOpen"
+          >
+            <el-icon class="expand-icon" :class="{ expanded: crossEffectiveOpen }"><CaretRight /></el-icon>
+            <span class="group-name">跨项目接口</span>
+            <span class="group-count">{{ crossApiList.length }}</span>
+          </button>
+          <div v-if="crossEffectiveOpen">
+            <div v-for="g in crossProjectGroups" :key="g.projectId" class="cross-project">
+              <div class="cross-project-title">
+                <span class="cross-project-name">{{ g.name }}</span>
+                <span class="group-count">{{ crossApisOf(g.projectId).length }}</span>
+              </div>
+              <button
+                v-for="a in crossApisOf(g.projectId)"
+                :key="a.id"
+                type="button"
+                class="api-item cross-api-item"
+                :title="`${a.method} ${a.path}（${g.name}）`"
+                @click="onAddNode(a)"
+              >
+                <span class="api-item-name">{{ a.name }}<el-tag size="small" effect="plain" class="cross-badge">{{ g.name }}</el-tag></span>
+                <span class="api-item-path">{{ a.method }} {{ a.path }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -148,7 +181,8 @@
     <NodeConfigDrawer
       v-model:visible="drawerVisible"
       :config="currentConfig"
-      :apis="apiList"
+      :apis="allApis"
+      :envs-by-project="envsByProject"
       :ref-groups="refGroups"
       @save="onConfigSave"
     />
@@ -211,7 +245,7 @@ import DagCanvas from '@/components/DagCanvas.vue'
 import DrawCheck from '@/components/DrawCheck.vue'
 import EnvBadge from '@/components/EnvBadge.vue'
 import NodeConfigDrawer from '@/components/NodeConfigDrawer.vue'
-import { caseApi, apiApi, apiGroupApi, datasetApi, type ApiDef, type ApiGroup, type TestCase, type NodeConfig, type SplitVar } from '@/api'
+import { caseApi, apiApi, apiGroupApi, datasetApi, envApi, type ApiDef, type ApiGroup, type Environment, type TestCase, type NodeConfig, type SplitVar } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useGroupTree, collectDescendantIds, type FlatGroup } from '@/composables/useGroupTree'
@@ -231,6 +265,42 @@ const runner = useExecutionRunner()
 
 const apiList = ref<ApiDef[]>([])
 const apiGroups = ref<ApiGroup[]>([])
+
+// ===== 跨项目接口（跨系统编排，2026-11-12）=====
+// 本项目树照旧置顶；跨项目接口收进底部「跨项目接口」折叠区（按项目分组、默认收起）。
+// /apis 不带 project_id 即返回全项目接口；envsByProject 供节点抽屉「执行环境」
+// 下拉与 onAddNode 跨项目节点自动绑默认环境用
+const crossApiList = ref<ApiDef[]>([])
+const crossOpen = ref(false)
+const envsByProject = ref<Record<number, Environment[]>>({})
+const allApis = computed<ApiDef[]>(() => [...apiList.value, ...crossApiList.value])
+
+const crossEffectiveOpen = computed(() => crossOpen.value || !!apiKeyword.value.trim())
+
+/** 跨项目折叠区：项目分组（项目名来自全局 store；未知项目兜底 #id） */
+const crossProjectGroups = computed(() => {
+  const ids = [...new Set(crossApiList.value.map((a) => a.project_id))]
+  return ids.map((pid) => ({
+    projectId: pid,
+    name: store.projects.find((p) => p.id === pid)?.name || `项目#${pid}`,
+  }))
+})
+
+/** 项目下的跨项目接口（带关键词过滤，与本项目树口径一致） */
+function crossApisOf(projectId: number): ApiDef[] {
+  let list = crossApiList.value.filter((a) => a.project_id === projectId)
+  const kw = apiKeyword.value.trim().toLowerCase()
+  if (kw) list = list.filter((a) => a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw))
+  return list
+}
+
+const filteredCrossCount = computed(() => {
+  if (!apiKeyword.value) return 0
+  const kw = apiKeyword.value.toLowerCase()
+  return crossApiList.value.filter(
+    (a) => a.name.toLowerCase().includes(kw) || a.path.toLowerCase().includes(kw),
+  ).length
+})
 
 // ===== 多级分组树（继承接口管理的分组层级与排序） =====
 const flatGroups = computed<FlatGroup[]>(() =>
@@ -362,6 +432,30 @@ const currentConfig = computed<NodeConfig>(() => {
 async function loadApis() {
   if (!store.currentProjectId) return
   apiList.value = await apiApi.list(store.currentProjectId)
+  await loadCrossData()
+}
+
+/** 跨项目接口 + 各涉及项目环境（节点级环境绑定数据源）。失败不阻断编排（折叠区留空） */
+async function loadCrossData() {
+  const pid = store.currentProjectId
+  if (!pid) return
+  try {
+    const all = await apiApi.list()
+    crossApiList.value = all.filter((a) => a.project_id !== pid)
+  } catch {
+    crossApiList.value = []
+    return
+  }
+  // 涉及项目 = 本项目 ∪ 跨项目接口所在项目（本项目环境也入表：节点可改绑本项目其它环境）
+  const involved = [...new Set([pid, ...crossApiList.value.map((a) => a.project_id)])]
+  const entries = await Promise.all(involved.map(async (p) => {
+    try {
+      return [p, await envApi.list(p)] as const
+    } catch {
+      return [p, []] as const
+    }
+  }))
+  envsByProject.value = Object.fromEntries(entries)
 }
 
 async function loadApiGroups() {
@@ -378,7 +472,7 @@ async function loadCase(id: number) {
   // 避免接口名称修改后，用例内节点的旧名称仍残留
   nodes.value = (c.dag_config?.nodes || []).map((n: any) => {
     const apiId = n.data?.api_id
-    const api = apiId ? apiList.value.find(a => a.id === apiId) : null
+    const api = apiId ? allApis.value.find(a => a.id === apiId) : null
     if (!api) return { ...n }
     return {
       ...n,
@@ -544,13 +638,24 @@ function onAddNode(api: ApiDef) {
   }
   nodes.value.push(node)
   canvasRef.value?.addNode(node)
+  // 跨项目接口：自动绑其项目默认环境（执行期该节点用此环境 base_url/登录态/DB）；
+  // 项目未配环境时置 null 留给保存校验拦截（相对 path 会打偏域，不能静默沿用用例环境）
+  let envId: number | null = null
+  if (api.project_id !== caseData.value.project_id) {
+    const envs = envsByProject.value[api.project_id] || []
+    envId = envs.find((e) => e.is_default)?.id ?? envs[0]?.id ?? null
+  }
   configs.value.push({
     node_id: id,
     api_id: api.id,
     post_extract: [],
     assertions: [],
     wait_after_ms: 0,
+    env_id: envId,
   })
+  if (api.project_id !== caseData.value.project_id && !envId) {
+    ElMessage.warning(`「${api.name}」所属项目未配置环境，请在节点配置中手动绑定`)
+  }
   dirty.value = true
 }
 
@@ -583,7 +688,7 @@ function onConfigSave(_config: NodeConfig) {
   // 若此处不同步，保存的 dag_config 残留旧 api_id，重开用例时 loadCase 会把名称刷回旧接口
   const nd = nodes.value.find((n) => n.id === _config.node_id)
   if (nd && _config.api_id) {
-    const api = apiList.value.find((a) => a.id === _config.api_id)
+    const api = allApis.value.find((a) => a.id === _config.api_id)
     if (api) {
       nd.data.label = api.name
       nd.data.api_id = api.id
@@ -853,6 +958,38 @@ watch(() => store.currentProjectId, async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* ===== 跨项目接口折叠区 ===== */
+.cross-section {
+  margin-top: 10px;
+  border-top: 1px dashed var(--app-border);
+  padding-top: 4px;
+}
+/* 与上方本项目树视觉区隔：头部加浅底色条 */
+.cross-header {
+  background: var(--app-hover);
+}
+.cross-project {
+  margin: 2px 0 6px;
+}
+.cross-project-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+.cross-project-name {
+  color: var(--app-text-muted);
+  font-weight: 600;
+}
+.cross-badge {
+  margin-left: 6px;
+  transform: translateY(-1px);
+}
+/* 跨项目条目轻微缩进：与本项目条目在搜索展开时仍可区分 */
+.cross-api-item {
+  padding-left: 18px;
 }
 .canvas-wrap {
   flex: 1;

@@ -246,6 +246,7 @@ export interface NodeConfig {
   post_extract: PostExtractSpec[]; assertions: AssertionSpec[]
   wait_after_ms?: number
   contract_template_id?: number | null  // 契约模板绑定；null=隐式全量字段
+  env_id?: number | null  // 节点级环境绑定（跨系统编排）；null=沿用用例环境
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
@@ -256,6 +257,7 @@ export interface TestCase {
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   dataset_id?: number | null  // 绑定的数据集（数据驱动），NULL=普通用例
+  involved_project_ids?: number[]  // 派生归属：原生项目 ∪ 节点引用接口的项目（>1=跨系统用例）
   last_exec_at?: string | null      // 最近一次执行开始时间（终结回写；NULL=从未执行）
   last_exec_status?: string | null  // 最近一次执行终态：success/failed/terminated
 }

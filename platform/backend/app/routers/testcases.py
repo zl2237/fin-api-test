@@ -58,6 +58,29 @@ def _validate_case_env(db: Session, data) -> None:
         raise HTTPException(400, f"绑定的环境不存在: {data.env_id}")
 
 
+def _validate_node_envs(db: Session, case, data) -> None:
+    """节点级环境绑定校验（跨系统编排，2026-11-12）：env 须存在，且项目须与
+    该节点绑定接口的项目一致（api 为空时与用例项目一致）——相对 path 拼错域
+    会全数打偏，宁可在保存期拦下。"""
+    node_configs = getattr(data, "node_configs", None) or []
+    case_project = getattr(case, "project_id", None) if case is not None else getattr(data, "project_id", None)
+    for nc in node_configs:
+        if not getattr(nc, "env_id", None):
+            continue
+        env = crud.get_environment(db, nc.env_id)
+        if not env:
+            raise HTTPException(400, f"节点 {nc.node_id} 绑定的环境不存在: {nc.env_id}")
+        if nc.api_id:
+            api = crud.get_api(db, nc.api_id)
+            api_project = api.project_id if api else None
+        else:
+            api_project = case_project
+        if env.project_id != api_project:
+            raise HTTPException(
+                400, f"节点 {nc.node_id} 的环境「{env.name}」(项目 {env.project_id}) "
+                     f"与接口所在项目 ({api_project}) 不一致——跨系统节点须绑定接口所属项目的环境")
+
+
 @router.post("", response_model=schemas.TestCaseOut)
 def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     try:
@@ -66,6 +89,7 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
     except ValueError as e:
         raise HTTPException(400, str(e))
     _validate_case_env(db, data)
+    _validate_node_envs(db, None, data)
     obj = crud.create_testcase(db, data, user.id)
     # 默认数据集自动初始化（Q7）：新用例自动建「默认数据集」（示例值）并绑定；
     # 已显式绑定数据集时函数内自行跳过
@@ -73,6 +97,7 @@ def create(data: schemas.TestCaseCreate, db: Session = Depends(get_db), user: mo
     ensure_case_dataset(db, obj, user.id)
     crud.fill_audit_names(db, obj)
     crud.fill_case_env_names(db, obj)
+    crud.fill_involved_projects(db, [obj])
     crud.log_operation(db, user, "create", "testcase", obj.id, obj.name)
     return obj
 
@@ -82,6 +107,7 @@ def list_all(project_id: int | None = None, created_by: int | None = None, updat
     objs = crud.list_testcases(db, project_id, created_by, updated_by)
     crud.fill_audit_names_batch(db, objs)
     crud.fill_case_env_names(db, objs)
+    crud.fill_involved_projects(db, objs)  # 派生归属：跨系统用例在涉及项目下可见
     return objs
 
 
@@ -182,6 +208,7 @@ def get_one(case_id: int, db: Session = Depends(get_db), user: models.User = Dep
         raise HTTPException(404, "用例不存在")
     crud.fill_audit_names(db, obj)
     crud.fill_case_env_names(db, obj)
+    crud.fill_involved_projects(db, [obj])
     return obj
 
 
@@ -205,6 +232,8 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     # 环境严格绑定：显式改绑时校验存在（普通用例须绑定环境才能执行，编辑入口必填）
     if "env_id" in data.model_fields_set:
         _validate_case_env(db, data)
+    # 跨系统编排：节点级环境绑定校验（env 与接口项目一致性）
+    _validate_node_envs(db, obj, data)
     # 数据集绑定校验（显式传 dataset_id 时）：须存在且与用例同项目
     if "dataset_id" in data.model_fields_set:
         from ..services.dataset_service import validate_binding
@@ -220,6 +249,7 @@ def update(case_id: int, data: schemas.TestCaseUpdate, db: Session = Depends(get
     ensure_case_dataset(db, obj, user.id, allow_create=not explicit_unbind)
     crud.fill_audit_names(db, obj)
     crud.fill_case_env_names(db, obj)
+    crud.fill_involved_projects(db, [obj])
     crud.log_operation(db, user, "update", "testcase", obj.id, obj.name)
     return obj
 

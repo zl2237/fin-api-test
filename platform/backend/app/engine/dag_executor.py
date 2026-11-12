@@ -97,6 +97,9 @@ class DagExecutor:
             interval=max(1, getattr(env, "node_retry_interval", 1) or 1))
         self.http_client: HttpClient | None = None
         self.db_client: Any = None
+        # 节点级环境绑定（跨系统编排，2026-11-12）：env_id → (env, client, db_client)
+        # 按需惰性构建并缓存（各自登录/401 重登互不影响）；默认=用例环境不进缓存
+        self._extra_runtimes: dict[int, tuple[Any, HttpClient, Any]] = {}
         # 并发执行场景下由外部预先创建 record 并传入，避免后台线程重复创建
         self._precreated_record = execution_record
         # 事件出口：默认落库；测试/dry-run 注入内存 sink（持久化接缝）
@@ -133,16 +136,21 @@ class DagExecutor:
 
     # ---------- 请求发送 ----------
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
-                      file_fields: list[tuple[str, str]] | None = None) -> tuple[int, Any, str | None]:
+                      file_fields: list[tuple[str, str]] | None = None, *,
+                      client: HttpClient | None = None,
+                      env: Any = None) -> tuple[int, Any, str | None]:
         """委托共享发送器（与单接口调试同一实现），返回 (status_code, response_body, error_msg)。
 
         headers 为 prepare_request 组装产物（环境公共头 + 接口 headers_template 覆盖 +
         ${} 求值），发送期间临时替换 client.headers 使接口级 Content-Type 真正生效
         （表单接口据此走表单编码），发完恢复。
         """
-        # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）
-        timeout = getattr(self.env, "timeout", None) or 15
-        return send_request(self.db, self.http_client, api, body,
+        # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）；
+        # 跨系统节点传各自运行时（client/env），缺省回落用例环境
+        _client = client if client is not None else self.http_client
+        _env = env if env is not None else self.env
+        timeout = getattr(_env, "timeout", None) or 15
+        return send_request(self.db, _client, api, body,
                             file_fields=file_fields, timeout=timeout, headers=headers)
 
     # ---------- 执行入口 ----------
@@ -282,6 +290,18 @@ class DagExecutor:
                     self.http_client.session.close()
                 except Exception as e:
                     print(f"[资源清理] HTTP session 关闭失败（忽略）: {e}")
+            # 跨系统节点的独立运行时（若曾构建）：session 与 DB 连接同样关闭
+            for _eid, (_e, _client, _db) in getattr(self, "_extra_runtimes", {}).items():
+                if _db:
+                    try:
+                        _db.close()
+                    except Exception as e:
+                        print(f"[资源清理] 节点环境 #{_eid} DBClient 关闭失败（忽略）: {e}")
+                if _client and _client.session:
+                    try:
+                        _client.session.close()
+                    except Exception as e:
+                        print(f"[资源清理] 节点环境 #{_eid} HTTP session 关闭失败（忽略）: {e}")
             # 发送执行通知（取数与门控都在 notifier，见其模块注释）
             if getattr(record, "plan_id", None):
                 # 方案成员不逐条通知：plan_executor 收尾发一条方案聚合通知（combo 看门狗/chain 链尾）
@@ -435,7 +455,8 @@ class DagExecutor:
         return StepResult(**fields)
 
     def _extract_and_assert(self, node_id: str, config, response_data,
-                            status_code: int, elapsed: int) -> tuple[dict, list[dict], bool]:
+                            status_code: int, elapsed: int, db_client: Any = None,
+                            ) -> tuple[dict, list[dict], bool]:
         """后置提取 → 断言（正常执行与续跑重放两条路径共享的收尾）。
 
         返回 (extracted, assertion_results, tail_passed)。tail_passed 为提取/
@@ -446,16 +467,44 @@ class DagExecutor:
         """
         extracted: dict = {}
         assertion_results: list[dict] = []
+        # 跨系统节点：source=db 提取与 db_* 断言查节点所属系统的库；缺省=用例环境
+        eff_db = db_client if db_client is not None else self.db_client
         if config and config.post_extract and response_data is not None:
+            self.extractor.db_client = eff_db
             extracted = self.extractor.extract(response_data, config.post_extract,
                                                self.context.registry, node_id)
         extract_failed = any(is_extract_error(v) for v in extracted.values())
         if config and config.assertions:
-            engine = AssertionEngine(self.context.registry, self.db_client, self_node=node_id)
+            engine = AssertionEngine(self.context.registry, eff_db, self_node=node_id)
             assertion_results = engine.evaluate_all(response_data, status_code, elapsed,
                                                     config.assertions)
         tail_passed = not extract_failed and all(r["pass"] for r in assertion_results)
         return extracted, assertion_results, tail_passed
+
+    def _resolve_node_runtime(self, config) -> tuple[Any, HttpClient, Any]:
+        """节点生效运行时：节点级环境绑定（跨系统编排）优先，缺省=用例环境。
+
+        额外环境按 env_id 惰性构建（HttpClient+DBClient+login）并缓存复用：
+        各环境登录态/401 重登互不影响（EnvTokenCache 本就按 env 隔离）。
+        环境被删/登录失败抛异常，由 _execute_node 记为节点失败（下游照常阻断）。
+        """
+        env_id = getattr(config, "env_id", None) if config is not None else None
+        if not env_id or env_id == getattr(self.env, "id", None):
+            if self.http_client is None:
+                raise RuntimeError("用例环境客户端未初始化（execute 前）")
+            return self.env, self.http_client, self.db_client
+        rt = self._extra_runtimes.get(env_id)
+        if rt is not None:
+            return rt
+        env = self.db.get(models.Environment, env_id)
+        if env is None:
+            raise RuntimeError(f"节点绑定的环境 #{env_id} 不存在（可能已被删除）")
+        client = build_http_client(env)
+        node_db = build_db_client(env)
+        login(client, env)
+        rt = (env, client, node_db)
+        self._extra_runtimes[env_id] = rt
+        return rt
 
     def _execute_node(self, execution_id: int, node_id: str, node: dict,
                       replay: SimpleNamespace | None = None) -> tuple[bool, int]:
@@ -494,6 +543,18 @@ class DagExecutor:
             ))
             return False, 0
 
+        # 节点级环境绑定（跨系统编排）：解析本节点生效运行时。环境被删/登录失败
+        # 记为节点失败（下游照常阻断），不冒泡拖垮整条执行
+        try:
+            node_env, node_client, node_db = self._resolve_node_runtime(config)
+        except Exception as e:
+            label = node.get("data", {}).get("label") if isinstance(node.get("data"), dict) else node_id
+            self.sink.record_step(self._step_event(
+                execution_id, node_id, label, "", "", started_at, config,
+                response_body={"error": f"节点环境解析/登录失败: {self._pretty_err(str(e))}"},
+            ))
+            return False, 0
+
         # 0. 断点续跑·提取重放：上次请求已成功（响应快照可用），本次不发请求，
         #    直接用快照响应 + 当前配置重跑后置提取与断言；本节点入参也按快照
         #    回放进命名空间（执行期注册发生在组装请求，重放跳过了该步）
@@ -504,7 +565,7 @@ class DagExecutor:
             for path, val in iter_replay_paths(body):
                 self.context.registry.write(node_id, path, val)
             extracted, assertion_results, tail_passed = self._extract_and_assert(
-                node_id, config, response_data, status_code, elapsed)
+                node_id, config, response_data, status_code, elapsed, db_client=node_db)
             self.sink.record_step(self._step_event(
                 execution_id, node_id, api.name, api.path, api.method, started_at, config,
                 request_headers=headers, request_body=body,
@@ -520,12 +581,11 @@ class DagExecutor:
         # 1. 组装请求（优先级与编排顺序统一在 prepare_request，见其模块注释）；
         # 组装期异常（引用取值失败/SQL 执行失败等）在这里兜底为失败步骤（原因可见），
         # 避免异常冒泡到 execute() 导致本节点无步骤记录
-        assert self.http_client is not None  # execute() 前已 build_http_client，收窄 None 分支
         try:
             parts = prepare_request(api, param_cfg, context=self.context,
                                     self_node=node_id,
-                                    base_headers=self.http_client.headers,
-                                    db_client=self.db_client)
+                                    base_headers=node_client.headers,
+                                    db_client=node_db)
         except Exception as e:
             self.sink.record_step(self._step_event(
                 execution_id, node_id, api.name, api.path, api.method, started_at, config,
@@ -539,8 +599,9 @@ class DagExecutor:
         # 异步同步（如 ES 分钟级延迟）导致的瞬时失败，稍后原样重发即可恢复，
         # 与报告页手工重放语义一致。断言失败不重试：避免掩盖真实断言问题，
         # 也降低写接口重复提交风险。
-        retry_limit = max(0, getattr(self.env, "node_retry_count", 0) or 0)
-        retry_interval = max(1, getattr(self.env, "node_retry_interval", 1) or 1)
+        # 重试配置随节点环境（跨系统节点用其系统环境的风控参数）
+        retry_limit = max(0, getattr(node_env, "node_retry_count", 0) or 0)
+        retry_interval = max(1, getattr(node_env, "node_retry_interval", 1) or 1)
         status_code, response_data, err = 0, None, None
         extracted, assertion_results = {}, []
         step_passed = False
@@ -554,7 +615,8 @@ class DagExecutor:
                 retry_count = attempt
             attempt_start = time.time()
             # 2. 发送请求（file_fields 非空时走 multipart 通道）
-            status_code, response_data, err = self._send_request(api, body, headers, file_fields)
+            status_code, response_data, err = self._send_request(
+                api, body, headers, file_fields, client=node_client, env=node_env)
             attempt_elapsed = int((time.time() - attempt_start) * 1000)
             elapsed = int((time.time() - start_ts) * 1000)
             if err is not None and attempt < retry_limit:
@@ -572,7 +634,7 @@ class DagExecutor:
             # 成功 / 断言路径 / 重试额度耗尽：提取与断言后收尾
             # 3~4. 后置提取 → 断言（与续跑重放共享收尾；提取失败判负口径见其注释）
             extracted, assertion_results, tail_passed = self._extract_and_assert(
-                node_id, config, response_data, status_code, elapsed)
+                node_id, config, response_data, status_code, elapsed, db_client=node_db)
             step_passed = (err is None) and tail_passed
             break
 

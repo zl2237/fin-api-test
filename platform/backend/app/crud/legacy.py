@@ -2,6 +2,7 @@
 from datetime import datetime
 from typing import TypeVar, cast
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -310,6 +311,29 @@ def copy_environment(db: Session, env: models.Environment) -> models.Environment
     return obj
 
 
+def fill_involved_projects(db: Session, cases: list) -> None:
+    """批量回填 TestCaseOut.involved_project_ids（派生归属，2026-11-12）。
+
+    归属 = 原生 project_id ∪ 节点引用接口所属项目（case_node_configs.api_id
+    → api_definitions.project_id，现成索引链）。两查询固定开销，用例列表量级无忧。
+    """
+    if not cases:
+        return
+    case_ids = [c.id for c in cases]
+    rows = (db.query(models.CaseNodeConfig.case_id, models.ApiDefinition.project_id)
+            .join(models.ApiDefinition, models.CaseNodeConfig.api_id == models.ApiDefinition.id)
+            .filter(models.CaseNodeConfig.case_id.in_(case_ids),
+                    models.ApiDefinition.project_id.isnot(None))
+            .distinct().all())
+    by_case: dict[int, set[int]] = {}
+    for case_id, pid in rows:
+        by_case.setdefault(case_id, set()).add(pid)
+    for c in cases:
+        ids = {c.project_id} if c.project_id else set()
+        ids |= by_case.get(c.id, set())
+        c.involved_project_ids = sorted(ids)
+
+
 # ============ ApiGroup ============
 def create_api_group(db: Session, data: schemas.ApiGroupCreate) -> models.ApiGroup:
     obj = models.ApiGroup(**data.model_dump())
@@ -560,7 +584,14 @@ def get_testcase(db: Session, case_id: int) -> models.TestCase | None:
 def list_testcases(db: Session, project_id: int | None = None, created_by: int | None = None, updated_by: int | None = None) -> list[models.TestCase]:
     q = db.query(models.TestCase)
     if project_id is not None:
-        q = q.filter(models.TestCase.project_id == project_id)
+        # 派生归属（2026-11-12 跨系统编排定案）：项目下可见 = 原生项目命中
+        # ∪ 节点引用了该项目接口（跨系统用例在涉及的两个项目下都可见）
+        cross = (db.query(models.CaseNodeConfig.id)
+                 .join(models.ApiDefinition, models.CaseNodeConfig.api_id == models.ApiDefinition.id)
+                 .filter(models.CaseNodeConfig.case_id == models.TestCase.id,
+                         models.ApiDefinition.project_id == project_id)
+                 .exists())
+        q = q.filter(or_(models.TestCase.project_id == project_id, cross))
     if created_by is not None:
         q = q.filter(models.TestCase.created_by == created_by)
     if updated_by is not None:
@@ -687,6 +718,7 @@ def _sync_node_configs(db: Session, case_id: int, node_configs: list[dict]):
             assertions=nc.get("assertions", []),
             wait_after_ms=nc.get("wait_after_ms", 0) or 0,
             contract_template_id=nc.get("contract_template_id"),
+            env_id=nc.get("env_id"),
         )
         db.add(obj)
     db.commit()

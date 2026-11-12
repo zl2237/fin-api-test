@@ -16,13 +16,37 @@
           </el-form-item>
           <el-form-item label="绑定接口" required>
             <el-select v-model="draft.api_id" placeholder="选择接口（必选）" filterable style="width: 100%">
+              <el-option-group
+                v-for="g in apiGroupsByProject"
+                :key="g.projectId"
+                :label="g.label"
+              >
+                <el-option
+                  v-for="a in g.apis"
+                  :key="a.id"
+                  :label="`${a.name} (${a.method} ${a.path})`"
+                  :value="a.id"
+                />
+              </el-option-group>
+            </el-select>
+          </el-form-item>
+          <!-- 节点级环境绑定（跨系统编排）：跨项目节点必绑其项目环境，同项目节点可空=沿用用例环境 -->
+          <el-form-item>
+            <template #label>执行环境<HintTip content="节点级环境绑定：跨项目接口的节点用其所属项目的环境（base_url/登录态/DB 均按环境隔离，自动重登互不影响）。留空 = 沿用用例绑定环境" /></template>
+            <el-select
+              v-model="nodeEnvId"
+              placeholder="沿用用例环境"
+              clearable
+              style="width: 100%"
+            >
               <el-option
-                v-for="a in apis"
-                :key="a.id"
-                :label="`${a.name} (${a.method} ${a.path})`"
-                :value="a.id"
+                v-for="e in nodeEnvOptions"
+                :key="e.id"
+                :label="e.name + (e.is_default ? '（默认）' : '')"
+                :value="e.id"
               />
             </el-select>
+            <div v-if="crossNodeWithoutEnv" class="env-warn">跨项目接口未绑环境：请求会打到用例环境域名上而全数打偏，请选择其所属项目的环境</div>
           </el-form-item>
           <el-form-item label="等待时间">
             <el-input-number
@@ -86,7 +110,7 @@ import PostExtractTable from './PostExtractTable.vue'
 import HintTip from './HintTip.vue'
 import AssertionTable from './AssertionTable.vue'
 import { useAppStore } from '@/stores'
-import { apiApi, type ApiContractTemplate, type ApiDef, type NodeConfig } from '@/api'
+import { apiApi, type ApiContractTemplate, type ApiDef, type Environment, type NodeConfig } from '@/api'
 import type { RefVarGroup } from './VarRefSelect.vue'
 
 const store = useAppStore()
@@ -95,6 +119,8 @@ const props = defineProps<{
   visible: boolean
   config: NodeConfig
   apis: ApiDef[]
+  /** 各项目环境表（节点级环境绑定数据源）：projectId → 该项目环境列表 */
+  envsByProject?: Record<number, Environment[]>
   refGroups?: RefVarGroup[]
 }>()
 const emit = defineEmits<{
@@ -128,6 +154,43 @@ const waitAfterMs = computed<number>({
   set: (v: number) => { if (draft.value) draft.value.wait_after_ms = v },
 })
 
+// ===== 接口选择按项目分组（跨系统编排）：本项目置顶，跨项目各组随后 =====
+const apiGroupsByProject = computed(() => {
+  const pid = store.currentProjectId
+  const byProject = new Map<number, ApiDef[]>()
+  for (const a of props.apis) {
+    if (!byProject.has(a.project_id)) byProject.set(a.project_id, [])
+    byProject.get(a.project_id)!.push(a)
+  }
+  const groups = [...byProject.entries()]
+    .sort((x, y) => (x[0] === pid ? -1 : y[0] === pid ? 1 : x[0] - y[0]))
+    .map(([projectId, apis]) => {
+      const name = store.projects.find((p) => p.id === projectId)?.name || `项目#${projectId}`
+      return { projectId, apis, label: projectId === pid ? `${name}（本项目）` : name }
+    })
+  return groups
+})
+
+/** 本节点绑定接口（未绑定时=本项目）：其所属项目的环境即「执行环境」可选项 */
+const boundApi = computed<ApiDef | null>(() => {
+  const id = draft.value?.api_id
+  return id ? props.apis.find((a) => a.id === id) || null : null
+})
+const nodeEnvOptions = computed<Environment[]>(() => {
+  const pid = boundApi.value?.project_id ?? store.currentProjectId ?? -1
+  return props.envsByProject?.[pid] || []
+})
+const nodeEnvId = computed<number | null>({
+  get: () => draft.value?.env_id ?? null,
+  set: (v) => { if (draft.value) draft.value.env_id = v ?? null },
+})
+/** 跨项目节点未绑环境 → 显式警示（保存仍放行，由用户自行确认；后端仅校验项目一致性） */
+const crossNodeWithoutEnv = computed(() =>
+  !!boundApi.value
+  && boundApi.value.project_id !== store.currentProjectId
+  && !draft.value?.env_id,
+)
+
 // 契约模板绑定（随用例保存持久化；换绑接口时旧模板不属于新接口 → 清空）
 const templates = ref<ApiContractTemplate[]>([])
 const contractTemplateId = computed<number | null>({
@@ -151,7 +214,16 @@ async function loadTemplates(apiId: number | null | undefined) {
 watch(
   () => [props.visible, draft.value?.api_id] as const,
   ([visible]) => {
-    if (visible && draft.value) loadTemplates(draft.value.api_id)
+    if (visible && draft.value) {
+      loadTemplates(draft.value.api_id)
+      // 换绑接口：已绑环境不属于新接口所在项目 → 清空（后端保存也会拒绝，此处先行收口）
+      const envId = draft.value.env_id
+      if (envId) {
+        const pid = props.apis.find((a) => a.id === draft.value!.api_id)?.project_id ?? store.currentProjectId ?? -1
+        const envBelongs = (props.envsByProject?.[pid] || []).some((e: Environment) => e.id === envId)
+        if (!envBelongs) draft.value.env_id = null
+      }
+    }
   },
   { immediate: true },
 )
@@ -213,6 +285,14 @@ function onSave() {
   margin-left: 8px;
   color: var(--app-text-muted);
   font-size: 13px;
+}
+/* 跨项目节点未绑环境的内联警示（form-item 内，宽度自适应） */
+.env-warn {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-color-warning, #b88230);
 }
 .wait-tip {
   margin-top: 6px;

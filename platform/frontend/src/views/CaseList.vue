@@ -139,6 +139,15 @@
                 <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
                   <el-icon class="schedule-mark"><Timer /></el-icon>
                 </el-tooltip>{{ row.name }}
+                <!-- 跨系统用例徽标：节点引用了其它项目接口（派生归属>1），tooltip 列出涉及项目 -->
+                <el-tooltip
+                  v-if="(row.involved_project_ids?.length || 0) > 1"
+                  :content="`涉及系统：${involvedProjectNames(row)}`"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <el-tag size="small" effect="plain" class="cross-mark">跨系统</el-tag>
+                </el-tooltip>
               </template>
             </el-table-column>
             <el-table-column label="节点数" width="90">
@@ -269,6 +278,15 @@
                 <el-tooltip v-if="hasEnabledSchedule(row.id)" content="已配置定时任务" placement="top">
                   <el-icon class="schedule-mark"><Timer /></el-icon>
                 </el-tooltip>{{ row.name }}
+                <!-- 跨系统用例徽标：节点引用了其它项目接口（派生归属>1），tooltip 列出涉及项目 -->
+                <el-tooltip
+                  v-if="(row.involved_project_ids?.length || 0) > 1"
+                  :content="`涉及系统：${involvedProjectNames(row)}`"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <el-tag size="small" effect="plain" class="cross-mark">跨系统</el-tag>
+                </el-tooltip>
               </template>
             </el-table-column>
             <el-table-column label="节点数" width="90">
@@ -566,8 +584,13 @@ const { onSortChange, sortProp, sorted: sortedList } = useClientSort(filteredLis
   last_exec_status: c => EXEC_RANK[c.last_exec_status ?? ''] ?? 3,
 }, (): void => tableSel.resetPages())
 
-// 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）
-const tableSel = useGroupedTable(groups, toRef(store, 'currentProjectId'), 'caseList', sortedList)
+// 多级分组表格：树构建 + 展开记忆 + 分组过滤/计数/可见行/组内分页（样板已收敛进 composable）。
+// getGroupId 覆写：跨系统用例（原生项目在别处）的 group_id 指向其项目的分组，
+// 在当前项目视图不属于任何已知分组 → 归入未分组，配合「跨系统」徽标可见不丢失
+const tableSel = useGroupedTable(groups, toRef(store, 'currentProjectId'), 'caseList', sortedList, (c) => {
+  const gid = c.group_id ?? null
+  return gid != null && groups.value.some((g) => g.id === gid) ? gid : null
+})
 // 切分组勾选时提示（互斥勾选设计：不支持跨分组累计）
 setGroupSwitchNotifier(() => ElMessage.info('不支持跨分组勾选，已切换为当前分组的选择'))
 const {
@@ -1020,6 +1043,13 @@ function hasEnabledSchedule(caseId: number): boolean {
   return schedules.value.some(s => s.case_id === caseId && s.enabled)
 }
 
+// 跨系统徽标 tooltip：涉及项目名（store.projects 只含可见项目，未知兜底 #id）
+function involvedProjectNames(row: TestCase): string {
+  return (row.involved_project_ids || [])
+    .map((pid) => store.projects.find((p) => p.id === pid)?.name || `项目#${pid}`)
+    .join(' · ')
+}
+
 async function loadSchedules() {
   if (!store.currentProjectId) return
   try {
@@ -1282,6 +1312,11 @@ function onGlobalKey(e: KeyboardEvent) {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--app-text-muted);
+}
+/* 跨系统用例徽标（名称列） */
+.cross-mark {
+  margin-left: 6px;
+  vertical-align: 1px;
 }
 /* ===== 定时任务：列表图标标识 + 弹窗 ===== */
 .schedule-mark {

@@ -448,6 +448,7 @@ class NodeConfigIn(BaseModel):
     assertions: list[dict[str, Any]] = []
     wait_after_ms: int = 0
     contract_template_id: int | None = None  # 契约模板绑定；null = 隐式全量字段
+    env_id: int | None = None  # 节点级环境绑定（跨系统编排）；null = 沿用用例环境
 
 
 class NodeConfigOut(ORMBase):
@@ -459,6 +460,7 @@ class NodeConfigOut(ORMBase):
     assertions: list[dict[str, Any]] = []
     wait_after_ms: int = 0
     contract_template_id: int | None = None
+    env_id: int | None = None  # 节点级环境绑定（跨系统编排）；null = 沿用用例环境
 
 
 # ============ ApiContractTemplate ============
@@ -516,6 +518,7 @@ class TestCaseOut(ORMBase):
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
     dataset_id: int | None = None  # 绑定的数据集（数据驱动），NULL=普通用例
+    involved_project_ids: list[int] = []  # 派生归属：原生项目 ∪ 节点引用接口的项目（跨系统用例>1）
     last_exec_at: datetime | None = None  # 最近一次执行开始时间（终结回写；NULL=从未执行）
     last_exec_status: str | None = None   # 最近一次执行终态：success/failed/terminated
     created_at: datetime | None = None

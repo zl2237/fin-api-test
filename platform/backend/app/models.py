@@ -291,9 +291,14 @@ class CaseNodeConfig(Base):
     contract_template_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("api_contract_templates.id"), nullable=True,
         comment="契约模板绑定：契约校验按模板 key 集判；NULL=隐式全量字段")
+    env_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("environments.id"), nullable=True, index=True,
+        comment="节点级环境绑定（跨系统编排）：指向接口所属项目的环境，"
+                "执行时该节点用此环境的 base_url/登录态/DB；NULL=沿用用例环境")
 
     case: Mapped["TestCase"] = relationship("TestCase", back_populates="node_configs")
     api: Mapped["ApiDefinition | None"] = relationship("ApiDefinition")
+    env: Mapped["Environment | None"] = relationship("Environment")
 
 
 class ExecutionRecord(Base):
