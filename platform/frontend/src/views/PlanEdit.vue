@@ -32,6 +32,7 @@
                 <span>方案成员</span>
                 <span class="member-count">{{ items.length }} 个</span>
               </div>
+              <el-button type="primary" size="small" :icon="Plus" @click="addVisible = true">添加成员</el-button>
             </div>
           </template>
 
@@ -90,28 +91,9 @@
               </div>
             </div>
           </div>
-          <EmptyState v-else :image-size="70" description="暂无成员，从下方添加用例" />
-
-          <div class="add-row">
-            <el-select v-model="addProjectId" style="width: 160px" placeholder="选择项目" filterable @change="onAddProjectChange">
-              <el-option v-for="p in store.projects" :key="p.id" :label="p.name" :value="p.id" />
-            </el-select>
-            <!-- 用例树选择：分组为层级节点（仅展示不可选），同名用例靠分组路径区分 -->
-            <el-tree-select
-              v-model="addCaseId"
-              :data="addCaseTree"
-              node-key="id"
-              :props="addTreeProps"
-              style="width: 340px"
-              placeholder="选择用例（可输入名称搜索）"
-              filterable
-              check-strictly
-              default-expand-all
-              :loading="addCasesLoading"
-              :disabled="!addProjectId"
-            />
-            <el-button type="primary" :disabled="!addCaseId" @click="addItem">添加成员</el-button>
-          </div>
+          <EmptyState v-else :image-size="70" description="暂无成员">
+            <el-button type="primary" @click="addVisible = true">添加成员</el-button>
+          </EmptyState>
         </el-card>
 
         <!-- 定时执行：未配置只留一行入口；已配置折叠为摘要行，点「编辑」才展开单行表单 -->
@@ -162,6 +144,14 @@
         </el-card>
       </template>
     </div>
+
+    <!-- 添加成员：项目 → 分组勾选 + 搜索，一次可加多个 -->
+    <PlanMemberAddDialog
+      v-model="addVisible"
+      :exclude-case-ids="items.map((m) => m.case_id)"
+      :default-project-id="store.currentProjectId"
+      @confirm="onAddMembers"
+    />
   </div>
 </template>
 
@@ -170,9 +160,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import Sortable from 'sortablejs'
-import { ArrowLeft, QuestionFilled, Rank, WarningFilled } from '@element-plus/icons-vue'
-import { caseApi, caseGroupApi, datasetApi, planApi, type CaseGroup, type TestCase } from '@/api'
-import { buildGroupTree } from '@/composables/useGroupTree'
+import { ArrowLeft, Plus, QuestionFilled, Rank, WarningFilled } from '@element-plus/icons-vue'
+import { caseApi, datasetApi, planApi, type TestCase } from '@/api'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
@@ -180,6 +169,7 @@ import { useTransientFlag } from '@/composables/useTransientFlag'
 import DrawCheck from '@/components/DrawCheck.vue'
 import { formatTime } from '@/utils/format'
 import EmptyState from '@/components/EmptyState.vue'
+import PlanMemberAddDialog from '@/components/PlanMemberAddDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -317,8 +307,6 @@ async function load() {
       }
       return base
     }))
-    addProjectId.value = store.currentProjectId
-    await onAddProjectChange(store.currentProjectId)
     dirty.value = false
     nextTick(initSortable)
   } catch (e: any) {
@@ -353,66 +341,24 @@ function destroySortable() {
   if (sortable) { sortable.destroy(); sortable = null }
 }
 
-// ===== 添加成员（项目 → 用例树两级级联；分组节点仅展示，用例叶子可选） =====
-const addProjectId = ref<number | null>(null)
-const addCaseId = ref<number | null>(null)
-const addCases = ref<TestCase[]>([])
-const addCaseGroups = ref<CaseGroup[]>([])
-const addCasesLoading = ref(false)
-const addTreeProps = { label: 'label', children: 'children', disabled: 'disabled' }
+// ===== 添加成员（弹窗多选，confirm 返回选中的用例对象；与 UI 平台同款交互） =====
+const addVisible = ref(false)
 
-/** 用例树：分组层级 + 组内用例叶子（id=用例 id；分组节点 id 加 g 前缀避免与用例 id 撞号） */
-const addCaseTree = computed(() => {
-  const caseLeaf = (c: TestCase) => ({
-    id: c.id,
-    label: `${c.name}（${c.dag_config?.nodes?.length || 0} 节点）`,
-  })
-  const casesOf = (gid: number | null) => addCases.value.filter((c) => (c.group_id ?? null) === gid)
-  type TreeItem = { id: number | string; label: string; disabled?: boolean; children?: TreeItem[] }
-  const build = (nodes: ReturnType<typeof buildGroupTree>): TreeItem[] => nodes.map((n) => ({
-    id: `g${n.id}`,
-    label: n.label,
-    disabled: true,
-    children: [...casesOf(n.id).map(caseLeaf), ...build(n.children)],
-  }))
-  const roots = build(buildGroupTree(addCaseGroups.value))
-  const ungrouped = casesOf(null).map(caseLeaf)
-  return ungrouped.length
-    ? [...roots, { id: 'g0', label: '未分组', disabled: true, children: ungrouped }]
-    : roots
-})
-
-async function onAddProjectChange(pid: number | null) {
-  addCaseId.value = null
-  if (!pid) { addCases.value = []; addCaseGroups.value = []; return }
-  addCasesLoading.value = true
-  try {
-    const [cs, gs] = await Promise.all([
-      caseApi.list(pid),
-      caseGroupApi.list(pid).catch(() => [] as CaseGroup[]),
-    ])
-    addCases.value = cs
-    addCaseGroups.value = gs
-  } catch (e: any) {
-    ElMessage.error(e.message || '加载项目用例失败')
-    addCases.value = []
-    addCaseGroups.value = []
-  } finally {
-    addCasesLoading.value = false
+function onAddMembers(cases: TestCase[]) {
+  const exist = new Set(items.value.map((m) => m.case_id))
+  const fresh = cases.filter((c) => !exist.has(c.id))
+  for (const c of fresh) {
+    items.value.push({
+      case_id: c.id, case_name: c.name,
+      project_id: c.project_id, env_id: c.env_id ?? null,
+      dataset_ids: null, case_dataset_ids: c.bound_dataset_ids ?? [], run_count: 1,
+      case_missing: false, dataset_missing: false,
+    })
   }
-}
-
-function addItem() {
-  const c = addCases.value.find(x => x.id === addCaseId.value)
-  if (!c) return
-  items.value.push({
-    case_id: c.id, case_name: c.name,
-    project_id: addProjectId.value, env_id: c.env_id ?? null,
-    dataset_ids: null, case_dataset_ids: c.bound_dataset_ids ?? [], run_count: 1,
-    case_missing: false, dataset_missing: false,
-  })
-  dirty.value = true
-  addCaseId.value = null // 连续添加：保留项目选择
+  if (fresh.length) {
+    dirty.value = true
+    ElMessage.success(`已添加 ${fresh.length} 个成员`)
+  }
 }
 
 function removeItem(i: number) {
@@ -685,14 +631,6 @@ onUnmounted(destroySortable)
 .run-count-label {
   font-size: 12px;
   color: var(--app-text-muted);
-}
-/* 添加成员行 */
-.add-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  flex-wrap: wrap;
 }
 /* 定时卡：未配置一行入口；已配置摘要行 + 按需展开的编辑行 */
 .schedule-head-right {
