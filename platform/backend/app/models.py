@@ -93,7 +93,7 @@ class Environment(Base):
     base_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="接口基础地址，如 https://api.example.com")
     db_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
     login_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")
-    notify_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success}")
+    notify_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success, email:{smtp_host, smtp_port, use_ssl, from_addr, auth_code, recipients[], enable_on_failure, enable_on_success}}")
     variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="已退役：原业务变量（测试数据来源已统一为数据集变量池，不再注入执行变量池）")
     common_headers: Mapped[Any] = mapped_column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
     timeout: Mapped[int] = mapped_column(Integer, default=15, comment="接口请求超时时间（秒）")
@@ -557,3 +557,27 @@ class TestSchedule(Base):
     # 运行时填充的展示名（非数据库列，仅 API 响应用）
     case_name: ClassVar[str | None] = None
     env_name: ClassVar[str | None] = None
+
+
+class ApiKey(Base):
+    """API 密钥：供外部系统（Jenkins/CI/脚本）以密钥身份调用平台接口触发执行。
+
+    安全约定：明文不落库——库中只存 sha256 哈希（key_hash）；
+    明文仅在创建响应里返回一次，之后任何接口不再回显。
+    密钥身份 = 创建人身份（member 创建的 key 只有 member 权限）。
+    """
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False, index=True, comment="所属项目ID（密钥管理页按项目分组）")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="用途名：如 jenkins-nightly")
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True, comment="sha256(明文) 十六进制——明文永不落库")
+    key_prefix: Mapped[str] = mapped_column(String(20), nullable=False, comment="明文前 12 字符（fin_xxxxxxxx），仅列表展示辨识用")
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, comment="最近一次认证成功时间（每次使用回写）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id（密钥身份 = 该用户）")
+
+    project: Mapped["Project"] = relationship("Project")
+
+    # 运行时填充的展示名（非数据库列，仅 API 响应用）
+    created_by_name: ClassVar[str | None] = None

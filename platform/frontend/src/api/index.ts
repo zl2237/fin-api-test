@@ -535,7 +535,7 @@ export const caseApi = {
     http.post<ExecutionRecord[]>('/testcases/batch-execute',
       { case_ids: caseIds, counts, concurrency }).then((r) => r.data),
   // 列表导出：excel=简表 / json=全量（含 DAG 与节点配置），筛选条件与列表页一致
-  exportList: (params: { project_id: number; format: 'excel' | 'json'; created_by?: number; updated_by?: number }) =>
+  exportList: (params: { project_id: number; format: 'excel' | 'json'; case_ids?: string; created_by?: number; updated_by?: number }) =>
     http.get<Blob>('/testcases/export', { responseType: 'blob', params }).then((r) => r.data),
   // 多用例组合（拼接成新用例），caseIds 顺序即拼接顺序
   combine: (caseIds: number[], name: string, groupId?: number | null) =>
@@ -546,6 +546,27 @@ export const caseApi = {
   // 执行拆分：抽离节点到新用例
   split: (caseId: number, data: { node_ids: string[]; new_name: string; new_group_id?: number | null }) =>
     http.post<{ message: string; new_case: TestCase; origin_case: TestCase }>(`/testcases/${caseId}/split`, data).then((r) => r.data),
+  // 导入（导出 v2 迁移包）：dryRun=true 只预演（接口复用/新建统计不落库）
+  importCases: (data: { payload: Record<string, any>; project_id: number; group_id?: number | null; env_id?: number | null; dry_run: boolean }) =>
+    http.post<CaseImportResult>('/testcases/import', data).then((r) => r.data),
+}
+
+/** 导入结果（dry_run 预演 / 真导入同形，created/reused 仅真导入时有值） */
+export interface CaseImportResult {
+  dry_run: boolean
+  case_count: number
+  case_ids?: number[]
+  cases?: { name: string; nodes: number; ui_nodes: number; datasets: number; rows: number }[]
+  reuse_apis?: string[]
+  create_apis?: string[]
+  reuse_elements?: string[]
+  create_elements?: string[]
+  reuse_actions?: string[]
+  create_actions?: string[]
+  create_scope_labels?: string[]
+  created?: { cases: number; apis: number; elements: number; custom_actions: number; page_scope_labels: number; datasets: number; rows: number }
+  reused?: { apis: number; elements: number; custom_actions: number }
+  warnings?: string[]
 }
 
 export interface SplitVar {
@@ -825,4 +846,29 @@ export const fileCategoryApi = {
   update: (id: number, data: { name?: string; parent_id?: number | null; sort_order?: number }) =>
     http.put<FileCategory>(`/file-categories/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/file-categories/${id}`),
+}
+
+// ============ API 密钥（外部触发） ============
+export interface ApiKeyItem {
+  id: number
+  project_id: number
+  name: string
+  key_prefix: string  // 明文前 12 位，仅辨识用；明文创建后不可再查
+  last_used_at?: string | null
+  created_at?: string | null
+  created_by?: number | null
+  created_by_name?: string | null
+}
+
+/** 创建响应：附一次性明文 api_key（仅此返回，弹窗关闭后不可再查） */
+export interface ApiKeyCreated extends ApiKeyItem {
+  api_key: string
+}
+
+export const apiKeyApi = {
+  list: (projectId?: number) =>
+    http.get<ApiKeyItem[]>('/api-keys', { params: { project_id: projectId } }).then((r) => r.data),
+  create: (data: { project_id: number; name: string }) =>
+    http.post<ApiKeyCreated>('/api-keys', data).then((r) => r.data),
+  remove: (id: number) => http.delete(`/api-keys/${id}`),
 }

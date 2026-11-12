@@ -99,7 +99,59 @@ def run_plan(db: Session, plan: models.ExecutionPlan, user_id: int, *,
     plan.last_run_at = datetime.now()
     db.commit()
 
-    return [r for _, p in plans for r in p.records]
+    records = [r for _, p in plans for r in p.records]
+    _spawn_plan_notify_watcher(plan.id, [r.id for r in records])
+    return records
+
+
+# ============ 方案聚合通知（方案成员不逐条通知，全量结束后一条汇总） ============
+
+def _spawn_plan_notify_watcher(plan_id: int, record_ids: list) -> None:
+    """combo 路径收尾看门狗：批次线程池无统一收尾点，起后台线程轮询至全部终态。
+
+    5s 粒度轮询（通知延迟可接受）；24h 上限后仍发（带未结束计数）。
+    """
+    import threading
+    from ..database import SessionLocal
+
+    threading.Thread(target=_watch_and_notify, args=(SessionLocal, plan_id, record_ids),
+                     name=f"plan-notify-{plan_id}", daemon=True).start()
+
+
+def _watch_and_notify(SessionLocal, plan_id: int, record_ids: list) -> None:
+    import time
+    from .notifier import send_plan_notify
+
+    def _all_terminal(db) -> bool:
+        rows = (db.query(models.ExecutionRecord.status)
+                .filter(models.ExecutionRecord.id.in_(record_ids)).all())
+        return bool(rows) and all(s in ("success", "failed", "terminated") for (s,) in rows)
+
+    for _ in range(12 * 60 * 24):  # 24h @ 5s
+        time.sleep(5)
+        db = SessionLocal()
+        try:
+            if _all_terminal(db):
+                send_plan_notify(db, plan_id, record_ids)
+                return
+        finally:
+            db.close()
+    db = SessionLocal()  # 超时兜底：仍发聚合（含未结束计数）
+    try:
+        send_plan_notify(db, plan_id, record_ids)
+    finally:
+        db.close()
+
+
+def _notify_chain_done(SessionLocal, plan_id: int, record_ids: list) -> None:
+    """chain 路径收尾：链驱动线程自然知道结束点，直接发聚合（失败兜底也调）。"""
+    from .notifier import send_plan_notify
+
+    db = SessionLocal()
+    try:
+        send_plan_notify(db, plan_id, record_ids)
+    finally:
+        db.close()
 
 
 # ============ chain 串行链（组织依赖与传参；批量策略=轮数×轮间并发） ============
@@ -191,6 +243,7 @@ def _submit_chain(plan: models.ExecutionPlan, rounds: int, members: list[dict]) 
     def _bg():
         try:
             _run_chain(SessionLocal, payload)
+            _notify_chain_done(SessionLocal, plan_id, all_record_ids)
         except Exception as e:  # 兜底：链驱动异常不应留半批 running
             print(f"[串行链 #{plan_id}] 驱动异常: {e}")
             try:
@@ -205,6 +258,10 @@ def _submit_chain(plan: models.ExecutionPlan, rounds: int, members: list[dict]) 
                     db.commit()
                 finally:
                     db.close()
+            except Exception:
+                pass
+            try:  # 记录已置终态，聚合通知仍尽力发出
+                _notify_chain_done(SessionLocal, plan_id, all_record_ids)
             except Exception:
                 pass
 

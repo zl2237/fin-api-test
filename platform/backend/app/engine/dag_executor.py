@@ -282,8 +282,11 @@ class DagExecutor:
                     self.http_client.session.close()
                 except Exception as e:
                     print(f"[资源清理] HTTP session 关闭失败（忽略）: {e}")
-            # 发送企微通知（执行人/项目名取数与门控都在 notifier，见其模块注释）
-            if self.suppress_notify:
+            # 发送执行通知（取数与门控都在 notifier，见其模块注释）
+            if getattr(record, "plan_id", None):
+                # 方案成员不逐条通知：plan_executor 收尾发一条方案聚合通知（combo 看门狗/chain 链尾）
+                print("[通知发送] 跳过逐条通知：方案执行由方案聚合通知汇总发送")
+            elif self.suppress_notify:
                 print("[通知发送] 跳过逐条通知：数据驱动批量执行由聚合器汇总发送")
             else:
                 send_notify(self.db, self.env, self.case, record)

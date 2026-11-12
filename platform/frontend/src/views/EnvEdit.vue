@@ -201,18 +201,57 @@
           </template>
         </div>
 
-        <!-- 通知配置 -->
+        <!-- 通知配置（双渠道：企微机器人 + 邮件；方案执行另有聚合通知） -->
         <div class="card-section">
-          <div class="section-head"><span class="title">通知配置</span></div>
+          <div class="section-head"><span class="title">通知配置</span><span class="sub">用例单条与方案聚合通知共用本配置</span></div>
           <div class="form-grid">
             <el-form-item label="企微机器人 Webhook" class="col-2">
               <el-input v-model="formData.notify_config.wecom_webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" />
             </el-form-item>
-            <el-form-item label="失败时通知">
+            <el-form-item label="企微·失败时通知">
               <el-switch v-model="formData.notify_config.enable_on_failure" />
             </el-form-item>
-            <el-form-item label="成功时通知">
+            <el-form-item label="企微·成功时通知">
               <el-switch v-model="formData.notify_config.enable_on_success" />
+            </el-form-item>
+          </div>
+          <div class="group-title">邮件通知<span>SMTP · 服务器/发件人/收件人齐备才启用</span></div>
+          <div class="form-grid">
+            <el-form-item>
+              <template #label>
+                SMTP 服务器
+                <el-tooltip content="如 smtp.exmail.qq.com；留空则邮件渠道不启用" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <el-input v-model="formData.notify_config.email.smtp_host" placeholder="smtp.exmail.qq.com" />
+            </el-form-item>
+            <el-form-item label="端口">
+              <el-input-number v-model="formData.notify_config.email.smtp_port" :min="1" :max="65535" controls-position="right" />
+            </el-form-item>
+            <el-form-item label="SSL 直连">
+              <el-switch v-model="formData.notify_config.email.use_ssl" />
+            </el-form-item>
+            <el-form-item label="发件人邮箱">
+              <el-input v-model="formData.notify_config.email.from_addr" placeholder="bot@corp.com" />
+            </el-form-item>
+            <el-form-item>
+              <template #label>
+                授权码
+                <el-tooltip content="SMTP 授权码（非邮箱登录密码）；留空表示免登录（内网中继场景）" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <el-input v-model="formData.notify_config.email.auth_code" type="password" show-password autocomplete="new-password" />
+            </el-form-item>
+            <el-form-item class="col-2">
+              <template #label>
+                收件人
+                <el-tooltip content="多个邮箱用逗号或空格分隔" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+              </template>
+              <el-input v-model="formData.notify_config.email.recipients" placeholder="leader@corp.com, qa@corp.com" />
+            </el-form-item>
+            <el-form-item label="邮件·失败时通知">
+              <el-switch v-model="formData.notify_config.email.enable_on_failure" />
+            </el-form-item>
+            <el-form-item label="邮件·成功时通知">
+              <el-switch v-model="formData.notify_config.email.enable_on_success" />
             </el-form-item>
           </div>
         </div>
@@ -304,6 +343,16 @@ interface EnvFormData {
     wecom_webhook: string
     enable_on_failure: boolean
     enable_on_success: boolean
+    email: {
+      smtp_host: string
+      smtp_port: number
+      use_ssl: boolean
+      from_addr: string
+      auth_code: string
+      recipients: string   // 表单态：逗号分隔文本；保存时拆为数组
+      enable_on_failure: boolean
+      enable_on_success: boolean
+    }
   }
   common_headers: Record<string, any>
 }
@@ -335,6 +384,16 @@ const formData = reactive<EnvFormData>({
     wecom_webhook: '',
     enable_on_failure: true,
     enable_on_success: false,
+    email: {
+      smtp_host: '',
+      smtp_port: 465,
+      use_ssl: true,
+      from_addr: '',
+      auth_code: '',
+      recipients: '',
+      enable_on_failure: true,
+      enable_on_success: false,
+    },
   },
   common_headers: { 'Content-Type': 'application/json' },
 })
@@ -395,12 +454,23 @@ async function loadEnv() {
     captcha_retry: lc.captcha_retry ?? 3,
   }
   captchaEnabled.value = !!(lc.captcha_url && lc.captcha_field)
-  // notify_config
-  const nc = env.notify_config || {}
+  // notify_config（email 子对象历史缺失时给默认态）
+  const nc: Record<string, any> = env.notify_config || {}
+  const em: Record<string, any> = nc.email || {}
   formData.notify_config = {
     wecom_webhook: nc.wecom_webhook || '',
     enable_on_failure: nc.enable_on_failure ?? true,
     enable_on_success: nc.enable_on_success ?? false,
+    email: {
+      smtp_host: em.smtp_host || '',
+      smtp_port: em.smtp_port ?? 465,
+      use_ssl: em.use_ssl ?? true,
+      from_addr: em.from_addr || '',
+      auth_code: em.auth_code || '',
+      recipients: (em.recipients || []).join(', '),
+      enable_on_failure: em.enable_on_failure ?? true,
+      enable_on_success: em.enable_on_success ?? false,
+    },
   }
   formData.common_headers = env.common_headers || { 'Content-Type': 'application/json' }
   // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
@@ -458,7 +528,23 @@ async function onSave() {
         is_default: formData.is_default,
         db_config: formData.db_config,
         login_config: formData.login_config,
-        notify_config: formData.notify_config,
+        notify_config: {
+          wecom_webhook: formData.notify_config.wecom_webhook.trim(),
+          enable_on_failure: formData.notify_config.enable_on_failure,
+          enable_on_success: formData.notify_config.enable_on_success,
+          email: {
+            smtp_host: formData.notify_config.email.smtp_host.trim(),
+            smtp_port: formData.notify_config.email.smtp_port,
+            use_ssl: formData.notify_config.email.use_ssl,
+            from_addr: formData.notify_config.email.from_addr.trim(),
+            auth_code: formData.notify_config.email.auth_code,
+            // 表单逗号/空格分隔文本 → 数组落库
+            recipients: formData.notify_config.email.recipients
+              .split(/[,，;；\s]+/).map((s) => s.trim()).filter(Boolean),
+            enable_on_failure: formData.notify_config.email.enable_on_failure,
+            enable_on_success: formData.notify_config.email.enable_on_success,
+          },
+        },
         common_headers: formData.common_headers,
       }
       if (isEdit.value) {

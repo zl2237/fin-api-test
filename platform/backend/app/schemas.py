@@ -546,6 +546,15 @@ class CaseSplitRequest(BaseModel):
     new_group_id: int | None = None
 
 
+class CaseImportRequest(BaseModel):
+    """用例导入（导出 v2 迁移包）：payload 为导出 JSON 解析后的完整对象"""
+    payload: dict[str, Any]
+    project_id: int
+    group_id: int | None = None  # 导入用例统一分组（None=未分组）
+    env_id: int | None = None    # 统一环境绑定（None=不绑定，执行前需在编辑页配置）
+    dry_run: bool = False        # 预演：只统计将创建/复用资产，不落库
+
+
 # ============ ProjectVersion 项目版本快照 ============
 class ProjectVersionCreate(BaseModel):
     """手动创建版本快照"""
@@ -983,3 +992,27 @@ class ExecutionPlanOut(ORMBase):
 
 class ExecutionPlanDetailOut(ExecutionPlanOut):
     items: list[PlanItemOut] = []
+
+
+# ============ API 密钥（外部触发） ============
+class ApiKeyCreate(BaseModel):
+    """创建密钥请求：用途名 + 归属项目"""
+    project_id: int
+    name: str = Field(min_length=1, max_length=100, description="用途名，如 jenkins-nightly")
+
+
+class ApiKeyOut(ORMBase):
+    """密钥列表项：只有前缀可辨识，明文/哈希均不回显"""
+    id: int
+    project_id: int
+    name: str
+    key_prefix: str
+    last_used_at: datetime | None = None
+    created_at: datetime | None = None
+    created_by: int | None = None
+    created_by_name: str | None = None
+
+
+class ApiKeyCreatedOut(ApiKeyOut):
+    """创建响应：附明文 api_key——仅此一次返回，关闭弹窗后不可再查"""
+    api_key: str

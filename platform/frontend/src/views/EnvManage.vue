@@ -83,8 +83,8 @@
           </el-table-column>
           <el-table-column label="通知" width="100" align="center">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.notify_config?.wecom_webhook ? 'success' : 'info'" effect="plain">
-                {{ row.notify_config?.wecom_webhook ? '已配置' : '无' }}
+              <el-tag size="small" :type="notifyTag(row.notify_config).type" effect="plain">
+                {{ notifyTag(row.notify_config).text }}
               </el-tag>
             </template>
           </el-table-column>
@@ -233,6 +233,13 @@ function loginTag(cfg: any): { type: 'success' | 'warning' | 'info'; text: strin
   if (hasBody && !bodyAllFilled) return { type: 'warning', text: '未完成' }
   if (filled === fields.length) return { type: 'success', text: '已配置' }
   return { type: 'warning', text: '未完成' }
+}
+
+// 通知标记：任一渠道（企微 webhook / 邮件收件人）已配置即「已配置」
+function notifyTag(cfg: any): { type: 'success' | 'info'; text: string } {
+  const wecom = !!cfg?.wecom_webhook
+  const email = !!cfg?.email?.recipients?.length && !!cfg?.email?.smtp_host
+  return wecom || email ? { type: 'success', text: '已配置' } : { type: 'info', text: '无' }
 }
 
 async function load() {

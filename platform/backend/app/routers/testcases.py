@@ -91,17 +91,27 @@ def export_list(
     format: str = "excel",
     created_by: int | None = None,
     updated_by: int | None = None,
+    case_ids: str | None = None,
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """用例列表导出：Excel 简表或 JSON 全量（含 DAG 与节点配置），筛选条件与列表页一致。
+    """用例列表导出：Excel 简表或 JSON 全量（含 DAG 与节点配置）。
+    列表页勾选了用例时传 case_ids（逗号分隔）只导勾选的；否则按筛选条件导全量。
     注意：此路由需在 /{case_id} 之前注册，否则 GET /export 会被 path 参数拦截。"""
     if format not in ("excel", "json"):
         raise HTTPException(400, "format 仅支持 excel / json")
 
     objs = crud.list_testcases(db, project_id, created_by, updated_by)
+    selected = False
+    if case_ids:
+        try:
+            wanted = {int(x) for x in case_ids.split(",") if x.strip()}
+        except ValueError:
+            raise HTTPException(400, "case_ids 格式非法（应为逗号分隔的用例ID）")
+        objs = [c for c in objs if c.id in wanted]
+        selected = True
     if not objs:
-        raise HTTPException(400, "当前筛选条件下没有可导出的用例")
+        raise HTTPException(400, "勾选的用例中没有可导出的用例" if selected else "当前筛选条件下没有可导出的用例")
     crud.fill_audit_names_batch(db, objs)
     crud.fill_case_env_names(db, objs)
 
@@ -114,28 +124,43 @@ def export_list(
     from ..services.export_service import export_cases_excel, export_cases_json
     if format == "json":
         # 数据集入参配置随用例全量导出（备份完整性）
-        case_ids = [c.id for c in objs]
+        exported_ids = [c.id for c in objs]
         dss = (db.query(models.DataSet)
-               .filter(models.DataSet.case_id.in_(case_ids))
-               .order_by(models.DataSet.id).all()) if case_ids else []
+               .filter(models.DataSet.case_id.in_(exported_ids))
+               .order_by(models.DataSet.id).all()) if exported_ids else []
         datasets_by_case: dict[int, list] = {}
         for d in dss:
             if d.rows:
                 datasets_by_case.setdefault(d.case_id, []).append(d)
-        content = export_cases_json(objs, group_names, project_name, datasets_by_case)
-        crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（json）")
+        content = export_cases_json(objs, group_names, project_name, datasets_by_case, db=db)
+        crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（json{'，选中' if selected else ''}）")
         return Response(
             content=content,
             media_type="application/json; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="cases_{stamp}.json"'},
         )
     content = export_cases_excel(objs, group_names)
-    crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（excel）")
+    crud.log_operation(db, user, "export", "testcase", None, f"导出{len(objs)}个用例（excel{'，选中' if selected else ''}）")
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="cases_{stamp}.xlsx"'},
     )
+
+
+@router.post("/import")
+def import_cases(data: schemas.CaseImportRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """用例导入（导出 v2 迁移包）：dry_run 先预演（接口复用/新建统计），确认后整批重建。
+    注意：此路由需在 /{case_id} 之前注册（同 /export，避免被 path 参数拦截）。"""
+    from ..services.case_import_service import ImportPayloadError, import_cases as do_import
+    try:
+        result = do_import(db, data.payload, data.project_id, user.id,
+                           group_id=data.group_id, env_id=data.env_id, dry_run=data.dry_run)
+    except ImportPayloadError as e:
+        raise HTTPException(400, str(e))
+    crud.log_operation(db, user, "import", "testcase", None,
+                       f"导入{'预演 ' if data.dry_run else ''}{result['case_count']} 个用例")
+    return result
 
 
 @router.post("/combine", response_model=schemas.TestCaseOut)

@@ -292,3 +292,38 @@ class TestExecuteStartedAt:
 
         assert record.started_at is not None
         assert record.ended_at >= record.started_at
+
+
+class TestPlanNotifySuppression:
+    """方案成员记录不逐条通知：plan_id 非空 → 跳过单条通知（方案聚合通知接管）。"""
+
+    def _run(self, monkeypatch, record) -> list:
+        import app.engine.dag_executor as de
+
+        calls = []
+        monkeypatch.setattr(de, "login", lambda *a, **kw: None)
+        monkeypatch.setattr(de, "build_http_client", lambda env: None)
+        monkeypatch.setattr(de, "build_db_client", lambda env: None)
+        monkeypatch.setattr(de, "send_notify", lambda *a, **kw: calls.append(a))
+
+        class MergeableDb(FakeDb):
+            def merge(self, obj):
+                return obj
+
+            def __contains__(self, obj):
+                return False
+
+        env = SimpleNamespace(id=2, variables={}, timeout=5)
+        case = SimpleNamespace(id=1, project_id=None, dag_config={"nodes": [], "edges": []})
+        de.DagExecutor(MergeableDb(), case, env, execution_record=record).execute()
+        return calls
+
+    def test_plan_record_suppresses_notify(self, monkeypatch):
+        from app.models import ExecutionRecord
+        record = ExecutionRecord(case_id=1, env_id=2, status="running", plan_id=9)
+        assert self._run(monkeypatch, record) == []
+
+    def test_non_plan_record_still_notifies(self, monkeypatch):
+        from app.models import ExecutionRecord
+        record = ExecutionRecord(case_id=1, env_id=2, status="running")
+        assert len(self._run(monkeypatch, record)) == 1

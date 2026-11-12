@@ -30,6 +30,7 @@ from . import models
 from .database import SessionLocal, init_db
 from .json_safe import BigintSafeJSONResponse
 from .routers import (
+    api_keys,
     apis,
     auth,
     datasets,
@@ -168,6 +169,7 @@ def root():
 
 
 app.include_router(auth.router)
+app.include_router(api_keys.router)
 app.include_router(users.router)
 app.include_router(operation_logs.router)
 app.include_router(projects.router)
