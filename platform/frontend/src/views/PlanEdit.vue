@@ -306,6 +306,8 @@ const items = ref<ItemRow[]>([])
 // 数据集选项（按成员用例懒加载；单套语义：一个数据集 = 一套完整取值，无行选择）
 interface DsOpt { id: number; label: string; disabled?: boolean }
 const dsOptions = ref<Record<number, DsOpt[]>>({})
+// 已拉全量选项的用例集合：与「详情预置的种子选项」区分——种子存在但不能拦住下拉打开拉全量
+const dsLoadedCaseIds = new Set<number>()
 
 function projectName(pid: number | null): string {
   if (pid == null) return '未知项目'
@@ -349,6 +351,15 @@ async function load() {
         base.env_id = c.env_id ?? null
         base.case_dataset_id = c.dataset_id ?? null
       } catch { /* 用例详情取失败不阻塞编辑（执行预检兜底） */ }
+      // 覆盖数据集选项 label 立即用详情回填：选项是懒加载（下拉打开才拉全量），
+      // 未回填时 el-select 值无匹配 option 会直接显示裸 dataset_id（如「103」）
+      if (base.dataset_id != null && !base.dataset_missing && it.dataset_name
+          && !dsOptions.value[base.case_id]?.length) {
+        dsOptions.value[base.case_id] = [{
+          id: base.dataset_id,
+          label: it.dataset_name + (base.dataset_id === base.case_dataset_id ? '（用例绑定）' : ''),
+        }]
+      }
       return base
     }))
     addProjectId.value = store.currentProjectId
@@ -457,7 +468,7 @@ function removeItem(i: number) {
 
 // ===== 数据集选项（同执行面板「换套数据执行」口径：按用例隔离归属） =====
 async function loadDsOptions(m: ItemRow) {
-  if (dsOptions.value[m.case_id]) return
+  if (dsLoadedCaseIds.has(m.case_id)) return
   try {
     // with_rows：判断「（无数据）」置灰必须有行数据（list 缺省不带 rows）
     const list = await datasetApi.list({ case_id: m.case_id, with_rows: true })
@@ -468,8 +479,13 @@ async function loadDsOptions(m: ItemRow) {
         : `${ds.name}（无数据）`,
       disabled: !ds.rows.length,
     }))
+    dsLoadedCaseIds.add(m.case_id)
   } catch {
-    dsOptions.value[m.case_id] = [{ id: -1, label: '数据集加载失败', disabled: true }]
+    // 加载失败保留详情预置的种子选项（若有），避免选中值回落成裸 ID；
+    // 未成功不记已加载——重开下拉即重试
+    if (!dsOptions.value[m.case_id]?.some((o) => o.id >= 0)) {
+      dsOptions.value[m.case_id] = [{ id: -1, label: '数据集加载失败', disabled: true }]
+    }
   }
 }
 
