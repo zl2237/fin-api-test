@@ -135,6 +135,7 @@ export interface Environment {
   db_config: Record<string, any>
   login_config: Record<string, any>
   notify_config: Record<string, any>
+  cipher_config?: Record<string, any> | null  // 加密传输密钥库 {key_pairs:[{name,public_key,private_key}]}
   common_headers: Record<string, any>; success_codes?: string; timeout: number
   node_retry_count?: number | null  // 节点请求层失败自动重试次数（0/空=不重试）
   node_retry_interval?: number | null  // 节点重试间隔（秒）
@@ -152,9 +153,26 @@ export interface ApiDef {
   id: number; project_id: number; group_id?: number | null; name: string; code: string; category?: string
   method: string; path: string; description?: string
   request_template: any; headers_template: Record<string, any>
+  crypto_config?: CryptoConfig | null  // 加密传输配置（接口级开关；密钥材料在环境）
   fields: ApiField[]; sort_order?: number; created_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
+}
+/** 接口加密配置（api_definitions.crypto_config）：请求加密 + 响应解密两段独立开关。
+ *  形状契约见 platform/backend/app/services/request_sender.py（唯一解析方）。 */
+export interface CryptoConfig {
+  request?: {
+    enabled?: boolean
+    key?: string          // 密钥对名称（须与环境「加密配置」里的名称一致）
+    wrapper_field?: string // 外层信封字段，默认 requestCipher
+    segment_size?: number  // 分段明文字节数，默认 244（上限 245）
+  }
+  response?: {
+    enabled?: boolean
+    key?: string          // 缺省复用 request.key
+    mode?: 'field' | 'body' // field=信封字段（默认 responseCipher）/ body=整体密文
+    field?: string
+  }
 }
 export interface HarPreviewField {
   key: string; field_type: string; default_value: string; in: string; required: boolean
@@ -284,6 +302,8 @@ export interface StepRecord {
   retry_count?: number | null  // 失败自动重试实际次数（0/空=未重试）
   // 重试途中被顶替的失败尝试快照（重试成功后首次失败原因只在此；最终失败仍在主行）
   retry_history?: RetryAttempt[] | null
+  // 加密传输密文快照（接口开加密时；request_body/response_body 保持明文语义）
+  cipher_snapshot?: { request?: string; response?: string } | null
   resumed?: boolean  // 断点续跑段产出的步骤（顶替旧失败记录）
   replay_passed_at?: string | null  // 重放验证通过时间（「已重放通过」徽标）
   started_at?: string; ended_at?: string; status?: string
@@ -432,6 +452,12 @@ export const envApi = {
   copy: (id: number) => http.post<Environment>(`/environments/${id}/copy`).then((r) => r.data),
   testDb: (id: number) => http.post<{ ok: boolean; message: string; test_result?: any }>(`/environments/${id}/test-db`).then((r) => r.data),
   testLogin: (id: number) => http.post<{ ok: boolean; message: string; auth_header_name?: string; auth_header_preview?: string; base_url?: string }>(`/environments/${id}/test-login`).then((r) => r.data),
+  // 测试加解密：对已保存密钥库中指定密钥对（name 空=第一对）做配对校验 + 600 字节跨 3 段往返自检
+  testCipher: (id: number, name?: string) =>
+    http.post<{ ok: boolean; message: string; sample_cipher_len?: number }>(`/environments/${id}/test-cipher`, { name: name ?? '' }).then((r) => r.data),
+  // 回调验签工具：粘贴对方完整回调报文（含 sign/signType），按 Fastjson2 规则重建原串并验签
+  verifyCallback: (id: number, data: { key_name?: string; payload: Record<string, any> }) =>
+    http.post<{ passed: boolean; canonical_string: string; items_json?: string | null; reason: string }>(`/environments/${id}/verify-callback`, data).then((r) => r.data),
   reorder: (items: { id: number; sort_order: number }[]) =>
     http.post<{ message: string; updated: number }>('/environments/reorder', { items }).then((r) => r.data),
 }
@@ -496,6 +522,7 @@ export const apiApi = {
       request_headers: Record<string, any>; request_body: any
       response_status: number; response_body: any; response_time_ms: number
       started_at: string; ok: boolean; login_failed: boolean; error: string | null
+      cipher?: { request?: string; response?: string } | null  // 加密传输密文快照（接口开启加密时）
     }>(`/apis/${apiId}/debug`, { env_id: envId, body_override: bodyOverride ?? null }).then((r) => r.data),
   // 列表导出：excel=简表 / json=全量 / openapi=OpenAPI 3.0（Postman/Apifox 可导入）；ids=勾选导出（优先于筛选）
   exportList: (params: { project_id: number; format: 'excel' | 'json' | 'openapi'; ids?: number[]; created_by?: number; updated_by?: number }) => {

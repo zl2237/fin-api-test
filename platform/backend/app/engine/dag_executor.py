@@ -135,12 +135,15 @@ class DagExecutor:
     def _send_request(self, api: models.ApiDefinition, body: Any, headers: dict,
                       file_fields: list[tuple[str, str]] | None = None, *,
                       client: HttpClient | None = None,
-                      env: Any = None) -> tuple[int, Any, str | None]:
+                      env: Any = None,
+                      cipher_out: dict | None = None) -> tuple[int, Any, str | None]:
         """委托共享发送器（与单接口调试同一实现），返回 (status_code, response_body, error_msg)。
 
         headers 为 prepare_request 组装产物（环境公共头 + 接口 headers_template 覆盖 +
         ${} 求值），发送期间临时替换 client.headers 使接口级 Content-Type 真正生效
         （表单接口据此走表单编码），发完恢复。
+        cipher_out 为加密传输密文收集盒（接口 crypto_config 开启时 send_request 填
+        "request"/"response"），调用方落 step_records.cipher_snapshot。
         """
         # 超时时间取环境配置（向后兼容：未配置时默认 15 秒）；
         # 跨系统节点传各自运行时（client/env），缺省回落用例环境
@@ -148,7 +151,8 @@ class DagExecutor:
         _env = env if env is not None else self.env
         timeout = getattr(_env, "timeout", None) or 15
         return send_request(self.db, _client, api, body,
-                            file_fields=file_fields, timeout=timeout, headers=headers)
+                            file_fields=file_fields, timeout=timeout, headers=headers,
+                            cipher_out=cipher_out)
 
     # ---------- 执行入口 ----------
     def _terminated(self, execution_id: int) -> bool:
@@ -635,6 +639,10 @@ class DagExecutor:
         # 被后续尝试顶替的失败快照：重试成功后主行只留最终响应，首次失败
         # 原因若不留存将永久丢失（报告 1306 提交订单节点的教训）
         retry_history: list[dict[str, Any]] = []
+        # 加密传输密文收集盒：接口开启 crypto_config 时 send_request 填入实际
+        # 密文（PKCS1v1.5 填充随机，每次 attempt 覆盖——与 retry_history「主行=
+        # 最终尝试」语义一致）；未开启则保持空盒，落库时归 None
+        cipher_box: dict[str, Any] = {}
         for attempt in range(retry_limit + 1):
             if attempt:
                 time.sleep(retry_interval)
@@ -642,7 +650,8 @@ class DagExecutor:
             attempt_start = time.time()
             # 2. 发送请求（file_fields 非空时走 multipart 通道）
             status_code, response_data, err = self._send_request(
-                api, body, headers, file_fields, client=node_client, env=node_env)
+                api, body, headers, file_fields, client=node_client, env=node_env,
+                cipher_out=cipher_box)
             attempt_elapsed = int((time.time() - attempt_start) * 1000)
             elapsed = int((time.time() - start_ts) * 1000)
             if err is not None and attempt < retry_limit:
@@ -681,6 +690,7 @@ class DagExecutor:
             extracted_vars=extracted,
             retry_count=retry_count,
             retry_history=retry_history or None,
+            cipher_snapshot=dict(cipher_box) or None,
             assertions=_assertion_events(assertion_results),
         ))
 

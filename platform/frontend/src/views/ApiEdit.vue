@@ -52,6 +52,10 @@
             <div class="debug-section-title">请求体</div>
             <pre class="debug-json">{{ formatJson(debugResult.request_body) }}</pre>
           </div>
+          <div v-if="debugResult?.cipher?.request" class="debug-section">
+            <div class="debug-section-title">实际发出密文（加密传输）</div>
+            <pre class="debug-json">{{ truncateCipher(debugResult.cipher.request) }}</pre>
+          </div>
         </el-tab-pane>
         <el-tab-pane label="响应" name="response">
           <div class="debug-section">
@@ -284,6 +288,72 @@
             </el-table-column>
           </el-table>
         </template>
+
+        <!-- 加密配置（接口级开关；密钥材料在环境「加密配置」按名称引用） -->
+        <el-divider content-position="left">加密配置</el-divider>
+        <div class="crypto-bar">
+          <span class="panel-hint">
+            开启后本接口请求体加密为 {包裹字段: 密文} 信封发送（明文仍落报告，重放自动重新加密）；密钥对录入在环境「加密配置」
+          </span>
+        </div>
+        <div class="crypto-row">
+          <div class="crypto-block">
+            <div class="crypto-title">
+              请求加密
+              <el-switch v-model="cryptoForm.reqEnabled" size="small" />
+              <el-tooltip content="内层 JSON 整体 RSA 分段加密（每段 ≤244 字节、密文拼接后整体一次 Base64）；仅支持 POST JSON——GET/form/file 不适用" placement="top">
+                <el-icon class="lbl-help"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </div>
+            <template v-if="cryptoForm.reqEnabled">
+              <el-form label-width="90px" class="crypto-form">
+                <el-form-item label="密钥对名称" required>
+                  <el-input v-model="cryptoForm.reqKey" placeholder="如 customs（与环境「加密配置」名称一致）" />
+                </el-form-item>
+                <el-form-item label="包裹字段">
+                  <el-input v-model="cryptoForm.wrapperField" placeholder="requestCipher" />
+                </el-form-item>
+                <el-collapse class="crypto-adv">
+                  <el-collapse-item title="高级" name="adv">
+                    <el-form-item label="分段大小">
+                      <div class="seg-row">
+                        <el-input-number v-model="cryptoForm.segmentSize" :min="1" :max="245" controls-position="right" />
+                        <span class="panel-hint">默认 244（协议约定；理论上限 245）</span>
+                      </div>
+                    </el-form-item>
+                  </el-collapse-item>
+                </el-collapse>
+              </el-form>
+            </template>
+            <div v-else class="crypto-off-tip">关闭：按明文 JSON 发送</div>
+          </div>
+          <div class="crypto-block">
+            <div class="crypto-title">
+              响应解密
+              <el-switch v-model="cryptoForm.respEnabled" size="small" />
+              <el-tooltip content="对方响应为密文时才开启（当前海关接口响应为明文，勿开）；解密结果整体替换响应体，断言直接打业务字段" placement="top">
+                <el-icon class="lbl-help"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </div>
+            <template v-if="cryptoForm.respEnabled">
+              <el-form label-width="90px" class="crypto-form">
+                <el-form-item label="密钥对名称">
+                  <el-input v-model="cryptoForm.respKey" placeholder="留空复用请求加密的密钥对" />
+                </el-form-item>
+                <el-form-item label="解密模式">
+                  <el-radio-group v-model="cryptoForm.respMode" size="small">
+                    <el-radio-button value="field">包裹字段</el-radio-button>
+                    <el-radio-button value="body">整体密文</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <el-form-item v-if="cryptoForm.respMode === 'field'" label="密文字段">
+                  <el-input v-model="cryptoForm.respField" placeholder="responseCipher" />
+                </el-form-item>
+              </el-form>
+            </template>
+            <div v-else class="crypto-off-tip">关闭：响应按明文处理</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -334,6 +404,7 @@ import { useFieldDict } from '@/composables/useFieldDict'
 import { buildGroupTree } from '@/composables/useGroupTree'
 import { useAppStore } from '@/stores'
 import { useTabStore } from '@/stores/tabs'
+import { cryptoToForm, emptyCryptoForm, formToCrypto, validateCryptoForm, type CryptoFormState } from '@/utils/cryptoConfig'
 import { storeToRefs } from 'pinia'
 
 const route = useRoute()
@@ -712,6 +783,11 @@ function formatJson(v: any): string {
   }
 }
 
+/** 密文展示截断：Base64 密文动辄数 KB，pre 里只放前 2000 字符 */
+function truncateCipher(cipher: string): string {
+  return cipher.length > 2000 ? `${cipher.slice(0, 2000)}\n…（共 ${cipher.length} 字符，已截断）` : cipher
+}
+
 function openDebug() {
   if (!isEdit.value) return
   if (!store.environments.length) {
@@ -771,6 +847,10 @@ const formRules: FormRules = {
 // 监听变更
 watch(formData, () => { dirty.value = true }, { deep: true })
 
+// ===== 加密配置（接口级开关，随接口保存；密钥材料在环境「加密配置」按名称引用）=====
+const cryptoForm = reactive<CryptoFormState>(emptyCryptoForm())
+watch(cryptoForm, () => { dirty.value = true }, { deep: true })
+
 async function loadGroups() {
   if (!projectId.value) return
   groups.value = await apiGroupApi.list(projectId.value)
@@ -790,6 +870,8 @@ async function loadApi() {
   formData.fields = (api.fields || []).map(f => ({ ...f }))
   // request_template 为 list 表示数组请求体（body 组装为 [{...}]）
   formData.is_array_body = Array.isArray(api.request_template)
+  // 加密配置（null/缺省兜底为默认表单态）
+  Object.assign(cryptoForm, cryptoToForm(api.crypto_config))
   // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
   // 这里用 nextTick 等待 watch 触发后再重置，避免误判"有未保存改动"
   await nextTick()
@@ -820,6 +902,12 @@ async function onSave() {
     formData.name = formData.name.trim()
     formData.code = formData.code.trim()
     formData.path = formData.path.trim()
+    // 加密配置配套校验（镜像后端报错条件，前端先拦一遍）
+    const cryptoErr = validateCryptoForm(cryptoForm)
+    if (cryptoErr) {
+      ElMessage.warning(cryptoErr)
+      return
+    }
     saving.value = true
     try {
       const payload: Partial<ApiDef> = {
@@ -834,6 +922,7 @@ async function onSave() {
         // 数组请求体用 [] 标记，build_request_body 据此组装为 [{...}]；
         // 普通请求体用 {} 标记
         request_template: formData.is_array_body ? [] : {},
+        crypto_config: formToCrypto(cryptoForm),
       }
       if (isEdit.value) {
         await apiApi.update(formData.id!, payload)
@@ -958,6 +1047,69 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 12px;
   color: var(--app-text-muted);
   line-height: 1.6;
+}
+/* ===== 加密配置 ===== */
+.crypto-bar {
+  margin-bottom: 10px;
+}
+.crypto-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.crypto-block {
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius, 8px);
+  padding: 10px 14px;
+  min-width: 0;
+}
+.crypto-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.crypto-title .lbl-help {
+  font-size: 12px;
+  color: var(--app-text-faint);
+  cursor: help;
+}
+.crypto-form .el-form-item {
+  margin-bottom: 10px;
+}
+.crypto-off-tip {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  padding: 2px 0 6px;
+}
+.crypto-adv {
+  border: none;
+  margin-bottom: 6px;
+}
+.crypto-adv :deep(.el-collapse-item__header) {
+  height: 30px;
+  line-height: 30px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  border-bottom: none;
+  background: transparent;
+}
+.crypto-adv :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+  background: transparent;
+}
+.seg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@media (max-width: 1100px) {
+  .crypto-row {
+    grid-template-columns: 1fr;
+  }
 }
 .panel-title {
   font-size: 14px;

@@ -47,6 +47,9 @@ class StepResult:
     # 重试成功后主行响应为成功态，首次失败原因只在此留存（最终失败仍在主行）
     retry_history: list[dict[str, Any]] | None = None
     resumed: bool = False  # 断点续跑段产出的步骤（同 node 重跑成功后顶替旧失败记录）
+    # 加密传输密文快照 {request, response}（整体 Base64 串；重试时每次 attempt
+    # 覆盖，留最终尝试）。明文在 request_body/response_body，重放按配置重新加密。
+    cipher_snapshot: dict[str, Any] | None = None
 
 
 class ExecutionSink(Protocol):
@@ -74,6 +77,7 @@ class DbSink:
             retry_count=result.retry_count,
             retry_history=result.retry_history,
             resumed=result.resumed,
+            cipher_snapshot=result.cipher_snapshot,
             started_at=result.started_at, ended_at=result.ended_at,
             status=result.status,
             post_extract=result.post_extract,

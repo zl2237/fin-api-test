@@ -25,6 +25,11 @@ FUNCTIONS: dict[str, dict[str, Any]] = {
             else datetime.now().isoformat(), "params": ["format"]},
     "timestamp": {"fn": lambda **kw: int(datetime.now().timestamp()) + int(kw.get("offset", 0)),
                   "params": ["offset"]},
+    # 13 位毫秒时间戳（offset 仍为秒，与 timestamp 语义一致）：
+    # 供对接方要求毫秒级时间戳的接口（如海关 requestTime，±5 分钟窗口）
+    "timestamp_ms": {"fn": lambda **kw: int(datetime.now().timestamp() * 1000)
+                     + int(kw.get("offset", 0) or 0) * 1000,
+                     "params": ["offset"]},
     "random_int": {"fn": lambda **kw: random.randint(int(kw.get("min", 0)), int(kw.get("max", 100))),
                    "params": ["min", "max"]},
     "random_string": {"fn": lambda **kw: "".join(random.choice(string.ascii_letters + string.digits)

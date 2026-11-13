@@ -52,6 +52,21 @@ class BusinessError(Exception):
         )
 
 
+class CipherError(Exception):
+    """加解密失败（密钥缺失/不配对/密文格式错等配置性问题）。
+
+    stage 标记失败环节：
+    - "request":  发送前加密失败——请求未发出，send_request 归位 status=0
+    - "response": 响应解密失败——HTTP 已 200 收到报文，status=200 且 err 非空
+    注意：经 send_request 返回非空 err 会消耗 DAG 节点级失败重试额度；解密失败属
+    确定性配置错误，重试必然复现（报关类写接口重复提交还有业务风险），依赖加密的
+    环境应保持 node_retry_count=0。
+    """
+    def __init__(self, message: str, stage: str = "request"):
+        self.stage = stage
+        super().__init__(message)
+
+
 class DBQueryError(Exception):
     """数据库执行/查询异常"""
     def __init__(self, sql: str, args: tuple, error_msg: str):

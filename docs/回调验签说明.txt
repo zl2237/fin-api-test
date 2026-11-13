@@ -1,0 +1,122 @@
+## 海关通关结果推送业务接口
+
+
+##### 简要描述
+
+
+
+Java向业务方逐票推送成功、暂无数据或失败结果；留存命中同样推送。callbackUrl为空则无需推送。
+
+
+
+##### 请求方式
+
+
+
+`POST {业务方受理时传入的callbackUrl}`
+
+
+
+Content-Type: `application/json`；明文JSON+RSA2签名，无额外鉴权头。
+
+
+
+##### 请求字段
+
+
+
+| 字段名   | 必选 | 类型   | 说明                        |
+| -------- | ---- | ------ | --------------------------- |
+| batchNo  | 是   | string | 本票原任务所属批次号        |
+| items    | 是   | array  | 本次完成的一票结果，固定1项 |
+| signType | 是   | string | RSA2                        |
+| sign     | 是   | string | 整个请求对象的Base64签名    |
+
+
+
+items 元素：
+
+
+
+| 字段名                            | 必选 | 类型         | 说明                                                         |
+| --------------------------------- | ---- | ------------ | ------------------------------------------------------------ |
+| bizNo / declarationNo / requestNo | 是   | string       | 本票请求标识，requestNo为幂等主键                            |
+| taskStatus                        | 是   | integer      | 2成功（含暂无数据）、3失败；推送只包含终态                   |
+| decStatus                         | 是   | array / null | 通关状态时间线，元素为{time,status}原文字符串；失败为null，暂无数据成功为空数组 |
+| taxStatus                         | 是   | array / null | 国税联网时间线，结构和空值规则同decStatus                    |
+| queryFailReason                   | 是   | string       | 任务失败原因；成功为空字符串                                 |
+
+
+
+##### 请求示例
+
+
+
+```json
+{
+  "batchNo": "CUS-B-1985000000000000000",
+  "items": [
+    {
+      "requestNo": "1985000000000000001",
+      "bizNo": "BIZ-20261027-0001",
+      "declarationNo": "123456789012345678",
+      "taskStatus": 2,
+      "decStatus": [
+        {
+          "time": "2026-10-27 10:00:00",
+          "status": "已结关"
+        }
+      ],
+      "taxStatus": [],
+      "queryFailReason": ""
+    }
+  ],
+  "signType": "RSA2",
+  "sign": "_base64_sign_value_"
+}
+```
+
+
+
+##### 签名算法
+
+
+
+签名范围为整个推送请求对象。
+
+
+
+明文 JSON 使用 RSA2（`SHA256withRSA`）签名。签名范围为本节指定对象，排除其顶层 `sign`、`signType` 后，顶层字段按 key 字典序拼接 `k=v&k=v`。顶层 null 转空字符串；数字使用十进制，布尔值为 `true/false`，字符串原样、不做 URL 编码。
+
+
+
+当前签名实现使用Fastjson2 2.0.34的`JSON.toJSONString(items, WriteNulls)`，数组保持原顺序，**嵌套对象字段按字典序输出，不按本表或HTTP响应的字段展示顺序**。每票字段顺序为`bizNo, decStatus, declarationNo, queryFailReason, requestNo, taskStatus, taxStatus`；时间线元素顺序为`status, time`。嵌套null保持JSON null，不能省略或替换为空字符串。查询HTTP响应经Jackson序列化，显示顺序可能不同，验签前须重建上述规范化items字符串，不能直接截取收到的JSON片段。
+
+
+待签名字符串固定为`batchNo=<批次号>&items=<规范化紧凑JSON>`。中文保持原字符，按标准JSON转义引号、反斜杠与控制字符；签名字符串使用UTF-8编码，SHA256withRSA签名后整体Base64。使用海关对应公钥验签。文中sign是占位值，不可用于验签。
+
+
+签名原串示例（由当前DTO源码及项目Fastjson2版本实际运行获得）：
+
+
+```text
+batchNo=CUS-B-1000&items=[{"bizNo":"BIZ-1","decStatus":[{"status":"已结关","time":"2026-11-02 10:00:00"}],"declarationNo":"123456789012345678","queryFailReason":"","requestNo":"1001","taskStatus":2,"taxStatus":[]}]
+batchNo=CUS-B-1000&items=[{"bizNo":"BIZ-1","decStatus":null,"declarationNo":"123456789012345678","queryFailReason":"查询失败","requestNo":"1001","taskStatus":3,"taxStatus":null}]
+```
+
+
+数组中的时间线顺序不排序；只规范对象字段顺序。以上两个原串分别展示成功和失败，不是一次响应的两行内容。
+
+
+
+##### 业务方应答
+
+
+
+```json
+{
+  "code": 200,
+  "msg": "成功"
+}
+```
+业务方应返回**HTTP 200**，验签并可靠保存后再确认，同requestNo重复通知应幂等确认。当前Java使用postForObject取得body，再用Fastjson getInteger解析code，未显式校验HTTP状态必须等于200，也不是严格JSON数字类型校验；默认HTTP错误处理会将4xx/5xx等转入异常分支。超时、无法解析或解析后code不是200均按失败处理。

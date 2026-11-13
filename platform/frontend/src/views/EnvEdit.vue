@@ -256,6 +256,51 @@
           </div>
         </div>
 
+        <!-- 加密配置（接口级加密传输的密钥库：名称多对，接口加密配置按名称引用） -->
+        <div class="card-section">
+          <div class="section-head">
+            <span class="title">加密配置</span>
+            <span class="sub">名称供接口「加密配置」引用；测试/生产密钥分环境录入，禁止共用</span>
+            <span class="grow" />
+            <el-tooltip v-if="!isEdit" content="保存后可测试加解密" placement="top">
+              <el-button size="small" disabled>测试加解密</el-button>
+            </el-tooltip>
+            <template v-else>
+              <el-select v-model="testCipherName" size="small" clearable placeholder="第一对" class="cipher-name-select">
+                <el-option v-for="n in savedKeyNames" :key="n" :label="n" :value="n" />
+              </el-select>
+              <el-button size="small" :loading="testingCipher" @click="onTestCipher">测试加解密</el-button>
+            </template>
+          </div>
+          <div v-if="!formData.cipher_config.key_pairs.length" class="cipher-empty">
+            未配置密钥对。对接加密传输接口（如海关 requestCipher 协议）时在此录入公私钥。
+          </div>
+          <div v-for="(pair, i) in formData.cipher_config.key_pairs" :key="i" class="key-pair-item">
+            <div class="pair-head">
+              <el-input v-model="pair.name" placeholder="名称（如 customs / cfca）" class="pair-name-input" />
+              <span class="grow" />
+              <el-button text type="danger" size="small" @click="formData.cipher_config.key_pairs.splice(i, 1)">删除</el-button>
+            </div>
+            <div class="pair-grid">
+              <el-form-item>
+                <template #label>
+                  公钥
+                  <el-tooltip content="X.509/SPKI 格式（-----BEGIN PUBLIC KEY----- 开头），粘贴其 Base64 密钥体亦可；请求加密用" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                </template>
+                <el-input v-model="pair.public_key" type="textarea" :rows="3" placeholder="-----BEGIN PUBLIC KEY-----&#10;MIIBIjANBg..." spellcheck="false" />
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  私钥
+                  <el-tooltip content="PKCS#8 无口令格式（-----BEGIN PRIVATE KEY----- 开头）；响应解密与测试加解密需要成对录入" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                </template>
+                <el-input v-model="pair.private_key" type="textarea" :rows="3" placeholder="-----BEGIN PRIVATE KEY-----&#10;MIIEvQ..." spellcheck="false" />
+              </el-form-item>
+            </div>
+          </div>
+          <el-button size="small" @click="addKeyPair">+ 添加密钥对</el-button>
+        </div>
+
         <!-- 公共请求头 -->
         <div class="card-section">
           <div class="section-head">
@@ -314,6 +359,35 @@ async function initialLoad() {
 }
 const testingDb = ref(false)
 const testingLogin = ref(false)
+const testingCipher = ref(false)
+// 已保存（非表单态）密钥对名称：测试加解密下拉数据源，loadEnv/保存成功后刷新
+const savedKeyNames = ref<string[]>([])
+const testCipherName = ref('')
+
+function addKeyPair() {
+  formData.cipher_config.key_pairs.push({ name: '', public_key: '', private_key: '' })
+}
+
+async function onTestCipher() {
+  if (!formData.id) return
+  if (dirty.value) {
+    ElMessage.warning('有未保存改动，请先保存再测试')
+    return
+  }
+  testingCipher.value = true
+  try {
+    const res = await envApi.testCipher(formData.id, testCipherName.value || undefined)
+    if (res.ok) {
+      ElMessage.success(res.message)
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '测试失败')
+  } finally {
+    testingCipher.value = false
+  }
+}
 
 interface EnvFormData {
   id?: number
@@ -355,6 +429,14 @@ interface EnvFormData {
     }
   }
   common_headers: Record<string, any>
+  cipher_config: { key_pairs: CipherKeyPair[] }
+}
+
+/** 环境加密密钥对（表单态；名称供接口加密配置引用） */
+interface CipherKeyPair {
+  name: string
+  public_key: string
+  private_key: string
 }
 
 const formData = reactive<EnvFormData>({
@@ -396,6 +478,7 @@ const formData = reactive<EnvFormData>({
     },
   },
   common_headers: { 'Content-Type': 'application/json' },
+  cipher_config: { key_pairs: [] },
 })
 // 字段级校验（el-form rules）：错误定位到输入框，替代提交时 if 判空 + toast
 const formRef = ref<FormInstance>()
@@ -473,6 +556,16 @@ async function loadEnv() {
     },
   }
   formData.common_headers = env.common_headers || { 'Content-Type': 'application/json' }
+  // cipher_config（密钥对列表；公私钥 PEM 原样回显）
+  const kp = (env.cipher_config || {}).key_pairs || []
+  formData.cipher_config = {
+    key_pairs: kp.map((p: Record<string, any>) => ({
+      name: p.name || '',
+      public_key: p.public_key || '',
+      private_key: p.private_key || '',
+    })),
+  }
+  savedKeyNames.value = formData.cipher_config.key_pairs.map((p) => p.name).filter(Boolean)
   // watch(formData) 是异步触发的，会在下一个 tick 把 dirty 设为 true；
   // 这里用 nextTick 等待 watch 触发后再重置，避免误判"有未保存改动"
   await nextTick()
@@ -546,6 +639,11 @@ async function onSave() {
           },
         },
         common_headers: formData.common_headers,
+        cipher_config: {
+          key_pairs: formData.cipher_config.key_pairs
+            .map((p) => ({ name: p.name.trim(), public_key: p.public_key.trim(), private_key: p.private_key.trim() }))
+            .filter((p) => p.name || p.public_key || p.private_key),
+        },
       }
       if (isEdit.value) {
         await envApi.update(formData.id!, payload)
@@ -556,6 +654,8 @@ async function onSave() {
         router.push('/envs')
       }
       dirty.value = false
+      // 密钥名下拉（测试加解密选择器）跟随最新保存值
+      savedKeyNames.value = (payload.cipher_config?.key_pairs || []).map((p: CipherKeyPair) => p.name).filter(Boolean)
       // 重新加载环境列表（更新顶部下拉）
       store.loadEnvironments()
     } catch (e: any) {
@@ -739,6 +839,47 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 12px;
   font-weight: 400;
   color: var(--app-text-muted);
+}
+/* ===== 加密配置：密钥对块 ===== */
+.cipher-name-select {
+  width: 130px;
+  margin-right: 8px;
+}
+.cipher-empty {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  padding: 6px 0 12px;
+}
+.key-pair-item {
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius, 8px);
+  padding: 10px 14px 0;
+  margin-bottom: 10px;
+}
+.pair-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pair-head .grow {
+  flex: 1;
+}
+.pair-name-input {
+  width: 240px;
+}
+.pair-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.pair-grid .el-form-item {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .pair-grid {
+    grid-template-columns: 1fr;
+  }
 }
 @media (max-width: 1100px) {
   .form-grid {

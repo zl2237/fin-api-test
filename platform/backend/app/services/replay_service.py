@@ -97,8 +97,12 @@ def replay_step_once(db: Session, user: models.User, step_id: int,
         body = apply_field_types(body, api)
         body, file_fields = pop_file_fields_from_body(body, api)
         req_timeout = getattr(env, "timeout", None) or 15
+        # cipher_box 收集重放时实际生成的密文（明文快照按接口加密配置重新加密——
+        # PKCS1v1.5 填充随机，重放密文与原执行必然不同）
+        cipher_box: dict = {}
         status_code, response_data, error_msg = send_request(
-            db, client, api, body, file_fields=file_fields, timeout=req_timeout)
+            db, client, api, body, file_fields=file_fields, timeout=req_timeout,
+            cipher_out=cipher_box)
         elapsed = int((time.time() - start_ts) * 1000)
         crud.log_operation(db, user, "execute", "api", api.id,
                            f"replay step#{step_id} ({api.name})")
@@ -130,7 +134,8 @@ def replay_step_once(db: Session, user: models.User, step_id: int,
                 "request_body": body,
                 "passed": passed,
                 "assertions": assertion_results,
-                "extracted": extracted}
+                "extracted": extracted,
+                "cipher": cipher_box or None}
     finally:
         try:
             if client.session:

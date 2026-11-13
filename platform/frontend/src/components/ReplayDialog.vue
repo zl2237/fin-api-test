@@ -13,6 +13,13 @@
       style="margin-bottom: 10px"
       title="按原执行环境真实重发一次（写接口有副作用）；${} 用报告上下文重新求值，发送后同口径跑断言与提取——通过仅打「已重放通过」徽标，不写回报告"
     />
+    <el-alert
+      v-if="stepCipher"
+      type="warning"
+      :closable="false"
+      style="margin-bottom: 10px"
+      title="该接口启用加密传输：左侧编辑的是明文，重放将按当前加密配置重新加密发送（每次密文必不同，属正常）；requestTime 等时效字段如已过期请先更新"
+    />
     <div class="replay-split">
       <div class="replay-left">
         <div class="section-title">请求体（编辑后点右下角「重放」）</div>
@@ -33,6 +40,18 @@
             <el-tag v-else type="danger" size="small">未通过</el-tag>
           </div>
           <VueJsonPretty :data="replayResult.response_body" :deep="4" />
+          <el-collapse v-if="replayResult.cipher" class="replay-cipher" >
+            <el-collapse-item :title="`本次实际密文（已加密传输，请求 ${replayResult.cipher.request?.length ?? 0} 字符${replayResult.cipher.response ? ` · 响应 ${replayResult.cipher.response.length} 字符` : ''}）`" name="cipher">
+              <div v-if="replayResult.cipher.request" class="cipher-part">
+                <div class="cipher-label">请求密文</div>
+                <pre class="cipher-pre">{{ truncateCipher(replayResult.cipher.request) }}</pre>
+              </div>
+              <div v-if="replayResult.cipher.response" class="cipher-part">
+                <div class="cipher-label">响应密文（解密前原文）</div>
+                <pre class="cipher-pre">{{ truncateCipher(replayResult.cipher.response) }}</pre>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
           <template v-if="replayResult.assertions?.length">
             <div class="section-title" style="margin-top: 12px">断言（{{ replayResult.assertions.filter(a => a.pass).length }}/{{ replayResult.assertions.length }} 通过）</div>
             <div v-for="(a, i) in replayResult.assertions" :key="i" class="replay-assertion" :class="{ fail: !a.pass }">
@@ -81,12 +100,19 @@ const props = defineProps<{
   stepId: number | null
   /** 打开时的请求体快照（JSON 序列化展示与编辑） */
   initialBody: unknown
+  /** 原步骤的加密传输密文快照（接口开启加密时有值 → 顶部提示重放语义） */
+  stepCipher?: { request?: string; response?: string } | null
 }>()
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void; (e: 'replayed', passed: boolean): void }>()
 
 const replayLoading = ref(false)
 const replayBodyText = ref('')
-const replayResult = ref<{ status_code: number; response_body: any; elapsed_ms: number; passed: boolean; assertions: { type: string; pass: boolean; message?: string }[]; extracted: Record<string, any> } | null>(null)
+const replayResult = ref<{ status_code: number; response_body: any; elapsed_ms: number; passed: boolean; assertions: { type: string; pass: boolean; message?: string }[]; extracted: Record<string, any>; cipher?: { request?: string; response?: string } | null } | null>(null)
+
+/** 密文展示截断：Base64 密文动辄数 KB，pre 里只放前 2000 字符 */
+function truncateCipher(cipher: string): string {
+  return cipher.length > 2000 ? `${cipher.slice(0, 2000)}\n…（共 ${cipher.length} 字符，已截断）` : cipher
+}
 
 watch(
   () => props.visible,
@@ -120,6 +146,42 @@ async function doReplay() {
 </script>
 
 <style scoped>
+/* 本次实际密文折叠块 */
+.replay-cipher {
+  margin-top: 10px;
+  border: none;
+}
+.replay-cipher :deep(.el-collapse-item__header) {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  height: 34px;
+  line-height: 34px;
+  border-bottom: none;
+}
+.replay-cipher :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+}
+.cipher-part {
+  margin-bottom: 8px;
+}
+.cipher-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+}
+.cipher-pre {
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-family: var(--app-font-mono, Consolas, monospace);
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
 .mono {
   font-family: var(--app-font-mono);
   font-size: 12px;

@@ -25,6 +25,7 @@ const routes = [
       { path: 'executions', name: 'Execution', component: () => import('@/views/Execution.vue'), meta: { title: '执行记录' } },
       { path: 'reports/:id', name: 'ReportDetail', component: () => import('@/views/ReportDetail.vue'), meta: { title: '执行报告' } },
       { path: 'dictionary', name: 'DictManage', component: () => import('@/views/DictManage.vue'), meta: { title: '字段字典' } },
+      { path: 'tools/callback-verify', name: 'CallbackVerify', component: () => import('@/views/CallbackVerify.vue'), meta: { title: '回调验签' } },
       { path: 'files', name: 'FileCenter', component: () => import('@/views/FileCenter.vue'), meta: { title: '文件中心' } },
       { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue'), meta: { title: 'API 密钥' } },
       { path: 'users', name: 'UserManage', component: () => import('@/views/UserManage.vue'), meta: { title: '用户管理', requireAdmin: true } },

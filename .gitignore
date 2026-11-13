@@ -27,6 +27,9 @@ platform/frontend/openapi.json
 # 真实环境配置；env_demo.yaml 为示例，正常入库
 config/env_test.yaml
 config/env_pre.yaml
+# RSA 密钥材料（对接加密传输/验签交付物，仅存本地/平台环境配置，绝不入库）
+private_key.pem
+public_key.pem
 
 # ================= 运行产物 =================
 logs/

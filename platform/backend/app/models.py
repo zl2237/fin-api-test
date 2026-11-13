@@ -96,6 +96,9 @@ class Environment(Base):
     notify_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success, email:{smtp_host, smtp_port, use_ssl, from_addr, auth_code, recipients[], enable_on_failure, enable_on_success}}")
     variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="已退役：原业务变量（测试数据来源已统一为数据集变量池，不再注入执行变量池）")
     common_headers: Mapped[Any] = mapped_column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")
+    cipher_config: Mapped[dict | None] = mapped_column(JSON, nullable=True,
+                        comment="加密配置：{key_pairs:[{name,public_key,private_key}]}——接口级传输加解密密钥库"
+                                "（名称多对，如 customs/cfca；测试/生产密钥分环境录入，禁止共用）")
     timeout: Mapped[int] = mapped_column(Integer, default=15, comment="接口请求超时时间（秒）")
     node_retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0",
                         comment="节点请求层失败自动重试次数（0=不重试；仅 HTTP 状态码/业务码失败、超时、连接异常触发，断言失败不重试）")
@@ -142,6 +145,10 @@ class ApiDefinition(Base):
     description: Mapped[str | None] = mapped_column(Text, comment="接口描述")
     request_template: Mapped[Any] = mapped_column(JSON, default=dict, comment="旧版请求体模板，新版本用 fields 字段表")
     headers_template: Mapped[Any] = mapped_column(JSON, default=dict, comment="请求头模板")
+    crypto_config: Mapped[dict | None] = mapped_column(JSON, nullable=True,
+                        comment="接口级加密配置：{request:{enabled,key,wrapper_field,segment_size},"
+                                "response:{enabled,key,mode(body|field),field}}；开启后明文参数执行期"
+                                "自动加密为 {wrapper_field: 密文} 发送（requestCipher 协议）")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="组内排序序号（支持拖拽排序）")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
@@ -396,6 +403,9 @@ class StepRecord(Base):
                     comment="重试途中被后续尝试顶替的失败快照：[{attempt, ts, elapsed_ms, "
                             "status_code, error, response(截断2KB)}]；重试成功后主行响应为成功态，"
                             "首次失败原因只在此留存（最终失败的那次仍在主行完整保留）")
+    cipher_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True,
+                    comment="加密传输密文快照 {request,response}（整体 Base64 串）；明文仍在 "
+                            "request_body/response_body，重放按接口加密配置重新加密")
     resumed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0",
                     comment="断点续跑标记：本步骤由续跑段产出（同 node 重跑成功后顶替旧失败记录）")
     replay_passed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True,

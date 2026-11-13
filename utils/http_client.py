@@ -7,6 +7,20 @@ from utils.log_util import get_logger
 logger = get_logger()
 
 
+def _trunc_long_strings(obj, limit: int = 200):
+    """日志用：递归缩短超长字符串（加密传输的 Base64 密文可达数十 KB，防日志爆量）。
+
+    仅影响日志展示，不改变发送内容。
+    """
+    if isinstance(obj, str):
+        return obj if len(obj) <= limit else obj[:limit] + f"...(共{len(obj)}字符,截断)"
+    if isinstance(obj, dict):
+        return {k: _trunc_long_strings(v, limit) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_trunc_long_strings(v, limit) for v in obj]
+    return obj
+
+
 class HttpClient:
     def __init__(self, base_url: str = ""):
         """
@@ -23,6 +37,15 @@ class HttpClient:
         # 鉴权失效业务码集合（HTTP 200 + code 命中任一视为登录态失效，触发重登重试）：
         # 405 账号异地登录为平台默认；407 登录已过期等系统特有码由环境 login_config 注入
         self.auth_expire_codes: set = {"401", "405"}
+        # 加密传输响应解码器（接口级加密配置注入，与 success_codes 注入同构）：
+        # 在鉴权失效判定/业务码校验之前解密密文信封，解密后的明文与明文协议同口径
+        # 参与全部校验；decoder 自带字段守卫，密文字段不在（重登请求、明文错误响应）
+        # 时原样返回。send_request 发送窗口临时挂载、finally 恢复。
+        self.response_decoder: Optional[Callable[[object], object]] = None
+        # 环境加密密钥材料表 {名称: {public_key, private_key}}（runtime_service
+        # build_http_client 按环境 cipher_config 挂载；懒校验——发送时用到哪把
+        # 才解析哪把，无加密接口的环境不被坏密钥拖垮）
+        self.cipher_keys: Dict[str, Dict[str, Optional[str]]] = {}
 
     def set_success_codes(self, codes) -> None:
         """配置业务成功码集合，兼容 '200,1' 字符串 / list / 单值；空值忽略保持现值"""
@@ -100,7 +123,8 @@ class HttpClient:
 
         logger.info(f"【HTTP请求】{method} {full_url}")
         logger.info(f"【请求头】{log_headers}")
-        logger.info(f"【请求体】{json} params={params} data={data} files={len(files) if files else 0}")
+        logger.info(f"【请求体】{_trunc_long_strings(json)} params={_trunc_long_strings(params)} "
+                    f"data={_trunc_long_strings(data)} files={len(files) if files else 0}")
 
         try:
             resp = self.session.request(
@@ -125,6 +149,13 @@ class HttpClient:
             resp_json = resp.json()
         except Exception:
             pass
+
+        # ========== 加密传输响应解码 ==========
+        # 在鉴权失效判定/业务码校验/非 dict 判定之前介入：密文信封里的 code 405/407
+        # 也能触发自动重登，解密后明文与明文协议完全同口径。鉴权重登的递归重发读取
+        # 同一实例属性，decoder 天然重挂。
+        if self.response_decoder is not None and resp_json is not None:
+            resp_json = self.response_decoder(resp_json)
 
         # ========== 鉴权失效判定 ==========
         auth_expire = False

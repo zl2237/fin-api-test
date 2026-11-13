@@ -33,6 +33,11 @@ def build_http_client(env) -> HttpClient:
     client = HttpClient(base_url=env.base_url)
     client.headers = deepcopy(env.common_headers or {}) or {"Content-Type": "application/json"}
     client.set_success_codes(getattr(env, "success_codes", None) or "200")
+    # 环境级加密密钥库（名称→材料表）：send_request 按接口 crypto_config 取用。
+    # 此处不做格式校验（懒校验：用到哪把才解析哪把，坏密钥不影响无加密接口的环境）；
+    # getattr 防御无该列的测试桩。跨项目节点各自环境的 client 各带各的密钥。
+    from .cipher_service import key_pairs_from_config
+    client.cipher_keys = key_pairs_from_config(getattr(env, "cipher_config", None))
     return client
 
 

@@ -192,6 +192,14 @@
                     </el-tooltip>
                     <!-- 断点续跑徽标：本步骤由续跑段重新执行产出 -->
                     <el-tag v-if="s.resumed" size="small" type="info" effect="plain">续跑</el-tag>
+                    <!-- 加密传输徽标：接口开加密时密文另存 cipher_snapshot，正文保持明文 -->
+                    <el-tooltip
+                      v-if="s.cipher_snapshot"
+                      content="该接口启用加密传输：请求/响应正文为明文，实际收发密文见详情「传输密文」"
+                      placement="top" popper-class="app-tip"
+                    >
+                      <el-tag size="small" type="info" effect="plain">加密</el-tag>
+                    </el-tooltip>
                     <!-- 重放验证通过徽标：手改请求体重放断言全过（等待同步数据集后续跑实证） -->
                     <el-tooltip
                       v-if="s.replay_passed_at && s.status !== 'success'"
@@ -259,6 +267,14 @@
                 <VueJsonPretty v-if="currentStep.request_body" :data="currentStep.request_body" :deep="jsonDeep" />
                 <EmptyState v-else description="无请求体" :image-size="40" />
               </div>
+              <div v-if="currentStep.cipher_snapshot?.request" class="section">
+                <div class="section-title">
+                  传输密文
+                  <el-tag size="small" type="info" effect="plain">已加密传输</el-tag>
+                  <span class="cipher-hint">实际发出的密文（正文保持明文；重放按当前加密配置重新加密）</span>
+                </div>
+                <pre class="cipher-pre">{{ truncateCipher(currentStep.cipher_snapshot.request) }}</pre>
+              </div>
             </el-tab-pane>
 
             <el-tab-pane label="响应" name="response">
@@ -293,6 +309,14 @@
                 </div>
                 <VueJsonPretty v-if="currentStep.response_body != null" :data="currentStep.response_body" :deep="jsonDeep" />
                 <EmptyState v-else description="无响应体" :image-size="40" />
+              </div>
+              <div v-if="currentStep.cipher_snapshot?.response" class="section">
+                <div class="section-title">
+                  响应密文
+                  <el-tag size="small" type="info" effect="plain">已加密传输</el-tag>
+                  <span class="cipher-hint">解密前的原始密文（上方响应体为解密后明文）</span>
+                </div>
+                <pre class="cipher-pre">{{ truncateCipher(currentStep.cipher_snapshot.response) }}</pre>
               </div>
             </el-tab-pane>
 
@@ -420,6 +444,7 @@
       v-model:visible="replayVisible"
       :step-id="currentStep?.id ?? null"
       :initial-body="currentStep?.request_body ?? {}"
+      :step-cipher="currentStep?.cipher_snapshot ?? null"
       @replayed="(passed) => passed && load(true)"
     />
   </div>
@@ -717,6 +742,11 @@ const metaText = computed(() => {
 function retryErrBrief(err: string): string {
   const t = (err || '').replace(/\s+/g, ' ').trim()
   return t.length > 60 ? t.slice(0, 60) + '…' : t
+}
+
+/** 加密传输密文展示截断：Base64 密文动辄数 KB，pre 里只放前 2000 字符 */
+function truncateCipher(cipher: string): string {
+  return cipher.length > 2000 ? `${cipher.slice(0, 2000)}\n…（共 ${cipher.length} 字符，已截断）` : cipher
 }
 
 /** 失败快照响应是否为可渲染的 JSON 对象（VueJsonPretty 需窄类型收窄） */
@@ -1196,6 +1226,24 @@ onUnmounted(stopPolling)
   flex-shrink: 0;
 }
 
+/* 加密传输密文块：正文保持明文，密文另存折叠展示 */
+.cipher-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted, var(--el-text-color-secondary));
+}
+.cipher-pre {
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-family: var(--app-font-mono, Consolas, monospace);
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
 /* 尝试历史折叠区（重试被顶替的失败快照；紧凑贴详情头，不与 tabs 抢空间） */
 .retry-history {
   margin-bottom: 10px;

@@ -170,3 +170,91 @@ def test_login(env_id: int, db: Session = Depends(get_db), user: models.User = D
     except Exception as e:
         # login() 已包装"登录失败："前缀，此处不再重复
         return {"ok": False, "message": str(e)}
+
+
+@router.post("/{env_id}/test-cipher")
+def test_cipher(env_id: int, payload: schemas.CipherTestRequest | None = None,
+                db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """
+    测试加解密配置：对已保存密钥库中的指定密钥对（name 空=第一对）做
+    配对校验 + 600 字节样本（跨 3 段）分段加密→解密往返自检。
+    """
+    from utils.exceptions import CipherError
+    from ..services.cipher_service import key_pairs_from_config, verify_key_pair
+
+    env = crud.get_environment(db, env_id)
+    if not env:
+        raise HTTPException(404, "环境不存在")
+    pairs = key_pairs_from_config(env.cipher_config)
+    if not pairs:
+        return {"ok": False, "message": "未配置密钥对，请先在本页「加密配置」录入并保存"}
+    name = (payload.name if payload else "") or ""
+    name = name.strip()
+    if not name:
+        name = next(iter(pairs))
+    if name not in pairs:
+        return {"ok": False,
+                "message": f"未找到名为「{name}」的密钥对，本环境已配置：{'、'.join(pairs)}"}
+    pair = pairs[name]
+    try:
+        sample_len = verify_key_pair(pair.get("public_key"), pair.get("private_key"))
+        return {
+            "ok": True,
+            "message": (f"密钥对「{name}」自检通过：600 字节样本分 3 段加密 → 解密"
+                        f"还原一致，公私钥配对正确（密文 {sample_len} 字符 Base64）"),
+            "sample_cipher_len": sample_len,
+        }
+    except CipherError as e:
+        return {"ok": False, "message": str(e)}
+    except Exception as e:
+        return {"ok": False, "message": f"加解密测试失败：{e}"}
+
+
+@router.post("/{env_id}/verify-callback")
+def verify_callback(env_id: int, payload: schemas.CallbackVerifyRequest,
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """
+    回调验签工具：粘贴对方推送的完整回调报文（含 sign/signType），按对方
+    Fastjson2 字典序规则重建待签原串，用本环境密钥库中指定公钥（key_name 空=
+    第一对）做 SHA256withRSA 验签。返回重建原串供人工比对。
+    """
+    from utils.exceptions import CipherError
+    from ..services.cipher_service import canonicalize_callback, key_pairs_from_config, verify_callback_sign
+
+    env = crud.get_environment(db, env_id)
+    if not env:
+        raise HTTPException(404, "环境不存在")
+    pairs = key_pairs_from_config(env.cipher_config)
+    if not pairs:
+        return {"passed": False, "canonical_string": "", "reason":
+                "本环境未配置密钥对，请先在「环境编辑 → 加密配置」录入验签公钥"}
+    key_name = (payload.key_name or "").strip()
+    if not key_name:
+        key_name = next(iter(pairs))
+    if key_name not in pairs:
+        return {"passed": False, "canonical_string": "", "reason":
+                f"未找到名为「{key_name}」的密钥对，本环境已配置：{'、'.join(pairs)}"}
+    public_material = pairs[key_name].get("public_key")
+    if not public_material:
+        return {"passed": False, "canonical_string": "", "reason":
+                f"密钥对「{key_name}」缺少公钥（验签用公钥），请到环境编辑补录"}
+    try:
+        canonical, items_json = canonicalize_callback(payload.payload)
+    except CipherError as e:
+        return {"passed": False, "canonical_string": "", "reason": str(e)}
+    sign = payload.payload.get("sign")
+    if not isinstance(sign, str) or not sign.strip():
+        return {"passed": False, "canonical_string": canonical,
+                "reason": "报文中没有 sign 字段（或不是字符串），无法验签"}
+    try:
+        passed = verify_callback_sign(payload.payload, sign, public_material)
+    except CipherError as e:
+        return {"passed": False, "canonical_string": canonical, "reason": str(e)}
+    return {
+        "passed": passed,
+        "canonical_string": canonical,
+        "items_json": items_json,
+        "reason": "" if passed else
+                  "验签不通过：签名与重建原串不匹配。请确认报文未被改动、"
+                  f"密钥对「{key_name}」的公钥为对方最新交付版本",
+    }

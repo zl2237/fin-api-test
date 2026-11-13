@@ -163,6 +163,7 @@ class EnvironmentCreate(BaseModel):
     login_config: dict[str, Any] = {}
     notify_config: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
+    cipher_config: dict[str, Any] | None = None
     success_codes: str = "200"
     timeout: int = 15
     node_retry_count: int = 0
@@ -177,6 +178,7 @@ class EnvironmentUpdate(BaseModel):
     login_config: dict[str, Any] | None = None
     notify_config: dict[str, Any] | None = None
     common_headers: dict[str, Any] | None = None
+    cipher_config: dict[str, Any] | None = None
     success_codes: str | None = None
     timeout: int | None = None
     node_retry_count: int | None = None
@@ -189,6 +191,19 @@ class EnvironmentReorderRequest(BaseModel):
     items: list[dict[str, Any]]
 
 
+class CipherTestRequest(BaseModel):
+    """环境「测试加解密」：对已保存密钥对做配对校验 + 分段加解密往返自检。
+    name 为空时取第一对（同 test-db/test-login 口径：只测已保存值）"""
+    name: str = ""
+
+
+class CallbackVerifyRequest(BaseModel):
+    """回调验签工具：粘贴海关推送的完整回调报文，用环境密钥库中指定公钥验签。
+    key_name 为空时取第一对"""
+    key_name: str = ""
+    payload: dict[str, Any]
+
+
 class EnvironmentOut(ORMBase, AuditMixin):
     id: int
     project_id: int
@@ -198,6 +213,8 @@ class EnvironmentOut(ORMBase, AuditMixin):
     login_config: dict[str, Any] = {}
     notify_config: dict[str, Any] = {}
     common_headers: dict[str, Any] = {}
+    # 加密密钥库 {key_pairs:[{name,public_key,private_key}]}（接口级传输加解密用）
+    cipher_config: dict[str, Any] | None = None
     success_codes: str = "200"
     timeout: int = 15
     # 历史环境迁移前列为 NULL，响应容忍 None（getattr 侧引擎有兜底）
@@ -268,6 +285,7 @@ class ApiCreate(BaseModel):
     request_template: Any = {}
     headers_template: dict[str, Any] = {}
     fields: list[ApiFieldIn] = []
+    crypto_config: dict[str, Any] | None = None
 
 
 class ApiUpdate(BaseModel):
@@ -281,6 +299,7 @@ class ApiUpdate(BaseModel):
     request_template: Any | None = None
     headers_template: dict[str, Any] | None = None
     fields: list[ApiFieldIn] | None = None
+    crypto_config: dict[str, Any] | None = None
 
 
 class ApiBatchMove(BaseModel):
@@ -408,6 +427,9 @@ class ApiOut(ORMBase):
     request_template: Any = {}
     headers_template: dict[str, Any] = {}
     fields: list[ApiFieldOut] = []
+    # 接口级加密配置 {request:{enabled,key,wrapper_field,segment_size},
+    # response:{enabled,key,mode(body|field),field}}（requestCipher 协议）
+    crypto_config: dict[str, Any] | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_by: int | None = None
@@ -662,6 +684,8 @@ class StepRecordOut(ORMBase):
     retry_count: int | None = None  # 失败自动重试实际次数（0/空=未重试）
     # 重试途中被顶替的失败尝试快照（重试成功后首次失败原因只在此；最终失败仍在主行）
     retry_history: list[dict[str, Any]] | None = None
+    # 加密传输密文快照 {request,response}（整体 Base64；明文在 request_body/response_body）
+    cipher_snapshot: dict[str, Any] | None = None
     resumed: bool = False  # 断点续跑段产出的步骤（顶替旧失败记录）
     replay_passed_at: datetime | None = None  # 重放验证通过时间（「已重放通过」徽标）
     started_at: datetime | None = None

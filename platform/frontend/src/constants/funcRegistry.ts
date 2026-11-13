@@ -17,6 +17,7 @@ export const FUNC_REGISTRY: FuncMeta[] = [
   { name: 'generate_invoice_number', label: '生成发票号', params: [{ name: 'prefix', label: '前缀', placeholder: "默认 'INV'" }] },
   { name: 'now', label: '当前时间', params: [{ name: 'format', label: '格式', placeholder: "如 '%Y-%m-%d %H:%M'，缺省 ISO" }] },
   { name: 'timestamp', label: 'Unix 时间戳(秒)', params: [{ name: 'offset', label: '偏移秒数', placeholder: '如 86400（明天）/ -86400（昨天），默认 0' }] },
+  { name: 'timestamp_ms', label: 'Unix 时间戳(毫秒)', params: [{ name: 'offset', label: '偏移秒数', placeholder: '13 位毫秒级（requestTime 等时效字段）；偏移如 60（+1 分钟），默认 0' }] },
   { name: 'date_add', label: '日期偏移', params: [
     { name: 'base', label: '基准日期', placeholder: '缺省当前时间；可引用上游日期（如应收汇日期）' },
     { name: 'days', label: '天数', placeholder: '如 7 / -1' },

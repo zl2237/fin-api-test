@@ -299,6 +299,7 @@ def copy_environment(db: Session, env: models.Environment) -> models.Environment
         login_config=env.login_config or {},
         notify_config=env.notify_config or {},
         common_headers=env.common_headers or {},
+        cipher_config=env.cipher_config,
         is_default=False,
     )
     db.add(obj)
@@ -542,6 +543,7 @@ def copy_api(db: Session, api: models.ApiDefinition) -> models.ApiDefinition:
         description=api.description,
         request_template=api.request_template or {},
         headers_template=api.headers_template or {},
+        crypto_config=api.crypto_config,  # 加密配置随接口复制（丢配会导致副本静默明文发送）
     )
     db.add(obj)
     db.commit()

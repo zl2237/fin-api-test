@@ -40,6 +40,7 @@ def _snapshot_apis(db: Session, project_id: int) -> list[dict]:
             "description": a.description,
             "request_template": a.request_template if a.request_template is not None else {},
             "headers_template": a.headers_template or {},
+            "crypto_config": a.crypto_config,
             "sort_order": a.sort_order,
             "fields": [
                 {
@@ -339,6 +340,7 @@ def rollback_project_version(
             description=a.get("description"),
             request_template=a.get("request_template", {}),
             headers_template=a.get("headers_template", {}),
+            crypto_config=a.get("crypto_config"),
             sort_order=a.get("sort_order", 0),
             created_by=user_id,
             updated_by=user_id,

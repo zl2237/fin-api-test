@@ -99,6 +99,10 @@
             <el-icon><Collection /></el-icon>
             <template #title><span>字段字典</span></template>
           </el-menu-item>
+          <el-menu-item index="/tools/callback-verify">
+            <el-icon><Lock /></el-icon>
+            <template #title><span>回调验签</span></template>
+          </el-menu-item>
           <el-menu-item index="/files">
             <el-icon><Files /></el-icon>
             <template #title><span>文件中心</span></template>
@@ -620,14 +624,14 @@ const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CA
 // 侧边菜单项（与模板 el-menu-item index 一一对应，供子路由激活态前缀匹配）
 const MENU_PATHS = [
   '/apis', '/cases', '/datasets', '/plans', '/executions',
-  '/projects', '/envs', '/dictionary', '/files', '/api-keys',
+  '/projects', '/envs', '/dictionary', '/tools/callback-verify', '/files', '/api-keys',
   '/users', '/operation-logs',
 ]
 // 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失
 const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
 // 低频系统组路径——挂载时当前页在此列则默认展开 system 组，否则展开工作台
 // （default-openeds 仅初始生效，之后的展开/收起交给用户，unique-opened 同时只开一组）
-const SYSTEM_MENU_PATHS = ['/projects', '/envs', '/dictionary', '/files', '/api-keys', '/users', '/operation-logs']
+const SYSTEM_MENU_PATHS = ['/projects', '/envs', '/dictionary', '/tools/callback-verify', '/files', '/api-keys', '/users', '/operation-logs']
 const activeMenuGroup = computed(() =>
   SYSTEM_MENU_PATHS.some((p) => route.path.startsWith(p)) ? 'system' : 'workbench',
 )

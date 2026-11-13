@@ -617,14 +617,17 @@ def debug_api(
         # 剥离 file 类型字段：file 字段不参与 JSON body，单独组装到 multipart files
         body, file_fields = pop_file_fields_from_body(body, api)
 
-        # 发送请求（与 DAG 执行同一实现：services.request_sender）
+        # 发送请求（与 DAG 执行同一实现：services.request_sender）；
+        # cipher_box 收集加密传输实际密文（接口 crypto_config 开启时），调试弹窗展示
+        cipher_box: dict = {}
         req_timeout = getattr(env, "timeout", None) or 15
         status_code, response_data, error_msg = send_request(
-            db, client, api, body, file_fields=file_fields, timeout=req_timeout
+            db, client, api, body, file_fields=file_fields, timeout=req_timeout,
+            cipher_out=cipher_box
         )
         headers = deepcopy(client.headers or {})
 
-        return _debug_response(api, method, headers, body, status_code, response_data, started_at, start_ts, error=error_msg)
+        return _debug_response(api, method, headers, body, status_code, response_data, started_at, start_ts, error=error_msg, cipher=cipher_box or None)
     finally:
         try:
             if client.session:
@@ -633,7 +636,7 @@ def debug_api(
             pass
 
 
-def _debug_response(api, method, headers, body, status_code, response_data, started_at, start_ts, error=None, login_failed=False):
+def _debug_response(api, method, headers, body, status_code, response_data, started_at, start_ts, error=None, login_failed=False, cipher=None):
     elapsed = int((time.time() - start_ts) * 1000)
     return {
         "api_id": api.id,
@@ -649,4 +652,6 @@ def _debug_response(api, method, headers, body, status_code, response_data, star
         "ok": error is None and not login_failed,
         "login_failed": login_failed,
         "error": error,
+        # 加密传输实际密文快照 {request, response}（未开启加密为 None）
+        "cipher": cipher,
     }
