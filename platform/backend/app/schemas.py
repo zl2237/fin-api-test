@@ -510,19 +510,27 @@ class DatasetBindingIn(BaseModel):
     dataset_ids: list[int] = []
 
 
+class ProjectEnvBindingOut(BaseModel):
+    """跨系统用例的项目环境绑定（详情页回填：设计器提示各项目生效环境用）"""
+    project_id: int
+    env_id: int
+
+
 class TestCaseOut(ORMBase):
     id: int
     project_id: int
     group_id: int | None = None
     name: str
     description: str | None = None
-    env_id: int | None = None  # 绑定的执行环境（严格绑定）
+    env_id: int | None = None  # 绑定的执行环境（严格绑定）；非原生项目视角=该项目生效环境（绑定/默认）
     env_name: str | None = None  # 绑定环境名（冗余展示）
+    env_source: str | None = None  # 非原生项目视角生效环境来源："binding"=显式绑定 / "default"=项目默认 / None=原生视角
     sort_order: int = 0  # 组内排序（拖拽手序）
     dag_config: dict[str, Any]
     node_configs: list[NodeConfigOut] = []
     bound_dataset_ids: list[int] = []  # 绑定的数据集（多选 bound 标志；执行 = 全部各展开一次）
     involved_project_ids: list[int] = []  # 派生归属：原生项目 ∪ 节点引用接口的项目（跨系统用例>1）
+    project_env_bindings: list[ProjectEnvBindingOut] = []  # 跨系统用例的各项目环境绑定（详情回填）
     last_exec_at: datetime | None = None  # 最近一次执行开始时间（终结回写；NULL=从未执行）
     last_exec_status: str | None = None   # 最近一次执行终态：success/failed/terminated
     created_at: datetime | None = None
@@ -542,6 +550,16 @@ class CaseBatchMove(BaseModel):
     case_ids: list[int]
     group_id: int | None = None
     project_id: int | None = None
+
+
+class CaseProjectEnvIn(BaseModel):
+    """设置跨系统用例在指定项目视角的执行环境（2026-11-13）。
+
+    env_id 为 null = 清除绑定回退该项目默认环境；project_id 须为该用例派生
+    归属的非原生项目，env 须属于该项目。生效范围：仅该用例内属于该项目的
+    节点（节点显式绑定的环境不受影响）。"""
+    project_id: int
+    env_id: int | None = None
 
 
 class CaseCombineRequest(BaseModel):

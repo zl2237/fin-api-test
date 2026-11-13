@@ -153,20 +153,35 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column label="执行环境" width="150">
+            <el-table-column label="执行环境" width="170">
               <template #default="{ row }">
-                <!-- 跨系统用例：绑定的环境属于原生项目（不在当前项目环境列表），只读展示环境名 -->
-                <el-tooltip
-                  v-if="isCrossEnv(row)"
-                  content="跨系统用例：环境绑定于用例原生项目，改绑请切到原生项目操作"
-                  placement="top"
-                  popper-class="app-tip"
-                >
-                  <span class="env-cross-name">
-                    {{ row.env_name || `环境#${row.env_id}` }}
-                    <el-tag size="small" effect="plain" type="info" class="env-cross-tag">跨项目</el-tag>
-                  </span>
-                </el-tooltip>
+                <!-- 跨系统用例（非原生视角）：选当前项目的环境，仅作用于属于本项目的节点 -->
+                <div v-if="isCrossView(row)" class="env-cross-cell">
+                  <el-tooltip
+                    content="跨系统用例：此处环境仅作用于属于当前项目的节点；清空=用该项目默认环境"
+                    placement="top"
+                    popper-class="app-tip"
+                  >
+                    <el-select
+                      :model-value="row.env_id ?? undefined"
+                      size="small"
+                      clearable
+                      :placeholder="row.env_name || '未配置'"
+                      class="env-bind-select"
+                      @change="(v: any) => onCrossEnvChange(row, v || null)"
+                      @clear="() => onCrossEnvChange(row, null)"
+                    >
+                      <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
+                    </el-select>
+                  </el-tooltip>
+                  <el-tag
+                    v-if="row.env_source === 'default'"
+                    size="small"
+                    effect="plain"
+                    type="info"
+                    class="env-default-tag"
+                  >默认</el-tag>
+                </div>
                 <el-select
                   v-else
                   :model-value="row.env_id ?? undefined"
@@ -305,20 +320,35 @@
             <el-table-column label="节点数" width="90">
               <template #default="{ row }">{{ row.dag_config?.nodes?.length || 0 }}</template>
             </el-table-column>
-            <el-table-column label="执行环境" width="150">
+            <el-table-column label="执行环境" width="170">
               <template #default="{ row }">
-                <!-- 跨系统用例：绑定的环境属于原生项目（不在当前项目环境列表），只读展示环境名 -->
-                <el-tooltip
-                  v-if="isCrossEnv(row)"
-                  content="跨系统用例：环境绑定于用例原生项目，改绑请切到原生项目操作"
-                  placement="top"
-                  popper-class="app-tip"
-                >
-                  <span class="env-cross-name">
-                    {{ row.env_name || `环境#${row.env_id}` }}
-                    <el-tag size="small" effect="plain" type="info" class="env-cross-tag">跨项目</el-tag>
-                  </span>
-                </el-tooltip>
+                <!-- 跨系统用例（非原生视角）：选当前项目的环境，仅作用于属于本项目的节点 -->
+                <div v-if="isCrossView(row)" class="env-cross-cell">
+                  <el-tooltip
+                    content="跨系统用例：此处环境仅作用于属于当前项目的节点；清空=用该项目默认环境"
+                    placement="top"
+                    popper-class="app-tip"
+                  >
+                    <el-select
+                      :model-value="row.env_id ?? undefined"
+                      size="small"
+                      clearable
+                      :placeholder="row.env_name || '未配置'"
+                      class="env-bind-select"
+                      @change="(v: any) => onCrossEnvChange(row, v || null)"
+                      @clear="() => onCrossEnvChange(row, null)"
+                    >
+                      <el-option v-for="e in store.environments" :key="e.id" :label="e.name" :value="e.id" />
+                    </el-select>
+                  </el-tooltip>
+                  <el-tag
+                    v-if="row.env_source === 'default'"
+                    size="small"
+                    effect="plain"
+                    type="info"
+                    class="env-default-tag"
+                  >默认</el-tag>
+                </div>
                 <el-select
                   v-else
                   :model-value="row.env_id ?? undefined"
@@ -699,10 +729,27 @@ const createRules: FormRules = {
   }],
 }
 
-// 跨系统用例的环境判定：env_id 不在当前项目环境列表 = 绑定于原生项目
-//（行内下拉若照常渲染会显示裸 id 且选项错误；改走只读环境名展示）
-function isCrossEnv(row: TestCase): boolean {
-  return !!row.env_id && !store.environments.some((e) => e.id === row.env_id)
+// 跨系统用例的视角判定：用例原生项目 ≠ 当前项目 = 派生视角
+//（该视角下环境列选当前项目的环境，只作用于属于本项目的节点）
+function isCrossView(row: TestCase): boolean {
+  return !!store.currentProjectId && row.project_id !== store.currentProjectId
+}
+
+// 跨系统用例·当前项目视角改环境：写 (case, project) 绑定；null=清空回退该项目默认环境
+async function onCrossEnvChange(row: TestCase, envId: number | null) {
+  if (!store.currentProjectId) return
+  try {
+    const updated = await caseApi.setProjectEnv(row.id, store.currentProjectId, envId)
+    row.env_id = updated.env_id
+    row.env_name = updated.env_name
+    row.env_source = updated.env_source
+    ElMessage.success(
+      `「${row.name}」本项目节点环境：${updated.env_name || envId || '该项目默认环境'}`
+        + (updated.env_source === 'default' ? '（默认）' : ''))
+  } catch (e: any) {
+    ElMessage.error(e.message || '环境绑定失败')
+    await load()
+  }
 }
 
 // 环境严格绑定：列表行内改绑执行环境（成功后同步冗余名，失败提示并刷新还原）
@@ -1371,12 +1418,18 @@ function onGlobalKey(e: KeyboardEvent) {
   color: var(--el-color-danger);
 }
 /* 执行环境列：跨系统用例只读展示（环境属于原生项目） */
-.env-cross-name {
-  font-size: 13px;
-  color: var(--el-text-color-regular);
+.env-cross-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  .env-bind-select {
+    flex: 1;
+    min-width: 0;
+  }
 }
-.env-cross-tag {
-  margin-left: 4px;
+.env-default-tag {
+  flex-shrink: 0;
 }
 /* 数据集绑定弹窗 */
 .bind-tip {

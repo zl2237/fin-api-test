@@ -30,12 +30,12 @@
               </el-option-group>
             </el-select>
           </el-form-item>
-          <!-- 节点级环境绑定（跨系统编排）：跨项目节点必绑其项目环境，同项目节点可空=沿用用例环境 -->
+          <!-- 节点级环境绑定：默认跟随（跨项目=项目绑定/该项目默认环境；原生=用例环境） -->
           <el-form-item>
-            <template #label>执行环境<HintTip content="节点级环境绑定：跨项目接口的节点用其所属项目的环境（base_url/登录态/DB 均按环境隔离，自动重登互不影响）。留空 = 沿用用例绑定环境" /></template>
+            <template #label>执行环境<HintTip content="节点级环境例外：默认跟随即可——跨项目节点用该项目在用例列表「执行环境」列所选环境（无绑定时用该项目默认环境），原生项目节点用用例绑定环境。仅当本节点需要不同于上述默认的环境时才在此显式指定" /></template>
             <el-select
               v-model="nodeEnvId"
-              placeholder="沿用用例环境"
+              placeholder="跟随项目/用例环境"
               clearable
               style="width: 100%"
             >
@@ -46,7 +46,7 @@
                 :value="e.id"
               />
             </el-select>
-            <div v-if="crossNodeWithoutEnv" class="env-warn">跨项目接口未绑环境：请求会打到用例环境域名上而全数打偏，请选择其所属项目的环境</div>
+            <div v-if="crossNodeWithoutEnv" class="env-warn">所属项目未配置任何环境：执行时该节点会明确失败，请先在环境管理中为该项目配置环境</div>
           </el-form-item>
           <el-form-item label="等待时间">
             <el-input-number
@@ -184,11 +184,12 @@ const nodeEnvId = computed<number | null>({
   get: () => draft.value?.env_id ?? null,
   set: (v) => { if (draft.value) draft.value.env_id = v ?? null },
 })
-/** 跨项目节点未绑环境 → 显式警示（保存仍放行，由用户自行确认；后端仅校验项目一致性） */
+/** 跨项目节点留空环境已是常态（跟随项目绑定/默认环境）；只有所属项目一个环境
+ *  都没有时才警示（执行期该节点会明确失败）。原生项目节点留空=用例环境，无警示。 */
 const crossNodeWithoutEnv = computed(() =>
   !!boundApi.value
   && boundApi.value.project_id !== store.currentProjectId
-  && !draft.value?.env_id,
+  && nodeEnvOptions.value.length === 0,
 )
 
 // 契约模板绑定（随用例保存持久化；换绑接口时旧模板不属于新接口 → 清空）

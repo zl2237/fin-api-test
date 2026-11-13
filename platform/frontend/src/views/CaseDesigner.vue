@@ -244,7 +244,7 @@ const runner = useExecutionRunner()
 
 // ===== 左栏接口面板：项目切换（跨系统编排，2026-11-12）=====
 // 各项目接口一视同仁：默认展示本项目接口树，可切换到任意项目（分组树同构）。
-// 点非本项目接口加节点时 onAddNode 自动绑其项目默认环境。
+// 点非本项目接口加节点时环境留空=跟随项目绑定（用例列表环境列可切，2026-11-13）。
 const selectedApiProject = ref<number | null>(store.currentProjectId)
 // 全项目接口（一次拉取；抽屉下拉 option-group / 换绑同步名称 / 左栏按选中项目过滤共用）
 const allApiDefs = ref<ApiDef[]>([])
@@ -605,23 +605,22 @@ function onAddNode(api: ApiDef) {
   }
   nodes.value.push(node)
   canvasRef.value?.addNode(node)
-  // 跨项目接口：自动绑其项目默认环境（执行期该节点用此环境 base_url/登录态/DB）；
-  // 项目未配环境时置 null 留给保存校验拦截（相对 path 会打偏域，不能静默沿用用例环境）
-  let envId: number | null = null
-  if (api.project_id !== caseData.value.project_id) {
-    const envs = envsByProject.value[api.project_id] || []
-    envId = envs.find((e) => e.is_default)?.id ?? envs[0]?.id ?? null
-  }
+  // 跨项目节点环境默认留空 = 跟随项目环境绑定（case_project_envs，无绑定时用该项目
+  // 默认环境；项目视角的用例列表环境列可切换）。仅显式指定才落节点级例外。
+  // 所属项目一个环境都没有时提示（执行期该节点会明确失败，不静默打到用例环境域名）。
   configs.value.push({
     node_id: id,
     api_id: api.id,
     post_extract: [],
     assertions: [],
     wait_after_ms: 0,
-    env_id: envId,
+    env_id: null,
   })
-  if (api.project_id !== caseData.value.project_id && !envId) {
-    ElMessage.warning(`「${api.name}」所属项目未配置环境，请在节点配置中手动绑定`)
+  if (api.project_id !== caseData.value.project_id) {
+    const envs = envsByProject.value[api.project_id] || []
+    if (!envs.length) {
+      ElMessage.warning(`「${api.name}」所属项目未配置任何环境，执行时该节点会失败，请先在环境管理中配置`)
+    }
   }
   dirty.value = true
 }

@@ -110,13 +110,31 @@ def list_all(project_id: int | None = None, created_by: int | None = None, updat
     crud.fill_involved_projects(db, objs)  # 派生归属：跨系统用例在涉及项目下可见
     crud.fill_bound_datasets(db, objs)
     outs = [schemas.TestCaseOut.model_validate(o) for o in objs]
-    # 跨系统用例分组按项目视角解析（2026-11-13）：非原生项目有覆写行则用覆写分组，
-    # 无覆写保持原生 group_id（该项目分组树解析不到即前端未分组桶，与旧行为一致）
+    # 跨系统用例按项目视角解析（2026-11-13）：分组覆写 + 生效环境回填。
+    # 环境：显式绑定行 > 该项目默认环境（env_source 标注来源，前端「默认」角标）；
+    # env_id/env_name 一并改写为该视角生效值——列表下拉直接可选可切。
     if project_id is not None:
         overrides = crud.group_overrides_for(db, [o.id for o in objs], project_id)
+        bindings = crud.project_env_bindings_for(db, [o.id for o in objs], project_id)
+        default_env = crud.get_project_default_env(db, project_id)
+        env_ids = set(bindings.values()) | ({default_env.id} if default_env else set())
+        env_names = {}
+        if env_ids:
+            rows = db.query(models.Environment.id, models.Environment.name).filter(
+                models.Environment.id.in_(env_ids)).all()
+            env_names = {r[0]: r[1] for r in rows}
         for out in outs:
-            if out.project_id != project_id and out.id in overrides:
+            if out.project_id == project_id:
+                continue
+            if out.id in overrides:
                 out.group_id = overrides[out.id]
+            if out.id in bindings:
+                out.env_id = bindings[out.id]
+                out.env_source = "binding"
+            elif default_env is not None:
+                out.env_id = default_env.id
+                out.env_source = "default"
+            out.env_name = env_names.get(out.env_id) if out.env_id else None
     return outs
 
 
@@ -219,6 +237,7 @@ def get_one(case_id: int, db: Session = Depends(get_db), user: models.User = Dep
     crud.fill_case_env_names(db, obj)
     crud.fill_involved_projects(db, [obj])
     crud.fill_bound_datasets(db, [obj])
+    crud.fill_project_env_bindings(db, [obj])  # 跨系统用例：各项目环境绑定（设计器提示生效环境）
     return obj
 
 
@@ -285,6 +304,47 @@ def set_dataset_binding(case_id: int, data: schemas.DatasetBindingIn,
     crud.log_operation(db, user, "update", "testcase", obj.id,
                        f"绑定数据集 ×{len(bound)}")
     return obj
+
+
+@router.put("/{case_id}/project-env", response_model=schemas.TestCaseOut)
+def set_project_env(case_id: int, data: schemas.CaseProjectEnvIn,
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """设置跨系统用例在指定项目视角的执行环境（2026-11-13）。
+
+    生效范围仅该用例内属于 project_id 的节点（节点显式绑定优先级更高）；
+    env_id 为 null = 清除绑定回退该项目默认环境。返回值按该视角回填生效环境。
+    """
+    obj = crud.get_testcase(db, case_id)
+    if not obj:
+        raise HTTPException(404, "用例不存在")
+    try:
+        crud.set_project_env_binding(db, obj, data.project_id, data.env_id, user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    crud.fill_audit_names(db, obj)
+    crud.fill_case_env_names(db, obj)
+    crud.fill_involved_projects(db, [obj])
+    crud.fill_bound_datasets(db, [obj])
+    crud.fill_project_env_bindings(db, [obj])
+    # 按发起视角回填生效环境（绑定 > 默认），前端直接同步行内显示
+    out = schemas.TestCaseOut.model_validate(obj)
+    if data.project_id != obj.project_id:
+        bindings = crud.project_env_bindings_for(db, [obj.id], data.project_id)
+        default_env = crud.get_project_default_env(db, data.project_id)
+        if obj.id in bindings:
+            out.env_id = bindings[obj.id]
+            out.env_source = "binding"
+        elif default_env is not None:
+            out.env_id = default_env.id
+            out.env_source = "default"
+        if out.env_id:
+            env = crud.get_environment(db, out.env_id)
+            out.env_name = env.name if env else None
+        else:
+            out.env_name = None
+    crud.log_operation(db, user, "update", "testcase", obj.id,
+                       f"项目#{data.project_id}视角环境绑定: {data.env_id or '默认'}")
+    return out
 
 
 @router.put("/{case_id}/nodes/{node_id}/contract-template", response_model=schemas.MessageOut)

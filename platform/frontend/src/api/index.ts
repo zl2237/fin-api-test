@@ -250,14 +250,16 @@ export interface NodeConfig {
 }
 export interface TestCase {
   id: number; project_id: number; group_id?: number | null; name: string; description?: string
-  env_id?: number | null  // 绑定的执行环境（严格绑定：执行一律用它）
+  env_id?: number | null  // 绑定的执行环境；非原生项目视角=该项目生效环境（绑定/默认，后端按视角回填）
   env_name?: string | null  // 绑定环境名（冗余展示）
+  env_source?: string | null  // 非原生视角生效环境来源："binding"=显式绑定 / "default"=项目默认 / null=原生视角
   dag_config: { nodes: any[]; edges: any[] }
   node_configs: NodeConfig[]; sort_order?: number; created_at?: string; updated_at?: string
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
   bound_dataset_ids?: number[]  // 绑定的数据集（多选；执行 = 全部 bound 数据集各展开一次）
   involved_project_ids?: number[]  // 派生归属：原生项目 ∪ 节点引用接口的项目（>1=跨系统用例）
+  project_env_bindings?: { project_id: number; env_id: number }[]  // 各项目环境绑定（详情回填）
   last_exec_at?: string | null      // 最近一次执行开始时间（终结回写；NULL=从未执行）
   last_exec_status?: string | null  // 最近一次执行终态：success/failed/terminated
 }
@@ -524,6 +526,10 @@ export const caseApi = {
   batchMove: (caseIds: number[], groupId: number | null, projectId?: number | null) =>
     http.post<{ message: string; updated: number }>('/testcases/batch-move',
       { case_ids: caseIds, group_id: groupId, project_id: projectId ?? null }).then((r) => r.data),
+  // 跨系统用例：设置当前项目视角的执行环境（仅作用于属于该项目的节点；null=回退该项目默认环境）
+  setProjectEnv: (caseId: number, projectId: number, envId: number | null) =>
+    http.put<TestCase>(`/testcases/${caseId}/project-env`,
+      { project_id: projectId, env_id: envId }).then((r) => r.data),
   // 节点契约模板绑定（画布抽屉/数据集节点页共用；null=解绑回全量字段口径）
   bindNodeTemplate: (caseId: number, nodeId: string, templateId: number | null) =>
     http.put<{ message: string }>(`/testcases/${caseId}/nodes/${encodeURIComponent(nodeId)}/contract-template`,

@@ -478,14 +478,43 @@ class DagExecutor:
         tail_passed = not extract_failed and all(r["pass"] for r in assertion_results)
         return extracted, assertion_results, tail_passed
 
-    def _resolve_node_runtime(self, config) -> tuple[Any, HttpClient, Any]:
-        """节点生效运行时：节点级环境绑定（跨系统编排）优先，缺省=用例环境。
+    def _project_binding_env_id(self, project_id: int) -> int | None:
+        """跨项目节点未显式绑环境时：项目环境绑定（case_project_envs）→ 该项目默认环境。
+        绑定与默认环境映射各查一次并缓存（执行期改绑定不影响进行中的执行）。"""
+        if not hasattr(self, "_proj_env_cache"):
+            self._proj_env_cache: dict[int, int | None] = {}
+            rows = (self.db.query(models.CaseProjectEnv.case_id, models.CaseProjectEnv.project_id,
+                                  models.CaseProjectEnv.env_id)
+                    .filter(models.CaseProjectEnv.case_id == self.case.id).all())
+            self._proj_env_cache = {p: e for _, p, e in rows}
+        if project_id in self._proj_env_cache:
+            return self._proj_env_cache[project_id]
+        env = (self.db.query(models.Environment)
+               .filter(models.Environment.project_id == project_id)
+               .order_by(models.Environment.sort_order, models.Environment.id.desc()).all())
+        default = next((e for e in env if e.is_default), env[0] if env else None)
+        env_id = default.id if default else None
+        self._proj_env_cache[project_id] = env_id
+        return env_id
+
+    def _resolve_node_runtime(self, config, api=None) -> tuple[Any, HttpClient, Any]:
+        """节点生效运行时（2026-11-13 优先级重定义）：
+        节点显式 env_id > 接口所属项目的环境绑定（跨项目节点）> 该项目默认环境
+        > 用例环境（原生节点缺省）。跨项目项目无任何环境时报错——不能静默落到
+        用例环境域名上打偏请求。
 
         额外环境按 env_id 惰性构建（HttpClient+DBClient+login）并缓存复用：
         各环境登录态/401 重登互不影响（EnvTokenCache 本就按 env 隔离）。
         环境被删/登录失败抛异常，由 _execute_node 记为节点失败（下游照常阻断）。
         """
         env_id = getattr(config, "env_id", None) if config is not None else None
+        if not env_id:
+            api_project = getattr(api, "project_id", None) if api is not None else None
+            if api_project is not None and api_project != self.case.project_id:
+                env_id = self._project_binding_env_id(api_project)
+                if not env_id:
+                    raise RuntimeError(
+                        f"接口所属项目 #{api_project} 未配置任何环境，无法执行该跨系统节点")
         if not env_id or env_id == getattr(self.env, "id", None):
             if self.http_client is None:
                 raise RuntimeError("用例环境客户端未初始化（execute 前）")
@@ -540,10 +569,10 @@ class DagExecutor:
             ))
             return False, 0
 
-        # 节点级环境绑定（跨系统编排）：解析本节点生效运行时。环境被删/登录失败
-        # 记为节点失败（下游照常阻断），不冒泡拖垮整条执行
+        # 节点生效运行时（节点显式绑定 > 项目绑定 > 项目默认 > 用例环境）。
+        # 环境被删/登录失败/跨项目无环境记为节点失败（下游照常阻断），不冒泡拖垮整条执行
         try:
-            node_env, node_client, node_db = self._resolve_node_runtime(config)
+            node_env, node_client, node_db = self._resolve_node_runtime(config, api)
         except Exception as e:
             label = node.get("data", {}).get("label") if isinstance(node.get("data"), dict) else node_id
             self.sink.record_step(self._step_event(

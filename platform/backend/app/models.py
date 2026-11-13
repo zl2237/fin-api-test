@@ -258,6 +258,31 @@ class CaseGroupOverride(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新")
 
 
+class CaseProjectEnv(Base):
+    """跨系统用例的「按项目环境绑定」（2026-11-13）。
+
+    背景：环境绑定原来只有用例级单值（test_cases.env_id，原生项目维度），
+    跨系统用例的非原生项目节点靠节点级 env_id 隐藏生效——该项目视角下
+    既看不到也切不了环境。本表按 (case_id, project_id) 记录用例在非原生
+    项目下的执行环境；解析优先级：节点显式绑定 > 本表 > 该项目默认环境。
+    原生项目不走本表（编辑 test_cases.env_id 即可）。
+    """
+    __tablename__ = "case_project_envs"
+    __table_args__ = (
+        UniqueConstraint("case_id", "project_id", name="uq_case_project_env_case_project"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id", ondelete="CASCADE"),
+                 nullable=False, index=True, comment="用例ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id", ondelete="CASCADE"),
+                   nullable=False, index=True, comment="项目视角ID（非原生项目）")
+    env_id: Mapped[int] = mapped_column(Integer, ForeignKey("environments.id", ondelete="CASCADE"),
+                nullable=False, comment="该项目视角下的执行环境ID（删行=回退该项目默认环境）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新")
+
+
 class DataSet(Base):
     """数据集（用例私有，1:N）：一套完整的节点入参配置（2026-09-30 收敛定案）。
 

@@ -645,6 +645,79 @@ def group_overrides_for(db: Session, case_ids: list[int], project_id: int) -> di
     return {c: g for c, g in rows}
 
 
+def get_project_default_env(db: Session, project_id: int) -> models.Environment | None:
+    """项目默认环境：is_default 优先，否则按列表序（sort_order, id 倒序）第一个。"""
+    envs = (db.query(models.Environment)
+            .filter(models.Environment.project_id == project_id)
+            .order_by(models.Environment.sort_order, models.Environment.id.desc()).all())
+    for e in envs:
+        if e.is_default:
+            return e
+    return envs[0] if envs else None
+
+
+def project_env_bindings_for(db: Session, case_ids: list[int], project_id: int) -> dict[int, int]:
+    """查 (case_id → env_id) 项目环境绑定映射（项目视角批量回填用，一次查询）。"""
+    if not case_ids:
+        return {}
+    rows = (db.query(models.CaseProjectEnv.case_id, models.CaseProjectEnv.env_id)
+            .filter(models.CaseProjectEnv.case_id.in_(case_ids),
+                    models.CaseProjectEnv.project_id == project_id).all())
+    return {c: e for c, e in rows}
+
+
+def fill_project_env_bindings(db: Session, objs) -> None:
+    """给 TestCase 填充 project_env_bindings（各项目显式绑定行，详情页回填用）。"""
+    if not objs:
+        return
+    single = not isinstance(objs, list)
+    obj_list = [objs] if single else objs
+    ids = [o.id for o in obj_list]
+    if not ids:
+        return
+    rows = (db.query(models.CaseProjectEnv.case_id, models.CaseProjectEnv.project_id,
+                     models.CaseProjectEnv.env_id)
+            .filter(models.CaseProjectEnv.case_id.in_(ids)).all())
+    by_case: dict[int, list] = {}
+    for c, p, e in rows:
+        by_case.setdefault(c, []).append({"project_id": p, "env_id": e})
+    for o in obj_list:
+        o.project_env_bindings = by_case.get(o.id, [])
+
+
+def set_project_env_binding(db: Session, case: models.TestCase, project_id: int,
+                            env_id: int | None, user_id: int | None = None) -> None:
+    """设置跨系统用例在非原生项目视角的执行环境绑定（2026-11-13）。
+
+    解析优先级：节点显式 env_id > 本绑定 > 该项目默认环境；env_id None = 删行
+    回退默认环境。校验：project_id 须为该用例派生归属的非原生项目（节点引用了
+    该项目接口）；env 须存在且属于该项目（防跨项目 env id 串写）。
+    """
+    if project_id == case.project_id:
+        raise ValueError("原生项目的执行环境请直接编辑用例绑定环境（本接口只管跨项目视角）")
+    if not case_visible_in_project(db, case, project_id):
+        raise ValueError(f"用例「{case.name}」在当前项目不可见（未引用本项目接口），无法绑定本项目环境")
+    row = (db.query(models.CaseProjectEnv)
+           .filter(models.CaseProjectEnv.case_id == case.id,
+                   models.CaseProjectEnv.project_id == project_id).first())
+    if env_id is None:
+        if row:
+            db.delete(row)
+    else:
+        env = get_environment(db, env_id)
+        if not env or env.project_id != project_id:
+            raise ValueError(f"环境 #{env_id} 不存在或不属于当前项目（环境按项目隔离）")
+        if row:
+            row.env_id = env_id
+            row.updated_at = datetime.now()
+        else:
+            db.add(models.CaseProjectEnv(case_id=case.id, project_id=project_id, env_id=env_id))
+    if user_id is not None:
+        case.updated_by = user_id
+    case.updated_at = datetime.now()
+    db.commit()
+
+
 def batch_move_testcases(db: Session, case_ids: list[int], group_id: int | None,
                          user_id: int | None = None, project_id: int | None = None) -> int:
     """批量移动用例到指定分组，返回受影响数。移动分组属于用例更新，须记录更新人。
