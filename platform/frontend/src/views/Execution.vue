@@ -79,8 +79,23 @@
           </EmptyState>
         </template>
         <el-table-column prop="id" label="ID" width="70" sortable="custom" />
-        <el-table-column label="项目" min-width="120" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.project_name || `#${row.project_id}` || '—' }}</template>
+        <el-table-column label="项目" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <!-- 跨系统行：显示用例原生项目 + 跨系统标记（该执行因涉及本项目接口而共享） -->
+            <template v-if="isCrossExec(row)">
+              <el-tooltip
+                content="来自跨系统用例（原生项目），因涉及本项目接口而在此可见"
+                placement="top"
+                popper-class="app-tip"
+              >
+                <span class="exec-cross-cell">
+                  {{ row.project_name || `#${row.project_id}` }}
+                  <el-tag size="small" effect="plain" type="info">跨系统</el-tag>
+                </span>
+              </el-tooltip>
+            </template>
+            <template v-else>{{ row.project_name || `#${row.project_id}` || '—' }}</template>
+          </template>
         </el-table-column>
         <el-table-column label="用例" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
@@ -238,6 +253,15 @@ const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 const { currentProjectId } = storeToRefs(store)
+
+// 跨系统执行行判定：所属项目 ≠ 当前视角 = 派生归属共享来的跨系统用例执行
+//（project_id 为用例原生项目，随行返回；与用例列表「跨系统」徽标同语言）。
+// 用户显式筛选了别的项目时不标——那种出现是筛选使然，不是跨系统共享。
+function isCrossExec(row: ExecutionRecord): boolean {
+  return !!currentProjectId.value && !!row.project_id
+    && row.project_id !== currentProjectId.value
+    && applied.projectId === currentProjectId.value
+}
 const list = ref<ExecutionRecord[]>([])
 const loading = ref(false)
 const loadError = ref('')
@@ -547,6 +571,12 @@ onUnmounted(() => {
   margin-left: auto;
   font-size: 12px;
   color: var(--app-text-muted);
+}
+/* 跨系统执行行：原生项目名 + 跨系统标签并排 */
+.exec-cross-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 /* 分页条：与其他列表页统一（右对齐、默认 10 条/页） */
 .pagination-wrap {
