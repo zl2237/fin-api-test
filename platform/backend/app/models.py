@@ -233,6 +233,31 @@ class TestCase(Base):
     executions: Mapped[list["ExecutionRecord"]] = relationship("ExecutionRecord", back_populates="case", cascade="all, delete-orphan")
 
 
+class CaseGroupOverride(Base):
+    """跨系统用例的「按项目分组」覆写（2026-11-13 跨系统三 bug 修复）。
+
+    背景：TestCase.group_id 是原生项目维度的单值列，跨系统用例（派生归属
+    出现在 ≥2 个项目下）无法在每个项目各自分组——在 B 项目移动会改写
+    group_id 指向 B 项目的分组，回 A 项目即掉进未分组。
+    本表按 (case_id, project_id) 记录非原生项目视角的分组；无行 = 该项目
+    下按原生 group_id 解析（非原生项目解析不到即未分组，与旧行为一致）。
+    """
+    __tablename__ = "case_group_overrides"
+    __table_args__ = (
+        UniqueConstraint("case_id", "project_id", name="uq_case_group_override_case_project"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主键ID")
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_cases.id", ondelete="CASCADE"),
+                 nullable=False, index=True, comment="用例ID")
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id", ondelete="CASCADE"),
+                   nullable=False, index=True, comment="项目视角ID（非原生项目）")
+    group_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("case_groups.id", ondelete="CASCADE"),
+                  nullable=True, comment="该项目视角下的分组ID（移回未分组即删行回退）")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, comment="最近更新")
+
+
 class DataSet(Base):
     """数据集（用例私有，1:N）：一套完整的节点入参配置（2026-09-30 收敛定案）。
 

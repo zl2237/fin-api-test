@@ -534,9 +534,14 @@ class TestCaseOut(ORMBase):
 
 
 class CaseBatchMove(BaseModel):
-    """批量移动用例到指定分组（group_id 为 null 表示移到未分组）"""
+    """批量移动用例到指定分组（group_id 为 null 表示移到未分组）。
+
+    project_id：发起移动的项目视角。跨系统用例（原生项目 ≠ project_id）不写
+    group_id 列，改写 (case_id, project_id) 分组覆写——两项目分组互不连坐；
+    原生项目成员照旧更新 group_id。缺省 = 全部按原生语义（兼容旧调用）。"""
     case_ids: list[int]
     group_id: int | None = None
+    project_id: int | None = None
 
 
 class CaseCombineRequest(BaseModel):

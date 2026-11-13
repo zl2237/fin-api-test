@@ -155,7 +155,20 @@
             </el-table-column>
             <el-table-column label="执行环境" width="150">
               <template #default="{ row }">
+                <!-- 跨系统用例：绑定的环境属于原生项目（不在当前项目环境列表），只读展示环境名 -->
+                <el-tooltip
+                  v-if="isCrossEnv(row)"
+                  content="跨系统用例：环境绑定于用例原生项目，改绑请切到原生项目操作"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <span class="env-cross-name">
+                    {{ row.env_name || `环境#${row.env_id}` }}
+                    <el-tag size="small" effect="plain" type="info" class="env-cross-tag">跨项目</el-tag>
+                  </span>
+                </el-tooltip>
                 <el-select
+                  v-else
                   :model-value="row.env_id ?? undefined"
                   size="small"
                   placeholder="未绑定"
@@ -294,7 +307,20 @@
             </el-table-column>
             <el-table-column label="执行环境" width="150">
               <template #default="{ row }">
+                <!-- 跨系统用例：绑定的环境属于原生项目（不在当前项目环境列表），只读展示环境名 -->
+                <el-tooltip
+                  v-if="isCrossEnv(row)"
+                  content="跨系统用例：环境绑定于用例原生项目，改绑请切到原生项目操作"
+                  placement="top"
+                  popper-class="app-tip"
+                >
+                  <span class="env-cross-name">
+                    {{ row.env_name || `环境#${row.env_id}` }}
+                    <el-tag size="small" effect="plain" type="info" class="env-cross-tag">跨项目</el-tag>
+                  </span>
+                </el-tooltip>
                 <el-select
+                  v-else
                   :model-value="row.env_id ?? undefined"
                   size="small"
                   placeholder="未绑定"
@@ -673,6 +699,12 @@ const createRules: FormRules = {
   }],
 }
 
+// 跨系统用例的环境判定：env_id 不在当前项目环境列表 = 绑定于原生项目
+//（行内下拉若照常渲染会显示裸 id 且选项错误；改走只读环境名展示）
+function isCrossEnv(row: TestCase): boolean {
+  return !!row.env_id && !store.environments.some((e) => e.id === row.env_id)
+}
+
 // 环境严格绑定：列表行内改绑执行环境（成功后同步冗余名，失败提示并刷新还原）
 async function onEnvChange(row: TestCase, envId: number | null) {
   if (!envId) return  // 不允许在行内解绑（清空会让用例不可执行）
@@ -709,9 +741,10 @@ function onBatchMove() {
   batchMoveVisible.value = true
 }
 
-/** 批量移动执行（BatchMoveDialog 确认时调用；成功 resolve 弹窗自关，失败 throw 由弹窗报错） */
+/** 批量移动执行（BatchMoveDialog 确认时调用；成功 resolve 弹窗自关，失败 throw 由弹窗报错）。
+ *  带当前项目视角：跨系统用例走分组覆写（两项目分组互不连坐），原生成员照旧改 group_id */
 async function doBatchMove(targetGroupId: number | null) {
-  const res = await caseApi.batchMove(selectedCaseIds.value, targetGroupId)
+  const res = await caseApi.batchMove(selectedCaseIds.value, targetGroupId, store.currentProjectId)
   ElMessage.success(res.message)
   // 清空选中与 el-table 内部勾选态（reserve-selection 按 row-key 缓存，需主动 clearSelection）
   resetSelection(clearAllTables)
@@ -1336,6 +1369,14 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .env-bind-select :deep(.el-select__placeholder.is-transparent) {
   color: var(--el-color-danger);
+}
+/* 执行环境列：跨系统用例只读展示（环境属于原生项目） */
+.env-cross-name {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+.env-cross-tag {
+  margin-left: 4px;
 }
 /* 数据集绑定弹窗 */
 .bind-tip {

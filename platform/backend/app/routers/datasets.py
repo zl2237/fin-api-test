@@ -9,6 +9,7 @@
 权限与项目内资源一致：登录即可管理，project_id 隔离由查询参数保证。
 """
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import crud, models, schemas
@@ -90,7 +91,11 @@ def list_datasets(case_id: int | None = None, project_id: int | None = None, wit
     if case_id:
         q = q.filter(models.DataSet.case_id == case_id)
     if project_id:
-        q = q.filter(models.DataSet.project_id == project_id)
+        # 派生归属（2026-11-13）：项目下可见 = 原生数据集 ∪ 跨系统用例
+        #（该项目可见）名下的数据集——跨系统用例的数据集在涉及项目可编辑
+        visible_ids = [c.id for c in crud.list_testcases(db, project_id)]
+        q = q.filter(or_(models.DataSet.project_id == project_id,
+                         models.DataSet.case_id.in_(visible_ids)))
     objs = q.order_by(models.DataSet.id.desc()).all()
     out = []
     for o in objs:

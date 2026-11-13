@@ -109,7 +109,15 @@ def list_all(project_id: int | None = None, created_by: int | None = None, updat
     crud.fill_case_env_names(db, objs)
     crud.fill_involved_projects(db, objs)  # 派生归属：跨系统用例在涉及项目下可见
     crud.fill_bound_datasets(db, objs)
-    return objs
+    outs = [schemas.TestCaseOut.model_validate(o) for o in objs]
+    # 跨系统用例分组按项目视角解析（2026-11-13）：非原生项目有覆写行则用覆写分组，
+    # 无覆写保持原生 group_id（该项目分组树解析不到即前端未分组桶，与旧行为一致）
+    if project_id is not None:
+        overrides = crud.group_overrides_for(db, [o.id for o in objs], project_id)
+        for out in outs:
+            if out.project_id != project_id and out.id in overrides:
+                out.group_id = overrides[out.id]
+    return outs
 
 
 @router.get("/export")
@@ -386,9 +394,17 @@ def split(case_id: int, data: schemas.CaseSplitRequest, db: Session = Depends(ge
 
 @router.post("/batch-move", response_model=schemas.ReorderResultOut)
 def batch_move(data: schemas.CaseBatchMove, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """批量移动用例到指定分组"""
+    """批量移动用例到指定分组。
+
+    project_id 给定时按项目视角分流：跨系统用例写分组覆写、原生成员照旧
+    改 group_id（两项目分组互不连坐，2026-11-13）；分组不属于该项目 → 400。
+    """
     # 注意：此路由需在 /{case_id} 之前注册，否则会被 path 参数拦截
-    updated = crud.batch_move_testcases(db, data.case_ids, data.group_id)
+    try:
+        updated = crud.batch_move_testcases(db, data.case_ids, data.group_id,
+                                            user_id=user.id, project_id=data.project_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     crud.log_operation(db, user, "update", "testcase", None, f"批量移动{updated}个用例")
     return {"message": f"已移动 {updated} 个用例", "updated": updated}
 

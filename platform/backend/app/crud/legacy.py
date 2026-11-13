@@ -450,6 +450,10 @@ def delete_case_group(db: Session, group: models.CaseGroup):
         raise ValueError(f"分组「{group.name}」下还有 {len(group.children)} 个子分组，请先删除子分组")
     if group.cases:
         raise ValueError(f"分组「{group.name}」下还有 {len(group.cases)} 个用例，请先移走后再删除")
+    n_override = (db.query(models.CaseGroupOverride)
+                  .filter(models.CaseGroupOverride.group_id == group.id).count())
+    if n_override:
+        raise ValueError(f"分组「{group.name}」被 {n_override} 个跨系统用例在本项目下引用，请先移走这些用例")
     db.delete(group)
     db.commit()
 
@@ -616,16 +620,82 @@ def list_testcases(db: Session, project_id: int | None = None, created_by: int |
     return q.order_by(models.TestCase.sort_order, models.TestCase.id.desc()).all()
 
 
-def batch_move_testcases(db: Session, case_ids: list[int], group_id: int | None, user_id: int | None = None) -> int:
-    """批量更新用例的 group_id，返回受影响行数。移动分组属于用例更新，须记录更新人"""
+def case_visible_in_project(db: Session, case: models.TestCase, project_id: int) -> bool:
+    """项目视角可见性（派生归属）：原生命中 ∪ 节点引用了该项目接口。
+
+    与 list_testcases 的 SQL exists 同语义，供逐例判定（批量移动分流等）。
+    """
+    if case.project_id == project_id:
+        return True
+    hit = (db.query(models.CaseNodeConfig.id)
+           .join(models.ApiDefinition, models.CaseNodeConfig.api_id == models.ApiDefinition.id)
+           .filter(models.CaseNodeConfig.case_id == case.id,
+                   models.ApiDefinition.project_id == project_id)
+           .first())
+    return hit is not None
+
+
+def group_overrides_for(db: Session, case_ids: list[int], project_id: int) -> dict[int, int]:
+    """查 (case_id → group_id) 分组覆写映射（项目视角批量回填用，一次查询）。"""
+    if not case_ids:
+        return {}
+    rows = (db.query(models.CaseGroupOverride.case_id, models.CaseGroupOverride.group_id)
+            .filter(models.CaseGroupOverride.case_id.in_(case_ids),
+                    models.CaseGroupOverride.project_id == project_id).all())
+    return {c: g for c, g in rows}
+
+
+def batch_move_testcases(db: Session, case_ids: list[int], group_id: int | None,
+                         user_id: int | None = None, project_id: int | None = None) -> int:
+    """批量移动用例到指定分组，返回受影响数。移动分组属于用例更新，须记录更新人。
+
+    project_id 给定时按「项目视角」分流（2026-11-13 跨系统分组覆写）：
+    - 原生成员（case.project_id == project_id）：照旧更新 group_id（经典语义）
+    - 跨系统成员（原生 ≠ project_id 且在该项目可见）：写/删 (case_id, project_id)
+      覆写行——group_id 非 null 落行，null 删行回退未分组；两项目分组互不连坐
+    目标分组必须属于 project_id（分组按项目隔离，防跨项目分组 id 串写）。
+    缺省 project_id = 全部按经典语义（旧调用兼容）。"""
     if not case_ids:
         return 0
-    values: dict = {models.TestCase.group_id: group_id}
-    if user_id is not None:
-        values.update({models.TestCase.updated_by: user_id, models.TestCase.updated_at: datetime.now()})
-    updated = db.query(models.TestCase).filter(
-        models.TestCase.id.in_(case_ids)
-    ).update(values, synchronize_session=False)
+    if project_id is None:
+        values: dict = {models.TestCase.group_id: group_id}
+        if user_id is not None:
+            values.update({models.TestCase.updated_by: user_id, models.TestCase.updated_at: datetime.now()})
+        updated = db.query(models.TestCase).filter(
+            models.TestCase.id.in_(case_ids)
+        ).update(values, synchronize_session=False)
+        db.commit()
+        return updated
+
+    if group_id is not None:
+        grp = db.query(models.CaseGroup).filter(models.CaseGroup.id == group_id).first()
+        if not grp or grp.project_id != project_id:
+            raise ValueError("目标分组不存在或不属于当前项目（分组按项目隔离）")
+
+    cases = db.query(models.TestCase).filter(models.TestCase.id.in_(case_ids)).all()
+    updated = 0
+    now = datetime.now()
+    for c in cases:
+        if c.project_id == project_id:
+            c.group_id = group_id
+        else:
+            if not case_visible_in_project(db, c, project_id):
+                raise ValueError(f"用例「{c.name}」在当前项目不可见（未引用本项目接口），不能移入本项目分组")
+            row = (db.query(models.CaseGroupOverride)
+                   .filter(models.CaseGroupOverride.case_id == c.id,
+                           models.CaseGroupOverride.project_id == project_id).first())
+            if group_id is None:
+                if row:
+                    db.delete(row)  # 移回未分组 = 删覆写行回退（本项目视角即未分组）
+            elif row:
+                row.group_id = group_id
+                row.updated_at = now
+            else:
+                db.add(models.CaseGroupOverride(case_id=c.id, project_id=project_id, group_id=group_id))
+        if user_id is not None:
+            c.updated_by = user_id
+        c.updated_at = now
+        updated += 1
     db.commit()
     return updated
 

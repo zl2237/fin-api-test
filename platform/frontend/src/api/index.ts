@@ -521,8 +521,9 @@ export const caseApi = {
   update: (id: number, data: Partial<TestCase>) => http.put<TestCase>(`/testcases/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/testcases/${id}`),
   copy: (id: number) => http.post<TestCase>(`/testcases/${id}/copy`).then((r) => r.data),
-  batchMove: (caseIds: number[], groupId: number | null) =>
-    http.post<{ message: string; updated: number }>('/testcases/batch-move', { case_ids: caseIds, group_id: groupId }).then((r) => r.data),
+  batchMove: (caseIds: number[], groupId: number | null, projectId?: number | null) =>
+    http.post<{ message: string; updated: number }>('/testcases/batch-move',
+      { case_ids: caseIds, group_id: groupId, project_id: projectId ?? null }).then((r) => r.data),
   // 节点契约模板绑定（画布抽屉/数据集节点页共用；null=解绑回全量字段口径）
   bindNodeTemplate: (caseId: number, nodeId: string, templateId: number | null) =>
     http.put<{ message: string }>(`/testcases/${caseId}/nodes/${encodeURIComponent(nodeId)}/contract-template`,
