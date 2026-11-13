@@ -595,7 +595,8 @@ def debug_api(
             login(client, env)
         except Exception as e:
             # login() 已包装"登录失败："前缀，此处只透传原文，避免双重前缀
-            return _debug_response(api, method, {}, {}, 0, {"error": str(e)}, started_at, start_ts, login_failed=True)
+            return _debug_response(api, method, {}, {}, 0, None, started_at, start_ts,
+                                   error=str(e), login_failed=True)
 
         # 接口 headers_template 覆盖环境公共头（curl/HAR 导入的 Content-Type 在调试
         # 时同样生效，表单接口走表单编码——与 DAG 执行链路口径一致）
@@ -612,7 +613,7 @@ def debug_api(
             else:
                 body = build_request_body(api)
         except ValueError as e:
-            return _debug_response(api, method, {}, {}, 0, {"error": str(e)}, started_at, start_ts)
+            return _debug_response(api, method, {}, {}, 0, None, started_at, start_ts, error=str(e))
 
         from ..engine.type_coercer import apply_field_types, coerce_json_strings
         body = coerce_json_strings(body)
