@@ -96,13 +96,15 @@ def aggregate_stats(db: Session, project_id: int | None, days: int) -> dict:
     """近 N 天执行统计（数据库端 group_by 聚合）：{count, passed, rate, days}。
 
     rate=None 表示窗口内无执行记录；工作台与 /executions/stats 共用口径。
+    项目过滤走派生归属（2026-11-13）：跨系统用例的执行计入每个涉及项目。
     """
+    from .legacy import case_project_visible
     since = datetime.now() - timedelta(days=days)
     # ExecutionRecord 无 created_at，时间口径用 started_at（default=now）
     q = db.query(models.ExecutionRecord).filter(models.ExecutionRecord.started_at >= since)
     if project_id is not None:
         q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id) \
-             .filter(models.TestCase.project_id == project_id)
+             .filter(case_project_visible(db, project_id))
     rows = q.with_entities(models.ExecutionRecord.status, func.count()) \
             .group_by(models.ExecutionRecord.status).all()
     by_status = {s: c for s, c in rows}

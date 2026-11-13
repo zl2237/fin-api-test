@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..auth import get_current_user
 from ..crud.executions import aggregate_stats
+from ..crud.legacy import case_project_visible
 from ..database import get_db
 
 router = APIRouter(prefix="/api", tags=["首页"])
@@ -22,13 +23,14 @@ RECENT_CASE_LIMIT = 3
 
 
 def _recent_execs(db: Session, project_id: int) -> list[schemas.HomeRecentExecOut]:
-    """最近执行（只选列表所需列，不拉 dataset_row/请求快照等重列）。"""
+    """最近执行（只选列表所需列，不拉 dataset_row/请求快照等重列）。
+    项目过滤走派生归属（2026-11-13）：跨系统用例的执行在涉及项目可见。"""
     rows = (db.query(models.ExecutionRecord.id, models.ExecutionRecord.case_id,
                      models.TestCase.name, models.ExecutionRecord.env_id,
                      models.ExecutionRecord.status, models.ExecutionRecord.summary,
                      models.ExecutionRecord.started_at)
             .join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id)
-            .filter(models.TestCase.project_id == project_id)
+            .filter(case_project_visible(db, project_id))
             .order_by(models.ExecutionRecord.id.desc())
             .limit(RECENT_EXEC_LIMIT).all())
     env_ids = {r[3] for r in rows if r[3]}
@@ -43,11 +45,12 @@ def _recent_execs(db: Session, project_id: int) -> list[schemas.HomeRecentExecOu
 
 
 def _recent_cases(db: Session, project_id: int) -> list[schemas.HomeRecentCaseOut]:
-    """快速执行候选：最近执行过的用例（每用例最近一条执行，按其 id 倒序去重取前 N）。"""
+    """快速执行候选：最近执行过的用例（每用例最近一条执行，按其 id 倒序去重取前 N）。
+    项目过滤走派生归属：跨系统用例也算本项目的快速执行候选。"""
     latest = (db.query(models.ExecutionRecord.case_id,
                        func.max(models.ExecutionRecord.id).label("mid"))
               .join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id)
-              .filter(models.TestCase.project_id == project_id)
+              .filter(case_project_visible(db, project_id))
               .group_by(models.ExecutionRecord.case_id)
               .order_by(func.max(models.ExecutionRecord.id).desc())
               .limit(RECENT_CASE_LIMIT).subquery())
@@ -65,8 +68,9 @@ def home_summary(project_id: int, days: int = 7,
         raise HTTPException(400, "天数须在 1~365 之间")
     api_count = (db.query(func.count(models.ApiDefinition.id))
                  .filter(models.ApiDefinition.project_id == project_id).scalar() or 0)
+    # 用例数走派生归属口径（与用例列表一致）：跨系统用例计入每个涉及项目
     case_count = (db.query(func.count(models.TestCase.id))
-                  .filter(models.TestCase.project_id == project_id).scalar() or 0)
+                  .filter(case_project_visible(db, project_id)).scalar() or 0)
     return schemas.HomeSummaryOut(
         api_count=api_count, case_count=case_count,
         stats=schemas.ExecutionStatsOut(**aggregate_stats(db, project_id, days)),

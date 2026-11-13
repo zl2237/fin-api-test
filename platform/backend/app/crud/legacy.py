@@ -601,17 +601,24 @@ def get_testcase(db: Session, case_id: int) -> models.TestCase | None:
     return db.query(models.TestCase).filter(models.TestCase.id == case_id).first()
 
 
+def case_project_visible(db: Session, project_id: int):
+    """派生归属过滤谓词（原生 ∪ 节点引用该项目接口），供已联/主查 TestCase 的
+    查询复用——用例、执行记录、统计、工作台同一口径，避免视角自相矛盾
+    （2026-11-13：跨系统用例的执行记录在涉及项目共享）。"""
+    cross = (db.query(models.CaseNodeConfig.id)
+             .join(models.ApiDefinition, models.CaseNodeConfig.api_id == models.ApiDefinition.id)
+             .filter(models.CaseNodeConfig.case_id == models.TestCase.id,
+                     models.ApiDefinition.project_id == project_id)
+             .exists())
+    return or_(models.TestCase.project_id == project_id, cross)
+
+
 def list_testcases(db: Session, project_id: int | None = None, created_by: int | None = None, updated_by: int | None = None) -> list[models.TestCase]:
     q = db.query(models.TestCase)
     if project_id is not None:
         # 派生归属（2026-11-12 跨系统编排定案）：项目下可见 = 原生项目命中
         # ∪ 节点引用了该项目接口（跨系统用例在涉及的两个项目下都可见）
-        cross = (db.query(models.CaseNodeConfig.id)
-                 .join(models.ApiDefinition, models.CaseNodeConfig.api_id == models.ApiDefinition.id)
-                 .filter(models.CaseNodeConfig.case_id == models.TestCase.id,
-                         models.ApiDefinition.project_id == project_id)
-                 .exists())
-        q = q.filter(or_(models.TestCase.project_id == project_id, cross))
+        q = q.filter(case_project_visible(db, project_id))
     if created_by is not None:
         q = q.filter(models.TestCase.created_by == created_by)
     if updated_by is not None:
@@ -904,7 +911,8 @@ def _execution_filter_query(db: Session, case_id: int | None = None, project_id:
         # 联表 TestCase 过滤 project_id / 用例名模糊匹配
         q = q.join(models.TestCase, models.ExecutionRecord.case_id == models.TestCase.id)
         if project_id is not None:
-            q = q.filter(models.TestCase.project_id == project_id)
+            # 派生归属口径（2026-11-13）：跨系统用例的执行记录在涉及项目共享
+            q = q.filter(case_project_visible(db, project_id))
         if case_name:
             q = q.filter(models.TestCase.name.like(f"%{case_name}%"))
     if created_by is not None:

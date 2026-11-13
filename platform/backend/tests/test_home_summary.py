@@ -47,6 +47,13 @@ class _Chain:
     def limit(self, n):
         return self
 
+    def exists(self):
+        # 派生归属 exists 子查询桩（case_project_visible 内部）：真库为关联子查询，
+        # 假库返回恒假 SQL 构造（or_() 需合法子句；行集不消费，可见性行为由
+        # test_cross_exec_visibility 真 SQLite 覆盖）
+        from sqlalchemy import false
+        return false()
+
     def all(self):
         return self._result
 
@@ -88,6 +95,9 @@ class HomeDb:
         # 快速执行候选子查询：首列 ExecutionRecord.case_id
         if first is models.ExecutionRecord.case_id:
             return _Chain([])  # subquery() 链，行集不消费
+        # 派生归属 exists 子查询（case_project_visible 内部）：行集不消费
+        if first is models.CaseNodeConfig.id:
+            return _Chain([])
         # 候选用例名 / 环境名：首列对应模型主键列
         if first is models.Environment.id:
             return _Chain(self.env_rows)
