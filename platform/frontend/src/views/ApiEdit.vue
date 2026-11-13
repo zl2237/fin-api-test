@@ -252,7 +252,7 @@
       <div class="fields-panel">
         <div class="panel-title">
           请求字段配置
-          <span class="panel-hint">支持点号嵌套路径；示例值仅作录入参考，执行取值以数据集入参为准</span>
+          <span class="panel-hint">支持点号嵌套路径；示例值支持函数调用（如 timestamp_ms()、now(format=%Y-%m-%d)），调试发送时自动求值；执行取值以数据集入参为准</span>
           <el-button text size="small" class="help-link" @click="store.openCoreCapability('expression')">
             <el-icon><QuestionFilled /></el-icon> 表达式帮助
           </el-button>
@@ -306,7 +306,7 @@
               </el-tooltip>
             </div>
             <template v-if="cryptoForm.reqEnabled">
-              <el-form label-width="90px" class="crypto-form">
+              <el-form label-width="100px" class="crypto-form">
                 <el-form-item label="密钥对名称" required>
                   <el-input v-model="cryptoForm.reqKey" placeholder="如 customs（与环境「加密配置」名称一致）" />
                 </el-form-item>
@@ -336,7 +336,7 @@
               </el-tooltip>
             </div>
             <template v-if="cryptoForm.respEnabled">
-              <el-form label-width="90px" class="crypto-form">
+              <el-form label-width="100px" class="crypto-form">
                 <el-form-item label="密钥对名称">
                   <el-input v-model="cryptoForm.respKey" placeholder="留空复用请求加密的密钥对" />
                 </el-form-item>
@@ -1079,6 +1079,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 .crypto-form .el-form-item {
   margin-bottom: 10px;
+}
+/* 「密钥对名称」5 字 + 必填星标 ≈ 89px：90px 在 DPI 缩放下会被挤折行，
+   label-width 已提到 100px，此处再兜底禁折行 */
+.crypto-form :deep(.el-form-item__label) {
+  white-space: nowrap;
 }
 .crypto-off-tip {
   font-size: 12px;

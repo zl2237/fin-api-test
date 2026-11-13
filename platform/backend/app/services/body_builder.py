@@ -14,6 +14,7 @@ import json
 from copy import deepcopy
 from typing import Any
 
+from ..engine.functions import call_function, parse_function_call
 from ..engine.nested_path import set_nested_value
 
 
@@ -21,7 +22,8 @@ def build_request_body(api) -> Any:
     """按 api.fields 组装请求体；无 fields 时回退 request_template。"""
     fields = getattr(api, "fields", None) or []
     if not fields:
-        return deepcopy(api.request_template if api.request_template is not None else {})
+        return evaluate_function_calls(
+            deepcopy(api.request_template if api.request_template is not None else {}))
 
     # request_template 为 list 表示数组请求体（body 本身是 [{...}]）
     is_array_body = isinstance(api.request_template, list)
@@ -34,7 +36,29 @@ def build_request_body(api) -> Any:
         val = parse_field_value(f.default_value, f.field_type)
         # 按点号路径设置到嵌套结构（含列表下标，与编排 set_field 同一实现）
         set_nested_value(body, f.key, val)
-    return [body] if is_array_body else body
+    return evaluate_function_calls([body] if is_array_body else body)
+
+
+def evaluate_function_calls(value: Any) -> Any:
+    """递归求值容器/叶子上的 `函数名(...)` 调用串（调试链路）。
+
+    仅已注册函数名认领（parse_function_call），其余字符串原样保留；
+    array/object 示例值先经 parse_field_value 还原成原生容器，嵌套叶子
+    （如 items.0.bizNo 的 uuid()）同样命中。求值失败（参数形态不合法等）
+    抛 ValueError，由调试端点呈现，不静默回退成原样发送。
+    """
+    if isinstance(value, dict):
+        return {k: evaluate_function_calls(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [evaluate_function_calls(v) for v in value]
+    if isinstance(value, str):
+        spec = parse_function_call(value)
+        if spec is not None:
+            try:
+                return call_function(spec["func"], spec["kwargs"])
+            except Exception as e:
+                raise ValueError(f"示例值函数 {spec['func']}() 求值失败：{e}") from e
+    return value
 
 
 def parse_field_value(raw: str | None, field_type: str) -> Any:

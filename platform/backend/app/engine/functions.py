@@ -7,7 +7,9 @@
 - 旧 ${db.query_*} 数据库函数废止：SQL 取数由来源4（参数级标量 SQL）承接
 """
 import hashlib
+import json
 import random
+import re
 import string
 import uuid as _uuid
 from datetime import datetime, timedelta
@@ -61,3 +63,85 @@ def call_function(name: str, kwargs: dict[str, Any]) -> Any:
         raise ValueError(f"未知的内置函数：{name}")
     fn: Callable = meta["fn"]
     return fn(**kwargs) if kwargs else fn()
+
+
+# ---- 函数调用语法解析（调试链路的示例值/覆写值求值用） ----------------------
+# 字段示例值或调试 body 覆写里写 `函数名(参数...)`，发送前求值（2026-11-13）。
+# 仅函数名已注册才认领，其余一律原样发送——未注册名/含括号的普通业务串不误伤。
+# 执行链路取值以数据集入参（func spec）为准，不经过本解析器，两条口径互不影响。
+_FUNC_CALL_RE = re.compile(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)\s*$", re.DOTALL)
+_IDENT_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
+
+
+def _split_call_args(raw: str) -> list[str]:
+    """顶层逗号切分（引号内的逗号不切）。"""
+    parts: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    for ch in raw:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+        elif ch in ("\"", "'"):
+            quote = ch
+            buf.append(ch)
+        elif ch == ",":
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    parts.append("".join(buf))
+    return [p for p in (s.strip() for s in parts) if p]
+
+
+def _parse_call_scalar(raw: str) -> Any:
+    """参数值先按 JSON 解析（数字/布尔/null/带引号串），失败按裸文本（%Y-%m-%d 等）。"""
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return raw
+
+
+def _top_level_eq(part: str) -> int:
+    """引号外第一个 = 的位置；无则 -1（值里带 = 的不误判为关键字参数）。"""
+    quote: str | None = None
+    for i, ch in enumerate(part):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("\"", "'"):
+            quote = ch
+        elif ch == "=":
+            return i
+    return -1
+
+
+def parse_function_call(text: Any) -> dict[str, Any] | None:
+    """`函数名(参数...)` 字符串 → {"func": 名, "kwargs": {...}}；其余 → None。
+
+    - 关键字参数：timestamp_ms(offset=60)、now(format=%Y-%m-%d)
+    - 位置参数按 FUNCTIONS 声明顺序补位：timestamp_ms(60) ≡ offset=60；
+      已被关键字占用的形参跳过
+    - 引号内逗号/等号不切分：concat(a="x,y", b=2)、md5(s="a=b")
+    """
+    if not isinstance(text, str):
+        return None
+    m = _FUNC_CALL_RE.match(text)
+    if not m:
+        return None
+    name, raw_args = m.group(1), m.group(2).strip()
+    if name not in FUNCTIONS:
+        return None
+    kwargs: dict[str, Any] = {}
+    positional: list[Any] = []
+    for part in _split_call_args(raw_args):
+        eq = _top_level_eq(part)
+        key = part[:eq].strip() if eq > 0 else ""
+        if key and _IDENT_RE.fullmatch(key):
+            kwargs[key] = _parse_call_scalar(part[eq + 1:].strip())
+        else:
+            positional.append(_parse_call_scalar(part))
+    for pname, val in zip(FUNCTIONS[name]["params"], positional):
+        kwargs.setdefault(pname, val)
+    return {"func": name, "kwargs": kwargs}

@@ -587,7 +587,7 @@ def debug_api(
     start_ts = time.time()
 
     # 复用 runtime_service 的客户端构建与登录逻辑，保证调试行为与实际执行一致
-    from ..services.body_builder import build_request_body, pop_file_fields_from_body
+    from ..services.body_builder import build_request_body, evaluate_function_calls, pop_file_fields_from_body
     from ..services.runtime_service import build_http_client, login
     client = build_http_client(env)
     try:
@@ -602,14 +602,18 @@ def debug_api(
         client.headers = {**(client.headers or {}),
                           **(deepcopy(api.headers_template) or {})}
 
-        # 构建请求体：body_override 优先，否则用 fields 组装
-        if data.body_override is not None:
-            body = deepcopy(data.body_override)
-        else:
-            body = build_request_body(api)
+        # 构建请求体：body_override 优先，否则用 fields 组装。
+        # 示例值/覆写值支持内置函数调用（如 timestamp_ms()，2026-11-13）——
+        # 在此求值后发送；执行链路取值以数据集入参（func spec）为准，口径独立。
+        # ${} 旧表达式语法仍废止；类型还原与字段强转保持与执行链路同口径
+        try:
+            if data.body_override is not None:
+                body = evaluate_function_calls(deepcopy(data.body_override))
+            else:
+                body = build_request_body(api)
+        except ValueError as e:
+            return _debug_response(api, method, {}, {}, 0, {"error": str(e)}, started_at, start_ts)
 
-        # 接口调试不做表达式求值：${} 语法已废止（2026-09-30 参数模型），
-        # 调试 body 原样发送；类型还原与字段强转保持与执行链路同口径
         from ..engine.type_coercer import apply_field_types, coerce_json_strings
         body = coerce_json_strings(body)
         body = apply_field_types(body, api)

@@ -1,12 +1,15 @@
 """body_builder 模块单测：请求体组装（从接口字段定义构建请求体）。
 
-覆盖 build_request_body / parse_field_value / set_nested 的关键分支，
-行为与原 DagExecutor 实现完全一致。
+覆盖 build_request_body / parse_field_value / set_nested / 示例值函数求值
+（evaluate_function_calls，调试链路）的关键分支。
 """
+import re
 from types import SimpleNamespace
 
+import pytest
+
 from app.engine.nested_path import set_nested_value
-from app.services.body_builder import build_request_body, parse_field_value
+from app.services.body_builder import build_request_body, evaluate_function_calls, parse_field_value
 
 
 def _field(key, default_value="", field_type="string"):
@@ -73,6 +76,56 @@ class TestBuildRequestBody:
         # getattr(api, "fields", None) 为 None 时回退模板
         api = SimpleNamespace(fields=None, request_template={"x": 1})
         assert build_request_body(api) == {"x": 1}
+
+
+class TestFunctionCallDefaults:
+    """示例值内置函数调用（2026-11-13 调试链路）：`函数名(...)` 组装后求值。
+
+    执行链路（prepare_request）骨架只用字段建空占位、取值走数据集入参，
+    不经过 build_request_body——本求值只影响调试，不改执行语义。
+    """
+
+    def test_timestamp_ms_default_evaluates_to_int(self):
+        api = _api(fields=[_field("requestTime", "timestamp_ms()", "int")], request_template={})
+        body = build_request_body(api)
+        assert isinstance(body["requestTime"], int)
+        assert 10**12 <= body["requestTime"] < 10**13
+
+    def test_now_with_format(self):
+        api = _api(fields=[_field("date", "now(format=%Y-%m-%d)", "string")], request_template={})
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", build_request_body(api)["date"])
+
+    def test_nested_leaf_inside_array_default_json(self):
+        # array 示例值先 JSON 还原成容器，嵌套叶子 uuid() 同样命中
+        api = _api(fields=[_field("items", '[{"bizNo": "uuid()"}]', "array")], request_template={})
+        body = build_request_body(api)
+        biz = body["items"][0]["bizNo"]
+        assert isinstance(biz, str) and len(biz) == 36
+
+    def test_unregistered_call_stays_literal(self):
+        api = _api(fields=[_field("note", "foo(1)", "string")], request_template={})
+        assert build_request_body(api) == {"note": "foo(1)"}
+
+    def test_plain_url_like_value_untouched(self):
+        api = _api(fields=[_field("cb", "https://x.io/y?a=1&b=2", "string")], request_template={})
+        assert build_request_body(api) == {"cb": "https://x.io/y?a=1&b=2"}
+
+    def test_bad_args_raise_value_error_not_silent(self):
+        # 求值失败必须可见（调试端点呈现），绝不静默回退原样发送
+        api = _api(fields=[_field("ts", 'timestamp_ms(offset="abc")', "int")], request_template={})
+        with pytest.raises(ValueError, match="求值失败"):
+            build_request_body(api)
+
+    def test_template_fallback_also_evaluates(self):
+        api = _api(fields=[], request_template={"id": "uuid()"})
+        assert len(build_request_body(api)["id"]) == 36
+
+    def test_evaluate_function_calls_walks_override(self):
+        body = {"a": "timestamp_ms()", "b": ["uuid()"], "c": {"d": 1}}
+        out = evaluate_function_calls(body)
+        assert 10**12 <= out["a"] < 10**13
+        assert len(out["b"][0]) == 36
+        assert out["c"] == {"d": 1}
 
 
 class TestParseFieldValue:
