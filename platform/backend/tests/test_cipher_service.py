@@ -159,7 +159,8 @@ class TestErrorMessages:
         try:
             out = decrypt_from_base64(cipher, priv_b)
         except CipherError as ei:
-            assert "配对" in str(ei.value) or "混用" in str(ei.value)
+            # 注意：except as 的 ei 是异常实例本身（pytest.raises 的 ExceptionInfo 才有 .value）
+            assert "配对" in str(ei) or "混用" in str(ei)
         else:
             assert out != b"secret"
 
