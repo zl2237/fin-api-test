@@ -293,7 +293,8 @@
         <el-divider content-position="left">加密配置</el-divider>
         <div class="crypto-bar">
           <span class="panel-hint">
-            开启后本接口请求体加密为 {包裹字段: 密文} 信封发送（明文仍落报告，重放自动重新加密）；密钥对录入在环境「加密配置」
+            开启后本接口请求体加密为 {包裹字段: 密文} 信封发送（明文仍落报告，重放自动重新加密）；密钥对录入在环境「加密配置」。
+            响应含 sign/signType 需执行期校验时，在用例节点断言中添加「响应验签」（密钥对默认取本卡配置）
           </span>
         </div>
         <div class="crypto-row">

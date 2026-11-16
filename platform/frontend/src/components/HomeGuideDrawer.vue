@@ -71,7 +71,7 @@ const guideCaps = [
   { title: '执行方案', desc: '多条用例打包一次跑完：成员各配「多选数据集 × 执行次数」独立并行，可定时触发；跨系统依赖用融合用例串联', tab: null },
   { title: '数据集执行', desc: '数据集行承载各节点入参，改参数值即参数化；每个数据集一套数据，多场景切换执行', tab: 'dataset' as const },
   { title: '数据自动生成', desc: '随机单号、日期格式化、唯一 ID：参数来源选「函数」下拉挑选，无需手写表达式', tab: 'expression' as const },
-  { title: '17 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验，支持失败重试', tab: 'assertion' as const },
+  { title: '18 种结果校验', desc: 'JSONPath、状态码、DB 交叉校验、响应验签，支持失败重试', tab: 'assertion' as const },
   { title: '批量导入接口', desc: 'cURL 粘贴即用，HAR 抓包文件、Swagger 文档批量导入', tab: null },
 ]
 </script>

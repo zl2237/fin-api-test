@@ -19,8 +19,11 @@
 - db_query_count_less_than      数据库查询行数小于期望
 - db_vs_jsonpath_equals         DB查询值 等于 响应JSON Path取值（DB值与响应值交叉校验）
 - db_vs_jsonpath_not_equals     DB查询值 不等于 响应JSON Path取值
+- response_sign_verify          响应验签：按 Fastjson2 规则重建待签串，RSA2 公钥校验
 
 DB 断言支持 retry_count / retry_interval 参数，用于应对异步落库场景。
+response_sign_verify 的密钥材料来自环境 cipher_config（执行器注入 cipher_ctx），
+密钥对名称解析顺序：断言 key > 接口加密配置的 key > 环境第一对。
 """
 import re
 import time
@@ -42,10 +45,14 @@ class AssertionEngine:
       占位取值失败 = 断言失败（原因可见）
     """
 
-    def __init__(self, registry: VariableRegistry, db_client=None, self_node: str = ""):
+    def __init__(self, registry: VariableRegistry, db_client=None, self_node: str = "",
+                 cipher_ctx: dict | None = None):
         self.registry = registry
         self.db_client = db_client
         self.self_node = self_node
+        # response_sign_verify 的密钥上下文：{"key_pairs": {名称: {public_key, private_key}},
+        # "default_key": 接口加密配置引用的密钥名}；由执行器按节点生效环境构建注入
+        self.cipher_ctx = cipher_ctx
 
     def _eval_expected(self, rule: dict, label: str):
         """期望值求值：spec → resolve_param；裸值常量。返回 (值, 失败原因)。"""
@@ -153,6 +160,9 @@ class AssertionEngine:
 
         if rule_type in ("db_vs_jsonpath_equals", "db_vs_jsonpath_not_equals"):
             return self._eval_db_vs_jsonpath_with_retry(response_body, rule, message)
+
+        if rule_type == "response_sign_verify":
+            return self._eval_response_sign(response_body, rule, message)
 
         return self._pack(False, "unknown", None, None, "未知断言类型: " + str(rule_type))
 
@@ -333,6 +343,62 @@ class AssertionEngine:
             "equal",
             message or f"DB值({db_value}) 与 响应值({json_value}) 不一致",
         )
+
+    def _eval_response_sign(self, response_body: Any, rule: dict, message: str) -> dict:
+        """响应验签（第 18 种断言）：加密/签名协议响应解密后含 sign/signType，
+        执行链路据实验签而非默认信任。
+
+        规则格式：
+        {
+            "type": "response_sign_verify",
+            "path": "$.data",        # 携带 sign/signType 的对象；缺省 $（整响应体）
+            "key": "customs"         # 密钥对名称；缺省按 接口加密配置 → 环境第一对
+        }
+        失败原因带重建待签原串（截断），排障不必回工具页重放。
+        """
+        rule_type = "response_sign_verify"
+        path = rule.get("path") or "$"
+        target = self._jsonpath_get(response_body, path)
+        if not isinstance(target, dict):
+            return self._pack(False, rule_type, None, "验签通过",
+                              message or f"路径 {path} 取到的不是 JSON 对象，无法重建待签原串")
+
+        ctx = self.cipher_ctx or {}
+        pairs = ctx.get("key_pairs") or {}
+        if not pairs:
+            return self._pack(False, rule_type, None, "验签通过",
+                              message or "环境未配置加密密钥对，请到「环境编辑 → 加密配置」录入验签公钥")
+        key_name = str(rule.get("key") or "").strip() or ctx.get("default_key") or next(iter(pairs))
+        pair = pairs.get(key_name)
+        if pair is None:
+            return self._pack(False, rule_type, None, "验签通过",
+                              message or f"环境未配置名为「{key_name}」的密钥对（断言 key / 接口加密配置"
+                                         "引用），请到「环境编辑 → 加密配置」核对")
+        public_material = pair.get("public_key")
+        if not public_material:
+            return self._pack(False, rule_type, None, "验签通过",
+                              message or f"密钥对「{key_name}」缺少公钥（验签用公钥），请到环境编辑补录")
+
+        sign = target.get("sign")
+        if not isinstance(sign, str) or not sign.strip():
+            return self._pack(False, rule_type, target.get("sign"), "验签通过",
+                              message or f"路径 {path} 对象中没有 sign 字段（或不是字符串），无法验签")
+
+        # 惰性导入：cipher_service 在 services 包，services.replay_service 反向引用本引擎，
+        # 顶层互转会成环；验签是可选能力，惰性导入顺带让无加密场景零开销
+        from ..services.cipher_service import canonicalize_callback, verify_callback_sign
+        try:
+            canonical, _ = canonicalize_callback(target)
+            passed = verify_callback_sign(target, sign, public_material)
+        except Exception as e:
+            return self._pack(False, rule_type, None, "验签通过", message or f"验签执行异常: {e}")
+        if passed:
+            return self._pack(True, rule_type, "签名匹配", "验签通过",
+                              message or f"RSA2 验签通过（密钥对「{key_name}」，待签对象 {path}）")
+        clip = canonical if len(canonical) <= 600 else canonical[:600] + "…(截断)"
+        return self._pack(False, rule_type, "签名不匹配", "验签通过",
+                          message or f"验签不通过：签名与重建原串不匹配（密钥对「{key_name}」）。"
+                                     f"待签原串: {clip}")
 
     def _inject_extracted(self, sql: str) -> tuple[str, str | None]:
         """{{节点.变量}} 占位渲染（旧 ${xxx} 废止）。失败返回 (sql, 失败原因)。"""

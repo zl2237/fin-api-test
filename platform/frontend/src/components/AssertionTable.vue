@@ -19,7 +19,19 @@
             v-if="needsJsonPath(row.type)"
             v-model="row.path"
             size="small"
-            placeholder="$.data.status"
+            :placeholder="pathPlaceholder(row.type)"
+          />
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <!-- 密钥对列仅响应验签使用；出现验签断言时才显示，不占常态宽度 -->
+      <el-table-column v-if="hasSignVerify" label="密钥对" width="140">
+        <template #default="{ row }">
+          <el-input
+            v-if="row.type === 'response_sign_verify'"
+            v-model="row.key"
+            size="small"
+            placeholder="留空按接口加密配置"
           />
           <span v-else class="muted">—</span>
         </template>
@@ -73,6 +85,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import ParamSourceBadge from '@/components/ParamSourceBadge.vue'
 import SqlCell from '@/components/SqlCell.vue'
 import type { RefVarGroup } from '@/components/VarRefSelect.vue'
@@ -90,6 +103,7 @@ const responseTypes = [
   { label: 'JSON Path 类型校验', value: 'json_path_type_equals' },
   { label: 'HTTP 状态码等于', value: 'response_status_equals' },
   { label: '响应时间小于(ms)', value: 'response_time_less_than' },
+  { label: '响应验签(RSA2)', value: 'response_sign_verify' },
 ]
 const dbTypes = [
   { label: 'DB 查询字段等于', value: 'db_query_equals' },
@@ -103,7 +117,7 @@ const dbTypes = [
 ]
 
 function needsJsonPath(type: string) {
-  return type.startsWith('json_path') || type.startsWith('db_vs_jsonpath')
+  return type.startsWith('json_path') || type.startsWith('db_vs_jsonpath') || type === 'response_sign_verify'
 }
 function needsSql(type: string) {
   return type.startsWith('db_query') || type.startsWith('db_vs_jsonpath')
@@ -112,7 +126,15 @@ function needsField(type: string) {
   return ['db_query_equals', 'db_query_not_equals', 'db_vs_jsonpath_equals', 'db_vs_jsonpath_not_equals'].includes(type)
 }
 function needsExpected(type: string) {
-  return !['json_path_exists', 'json_path_not_empty', 'db_query_not_empty', 'db_vs_jsonpath_equals', 'db_vs_jsonpath_not_equals'].includes(type)
+  return !['json_path_exists', 'json_path_not_empty', 'db_query_not_empty', 'db_vs_jsonpath_equals', 'db_vs_jsonpath_not_equals', 'response_sign_verify'].includes(type)
+}
+// 验签断言在场时显示「密钥对」列（列是表格级属性，按行集动态出现）
+const hasSignVerify = computed(() => (props.modelValue || []).some((r: any) => r?.type === 'response_sign_verify'))
+
+function pathPlaceholder(type: string) {
+  // 验签 path 指向携带 sign/signType 的对象（海关 410 在 $.data 下），与取值断言语义不同
+  if (type === 'response_sign_verify') return '$ 或 $.data（sign 所在对象）'
+  return '$.data.status'
 }
 
 function expectedPlaceholder(type: string) {
@@ -124,7 +146,7 @@ function expectedPlaceholder(type: string) {
 }
 
 function add() {
-  emit('update:modelValue', [...props.modelValue, { type: 'json_path_equals', path: '', sql: '', field: '', expected: '', message: '' }])
+  emit('update:modelValue', [...props.modelValue, { type: 'json_path_equals', path: '', sql: '', field: '', key: '', expected: '', message: '' }])
 }
 function remove(idx: number) {
   const next = [...props.modelValue]

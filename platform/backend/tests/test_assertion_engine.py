@@ -1,4 +1,4 @@
-"""assertion_engine 模块单测：17 种断言类型。"""
+"""assertion_engine 模块单测：18 种断言类型（response_sign_verify 见 test_response_sign_assert.py）。"""
 from app.engine.assertion_engine import AssertionEngine
 
 

@@ -28,7 +28,7 @@
           <span class="brand-name">Fin API Test</span>
         </div>
         <h1 class="brand-title">接口自动化测试平台</h1>
-        <p class="brand-slogan app-mono">DAG 可视化编排，17 种断言，一键执行报告</p>
+        <p class="brand-slogan app-mono">DAG 可视化编排，18 种断言，一键执行报告</p>
 
         <!-- 静态 DAG 品牌大图：本产品视觉识别符（画布同构，无动画） -->
         <svg class="brand-dag" viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img"
@@ -61,7 +61,7 @@
             <text x="69" y="227" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11" font-weight="600">GET</text>
             <text x="69" y="243" text-anchor="middle" fill="rgba(255,255,255,0.55)" font-size="9">/refund</text>
           </g>
-          <!-- 汇聚断言节点（产品核心：17 种校验） -->
+          <!-- 汇聚断言节点（产品核心：18 种校验） -->
           <g>
             <rect x="250" y="118" width="80" height="60" rx="2" fill="rgba(255,255,255,0.16)" stroke="#fff" stroke-width="1.3" />
             <path d="M272 148 l7 8 l14 -16" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />

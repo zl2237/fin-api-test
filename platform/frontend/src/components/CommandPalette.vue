@@ -66,6 +66,7 @@ import {
   type TestCase, type ApiDef, type Project, type DataSet, type Environment, type TestFile, type FieldDictionary,
 } from '@/api'
 import { useAppStore } from '@/stores'
+import { TOOLS } from '@/constants/tools'
 import { fuzzyMatch } from '@/utils/fuzzy'
 import { toPinyinInitials } from '@/utils/pinyin'
 import EmptyState from '@/components/EmptyState.vue'
@@ -197,7 +198,7 @@ const results = computed<CmdItem[]>(() => {
     if (!kw || score >= 0) scored.push({ item, score })
   }
   // 导航快捷项（首页置顶；顺序与侧边栏一致：工作流在前、准备项与管理沉底）
-  const navs: { title: string; path: string }[] = [
+  const navs: { title: string; path: string; sub?: string }[] = [
     { title: '首页', path: '/home' },
     { title: '项目管理', path: '/projects' },
     { title: '接口管理', path: '/apis' },
@@ -206,6 +207,9 @@ const results = computed<CmdItem[]>(() => {
     { title: '执行记录', path: '/executions' },
     { title: '环境配置', path: '/envs' },
     { title: '字段字典', path: '/dictionary' },
+    { title: '工具箱', path: '/tools' },
+    // 工具箱内各工具单独可搜（工具箱收纳后深一层，命令面板保住可达性）
+    ...TOOLS.map((t) => ({ title: t.name, path: t.path, sub: '工具箱' })),
     { title: '文件中心', path: '/files' },
   ]
   if (store.user?.role === 'admin') {
@@ -215,7 +219,7 @@ const results = computed<CmdItem[]>(() => {
   for (const n of navs) {
     const item: CmdItem = {
       key: 'nav-' + n.path, type: 'nav', title: '前往 ' + n.title,
-      sub: '页面导航', kindLabel: '导航',
+      sub: n.sub || '页面导航', kindLabel: '导航',
       action: () => { router.push(n.path); close() }
     }
     const score = scoreMatch(kw, item.title, item.sub)

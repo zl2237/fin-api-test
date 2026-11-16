@@ -191,7 +191,7 @@
             <div class="guide-links">
               <el-button text type="primary" @click="openGuide">六步上手流程</el-button>
               <el-button text type="primary" @click="store.openCoreCapability('expression')">表达式语法</el-button>
-              <el-button text type="primary" @click="store.openCoreCapability('assertion')">17 种断言</el-button>
+              <el-button text type="primary" @click="store.openCoreCapability('assertion')">18 种断言</el-button>
             </div>
             <div class="guide-kbd">
               <span><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> 全局搜索</span>

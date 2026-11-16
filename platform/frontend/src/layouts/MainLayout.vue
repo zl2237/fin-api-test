@@ -99,9 +99,11 @@
             <el-icon><Collection /></el-icon>
             <template #title><span>字段字典</span></template>
           </el-menu-item>
-          <el-menu-item index="/tools/callback-verify">
-            <el-icon><Lock /></el-icon>
-            <template #title><span>回调验签</span></template>
+          <!-- 工具箱：工具型功能收口（验签/时间戳/JSON/编解码等），新工具进
+               constants/tools.ts 注册，不再增侧边栏条目 -->
+          <el-menu-item index="/tools">
+            <el-icon><Suitcase /></el-icon>
+            <template #title><span>工具箱</span></template>
           </el-menu-item>
           <el-menu-item index="/files">
             <el-icon><Files /></el-icon>
@@ -384,7 +386,7 @@
   <!-- 全局命令面板（Ctrl+K） -->
   <CommandPalette ref="cmdPaletteRef" />
 
-  <!-- 核心能力详情弹窗：表达式引擎 / 17 种断言 / 数据集（状态来自全局 store，跨组件可触发） -->
+  <!-- 核心能力详情弹窗：表达式引擎 / 18 种断言 / 数据集（状态来自全局 store，跨组件可触发） -->
   <el-dialog
     v-model="store.coreCapVisible"
     :title="coreCapTitle"
@@ -461,10 +463,10 @@
         </div>
       </el-tab-pane>
 
-      <!-- ========== 17 种断言 ========== -->
-      <el-tab-pane label="17 种断言规则" name="assertion">
+      <!-- ========== 18 种断言 ========== -->
+      <el-tab-pane label="18 种断言规则" name="assertion">
         <div class="corecap-intro">
-          在节点配置的「断言」中添加规则。DB 类断言支持 <code>retry_count</code> 和 <code>retry_interval</code> 参数应对异步落库。
+          在节点配置的「断言」中添加规则。DB 类断言支持 <code>retry_count</code> 和 <code>retry_interval</code> 参数应对异步落库；加密接口的响应签名用「响应验签」在执行期校验。
         </div>
         <div class="corecap-group">
           <div class="corecap-group-title">JSONPath 响应断言（7 种）</div>
@@ -506,6 +508,18 @@
           <div class="corecap-group-title">DB 与响应交叉校验（2 种）</div>
           <div class="corecap-cards">
             <div v-for="a in assertionData.cross" :key="a.type" class="corecap-card">
+              <div class="corecap-card-head">
+                <code class="corecap-syntax">{{ a.type }}</code>
+                <span class="corecap-desc">{{ a.desc }}</span>
+              </div>
+              <div class="corecap-example">配置：{{ a.example }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="corecap-group">
+          <div class="corecap-group-title">响应签名验签（1 种）</div>
+          <div class="corecap-cards">
+            <div v-for="a in assertionData.sign" :key="a.type" class="corecap-card">
               <div class="corecap-card-head">
                 <code class="corecap-syntax">{{ a.type }}</code>
                 <span class="corecap-desc">{{ a.desc }}</span>
@@ -593,7 +607,7 @@
 import { onMounted, onBeforeUnmount, ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Key, Grid, QuestionFilled, Operation } from '@element-plus/icons-vue'
+import { Connection, Share, Setting, Histogram, UserFilled, SwitchButton, List, Folder, Files, Sunny, Moon, Monitor, Search, HomeFilled, ArrowRight, Lock, DataLine, Close, ArrowDown, Avatar, FullScreen, Check, Collection, Key, Grid, QuestionFilled, Operation, Suitcase } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores'
 import { useTabStore, type TabItem } from '@/stores/tabs'
 import { authApi } from '@/api'
@@ -616,22 +630,24 @@ const SQL_EXAMPLE = 'SELECT order_no FROM sys_order WHERE id = {{n_create.order_
 // 核心能力弹窗标题按 tab 映射（三个 tab 后不再用内联三元）
 const CORE_CAP_TITLES: Record<string, string> = {
   expression: '参数来源 · 四来源与内置函数',
-  assertion: '17 种断言规则 · 用法示例',
+  assertion: '18 种断言规则 · 用法示例',
   dataset: '数据集 · 用法',
 }
 const coreCapTitle = computed(() => CORE_CAP_TITLES[store.coreCapTab] || CORE_CAP_TITLES.expression)
+// （18 种断言 = 7 JSONPath + 2 HTTP + 6 DB + 2 交叉 + 1 验签，与后端 assertion_engine.py 对齐）
 
-// 侧边菜单项（与模板 el-menu-item index 一一对应，供子路由激活态前缀匹配）
+// 侧边菜单项（与模板 el-menu-item index 一一对应，供子路由激活态前缀匹配）；
+// '/tools' 按段前缀覆盖全部工具子页（/tools/xxx 激活「工具箱」）
 const MENU_PATHS = [
   '/apis', '/cases', '/datasets', '/plans', '/executions',
-  '/projects', '/envs', '/dictionary', '/tools/callback-verify', '/files', '/api-keys',
+  '/projects', '/envs', '/dictionary', '/tools', '/files', '/api-keys',
   '/users', '/operation-logs',
 ]
 // 子路由（如 /envs/edit/:id）下按段前缀匹配激活父菜单，避免导航上下文丢失
 const menuActive = computed(() => resolveMenuActive(route.path, MENU_PATHS))
 // 低频系统组路径——挂载时当前页在此列则默认展开 system 组，否则展开工作台
 // （default-openeds 仅初始生效，之后的展开/收起交给用户，unique-opened 同时只开一组）
-const SYSTEM_MENU_PATHS = ['/projects', '/envs', '/dictionary', '/tools/callback-verify', '/files', '/api-keys', '/users', '/operation-logs']
+const SYSTEM_MENU_PATHS = ['/projects', '/envs', '/dictionary', '/tools', '/files', '/api-keys', '/users', '/operation-logs']
 const activeMenuGroup = computed(() =>
   SYSTEM_MENU_PATHS.some((p) => route.path.startsWith(p)) ? 'system' : 'workbench',
 )
@@ -671,7 +687,7 @@ const expressionData = {
   ],
 }
 
-// 17 种断言数据：与后端 assertion_engine.py 对齐
+// 18 种断言数据：与后端 assertion_engine.py 对齐
 const assertionData = {
   jsonpath: [
     { type: 'json_path_equals', desc: 'JSONPath 取值等于期望', example: "{type:'json_path_equals', path:'$.data.status', expected:'success'}" },
@@ -697,6 +713,9 @@ const assertionData = {
   cross: [
     { type: 'db_vs_jsonpath_equals', desc: 'DB 值等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_equals', sql:'SELECT status FROM sys_order WHERE bl_no=\\'{{n_create.bl_no}}\\'', field:'status', path:'$.data.status'}" },
     { type: 'db_vs_jsonpath_not_equals', desc: 'DB 值不等于响应 JSONPath 取值', example: "{type:'db_vs_jsonpath_not_equals', sql:'...', field:'status', path:'$.data.status'}" },
+  ],
+  sign: [
+    { type: 'response_sign_verify', desc: '响应验签：按 Fastjson2 规则重建待签串，用环境密钥库公钥做 RSA2 校验；失败原因带重建原串', example: "{type:'response_sign_verify', path:'$.data', key:'customs'}（path 指向 sign 所在对象，缺省 $；key 留空按接口加密配置→环境第一对）" },
   ],
 }
 // 侧边栏折叠状态：localStorage 记忆，默认展开

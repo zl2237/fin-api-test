@@ -299,6 +299,13 @@
                 <div class="section-title">
                   响应体
                   <el-button
+                    v-if="signVerifyTarget"
+                    text
+                    size="small"
+                    class="json-expand-btn"
+                    @click="goCallbackVerify"
+                  >去验签…</el-button>
+                  <el-button
                     v-if="currentStep.response_body != null && typeof currentStep.response_body === 'object'"
                     text
                     size="small"
@@ -465,6 +472,7 @@ import EnvBadge from '@/components/EnvBadge.vue'
 import StepTrendChart from '@/components/StepTrendChart.vue'
 import BurstFx from '@/components/BurstFx.vue'
 import { execApi, caseApi, type ExecutionRecord, type StepRecord } from '@/api'
+import { CALLBACK_PREFILL_KEY } from '@/constants/tools'
 import { generateReportFilename } from '@/utils/reportFilename'
 import { execStatusType as stepType, execStatusText as statusText } from '@/utils/format'
 import { useExecutionRunner } from '@/composables/useExecutionRunner'
@@ -745,6 +753,33 @@ function retryErrBrief(err: string): string {
 }
 
 /** 加密传输密文展示截断：Base64 密文动辄数 KB，pre 里只放前 2000 字符 */
+// ===== 去验签：响应体含签名协议字段（根或 $.data 下有字符串 sign）时的一键跳转 =====
+// 报文经 sessionStorage 交接（query 传长 JSON 会顶 URL 上限）；验签页读后即焚
+const signVerifyTarget = computed<{ where: string; payload: Record<string, any> } | null>(() => {
+  const body = currentStep.value?.response_body
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+  const candidates: [string, Record<string, any>][] = [
+    ['响应体', body as Record<string, any>],
+    ['$.data', (body as Record<string, any>).data],
+  ]
+  for (const [where, obj] of candidates) {
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)
+        && typeof (obj as Record<string, any>).sign === 'string'
+        && (obj as Record<string, any>).sign) {
+      return { where, payload: obj as Record<string, any> }
+    }
+  }
+  return null
+})
+
+function goCallbackVerify() {
+  const target = signVerifyTarget.value
+  if (!target) return
+  sessionStorage.setItem(CALLBACK_PREFILL_KEY, JSON.stringify(target.payload))
+  router.push('/tools/callback-verify')
+  ElMessage.success(`已带入${target.where === '响应体' ? '' : ` ${target.where} 的`}签名报文，到验签页选环境后校验`)
+}
+
 function truncateCipher(cipher: string): string {
   return cipher.length > 2000 ? `${cipher.slice(0, 2000)}\n…（共 ${cipher.length} 字符，已截断）` : cipher
 }

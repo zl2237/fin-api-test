@@ -30,6 +30,7 @@ from .. import (
     path_setup,  # noqa: F401
 )
 from ..crud.executions import touch_case_last_exec
+from ..services.cipher_service import build_assertion_cipher_ctx
 from ..services.contract_sync import node_contract_gaps
 from ..services.notifier import send_notify
 from ..services.request_sender import send_request
@@ -457,6 +458,7 @@ class DagExecutor:
 
     def _extract_and_assert(self, node_id: str, config, response_data,
                             status_code: int, elapsed: int, db_client: Any = None,
+                            cipher_ctx: dict | None = None,
                             ) -> tuple[dict, list[dict], bool]:
         """后置提取 → 断言（正常执行与续跑重放两条路径共享的收尾）。
 
@@ -476,7 +478,8 @@ class DagExecutor:
                                                self.context.registry, node_id)
         extract_failed = any(is_extract_error(v) for v in extracted.values())
         if config and config.assertions:
-            engine = AssertionEngine(self.context.registry, eff_db, self_node=node_id)
+            engine = AssertionEngine(self.context.registry, eff_db, self_node=node_id,
+                                     cipher_ctx=cipher_ctx)
             assertion_results = engine.evaluate_all(response_data, status_code, elapsed,
                                                     config.assertions)
         tail_passed = not extract_failed and all(r["pass"] for r in assertion_results)
@@ -585,6 +588,10 @@ class DagExecutor:
             ))
             return False, 0
 
+        # 响应验签断言的密钥上下文：按节点生效环境（跨系统节点用其系统环境的密钥库）
+        # + 接口加密配置的默认密钥名构建；环境无密钥对 → None（断言按配置缺失报指引）
+        cipher_ctx = build_assertion_cipher_ctx(node_env, api)
+
         # 0. 断点续跑·提取重放：上次请求已成功（响应快照可用），本次不发请求，
         #    直接用快照响应 + 当前配置重跑后置提取与断言；本节点入参也按快照
         #    回放进命名空间（执行期注册发生在组装请求，重放跳过了该步）
@@ -595,7 +602,8 @@ class DagExecutor:
             for path, val in iter_replay_paths(body):
                 self.context.registry.write(node_id, path, val)
             extracted, assertion_results, tail_passed = self._extract_and_assert(
-                node_id, config, response_data, status_code, elapsed, db_client=node_db)
+                node_id, config, response_data, status_code, elapsed, db_client=node_db,
+                cipher_ctx=cipher_ctx)
             self.sink.record_step(self._step_event(
                 execution_id, node_id, api.name, api.path, api.method, started_at, config,
                 request_headers=headers, request_body=body,
@@ -669,7 +677,8 @@ class DagExecutor:
             # 成功 / 断言路径 / 重试额度耗尽：提取与断言后收尾
             # 3~4. 后置提取 → 断言（与续跑重放共享收尾；提取失败判负口径见其注释）
             extracted, assertion_results, tail_passed = self._extract_and_assert(
-                node_id, config, response_data, status_code, elapsed, db_client=node_db)
+                node_id, config, response_data, status_code, elapsed, db_client=node_db,
+                cipher_ctx=cipher_ctx)
             step_passed = (err is None) and tail_passed
             break
 

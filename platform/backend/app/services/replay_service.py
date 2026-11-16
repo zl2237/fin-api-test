@@ -27,6 +27,7 @@ from ..engine.report_context import build_report_context
 from ..engine.type_coercer import apply_field_types, coerce_json_strings
 from ..engine.variables import VariableRegistry
 from ..services.body_builder import pop_file_fields_from_body
+from ..services.cipher_service import build_assertion_cipher_ctx
 from ..services.request_sender import send_request
 from ..services.runtime_service import build_db_client, build_http_client, login
 
@@ -115,11 +116,12 @@ def replay_step_once(db: Session, user: models.User, step_id: int,
             extracted = extractor.extract(response_data, extract_rules,
                                           replay_registry, step.node_id or "")
 
-        # 同口径断言（规则取当前节点配置）
+        # 同口径断言（规则取当前节点配置；验签断言的密钥上下文与执行链路同源）
         assertion_results: list[dict] = []
         if assertion_rules:
             engine = AssertionEngine(replay_registry, build_db_client(env),
-                                     self_node=step.node_id or "")
+                                     self_node=step.node_id or "",
+                                     cipher_ctx=build_assertion_cipher_ctx(env, api))
             assertion_results = engine.evaluate_all(response_data, status_code, elapsed, assertion_rules)
         passed = (error_msg is None) and all(r["pass"] for r in assertion_results)
 

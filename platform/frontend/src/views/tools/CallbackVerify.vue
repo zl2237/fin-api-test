@@ -89,15 +89,31 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import { envApi } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import CopyBtn from '@/components/CopyBtn.vue'
+import { CALLBACK_PREFILL_KEY } from '@/constants/tools'
 import { useAppStore } from '@/stores'
 
 const store = useAppStore()
+
+// 报告页「去验签」交接：sessionStorage 带入响应体报文（读后即焚）
+onMounted(() => {
+  const prefill = sessionStorage.getItem(CALLBACK_PREFILL_KEY)
+  if (prefill) {
+    sessionStorage.removeItem(CALLBACK_PREFILL_KEY)
+    try {
+      const obj = JSON.parse(prefill)
+      if (obj && typeof obj === 'object') {
+        payloadText.value = JSON.stringify(obj, null, 2)
+        ElMessage.success('已带入报告响应体，选择环境后点「验签」')
+      }
+    } catch { /* 交接内容损坏则忽略，手工粘贴 */ }
+  }
+})
 
 const envId = ref<number | null>(null)
 const keyName = ref('')

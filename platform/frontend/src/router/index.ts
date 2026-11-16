@@ -25,7 +25,16 @@ const routes = [
       { path: 'executions', name: 'Execution', component: () => import('@/views/Execution.vue'), meta: { title: '执行记录' } },
       { path: 'reports/:id', name: 'ReportDetail', component: () => import('@/views/ReportDetail.vue'), meta: { title: '执行报告' } },
       { path: 'dictionary', name: 'DictManage', component: () => import('@/views/DictManage.vue'), meta: { title: '字段字典' } },
-      { path: 'tools/callback-verify', name: 'CallbackVerify', component: () => import('@/views/CallbackVerify.vue'), meta: { title: '回调验签' } },
+      // 工具箱：工具型功能收口（索引页 + 各工具子页），新工具进 constants/tools.ts 注册，
+      // 不再增侧边栏条目；回调验签路由路径保持不变（文档/报告引用不破链）
+      { path: 'tools', name: 'Toolbox', component: () => import('@/views/tools/Toolbox.vue'), meta: { title: '工具箱' } },
+      { path: 'tools/callback-verify', name: 'CallbackVerify', component: () => import('@/views/tools/CallbackVerify.vue'), meta: { title: '回调验签' } },
+      { path: 'tools/timestamp', name: 'TimestampTool', component: () => import('@/views/tools/TimestampTool.vue'), meta: { title: '时间戳转换' } },
+      { path: 'tools/json', name: 'JsonTool', component: () => import('@/views/tools/JsonTool.vue'), meta: { title: 'JSON 格式化' } },
+      { path: 'tools/codec', name: 'CodecTool', component: () => import('@/views/tools/CodecTool.vue'), meta: { title: '编解码' } },
+      { path: 'tools/hash', name: 'HashTool', component: () => import('@/views/tools/HashTool.vue'), meta: { title: '哈希计算' } },
+      { path: 'tools/uuid', name: 'UuidTool', component: () => import('@/views/tools/UuidTool.vue'), meta: { title: 'UUID 生成' } },
+      { path: 'tools/jwt', name: 'JwtTool', component: () => import('@/views/tools/JwtTool.vue'), meta: { title: 'JWT 解码' } },
       { path: 'files', name: 'FileCenter', component: () => import('@/views/FileCenter.vue'), meta: { title: '文件中心' } },
       { path: 'api-keys', name: 'ApiKeys', component: () => import('@/views/ApiKeys.vue'), meta: { title: 'API 密钥' } },
       { path: 'users', name: 'UserManage', component: () => import('@/views/UserManage.vue'), meta: { title: '用户管理', requireAdmin: true } },

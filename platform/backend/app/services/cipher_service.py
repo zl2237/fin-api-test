@@ -282,3 +282,22 @@ def verify_callback_sign(payload: dict, sign: str, public_material: str) -> bool
         return True
     except InvalidSignature:
         return False
+
+
+def build_assertion_cipher_ctx(env: Any, api: Any = None) -> dict | None:
+    """response_sign_verify 断言的密钥上下文：环境密钥对表 + 接口加密配置的默认密钥名。
+
+    duck-typing 取属性（不引模型，测试替身可直接传 SimpleNamespace/dict 包装）；
+    环境一个密钥对都没有 → None（断言按「环境未配置密钥对」失败并给指引，
+    与工具页口径一致）。默认密钥名解析顺序：接口请求加密 key > 响应解密 key；
+    两者皆无时断言侧回落「第一对」（与工具页留空语义一致，由断言引擎处理）。
+    """
+    pairs = key_pairs_from_config(getattr(env, "cipher_config", None))
+    if not pairs:
+        return None
+    cc = getattr(api, "crypto_config", None) if api is not None else None
+    cc = cc or {}
+    default_key = ((cc.get("request") or {}).get("key")
+                   or (cc.get("response") or {}).get("key")
+                   or None)
+    return {"key_pairs": pairs, "default_key": default_key}
