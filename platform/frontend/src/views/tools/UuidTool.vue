@@ -1,5 +1,5 @@
 <template>
-  <ToolPage title="UUID 生成" sub="v4 随机 UUID 批量生成（crypto 随机源）">
+  <ToolPage title="UUID 生成">
     <div class="uuid-toolbar">
       <span class="lbl">数量</span>
       <el-input-number v-model="count" :min="1" :max="200" size="small" />

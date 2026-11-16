@@ -1,5 +1,5 @@
 <template>
-  <ToolPage title="时间戳转换" sub="Unix 秒/毫秒/微秒 ↔ 日期时间互转，多格式对照">
+  <ToolPage title="时间戳转换">
     <!-- 当前时间：常驻参照 -->
     <div class="now-row">
       <div class="now-item">
@@ -47,7 +47,6 @@
           </div>
         </template>
         <el-alert v-else-if="dateInput" type="warning" :closable="false" show-icon :title="dateParsed.reason || '无法解析'" />
-        <p class="hint">支持 2026-11-16、2026-11-16 10:30、2026-11-16 10:30:00 及 ISO 格式；无时区后缀按本地时区，Z / +08:00 按显式时区。</p>
       </div>
     </div>
   </ToolPage>
@@ -162,11 +161,5 @@ const dateRows = computed(() => {
 }
 .mono-input :deep(.el-input__inner) {
   font-family: var(--app-font-mono, Consolas, monospace);
-}
-.hint {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 1.6;
 }
 </style>

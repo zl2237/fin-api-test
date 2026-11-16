@@ -1,5 +1,5 @@
 <template>
-  <ToolPage title="JWT 解码" sub="解码 header / payload，时间声明转可读——仅解码，不校验签名">
+  <ToolPage title="JWT 解码" sub="仅解码，不校验签名">
     <el-input
       v-model="token"
       type="textarea"
@@ -33,7 +33,6 @@
           </el-table-column>
         </el-table>
       </div>
-      <p class="hint">仅解码不验签：签名是否有效需持有对应密钥验证（平台内 RSA 回调验签请用「回调验签」工具）。</p>
     </template>
     <EmptyState v-else-if="!error" description="粘贴 JWT 后自动解码" :image-size="50" />
   </ToolPage>
@@ -130,10 +129,4 @@ const timeClaims = computed(() => {
   margin-top: 14px;
 }
 .mono { font-family: var(--app-font-mono, Consolas, monospace); }
-.hint {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 1.6;
-}
 </style>

@@ -4,7 +4,6 @@
       <template #header>
         <div class="card-head">
           <span class="title">工具箱</span>
-          <span class="sub">无状态小工具收口于此；资源管理（项目/环境/字典等）在「系统管理」</span>
         </div>
       </template>
       <div class="tool-grid">
@@ -60,10 +59,6 @@ const router = useRouter()
   font-size: 15px;
   font-weight: 600;
   color: var(--app-text);
-}
-.card-head .sub {
-  font-size: 12px;
-  color: var(--app-text-muted);
 }
 .tool-grid {
   display: grid;

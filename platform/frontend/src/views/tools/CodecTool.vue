@@ -1,5 +1,5 @@
 <template>
-  <ToolPage title="编解码" sub="URL / Base64，UTF-8 安全（中文不炸）">
+  <ToolPage title="编解码">
     <el-tabs v-model="tab">
       <el-tab-pane label="URL" name="url">
         <div class="codec-row">
@@ -38,7 +38,6 @@
             <el-input v-else :model-value="b64Out" type="textarea" :rows="9" class="mono-input" readonly />
           </div>
         </div>
-        <p class="hint">URL-safe 变体用于 JWT / 部分网关签名场景（+ → -、/ → _、去 = 填充）。</p>
       </el-tab-pane>
     </el-tabs>
   </ToolPage>
@@ -120,12 +119,6 @@ function onB64Decode() {
 .mono-input :deep(.el-textarea__inner) {
   font-family: var(--app-font-mono, Consolas, monospace);
   font-size: 12px;
-  line-height: 1.6;
-}
-.hint {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: var(--app-text-muted);
   line-height: 1.6;
 }
 </style>

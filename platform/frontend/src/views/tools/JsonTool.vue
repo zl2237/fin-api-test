@@ -1,5 +1,5 @@
 <template>
-  <ToolPage title="JSON 格式化" sub="格式化 / 压缩 / 校验，错误定位行列；键排序用于验签原串排查">
+  <ToolPage title="JSON 格式化">
     <div class="json-toolbar">
       <el-radio-group v-model="mode" size="small">
         <el-radio-button value="format">格式化</el-radio-button>
@@ -10,7 +10,7 @@
         <el-option label="4 空格" :value="4" />
         <el-option label="Tab" :value="'\t'" />
       </el-select>
-      <el-checkbox v-model="sortKeys" size="small">递归键排序</el-checkbox>
+      <el-checkbox v-model="sortKeys" size="small">键排序</el-checkbox>
       <div class="grow" />
       <el-button size="small" type="primary" @click="run">转换</el-button>
       <el-button size="small" @click="onClear">清空</el-button>
@@ -29,7 +29,6 @@
         <EmptyState v-else description="输入 JSON 后点「转换」" :image-size="50" />
       </div>
     </div>
-    <p class="hint">「递归键排序」按码点字典序重排所有层级的键——与回调验签的 Fastjson2 规范化同口径，比对待签原串时先把两份报文都排序可快速定位字段差异。</p>
   </ToolPage>
 </template>
 
@@ -111,11 +110,5 @@ function onClear() {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
-}
-.hint {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  line-height: 1.6;
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <ToolPage title="哈希计算" sub="MD5 / SHA-1 / SHA-256 / SHA-512，输入即算（UTF-8 口径与后端 md5() 一致）">
+  <ToolPage title="哈希计算">
     <el-input
       v-model="text"
       type="textarea"

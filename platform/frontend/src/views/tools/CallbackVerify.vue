@@ -4,10 +4,7 @@
       <template #header>
         <div class="card-head">
           <span class="title">回调验签工具</span>
-          <span class="sub">
-            粘贴对方推送的完整回调报文（含 sign/signType），按 Fastjson2 字典序规则重建待签原串，
-            用所选环境「加密配置」里的公钥做 RSA2（SHA256withRSA）验签
-          </span>
+          <span class="sub">粘贴完整回调报文（含 sign/signType），环境公钥 RSA2 验签</span>
         </div>
       </template>
 
