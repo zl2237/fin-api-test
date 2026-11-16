@@ -106,8 +106,15 @@ def login(client: HttpClient, env) -> None:
       → ddddocr OCR 识别 → 填入表单该字段后提交（同会话保证验证码与登录请求绑定）
     - captcha_retry：识别错误自动重试次数，默认 3（每次重试取新验证码图）
     - ddddocr 缺失时降级：不取图不填码，字段保持 login_body 原值
+
+    免登录开关（login_config.enabled，2026-11-16）：显式 False = 本环境跳过登录
+    （网关直连的第三方接口等）；存量数据无此键 = 启用（向后兼容）。关闭时
+    登录配置原样保留，重新开启即恢复。
     """
     login_cfg: dict[str, Any] = env.login_config or {}
+    # 免登录：显式关闭即整体跳过（配置保留；环境级 token 缓存也不参与）
+    if login_cfg.get("enabled") is False:
+        return
     login_path = login_cfg.get("login_path", "/api/home/login/userLogin")
     login_body = login_cfg.get("login_body")
     token_jsonpath = login_cfg.get("token_jsonpath", "$.data.token")

@@ -650,3 +650,36 @@ class TestBuildDbClient:
         assert client.user == ""
         assert client.password == ""
         assert client.database == ""
+
+
+class TestLoginEnabledToggle:
+    """免登录开关（login_config.enabled）：显式 False 整体跳过登录，
+    配置齐全也不发请求；无此键（存量）行为不变。"""
+
+    def _filled_cfg(self, **over):
+        cfg = {"login_path": "/api/login", "login_body": {"username": "u", "password": "p"},
+               "token_jsonpath": "$.data.token", "auth_header_name": "Authorization"}
+        cfg.update(over)
+        return cfg
+
+    def test_disabled_skips_login_entirely(self):
+        env = _env(login_config=self._filled_cfg(enabled=False))
+        client = FakeClient()
+        runtime_service.login(client, env)
+        assert client.post_calls == []          # 零登录请求
+        assert client.set_header_calls == []    # 无占位/鉴权头注入
+        assert client.refresh_callback is None  # 未注册刷新回调
+
+    def test_enabled_by_default_login_proceeds(self):
+        # 存量数据无 enabled 键 = 启用：正常走登录编排（FakeClient 返回 token）
+        env = _env(login_config=self._filled_cfg())
+        client = FakeClient(post_resp={"data": {"token": "T-1"}})
+        runtime_service.login(client, env)
+        assert client.post_calls == [("/api/login", {"username": "u", "password": "p"})]
+        assert client.headers.get("Authorization") == "T-1"
+
+    def test_enabled_true_login_proceeds(self):
+        env = _env(login_config=self._filled_cfg(enabled=True))
+        client = FakeClient(post_resp={"data": {"token": "T-2"}})
+        runtime_service.login(client, env)
+        assert client.headers.get("Authorization") == "T-2"

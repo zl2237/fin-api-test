@@ -99,105 +99,114 @@
           </div>
         </div>
 
-        <!-- 登录配置 -->
+        <!-- 登录配置（enabled 开关：免登录环境关闭即跳过登录，关联表单整体隐藏） -->
         <div class="card-section">
           <div class="section-head">
             <span class="title">登录配置</span>
-            <span class="grow" />
-            <el-tooltip v-if="!isEdit" content="保存后可测试登录" placement="top">
-              <el-button size="small" disabled>测试登录</el-button>
-            </el-tooltip>
-            <el-button v-else size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
-          </div>
-          <div class="form-grid">
-            <el-form-item label="登录接口路径" class="col-2">
-              <el-input v-model="formData.login_config.login_path" placeholder="/api/home/login/userLogin" />
-            </el-form-item>
-            <el-form-item>
-              <template #label>
-                登录方式
-                <el-tooltip content="Token 型登录后注入鉴权头；Session 型登录后靠 Cookie 会话保持" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
-              </template>
-              <el-radio-group v-model="formData.login_config.login_mode">
-                <el-radio-button value="token">Token 注入</el-radio-button>
-                <el-radio-button value="session">Session Cookie</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="提交格式">
-              <el-radio-group v-model="formData.login_config.login_content_type">
-                <el-radio-button value="json">JSON</el-radio-button>
-                <el-radio-button value="form">表单</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item class="span-all">
-              <template #label>
-                登录请求体
-                <el-tooltip content="表单模式按 urlencoded 提交，键可含中括号（如 data[username]）" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
-              </template>
-              <KeyValueTable
-                v-model="formData.login_config.login_body"
-                key-placeholder="字段名"
-                value-placeholder="字段值"
-                value-type="textarea"
-              />
-            </el-form-item>
-          </div>
-
-          <div class="group-title">
-            验证码自动识别
-            <el-switch v-model="captchaEnabled" size="small" />
-            <el-tooltip content="登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试；需后端安装 ddddocr" placement="top">
+            <el-switch v-model="formData.login_config.enabled" size="small" class="title-switch"
+              aria-label="启用登录" />
+            <el-tooltip content="免登录环境（如网关直连的第三方接口）关闭即跳过登录；配置保留不丢，重新开启即恢复" placement="top">
               <el-icon class="lbl-help"><QuestionFilled /></el-icon>
             </el-tooltip>
+            <span class="grow" />
+            <template v-if="formData.login_config.enabled">
+              <el-tooltip v-if="!isEdit" content="保存后可测试登录" placement="top">
+                <el-button size="small" disabled>测试登录</el-button>
+              </el-tooltip>
+              <el-button v-else size="small" :loading="testingLogin" @click="onTestLogin">测试登录</el-button>
+            </template>
           </div>
-          <div v-if="captchaEnabled" class="form-grid">
-            <el-form-item label="图片地址" required class="col-2">
-              <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
-            </el-form-item>
-            <el-form-item label="字段名" required>
-              <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
-            </el-form-item>
-            <el-form-item>
-              <template #label>
-                识别重试
-                <el-tooltip content="识别错误自动换图重试；难识别可调大" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
-              </template>
-              <el-input-number v-model="formData.login_config.captcha_retry" :min="1" :max="20" :step="1" step-strictly controls-position="right" />
-            </el-form-item>
-          </div>
+          <template v-if="formData.login_config.enabled">
+            <div class="form-grid">
+              <el-form-item label="登录接口路径" class="col-2">
+                <el-input v-model="formData.login_config.login_path" placeholder="/api/home/login/userLogin" />
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  登录方式
+                  <el-tooltip content="Token 型登录后注入鉴权头；Session 型登录后靠 Cookie 会话保持" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                </template>
+                <el-radio-group v-model="formData.login_config.login_mode">
+                  <el-radio-button value="token">Token 注入</el-radio-button>
+                  <el-radio-button value="session">Session Cookie</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="提交格式">
+                <el-radio-group v-model="formData.login_config.login_content_type">
+                  <el-radio-button value="json">JSON</el-radio-button>
+                  <el-radio-button value="form">表单</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item class="span-all">
+                <template #label>
+                  登录请求体
+                  <el-tooltip content="表单模式按 urlencoded 提交，键可含中括号（如 data[username]）" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                </template>
+                <KeyValueTable
+                  v-model="formData.login_config.login_body"
+                  key-placeholder="字段名"
+                  value-placeholder="字段值"
+                  value-type="textarea"
+                />
+              </el-form-item>
+            </div>
 
-          <template v-if="formData.login_config.login_mode === 'token'">
-            <div class="group-title">Token 注入<span>Token 模式</span></div>
-            <div class="form-grid">
-              <el-form-item label="Token JSONPath">
-                <el-input v-model="formData.login_config.token_jsonpath" placeholder="$.data.token" />
+            <div class="group-title">
+              验证码自动识别
+              <el-switch v-model="captchaEnabled" size="small" />
+              <el-tooltip content="登录前经同一会话取验证码图 → OCR 识别 → 自动填入该字段提交；识别错误自动换图重试；需后端安装 ddddocr" placement="top">
+                <el-icon class="lbl-help"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </div>
+            <div v-if="captchaEnabled" class="form-grid">
+              <el-form-item label="图片地址" required class="col-2">
+                <el-input v-model="formData.login_config.captcha_url" placeholder="/Public/verify.html" />
               </el-form-item>
-              <el-form-item label="Header 名称">
-                <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
+              <el-form-item label="字段名" required>
+                <el-input v-model="formData.login_config.captcha_field" placeholder="data[verify]" />
               </el-form-item>
-              <el-form-item class="col-2">
+              <el-form-item>
                 <template #label>
-                  鉴权头值模板
-                  <el-tooltip content="支持 ${token} 与 ${timestamp} 占位符，例：Bearer ${token}；留空等价于 ${token}" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                  识别重试
+                  <el-tooltip content="识别错误自动换图重试；难识别可调大" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
                 </template>
-                <el-input v-model="formData.login_config.auth_header_value_template" placeholder="${token}" />
+                <el-input-number v-model="formData.login_config.captcha_retry" :min="1" :max="20" :step="1" step-strictly controls-position="right" />
               </el-form-item>
             </div>
-          </template>
-          <template v-else>
-            <div class="group-title">登录成功校验<span>Session 模式 · 选填</span></div>
-            <div class="form-grid">
-              <el-form-item class="col-2">
-                <template #label>
-                  成功校验路径
-                  <el-tooltip content="两项都填才生效：响应中该路径的值等于期望值才算登录成功；留空仅校验 HTTP 200。Cookie 自动保持到后续请求" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
-                </template>
-                <el-input v-model="formData.login_config.login_check_jsonpath" placeholder="$.code" />
-              </el-form-item>
-              <el-form-item label="期望值" class="col-2">
-                <el-input v-model="formData.login_config.login_check_value" placeholder="success" />
-              </el-form-item>
-            </div>
+
+            <template v-if="formData.login_config.login_mode === 'token'">
+              <div class="group-title">Token 注入<span>Token 模式</span></div>
+              <div class="form-grid">
+                <el-form-item label="Token JSONPath">
+                  <el-input v-model="formData.login_config.token_jsonpath" placeholder="$.data.token" />
+                </el-form-item>
+                <el-form-item label="Header 名称">
+                  <el-input v-model="formData.login_config.auth_header_name" placeholder="Authorization" />
+                </el-form-item>
+                <el-form-item class="col-2">
+                  <template #label>
+                    鉴权头值模板
+                    <el-tooltip content="支持 ${token} 与 ${timestamp} 占位符，例：Bearer ${token}；留空等价于 ${token}" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                  </template>
+                  <el-input v-model="formData.login_config.auth_header_value_template" placeholder="${token}" />
+                </el-form-item>
+              </div>
+            </template>
+            <template v-else>
+              <div class="group-title">登录成功校验<span>Session 模式 · 选填</span></div>
+              <div class="form-grid">
+                <el-form-item class="col-2">
+                  <template #label>
+                    成功校验路径
+                    <el-tooltip content="两项都填才生效：响应中该路径的值等于期望值才算登录成功；留空仅校验 HTTP 200。Cookie 自动保持到后续请求" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                  </template>
+                  <el-input v-model="formData.login_config.login_check_jsonpath" placeholder="$.code" />
+                </el-form-item>
+                <el-form-item label="期望值" class="col-2">
+                  <el-input v-model="formData.login_config.login_check_value" placeholder="success" />
+                </el-form-item>
+              </div>
+            </template>
           </template>
         </div>
 
@@ -400,6 +409,7 @@ interface EnvFormData {
   is_default: boolean
   db_config: { host: string; port: number; user: string; password: string; database: string }
   login_config: {
+    enabled: boolean
     login_path: string
     login_body: Record<string, any>
     login_mode: string
@@ -449,6 +459,7 @@ const formData = reactive<EnvFormData>({
   is_default: false,
   db_config: { host: '', port: 3306, user: '', password: '', database: '' },
   login_config: {
+    enabled: true,
     login_path: '/api/home/login/userLogin',
     login_body: {},
     login_mode: 'token',
@@ -523,6 +534,8 @@ async function loadEnv() {
   // login_config（测试数据来源唯一为数据集，环境不提供变量）
   const lc = env.login_config || {}
   formData.login_config = {
+    // 免登录开关：存量数据无此键 = 启用（向后兼容）
+    enabled: lc.enabled ?? true,
     login_path: lc.login_path || '/api/home/login/userLogin',
     login_body: lc.login_body || {},
     login_mode: lc.login_mode || 'token',

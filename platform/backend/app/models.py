@@ -92,7 +92,7 @@ class Environment(Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False, comment="环境名称：dev/test/pre/prod")
     base_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="接口基础地址，如 https://api.example.com")
     db_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="MySQL 连接配置：{host, port, user, password, database}")
-    login_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="登录配置：{login_path, login_body, token_jsonpath, auth_header_name}")
+    login_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="登录配置：{enabled(缺省true=启用，false=免登录跳过), login_path, login_body, token_jsonpath, auth_header_name}")
     notify_config: Mapped[Any] = mapped_column(JSON, default=dict, comment="通知配置：{wecom_webhook, enable_on_failure, enable_on_success, email:{smtp_host, smtp_port, use_ssl, from_addr, auth_code, recipients[], enable_on_failure, enable_on_success}}")
     variables: Mapped[Any] = mapped_column(JSON, default=dict, comment="已退役：原业务变量（测试数据来源已统一为数据集变量池，不再注入执行变量池）")
     common_headers: Mapped[Any] = mapped_column(JSON, default=dict, comment="公共请求头，每个接口请求都会携带")

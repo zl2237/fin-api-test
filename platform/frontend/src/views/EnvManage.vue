@@ -220,6 +220,8 @@ function dbTag(cfg: any): { type: 'success' | 'warning' | 'info'; text: string }
 }
 
 function loginTag(cfg: any): { type: 'success' | 'warning' | 'info'; text: string } {
+  // 免登录（显式关闭）：与「无」「未完成」区分——这是配置决策而非缺失
+  if (cfg?.enabled === false) return { type: 'info', text: '免登录' }
   if (!cfg) return { type: 'info', text: '无' }
   // login_body 的每个 value 也必须非空才算填完
   const bodyEntries = cfg.login_body ? Object.entries(cfg.login_body) : []
