@@ -344,11 +344,14 @@
                   <el-table-column label="规则" min-width="240" show-overflow-tooltip>
                     <template #default="{ row }">
                       <span class="mono">{{ extractRuleText(row) }}</span>
+                      <el-tag v-if="row.optional" size="small" type="info" effect="plain" style="margin-left: 6px">可选</el-tag>
                     </template>
                   </el-table-column>
                   <el-table-column label="提取结果" min-width="180" show-overflow-tooltip>
                     <template #default="{ row }">
-                      <span v-if="extractErrorOf(row.name)" class="extract-fail">未提取到：{{ extractErrorOf(row.name) }}</span>
+                      <!-- 可选未取到：容错口径灰显（不判失败）；必选未取到才是红色失败 -->
+                      <span v-if="extractMissOf(row.name)" class="muted">未取到（可选）：{{ extractMissOf(row.name) }}</span>
+                      <span v-else-if="extractErrorOf(row.name)" class="extract-fail">未提取到：{{ extractErrorOf(row.name) }}</span>
                       <!-- 提取值复制一步到位（原「点击弹窗再复制」偏重）：值点击仍可看完整长值，icon 点击即复制 -->
                       <div v-else-if="extractActual(row.name) !== undefined" class="cell-copy-row">
                         <span class="mono pre-val cell-expand"
@@ -777,7 +780,7 @@ function goCallbackVerify() {
   if (!target) return
   sessionStorage.setItem(CALLBACK_PREFILL_KEY, JSON.stringify(target.payload))
   router.push('/tools/callback-verify')
-  ElMessage.success(`已带入${target.where === '响应体' ? '' : ` ${target.where} 的`}签名报文，到验签页选环境后校验`)
+  ElMessage.success('已带入报文，选环境后验签')
 }
 
 function truncateCipher(cipher: string): string {
@@ -834,6 +837,15 @@ function extractErrorOf(name?: string): string | undefined {
   const v = extractActual(name)
   if (v && typeof v === 'object' && !Array.isArray(v) && '__error__' in (v as Record<string, unknown>)) {
     return String((v as Record<string, unknown>).__error__)
+  }
+  return undefined
+}
+
+/** 可选提取未取到的原因：值为 {__miss__: 原因}（optional 规则软化标记，不判节点失败） */
+function extractMissOf(name?: string): string | undefined {
+  const v = extractActual(name)
+  if (v && typeof v === 'object' && !Array.isArray(v) && '__miss__' in (v as Record<string, unknown>)) {
+    return String((v as Record<string, unknown>).__miss__)
   }
   return undefined
 }

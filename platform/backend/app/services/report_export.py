@@ -510,6 +510,9 @@ def _extract_pane(post_extract: list[Any], extracted_vars: Any) -> str:
         if has and isinstance(val, dict) and "__error__" in val:
             # 提取未取到：值本身就是 {__error__: 原因}（引擎判节点失败）
             actual = f'<span class="fail-text">未提取到：{_esc(str(val["__error__"]))}</span>'
+        elif has and isinstance(val, dict) and "__miss__" in val:
+            # 可选提取未取到（optional 规则软化）：不判失败，灰显原因
+            actual = f'<span class="muted">未取到（可选）：{_esc(str(val["__miss__"]))}</span>'
         elif has:
             actual = f'<span class="mono">{_esc(_value_text(val))}</span>'
         else:

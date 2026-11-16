@@ -14,6 +14,11 @@
 未取到（jsonpath 未命中 / SQL 执行失败 / 查询无结果 / 值为 NULL 等）时结果值为
 {"__error__": 原因}：DagExecutor 据此判节点失败，报告提取页与失败通知据此展示原因
 （此前静默 None，SQL 写错也无从排查）。注册表仍写 None，下游 {{引用}} 口径不变。
+
+可选提取（rule.optional，2026-11-16）：字段时有时无的容错口径——未取到不判
+节点失败、不进失败通知，提取结果改标 {"__miss__": 原因, "optional": true}
+（报告页灰显）；注册表仍写 None，下游引用/断言按「无值」自行消化。
+默认 optional 未标记 = 维持硬失败语义，存量用例零变化。
 """
 import time
 from typing import Any
@@ -24,6 +29,7 @@ from .param_resolver import render_placeholders
 from .variables import ReferenceError, VariableRegistry
 
 EXTRACT_ERROR_KEY = "__error__"
+EXTRACT_MISS_KEY = "__miss__"
 
 
 def _err(reason: str) -> dict[str, Any]:
@@ -32,6 +38,27 @@ def _err(reason: str) -> dict[str, Any]:
 
 def is_extract_error(v: Any) -> bool:
     return isinstance(v, dict) and EXTRACT_ERROR_KEY in v
+
+
+def is_extract_miss(v: Any) -> bool:
+    return isinstance(v, dict) and EXTRACT_MISS_KEY in v
+
+
+def soften_optional_extracts(extracted: dict[str, Any], rules: list[dict] | None) -> dict[str, Any]:
+    """可选提取软化（就地改写）：optional 规则的 {__error__} 改标 {__miss__}。
+
+    之后 is_extract_error 不再命中 → 节点不因它失败、失败通知不收录；
+    报告页据 __miss__ 灰显「未取到（可选）」。提取成功/必选规则原样不动。
+    """
+    optional_names = {r.get("name") for r in rules or []
+                      if r.get("optional") and r.get("name")}
+    if not optional_names:
+        return extracted
+    for name, val in extracted.items():
+        if name in optional_names and is_extract_error(val):
+            extracted[name] = {EXTRACT_MISS_KEY: val.get(EXTRACT_ERROR_KEY),
+                               "optional": True}
+    return extracted
 
 
 def _clip(s: Any, n: int = 300) -> str:

@@ -21,7 +21,7 @@ from .. import crud, models
 from ..database import SessionLocal
 from ..engine.assertion_engine import AssertionEngine
 from ..engine.dag_executor import DagExecutor
-from ..engine.extractor import Extractor
+from ..engine.extractor import Extractor, soften_optional_extracts
 from ..engine.orchestration import collect_node_bindings, compute_structure_fingerprint
 from ..engine.report_context import build_report_context
 from ..engine.type_coercer import apply_field_types, coerce_json_strings
@@ -108,13 +108,16 @@ def replay_step_once(db: Session, user: models.User, step_id: int,
         crud.log_operation(db, user, "execute", "api", api.id,
                            f"replay step#{step_id} ({api.name})")
 
-        # 同口径后置提取（产出注册进本节点命名空间，供断言 {{}} 引用与结果展示）
+        # 同口径后置提取（产出注册进本节点命名空间，供断言 {{}} 引用与结果展示；
+        # 可选提取软化同执行链路——重放展示与报告口径一致）
         extracted: dict = {}
         if extract_rules and response_data is not None:
             extractor = Extractor()
             extractor.db_client = build_db_client(env)
-            extracted = extractor.extract(response_data, extract_rules,
-                                          replay_registry, step.node_id or "")
+            extracted = soften_optional_extracts(
+                extractor.extract(response_data, extract_rules,
+                                  replay_registry, step.node_id or ""),
+                extract_rules)
 
         # 同口径断言（规则取当前节点配置；验签断言的密钥上下文与执行链路同源）
         assertion_results: list[dict] = []

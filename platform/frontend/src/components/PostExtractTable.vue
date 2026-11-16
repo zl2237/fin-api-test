@@ -47,6 +47,16 @@
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
+      <el-table-column label="可选" width="60" align="center">
+        <template #default="{ row }">
+          <el-tooltip
+            content="开启后未取到不判节点失败：注册 None 继续，报告灰显「未取到（可选）」；关闭则未取到即节点失败（默认，防配置错误静默）"
+            placement="top"
+          >
+            <el-switch v-model="row.optional" size="small" />
+          </el-tooltip>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="70" fixed="right">
         <template #default="{ $index }">
           <el-button link type="danger" size="small" @click="remove($index)">删除</el-button>
@@ -79,7 +89,7 @@ function onSourceChange(row: any) {
 }
 
 function add() {
-  emit('update:modelValue', [...props.modelValue, { name: '', source: 'response', json_path: '', sql: '', field: '' }])
+  emit('update:modelValue', [...props.modelValue, { name: '', source: 'response', json_path: '', sql: '', field: '', optional: false }])
 }
 function remove(idx: number) {
   const next = [...props.modelValue]

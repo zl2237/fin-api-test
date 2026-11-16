@@ -38,7 +38,7 @@ from ..services.runtime_service import build_db_client, build_http_client, login
 from .assertion_engine import AssertionEngine
 from .context import ExecutionContext
 from .events import AssertionResult, DbSink, ExecutionSink, StepResult
-from .extractor import Extractor, is_extract_error
+from .extractor import Extractor, is_extract_error, soften_optional_extracts
 from .prepare_request import prepare_request
 from .report_context import iter_replay_paths
 from .topo import topo_order
@@ -467,6 +467,9 @@ class DagExecutor:
         失败：原因在报告提取页与失败通知可见，不在本节点静默放行 None 向下游
         扩散（下游引用会在组装期以更模糊的「取值失败」报错）；与断言失败同
         口径：不触发请求重试。请求层成败由调用方另行合入。
+        可选提取（rule.optional）例外：未取到改标 __miss__，不判失败不阻塞
+        （字段时有时无的容错口径，见 soften_optional_extracts），仅断言失败
+        阻塞用例；注册表仍写 None，下游引用/断言按「无值」消化。
         """
         extracted: dict = {}
         assertion_results: list[dict] = []
@@ -476,6 +479,7 @@ class DagExecutor:
             self.extractor.db_client = eff_db
             extracted = self.extractor.extract(response_data, config.post_extract,
                                                self.context.registry, node_id)
+            soften_optional_extracts(extracted, config.post_extract)
         extract_failed = any(is_extract_error(v) for v in extracted.values())
         if config and config.assertions:
             engine = AssertionEngine(self.context.registry, eff_db, self_node=node_id,
