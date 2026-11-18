@@ -186,16 +186,16 @@ class TestImportContentTypePersisted:
         # x-www-form-urlencoded：按键值对拆解为 body 字段，键值 URL 解码
         text = """curl --url 'http://host/admin/Home/Public/index' \\
         -H 'Content-Type: application/x-www-form-urlencoded' \\
-        --data-raw 'data%5Busername%5D=redacted-user&data%5Bpassword%5D=***REDACTED***%40%40%40&data%5Bremember%5D=0'"""
+        --data-raw 'data%5Busername%5D=demo_user&data%5Bpassword%5D=DemoPwd%40%40%40&data%5Bremember%5D=0'"""
         previews, errors = parse_curl_to_previews(text)
         assert len(errors) == 0
         p = previews[0]
         assert p["method"] == "POST"
         assert p["content_type"] == "application/x-www-form-urlencoded"
         field_map = {f["key"]: f for f in p["fields"]}
-        assert field_map["data[username]"]["default_value"] == "redacted-user"
+        assert field_map["data[username]"]["default_value"] == "demo_user"
         # %40 解码为 @
-        assert field_map["data[password]"]["default_value"] == "***REDACTED***@@@"
+        assert field_map["data[password]"]["default_value"] == "DemoPwd@@@"
         assert field_map["data[remember]"]["default_value"] == "0"
 
 
