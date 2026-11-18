@@ -74,3 +74,12 @@ repos:
         language: system
         files: ^platform/frontend/src/.*\.(test|spec)\.ts$
         pass_filenames: false
+
+  # ---- 密钥防复发（2026-11-18 泄漏处置配套；python 内建，零依赖）----
+  - repo: local
+    hooks:
+      - id: secrets-guard
+        name: secrets-guard（已知泄漏指纹扫描）
+        entry: python scripts/secrets_guard.py
+        language: system
+        pass_filenames: true

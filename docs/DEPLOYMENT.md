@@ -6,7 +6,7 @@
 ## 架构与拓扑
 
 ```
-浏览器 ── http://192.168.x.x:8088 (nginx)          ← 对外入口
+浏览器 ── http://<部署机内网地址>:8088 (nginx)          ← 对外入口
              └── /api → systemd fin-api-test (uvicorn :8001, venv python3.12)
                              ├── 同源托管前端 SPA（dist，直连 :8001 亦可访问）
                              └── MySQL（.env 连接串）
@@ -14,7 +14,7 @@
 
 | 项 | 值 |
 |---|---|
-| 服务器 | root@192.168.x.x（SSH 端口 13692） |
+| 服务器 | root@<部署机>（host/SSH 端口在 GitLab CI Variables：DEPLOY_SSH_HOST / DEPLOY_SSH_PORT，2026-11-18 起不再入库） |
 | 部署目录 | /opt/fin-api-test |
 | 后端 venv | /opt/fin-api-test/platform/backend/venv |
 | 后端配置 | /opt/fin-api-test/platform/backend/.env（部署时由 CI 变量生成） |
@@ -32,7 +32,7 @@ lint（backend-lint: ruff + mypy blocking + pytest 842 条 blocking，带覆盖�
   → notify（企微群通知成功/失败，失败附日志摘要）
 ```
 
-> runner（22.106 上 docker 容器 gitlab-runner）**单并发**（max_builds=1）：两平台推送同时到达时排队串行，deploy「没触发」多半是在排队。
+> runner（部署机上 docker 容器 gitlab-runner）**单并发**（max_builds=1）：两平台推送同时到达时排队串行，deploy「没触发」多半是在排队。
 
 **deploy 是原子设计**（2026-09-17 事故教训）：
 1. CI 侧先准备 .env 与前端产物并上传（失败无服务器副作用）

@@ -72,3 +72,9 @@ Thumbs.db
 .pw_tmp/
 # 架构评审报告本地归档
 architecture-reviews/
+
+# ---- 真实凭据/外部对接文档不入库（2026-11-18 泄漏处置）----
+# SUT 登录账号（真实值留本地，模板见 auth_data.example.yaml）
+data/*/auth/auth_data.yaml
+# 海关清关外部交付对接文档（含生产地址）
+docs/调用加密说明.txt

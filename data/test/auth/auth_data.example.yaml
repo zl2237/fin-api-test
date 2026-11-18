@@ -1,0 +1,17 @@
+# 登录账号数据模板
+# 复制为 auth_data.yaml（已 gitignore）后填真实值；conftest.py 按 data/{env_name}/auth/auth_data.yaml 加载。
+# 2026-11-18 起真实账号/口令不再入库——此前入库的旧口令已公开，必须轮换后填新值。
+login_admin:
+  username: "13800000000"
+  password: "YourPwd@123"
+  code: "6666"
+
+login_fin:
+  username: "13800000000"
+  password: "YourPwd@123"
+  code: "6666"
+
+login_operate:
+  username: "13800000000"
+  password: "YourPwd@123"
+  code: "6666"

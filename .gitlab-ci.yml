@@ -4,7 +4,7 @@
 # 流水线：lint → build → deploy → 企微通知
 # -----------------------------------------------------------------------------
 # 前置准备（GitLab 项目 → Settings → CI/CD → Variables）：
-#   SSH_PRIVATE_KEY   : 服务器 SSH 私钥（root@192.168.x.x -p 13692）
+#   SSH_PRIVATE_KEY   : 服务器 SSH 私钥（目标机器 host/端口 = DEPLOY_SSH_HOST / DEPLOY_SSH_PORT）
 #   WECOM_WEBHOOK     : 企微群机器人 webhook 地址
 #   JWT_SECRET_KEY    : 后端 JWT 密钥（生产环境，必填）
 #   DB_PASSWORD       : 后端 MySQL 密码
@@ -32,9 +32,10 @@ stages:
   - notify
 
 variables:
-  # 服务器连接
-  SSH_HOST: "192.168.x.x"
-  SSH_PORT: "13692"
+  # 服务器连接（真实 host/端口 2026-11-18 起不再入库：在 GitLab Settings → CI/CD → Variables
+  # 配置 DEPLOY_SSH_HOST / DEPLOY_SSH_PORT。合并本改动前务必先配置，否则 deploy 连不上）
+  SSH_HOST: "$DEPLOY_SSH_HOST"
+  SSH_PORT: "$DEPLOY_SSH_PORT"
   SSH_USER: "root"
   # 部署路径
   DEPLOY_DIR: "/opt/fin-api-test"
@@ -221,7 +222,7 @@ deploy:
     - if: $CI_COMMIT_BRANCH == "main"
   environment:
     name: production
-    url: http://192.168.x.x
+    url: http://$SSH_HOST
 
 # ===========================================================================
 # 4. 企微通知（成功/失败双任务，GitLab when 语义保证互斥）
