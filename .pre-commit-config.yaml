@@ -34,6 +34,7 @@ repos:
       - id: check-added-large-files
         name: 大文件拦截（>500KB，提醒误提交二进制）
         args: [--maxkb=500]
+        exclude: ^docs/gifs/  # 演示 GIF 有意入库（README 引用，控制在 <10MB）
 
   # ---- 后端：ruff（与 CI backend-lint 完全同口径） ----
   - repo: https://github.com/astral-sh/ruff-pre-commit

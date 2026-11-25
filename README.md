@@ -11,6 +11,12 @@
 
 > 可视化 Web 平台版本见 [`platform/`](./platform/README.md)。
 
+## 平台演示（真实执行录屏）
+
+![DAG 用例编排与执行报告](docs/gifs/demo-dag-run.gif)
+
+一条 33 节点的真实业务链路「应收关联应付核销」：画布编排 → 双击节点看配置 → 一键执行 → 报告页步骤逐个变绿（每步请求/响应/断言全量留档、支持重放）。
+
 ## Features
 
 - **分层架构** — `Test → Flow → Step → API → HTTP/DB`，职责清晰
