@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![pytest](https://img.shields.io/badge/pytest-9.0.3-green.svg)](https://pytest.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
+[![Gitee](https://img.shields.io/badge/Gitee-镜像-red)](https://gitee.com/zl2237/fin-api-test)
 
 金融业务接口链路长、状态流转复杂、强依赖落库校验。本项目把"登录鉴权 → 接口调用 → 业务编排 → 数据校验"串联成一套开箱即用的骨架，让用例代码只关心业务本身。
 
