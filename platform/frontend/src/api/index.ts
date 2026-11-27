@@ -158,14 +158,19 @@ export interface ApiDef {
   created_by?: number | null; updated_by?: number | null
   created_by_name?: string | null; updated_by_name?: string | null
 }
-/** 接口加密配置（api_definitions.crypto_config）：请求加密 + 响应解密两段独立开关。
+/** 接口加密配置（api_definitions.crypto_config）：请求加密/签名 + 响应解密两段独立开关。
  *  形状契约见 platform/backend/app/services/request_sender.py（唯一解析方）。 */
 export interface CryptoConfig {
   request?: {
     enabled?: boolean
+    mode?: 'encrypt' | 'sign' // encrypt=加密信封（缺省，海关 requestCipher）/ sign=参数签名（亿海融）
     key?: string          // 密钥对名称（须与环境「加密配置」里的名称一致）
-    wrapper_field?: string // 外层信封字段，默认 requestCipher
-    segment_size?: number  // 分段明文字节数，默认 244（上限 245）
+    wrapper_field?: string // encrypt：外层信封字段，默认 requestCipher
+    segment_size?: number  // encrypt：分段明文字节数，默认 244（上限随密钥位数）
+    data_field?: string   // sign：数据字段名，默认 data（值为载荷 JSON 的 Base64）
+    sign_field?: string   // sign：签名字段名，默认 sign（私钥 RSA-MD5 对 data 原文签名）
+    source_field?: string // sign：载荷取值字段（点号路径），空=整个请求体
+    sign_algorithm?: string // sign：签名摘要算法，默认 md5（后端支持 md5/sha256/sha1）
   }
   response?: {
     enabled?: boolean

@@ -177,7 +177,8 @@ def test_cipher(env_id: int, payload: schemas.CipherTestRequest | None = None,
                 db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """
     测试加解密配置：对已保存密钥库中的指定密钥对（name 空=第一对）做
-    配对校验 + 600 字节样本（跨 3 段）分段加密→解密往返自检。
+    配对校验 + 600 字节样本分段加密→解密往返自检（段长按密钥位数自适应，
+    文案展示实际位数与段数——1024/2048 位钥匙均可自检）。
     """
     from utils.exceptions import CipherError
     from ..services.cipher_service import key_pairs_from_config, verify_key_pair
@@ -197,12 +198,15 @@ def test_cipher(env_id: int, payload: schemas.CipherTestRequest | None = None,
                 "message": f"未找到名为「{name}」的密钥对，本环境已配置：{'、'.join(pairs)}"}
     pair = pairs[name]
     try:
-        sample_len = verify_key_pair(pair.get("public_key"), pair.get("private_key"))
+        check = verify_key_pair(pair.get("public_key"), pair.get("private_key"))
         return {
             "ok": True,
-            "message": (f"密钥对「{name}」自检通过：600 字节样本分 3 段加密 → 解密"
-                        f"还原一致，公私钥配对正确（密文 {sample_len} 字符 Base64）"),
-            "sample_cipher_len": sample_len,
+            "message": (f"密钥对「{name}」自检通过：{check.key_size} 位密钥，"
+                        f"600 字节样本每段 {check.segment_size} 字节、共 {check.segments} 段"
+                        f"加密 → 解密还原一致，公私钥配对正确"
+                        f"（密文 {check.sample_cipher_len} 字符 Base64）"),
+            "sample_cipher_len": check.sample_cipher_len,
+            "key_size": check.key_size,
         }
     except CipherError as e:
         return {"ok": False, "message": str(e)}

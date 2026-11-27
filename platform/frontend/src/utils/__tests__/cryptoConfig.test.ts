@@ -40,7 +40,8 @@ describe('cryptoConfig 纯函数', () => {
     f.segmentSize = 999
     const cfg = formToCrypto(f)!
     expect(cfg.request).toEqual({
-      enabled: true, key: 'customs', wrapper_field: 'requestCipher', segment_size: 245,
+      enabled: true, mode: 'encrypt', key: 'customs',
+      wrapper_field: 'requestCipher', segment_size: 245,
     })
     expect(cfg.response).toBeUndefined()
 
@@ -48,6 +49,36 @@ describe('cryptoConfig 纯函数', () => {
     expect(formToCrypto(f)!.request!.segment_size).toBe(1)
     f.segmentSize = null
     expect(formToCrypto(f)!.request!.segment_size).toBe(244)
+  })
+
+  it('表单 → payload：sign 模式形状（data/sign 字段名归一、source_field 留空→undefined）', () => {
+    const f = emptyCryptoForm()
+    f.reqEnabled = true
+    f.reqMode = 'sign'
+    f.reqKey = 'yhr'
+    f.reqDataField = '  '
+    f.reqSignField = 'sig'
+    f.reqSourceField = ''
+    const cfg = formToCrypto(f)!
+    expect(cfg.request).toEqual({
+      enabled: true, mode: 'sign', key: 'yhr',
+      data_field: 'data', sign_field: 'sig', source_field: undefined,
+    })
+    // sign 模式不携带加密信封字段
+    expect((cfg.request as Record<string, any>).wrapper_field).toBeUndefined()
+    expect((cfg.request as Record<string, any>).segment_size).toBeUndefined()
+  })
+
+  it('payload → 表单：sign 配置回显（老数据缺 mode 默认 encrypt）', () => {
+    const f = cryptoToForm({ request: { enabled: true, mode: 'sign', key: 'yhr',
+      data_field: 'payload', sign_field: 'signature', source_field: 'credit_codes' } })
+    expect(f.reqMode).toBe('sign')
+    expect(f.reqDataField).toBe('payload')
+    expect(f.reqSignField).toBe('signature')
+    expect(f.reqSourceField).toBe('credit_codes')
+
+    const legacy = cryptoToForm({ request: { enabled: true, key: 'customs' } })
+    expect(legacy.reqMode).toBe('encrypt')  // 老数据无 mode → 默认加密信封
   })
 
   it('表单 → payload：响应密钥留空 → undefined（后端复用请求密钥）', () => {
@@ -84,6 +115,17 @@ describe('cryptoConfig 纯函数', () => {
     f.respEnabled = true
     f.respKey = 'cfca'
     f.respMode = 'body'
+    expect(cryptoToForm(formToCrypto(f))).toEqual(f)
+  })
+
+  it('往返一致（sign 模式）', () => {
+    const f = emptyCryptoForm()
+    f.reqEnabled = true
+    f.reqMode = 'sign'
+    f.reqKey = 'yhr'
+    f.reqDataField = 'payload'
+    f.reqSignField = 'signature'
+    f.reqSourceField = 'credit_codes'
     expect(cryptoToForm(formToCrypto(f))).toEqual(f)
   })
 })

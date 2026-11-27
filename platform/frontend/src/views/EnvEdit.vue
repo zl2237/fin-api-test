@@ -282,11 +282,11 @@
             </template>
           </div>
           <div v-if="!formData.cipher_config.key_pairs.length" class="cipher-empty">
-            未配置密钥对。对接加密传输接口（如海关 requestCipher 协议）时在此录入公私钥。
+            未配置密钥对。对接加密传输接口（如海关 requestCipher 协议）或参数签名接口（如亿海融 RSA-MD5）时在此录入公私钥。
           </div>
           <div v-for="(pair, i) in formData.cipher_config.key_pairs" :key="i" class="key-pair-item">
             <div class="pair-head">
-              <el-input v-model="pair.name" placeholder="名称（如 customs / cfca）" class="pair-name-input" />
+              <el-input v-model="pair.name" placeholder="名称（如 customs / yhr）" class="pair-name-input" />
               <span class="grow" />
               <el-button text type="danger" size="small" @click="formData.cipher_config.key_pairs.splice(i, 1)">删除</el-button>
             </div>
@@ -294,14 +294,14 @@
               <el-form-item>
                 <template #label>
                   公钥
-                  <el-tooltip content="X.509/SPKI 格式（-----BEGIN PUBLIC KEY----- 开头），粘贴其 Base64 密钥体亦可；请求加密用" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                  <el-tooltip content="X.509/SPKI 格式（-----BEGIN PUBLIC KEY----- 开头），粘贴其 Base64 密钥体亦可；请求加密用；参数签名协议（如亿海融）中对方还用它加密回包" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
                 </template>
                 <el-input v-model="pair.public_key" type="textarea" :rows="3" placeholder="-----BEGIN PUBLIC KEY-----&#10;MIIBIjANBg..." spellcheck="false" />
               </el-form-item>
               <el-form-item>
                 <template #label>
                   私钥
-                  <el-tooltip content="PKCS#8 无口令格式（-----BEGIN PRIVATE KEY----- 开头）；响应解密与测试加解密需要成对录入" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
+                  <el-tooltip content="PKCS#8 无口令格式（-----BEGIN PRIVATE KEY----- 开头）；请求参数签名（RSA-MD5）、响应解密与测试加解密都需要它，请成对录入" placement="top"><el-icon class="lbl-help"><QuestionFilled /></el-icon></el-tooltip>
                 </template>
                 <el-input v-model="pair.private_key" type="textarea" :rows="3" placeholder="-----BEGIN PRIVATE KEY-----&#10;MIIEvQ..." spellcheck="false" />
               </el-form-item>

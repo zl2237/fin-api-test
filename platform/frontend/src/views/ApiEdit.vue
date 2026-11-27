@@ -53,7 +53,7 @@
             <pre class="debug-json">{{ formatJson(debugResult.request_body) }}</pre>
           </div>
           <div v-if="debugResult?.cipher?.request" class="debug-section">
-            <div class="debug-section-title">实际发出密文（加密传输）</div>
+            <div class="debug-section-title">实际发出报文（加密/签名传输）</div>
             <pre class="debug-json">{{ truncateCipher(debugResult.cipher.request) }}</pre>
           </div>
         </el-tab-pane>
@@ -293,36 +293,55 @@
         <el-divider content-position="left">加密配置</el-divider>
         <div class="crypto-bar">
           <span class="panel-hint">
-            开启后本接口请求体加密为 {包裹字段: 密文} 信封发送（明文仍落报告，重放自动重新加密）；密钥对录入在环境「加密配置」；响应验签在用例断言中添加
+            请求支持两种模式：「加密信封」整体 RSA 分段加密（海关 requestCipher）、「参数签名」data=Base64(JSON) 不加密 + 私钥 RSA-MD5 签名（亿海融）；明文仍落报告，重放自动重新加密/签名；密钥对录入在环境「加密配置」；响应验签在用例断言中添加
           </span>
         </div>
         <div class="crypto-row">
           <div class="crypto-block">
             <div class="crypto-title">
-              请求加密
+              请求加密/签名
               <el-switch v-model="cryptoForm.reqEnabled" size="small" />
-              <el-tooltip content="内层 JSON 整体 RSA 分段加密（每段 ≤244 字节、密文拼接后整体一次 Base64）；仅支持 POST JSON——GET/form/file 不适用" placement="top">
+              <el-tooltip content="加密信封：内层 JSON 整体 RSA 分段加密（每段上限随密钥位数，2048 位=245 字节），密文拼接后整体一次 Base64；参数签名：载荷 JSON→Base64 不加密，另加私钥 RSA-MD5 签名字段（签名需要私钥）；仅支持 POST JSON——GET/form/file 不适用" placement="top">
                 <el-icon class="lbl-help"><QuestionFilled /></el-icon>
               </el-tooltip>
             </div>
             <template v-if="cryptoForm.reqEnabled">
               <el-form label-width="100px" class="crypto-form">
+                <el-form-item label="模式">
+                  <el-radio-group v-model="cryptoForm.reqMode" size="small">
+                    <el-radio-button value="encrypt">加密信封</el-radio-button>
+                    <el-radio-button value="sign">参数签名</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
                 <el-form-item label="密钥对名称" required>
-                  <el-input v-model="cryptoForm.reqKey" placeholder="如 customs（与环境「加密配置」名称一致）" />
+                  <el-input v-model="cryptoForm.reqKey" placeholder="如 customs / yhr（与环境「加密配置」名称一致）" />
                 </el-form-item>
-                <el-form-item label="包裹字段">
-                  <el-input v-model="cryptoForm.wrapperField" placeholder="requestCipher" />
-                </el-form-item>
-                <el-collapse class="crypto-adv">
-                  <el-collapse-item title="高级" name="adv">
-                    <el-form-item label="分段大小">
-                      <div class="seg-row">
-                        <el-input-number v-model="cryptoForm.segmentSize" :min="1" :max="245" controls-position="right" />
-                        <span class="panel-hint">默认 244（协议约定；理论上限 245）</span>
-                      </div>
-                    </el-form-item>
-                  </el-collapse-item>
-                </el-collapse>
+                <template v-if="cryptoForm.reqMode === 'encrypt'">
+                  <el-form-item label="包裹字段">
+                    <el-input v-model="cryptoForm.wrapperField" placeholder="requestCipher" />
+                  </el-form-item>
+                  <el-collapse class="crypto-adv">
+                    <el-collapse-item title="高级" name="adv">
+                      <el-form-item label="分段大小">
+                        <div class="seg-row">
+                          <el-input-number v-model="cryptoForm.segmentSize" :min="1" :max="245" controls-position="right" />
+                          <span class="panel-hint">默认 244；单段上限随密钥位数（2048 位=245）</span>
+                        </div>
+                      </el-form-item>
+                    </el-collapse-item>
+                  </el-collapse>
+                </template>
+                <template v-else>
+                  <el-form-item label="数据字段">
+                    <el-input v-model="cryptoForm.reqDataField" placeholder="data" />
+                  </el-form-item>
+                  <el-form-item label="签名字段">
+                    <el-input v-model="cryptoForm.reqSignField" placeholder="sign" />
+                  </el-form-item>
+                  <el-form-item label="取值字段">
+                    <el-input v-model="cryptoForm.reqSourceField" placeholder="如 credit_codes，留空=整个请求体" />
+                  </el-form-item>
+                </template>
               </el-form>
             </template>
             <div v-else class="crypto-off-tip">关闭：按明文 JSON 发送</div>

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""加密传输管线测试：request_sender 信封化 / 真 HttpClient decoder 接缝 / DAG 密文快照。
+"""加密传输管线测试：request_sender 信封化/参数签名 / 真 HttpClient decoder 接缝 /
+DAG 密文快照。
 
 三条链路（用例执行 / 接口调试 / 步骤重放）都汇到 request_sender.send_request，
-本文件覆盖其加密分支 + HttpClient.response_decoder 契约（decoder 在鉴权失效
-判定之前介入、重登递归重发天然重挂）+ DagExecutor cipher_snapshot 落事件。
+本文件覆盖其加密分支（encrypt 海关信封 + sign 亿海融参数签名）+
+HttpClient.response_decoder 契约（decoder 在鉴权失效判定之前介入、重登递归
+重发天然重挂）+ DagExecutor cipher_snapshot 落事件。
 
 测试密钥全部现场生成（仓根 public_key.pem/private_key.pem 未入库，CI 无它们）。
 """
@@ -18,14 +20,19 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.engine.dag_executor import DagExecutor
 from app.engine.events import DbSink, StepResult
-from app.services.cipher_service import decrypt_from_base64, encrypt_json_body
+from app.services.cipher_service import (
+    decrypt_from_base64,
+    encrypt_json_body,
+    encrypt_to_base64,
+    verify_pkcs1_sign,
+)
 from app.services.request_sender import send_request
 from utils.exceptions import CipherError
 from utils.http_client import HttpClient
 
 
-def make_pair_pems():
-    priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+def make_pair_pems(key_size: int = 2048):
+    priv = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
     pub_pem = priv.public_key().public_bytes(
         serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     priv_pem = priv.private_bytes(
@@ -45,6 +52,12 @@ def _api(**over):
 
 
 REQ_ON = {"request": {"enabled": True, "key": "customs"}}
+
+# 亿海融参数签名模式：data=Base64(JSON) 不加密 + sign=私钥 RSA-MD5 签名，
+# 载荷取 body.credit_codes（字段 UI 无法表达根节点字符串数组，信用代码
+# 列表存于 array 类型字段）
+SIGN_ON = {"request": {"enabled": True, "key": "yhr", "mode": "sign",
+                       "source_field": "credit_codes"}}
 
 
 class CipherStubClient:
@@ -116,7 +129,7 @@ class TestSenderRequestEncryption:
         pub, priv = make_pair_pems()
         c = CipherStubClient(cipher_keys=_keys(pub, priv))
         code, data, err = send_request(None, c, _api(method="GET", crypto_config=REQ_ON), {"a": 1})
-        assert code == 0 and "GET" in err and "无法承载密文" in err
+        assert code == 0 and "GET" in err and "无法承载" in err
         assert c.calls == []
 
     def test_form_urlencoded_rejected(self):
@@ -164,6 +177,148 @@ class TestSenderRequestEncryption:
         assert c.calls[0][2] == {"a": 1}
         send_request(None, c, _api(), {"b": 2})
         assert c.calls[1][2] == {"b": 2}
+
+
+# ============ request_sender：亿海融参数签名（mode=sign） ============
+
+def _yhr_cfg(**req_over):
+    """亿海融全链路配置：sign 请求 + field=data 响应解密（req_over 覆写请求段）"""
+    req = {"enabled": True, "key": "yhr", "mode": "sign", "source_field": "credit_codes"}
+    req.update(req_over)
+    return {"request": req,
+            "response": {"enabled": True, "key": "yhr", "mode": "field", "field": "data"}}
+
+
+def _yhr_inner():
+    """服务端解密后的企业信息对象（信用代码 → 查询结果；未查到为空列表）"""
+    return {"91330100MA2B23": {"enterpriseName": "杭州某某科技有限公司"},
+            "91330100MA2B24": []}
+
+
+def _yhr_response_cipher(inner: dict, pub_pem: str, key_size: int = 2048) -> str:
+    """模拟亿海融服务端：企业信息 JSON 用请求方公钥按密钥长度分段加密
+    （2048 位 245 字节/段；1024 位 117 字节/段），密文拼接后整体一次 Base64"""
+    seg = key_size // 8 - 11
+    plain = json.dumps(inner, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return encrypt_to_base64(plain, pub_pem, seg)
+
+
+class TestSenderSignMode:
+    def test_sign_envelope_wire_format(self):
+        """亿海融请求形态：wire 恰为 {data, sign}；data=Base64(JSON 数组) 不加密；
+        sign 覆盖 data 原始字符串且公钥 MD5 验签通过；body 不被原地改；
+        cipher_out 存含 sign 的完整信封（排障第一物证）"""
+        pub, priv = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, priv, name="yhr"))
+        body = {"credit_codes": ["91330100MA2B23", "91330100MA2B24"], "remark": "x"}
+        snapshot = dict(body)
+        box = {}
+        code, _, err = send_request(None, c, _api(crypto_config=SIGN_ON), body, cipher_out=box)
+        assert (code, err) == (200, None)
+        kind, _, wire, _ = c.calls[0]
+        assert kind == "post"
+        assert set(wire) == {"data", "sign"}
+        assert json.loads(base64.b64decode(wire["data"])) == \
+            ["91330100MA2B23", "91330100MA2B24"]
+        assert verify_pkcs1_sign(wire["data"].encode(), wire["sign"], pub) is True
+        assert body == snapshot  # 绝不原地改
+        assert json.loads(box["request"]) == wire  # 快照=完整信封
+
+    def test_source_field_default_whole_body(self):
+        """source_field 缺省 → 整个 body 作为载荷（对象亦可，不强制 list）"""
+        pub, priv = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, priv, name="yhr"))
+        cfg = {"request": {"enabled": True, "key": "yhr", "mode": "sign"}}
+        send_request(None, c, _api(crypto_config=cfg), {"k": "v"})
+        _, _, wire, _ = c.calls[0]
+        assert json.loads(base64.b64decode(wire["data"])) == {"k": "v"}
+
+    def test_custom_data_sign_fields(self):
+        pub, priv = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, priv, name="yhr"))
+        cfg = {"request": {"enabled": True, "key": "yhr", "mode": "sign",
+                           "data_field": "payload", "sign_field": "signature",
+                           "source_field": "credit_codes"}}
+        send_request(None, c, _api(crypto_config=cfg), {"credit_codes": ["91"]})
+        _, _, wire, _ = c.calls[0]
+        assert set(wire) == {"payload", "signature"}
+        assert verify_pkcs1_sign(wire["payload"].encode(), wire["signature"], pub) is True
+
+    def test_source_field_not_found_rejected(self):
+        pub, priv = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, priv, name="yhr"))
+        code, _, err = send_request(None, c, _api(crypto_config=SIGN_ON), {"other": 1})
+        assert code == 0 and "credit_codes" in err and "取值字段" in err
+        assert c.calls == []
+
+    def test_missing_private_key_rejected(self):
+        """sign 模式要的是私钥（与 encrypt 要公钥镜像对称）"""
+        pub, _ = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, None, name="yhr"))
+        code, _, err = send_request(None, c, _api(crypto_config=SIGN_ON),
+                                    {"credit_codes": ["91"]})
+        assert code == 0 and "缺少私钥" in err and "参数签名" in err
+        assert c.calls == []
+
+    def test_invalid_mode_rejected(self):
+        """mode 拼错不静默降级明文/加密——必须显式报错（防配置笔误直发裸报文）"""
+        pub, priv = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, priv))
+        cfg = {"request": {"enabled": True, "key": "customs", "mode": "sm2"}}
+        code, _, err = send_request(None, c, _api(crypto_config=cfg), {"a": 1})
+        assert code == 0 and "请求模式无效" in err and "sm2" in err
+        assert c.calls == []
+
+    def test_sign_get_rejected(self):
+        pub, priv = make_pair_pems()
+        c = CipherStubClient(cipher_keys=_keys(pub, priv, name="yhr"))
+        code, _, err = send_request(None, c, _api(method="GET", crypto_config=SIGN_ON),
+                                   {"credit_codes": ["91"]})
+        assert code == 0 and "GET" in err and "无法承载" in err
+        assert c.calls == []
+
+    def test_yhr_response_decryption_success(self):
+        """亿海融成功响应仿真：{code:200, data:密文} → mode=field/field=data
+        解出企业信息内层对象（信封被整体替换，断言直接打业务字段）"""
+        pub, priv = make_pair_pems()
+        cipher = _yhr_response_cipher(_yhr_inner(), pub)
+        c = CipherStubClient(resp={"code": 200, "msg": "success", "data": cipher},
+                             cipher_keys=_keys(pub, priv, name="yhr"))
+        box = {}
+        code, data, err = send_request(None, c, _api(crypto_config=_yhr_cfg()),
+                                       {"credit_codes": ["91330100MA2B23"]}, cipher_out=box)
+        assert (code, err) == (200, None)
+        assert data == _yhr_inner()
+        assert box["response"] == cipher
+        assert c.response_decoder is None  # finally 恢复
+
+    def test_yhr_5xx_failure_envelope_visible(self):
+        """亿海融失败响应(5xx + data="")：字段守卫放行 → 真 HttpClient 业务码
+        判定 BusinessError → (200, 原信封, err)——code/msg 可见、断言可打"""
+        pub, priv = make_pair_pems()
+        fail = {"code": 507, "msg": "signature verification failed", "data": ""}
+        c = HttpClient(base_url="http://t")
+        c.session = _SeqSession([FakeRawResponse(fail)])
+        c.cipher_keys = _keys(pub, priv, name="yhr")  # 生产由 runtime_service 挂载
+        code, data, err = send_request(None, c, _api(crypto_config=_yhr_cfg()),
+                                       {"credit_codes": ["91"]})
+        assert code == 200 and err and "507" in err
+        assert data["code"] == 507 and data["data"] == ""
+
+    def test_yhr_1024_end_to_end(self):
+        """1024 位钥匙全链路（回归：分段/块长曾写死 2048，短钥匙自检与解密
+        直接抛英文 Encryption failed）：签名 + 117 段加密响应 → 128 块解密"""
+        pub, priv = make_pair_pems(key_size=1024)
+        cipher = _yhr_response_cipher(_yhr_inner(), pub, key_size=1024)
+        c = CipherStubClient(resp={"code": 200, "msg": "success", "data": cipher},
+                             cipher_keys=_keys(pub, priv, name="yhr"))
+        code, data, err = send_request(None, c, _api(crypto_config=_yhr_cfg()),
+                                       {"credit_codes": ["91330100MA2B23"]})
+        assert (code, err) == (200, None)
+        assert data == _yhr_inner()
+        # 请求侧：128 字节模长的 MD5 签名（Base64 后 172 字符）
+        _, _, wire, _ = c.calls[0]
+        assert len(base64.b64decode(wire["sign"])) == 128
 
 
 # ============ request_sender：响应解密 ============
@@ -391,6 +546,36 @@ class TestDagCipherIntegration:
         assert ev.cipher_snapshot == {"request": wire["requestCipher"]}
         assert ev.response_body == {"code": 200, "data": {"batchNo": "CUS-B-1000"}}
 
+    def test_node_signs_and_envelope_snapshot_lands(self):
+        """DAG sign 模式：body 的 credit_codes 字段 → 发出 {data,sign} 信封；
+        StepResult.request_body 明文 + cipher_snapshot 留含 sign 的信封串"""
+        pub, priv = make_pair_pems()
+        config = SimpleNamespace(api_id=10, post_extract=None, assertions=None, wait_after_ms=0)
+        api = _api(id=10, crypto_config=SIGN_ON,
+                   request_template={"credit_codes": ["91330100MA2B23"]},
+                   api_fields=None, fields=[])
+        db = FakeDb(first_results=[config, api])
+        sink = MemorySink()
+        ex = DagExecutor(db, SimpleNamespace(id=1, dag_config={"nodes": [], "edges": []}),
+                         SimpleNamespace(variables={}, timeout=5), sink=sink)
+        stub = RecordingCipherClient(resp={"code": 200, "data": {}},
+                                     cipher_keys=_keys(pub, priv, name="yhr"))
+        ex.http_client = stub
+
+        passed, _ = ex._execute_node(100, "n1", {"id": "n1"})
+
+        assert passed is True
+        ev = sink.steps[0]
+        assert ev.status == "success"
+        wire = stub.last_json_body
+        assert set(wire) == {"data", "sign"}
+        assert json.loads(base64.b64decode(wire["data"])) == ["91330100MA2B23"]
+        assert verify_pkcs1_sign(wire["data"].encode(), wire["sign"], pub) is True
+        # 明文语义：request_body 仍是业务体；快照 = 实际发出的完整信封
+        assert ev.request_body == {"credit_codes": ["91330100MA2B23"]}
+        assert ev.cipher_snapshot == {"request": json.dumps(
+            wire, ensure_ascii=False, separators=(",", ":"))}
+
     def test_plain_node_keeps_cipher_snapshot_none(self):
         """未开加密的节点：cipher_snapshot 保持 None（不写空 dict 噪音）"""
         config = SimpleNamespace(api_id=10, post_extract=None, assertions=None, wait_after_ms=0)
@@ -418,3 +603,19 @@ class TestDbSinkCipherSnapshot:
         ))
         assert isinstance(db.added[0], models.StepRecord)
         assert db.added[0].cipher_snapshot == {"request": "QkFTRTY0", "response": "QkFTRTY0"}
+
+    def test_record_step_writes_sign_envelope_snapshot(self):
+        """sign 模式快照：request 键存含 data/sign 的信封 JSON 串（纯字符串透传）"""
+        from app import models
+
+        db = FakeDb()
+        envelope = '{"data":"WyI5MTMzADAxMDBNQTJCMjMiXQ==","sign":"c2lnbi0xMjg="}'
+        DbSink(db).record_step(StepResult(
+            execution_id=1, node_id="n2", api_name="企业信息查询", api_path="/q",
+            api_method="POST", request_headers={}, request_body={"credit_codes": ["91"]},
+            response_status=200, response_body={"code": 200}, response_time_ms=5,
+            started_at=datetime.now(), ended_at=datetime.now(), status="success",
+            cipher_snapshot={"request": envelope},
+        ))
+        assert isinstance(db.added[0], models.StepRecord)
+        assert db.added[0].cipher_snapshot == {"request": envelope}

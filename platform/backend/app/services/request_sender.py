@@ -5,16 +5,19 @@ routers/apis.debug_api 内联），本模块归一为单一事实来源：
 - GET/POST 分发；含 file 字段时走 multipart（Content-Type 剥离/恢复、form_data 组装）
 - 异常四分类：HttpStatusError(status) / BusinessError(200+业务码)
   / Auth|Timeout|JsonParse(0) / 其他(0)
-- 加密传输（requestCipher 协议）：接口 crypto_config 开启时，明文参数在此统一
-  加密为 {wrapper_field: 密文} 信封发送（三条链路执行/调试/重放天然全覆盖）；
-  响应解密经 client.response_decoder 在业务码校验之前介入。实际密文经可选参
-  cipher_out（收集盒）带回调用方落 step_records.cipher_snapshot；传入的 body
-  dict 不被原地修改——request_body 列保持明文语义，重放按配置重新加密。
+- 加密传输/参数签名（接口 crypto_config.request.mode）：mode="encrypt"（缺省，
+  海关 requestCipher 协议）明文参数统一加密为 {wrapper_field: 密文} 信封发送；
+  mode="sign"（亿海融协议）载荷 JSON→Base64 不加密，外加私钥 RSA-MD5 签名的
+  sign 字段（三条链路执行/调试/重放天然全覆盖）；
+  响应解密经 client.response_decoder 在业务码校验之前介入。实际密文/信封经
+  可选参 cipher_out（收集盒）带回调用方落 step_records.cipher_snapshot；传入的
+  body dict 不被原地修改——request_body 列保持明文语义，重放按配置重新加密。
 - multipart 文件句柄用后关闭
 
 调用方：DagExecutor._send_request（执行主链路）、apis.debug_api（单接口调试）、
 replay_service.replay_step（报告页步骤重放）。
 """
+import base64
 import json
 from typing import Any
 
@@ -31,11 +34,13 @@ from .. import (
     models,
     path_setup,  # noqa: F401  确保 utils 可导入（sys.path 指向本仓根）
 )
+from ..engine.nested_path import get_nested_value
 from ..services.cipher_service import (
     DEFAULT_SEGMENT_SIZE,
     decrypt_from_base64,
     encrypt_json_body,
     resolve_key_pair,
+    sign_to_base64,
 )
 from ..services.file_helpers import resolve_physical_path
 
@@ -148,6 +153,50 @@ def _build_response_decoder(resp_cfg: dict, req_cfg: dict,
     return decoder
 
 
+def _build_signed_envelope(api, req_cfg: dict, pair: dict, body: Any,
+                           cipher_out: dict | None) -> dict:
+    """亿海融参数签名模式：载荷 → data=Base64(JSON)（不加密）+ sign=私钥
+    RSA-MD5 签名（PHP openssl_sign 语义，对 data 原始字符串签名）。
+
+    - 载荷取值：source_field 空 → 整个 body；非空 → 按点号路径取字段
+      （字段 UI 无法表达根节点字符串数组，亿海融的信用代码列表存于
+      array 类型字段，如 credit_codes）；取不到值报中文错
+    - 不强制载荷类型（数组/对象/标量均可——误配由对端 503 拒绝暴露）
+    - 不改传入 body（明文落库语义与 encrypt 模式一致）；cipher_out["request"]
+      存整个 {data,sign} 信封的紧凑 JSON 串——sign 是排障第一物证，
+      而 wire body 本身从不落库
+    """
+    key_name = str(req_cfg.get("key") or "").strip()
+    private_material = pair.get("private_key")
+    if not private_material:
+        raise CipherError(
+            f"密钥对「{key_name}」缺少私钥：参数签名需要私钥（响应对端还会用你的"
+            "公钥加密回包，解密也需要它），请到「环境编辑 → 加密配置」补录")
+    source_field = str(req_cfg.get("source_field") or "").strip()
+    if source_field:
+        payload = get_nested_value(body, source_field)
+        if payload is None:
+            raise CipherError(
+                f"接口【{api.name}】参数签名配置的取值字段「{source_field}」在请求体中"
+                "取不到值，请检查字段 key 拼写与示例值（亿海融的统一社会信用代码列表"
+                "一般放在 array 类型字段里，示例值须为 JSON 数组且非空）")
+    else:
+        payload = body
+    data_b64 = base64.b64encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    sign_b64 = sign_to_base64(
+        data_b64.encode("utf-8"), private_material,
+        str(req_cfg.get("sign_algorithm") or "md5"))
+    data_field = str(req_cfg.get("data_field") or "data").strip() or "data"
+    sign_field = str(req_cfg.get("sign_field") or "sign").strip() or "sign"
+    envelope = {data_field: data_b64, sign_field: sign_b64}
+    if cipher_out is not None:
+        cipher_out["request"] = json.dumps(
+            envelope, ensure_ascii=False, separators=(",", ":"))
+    return envelope
+
+
 def send_request(db, client, api, body: Any,
                  file_fields: list[tuple[str, str]] | None = None,
                  timeout: int = 15,
@@ -160,10 +209,11 @@ def send_request(db, client, api, body: Any,
     :param headers: 本次请求的 headers（prepare_request 组装产物：环境公共头 +
                     接口 headers_template 覆盖 + ${} 求值）。None 用 client.headers。
                     发送期间临时替换 client.headers，结束恢复（不污染登录态等会话头）
-    :param cipher_out: 加密传输密文收集盒（可选）。约定键：
-                        "request"=实际发出的整体 Base64 密文；"response"=解密前的
-                        原始密文。DAG 重试循环中每次 attempt 覆盖（PKCS1v1.5 填充
-                        随机，每发一次密文必不同），最终留最后一次尝试——与
+    :param cipher_out: 加密传输密文收集盒（可选）。约定键："request"=实际发出的
+                        报文物证（encrypt 模式=整体 Base64 密文；sign 模式=含
+                        data/sign 的信封 JSON 串）；"response"=解密前的原始密文。
+                        DAG 重试循环中每次 attempt 覆盖（PKCS1v1.5 加密填充随机，
+                        每发一次密文必不同），最终留最后一次尝试——与
                         retry_history「主行=最终尝试」语义一致。
     """
     # —— 加密配置解析（getattr 防御 SimpleNamespace 测试桩）——
@@ -186,33 +236,44 @@ def send_request(db, client, api, body: Any,
         # 统一分流为 (0, error) 元组——三条链路（DAG 重试循环/调试/重放）均按
         # 返回值驱动，不接异常 ——
         if req_on:
+            req_mode = str(req_cfg.get("mode") or "encrypt").strip().lower()
             if api.method.upper() == "GET":
                 raise CipherError(
-                    f"接口【{api.name}】开启了请求加密，但 GET 请求的参数在 URL 上"
-                    "无法承载密文，请关闭加密配置或改用 POST")
+                    f"接口【{api.name}】开启了请求加密/参数签名，但 GET 请求的参数"
+                    "在 URL 上无法承载，请关闭加密配置或改用 POST")
             if file_fields or _is_form_urlencoded(headers if headers is not None
                                                   else getattr(client, "headers", None)):
                 raise CipherError(
-                    f"接口【{api.name}】开启了请求加密，加密传输仅支持 JSON 请求体，"
+                    f"接口【{api.name}】开启了请求加密/参数签名，仅支持 JSON 请求体，"
                     "请移除 file 字段 / 去掉 form-urlencoded 的 Content-Type 声明，"
                     "或关闭加密配置")
             key_name = str(req_cfg.get("key") or "").strip()
             if not key_name:
                 raise CipherError(
-                    f"接口【{api.name}】开启了请求加密但未指定密钥对名称，"
+                    f"接口【{api.name}】开启了请求加密/签名但未指定密钥对名称，"
                     "请到「接口编辑 → 加密配置」填写（须与环境「加密配置」里的名称一致）")
             pair = resolve_key_pair(cipher_keys, key_name)
-            public_material = pair.get("public_key")
-            if not public_material:
+            if req_mode == "sign":
+                # 亿海融参数签名：data=Base64(JSON) 不加密 + sign=私钥签名
+                wire_body = _build_signed_envelope(api, req_cfg, pair, body, cipher_out)
+            elif req_mode == "encrypt":
+                # 海关 requestCipher 信封（缺省模式，行为与历史版本完全一致）
+                public_material = pair.get("public_key")
+                if not public_material:
+                    raise CipherError(
+                        f"密钥对「{key_name}」缺少公钥，请到「环境编辑 → 加密配置」补录")
+                segment_size = int(req_cfg.get("segment_size") or DEFAULT_SEGMENT_SIZE)
+                wrapper_field = str(req_cfg.get("wrapper_field") or "requestCipher")
+                cipher_b64 = encrypt_json_body(body, public_material, segment_size)
+                if cipher_out is not None:
+                    cipher_out["request"] = cipher_b64
+                # 新建信封 dict，绝不改传入 body——调用方的 request_body 变量保持明文落库
+                wire_body = {wrapper_field: cipher_b64}
+            else:
                 raise CipherError(
-                    f"密钥对「{key_name}」缺少公钥，请到「环境编辑 → 加密配置」补录")
-            segment_size = int(req_cfg.get("segment_size") or DEFAULT_SEGMENT_SIZE)
-            wrapper_field = str(req_cfg.get("wrapper_field") or "requestCipher")
-            cipher_b64 = encrypt_json_body(body, public_material, segment_size)
-            if cipher_out is not None:
-                cipher_out["request"] = cipher_b64
-            # 新建信封 dict，绝不改传入 body——调用方的 request_body 变量保持明文落库
-            wire_body = {wrapper_field: cipher_b64}
+                    f"接口【{api.name}】加密配置的请求模式无效：{req_mode!r}"
+                    "（支持：encrypt 加密信封 / sign 参数签名），请到"
+                    "「接口编辑 → 加密配置」修正")
         if resp_on:
             client.response_decoder = _build_response_decoder(
                 resp_cfg, req_cfg, cipher_keys, cipher_out)
